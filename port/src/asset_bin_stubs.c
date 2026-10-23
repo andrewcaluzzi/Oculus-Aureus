@@ -23,12 +23,12 @@
 
 u8 bg_imp_all_p_seg[0x10000];
 u8 bg_wax_all_p_seg[0x10000];
-u8 bg_sho_all_p_seg[0x10000];
+/* bg_sho_all_p_seg is Flatland's bg now (port/flatland, CMakeLists.txt) */
 u8 bg_rit_all_p_seg[0x10000];
 u8 bg_pam_all_p_seg[0x10000];
 u8 bg_lip_all_p_seg[0x10000];
 u8 bg_lee_all_p_seg[0x10000];
-u8 bg_ear_all_p_seg[0x10000];
+/* bg_ear_all_p_seg is the Colosseum's bg now (port/colosseum, CMakeLists.txt) */
 
 u8 LstatJ[0x1000];
 u8 LsevbJ[0x1000];

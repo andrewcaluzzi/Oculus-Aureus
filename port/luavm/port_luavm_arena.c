@@ -1,0 +1,434 @@
+/* port_luavm_arena.c - Lua bindings added for the arena mode (modding/arena.md, drop A2).
+ * Kept apart from port_luavm.c; portLuaArenaRegister adds the functions to the existing `spawn` and
+ * `bond` tables (called once from portLuaState).
+ *
+ *   spawn.chr(pad, {skin=, weapon=, health=, accuracy=, speed=, behaviour=, knives=, face={x,z}}) -> chrnum | nil
+ *   spawn.remove(chr) -> bool        spawn.alive(chr) -> bool        spawn.free() -> free chr slots
+ *   spawn.skins() -> array of skin names        spawn.weapons() -> array of weapon names
+ *   bond.give(player, item [, ammo]) -> bool    bond.heal(player, health, armour)    bond.vitals(player) -> health, armour
+ *
+ *   spawn.chr also takes body=/head= (name or id), armour= (stock chr armour, x the base 4 damage), anim_speed= (per-chr model play speed), sunglasses=
+ *   spawn.bodies() -> body names, head names
+ *   drop A5: spawn.chr also takes knife_range=, knife_cooldown= (seconds), sight= (visionrange, units), engage= (effective range, units).
+ *   spawn.pools() -> loose, held, free weapon slots, free props;  spawn.trim_drops(max [, keep_radius]);  bond.give_ammo(player, frac)
+ *   test helpers: spawn.kill(chr), bond.warp(player, pad [, dx, dz]), bond.take_drop(player [, radius])
+ *   drop A6: spawn.item(pad, item [, {ammo=, amount=}]) -> handle | nil;  spawn.item_alive(h);  spawn.item_remove(h);  spawn.item_pos(h) -> x, z
+ *   test helpers: bond.walk(player, x, z) -> distance (real stick input toward x, z, every tick), bond.walk_stop()
+ * behaviour: "chase" (default), "rush", "hold", "snipe", "standard". health is a multiplier (1 = stock). */
+#include <string.h>
+#include "lua.h"
+#include "lauxlib.h"
+#include "../include/port_lua.h"
+
+static void needStage(lua_State *L, const char *api)
+{
+    if (!portLuaGameStageLive())
+    {
+        luaL_error(L, "%s needs a live stage (not available in the menus)", api);
+    }
+}
+
+static const char *const sBehaviours[] = { "chase", "rush", "hold", "snipe", "standard", "spectator", NULL };
+
+static const char *const sWeaponNames[] = {
+    "ak47", "shotgun", "pp7", "pp7sil", "d5k", "d5ksil", "ar33", "zmg", "dd44", "klobb", "phantom", "rcp90",
+    "cougar", "autoshot", "goldengun", "sniper", "rocket", "grenadelauncher", "knife", "laser", "none", NULL };
+
+static int arenaSpawnChr(lua_State *L)
+{
+    PortLuaChrSpec s;
+    int pad = (int) luaL_checkinteger(L, 1), c;
+
+    needStage(L, "spawn.chr");
+    memset(&s, 0, sizeof(s));
+    s.health = 1.0f;
+    s.accuracy = -1;
+    s.speed = -1;
+    s.body = -1;
+    s.head = -2;
+    if (lua_istable(L, 2))
+    {
+        lua_getfield(L, 2, "skin");
+        if (!lua_isnil(L, -1)) s.skin = luaL_checkstring(L, -1);
+        lua_pop(L, 1);
+        lua_getfield(L, 2, "weapon");
+        if (!lua_isnil(L, -1)) s.weapon = luaL_checkstring(L, -1);
+        lua_pop(L, 1);
+        /* body= / head= : a name (see spawn.bodies()) or a raw id; head "random" / "none" / nil = random (bodies with a built-in head ignore it) */
+        lua_getfield(L, 2, "body");
+        if (lua_type(L, -1) == LUA_TSTRING) s.bodyname = lua_tostring(L, -1);
+        else if (!lua_isnil(L, -1)) s.body = (int) luaL_checkinteger(L, -1);
+        lua_pop(L, 1);
+        lua_getfield(L, 2, "head");
+        if (lua_type(L, -1) == LUA_TSTRING) s.headname = lua_tostring(L, -1);
+        else if (!lua_isnil(L, -1)) s.head = (int) luaL_checkinteger(L, -1);
+        lua_pop(L, 1);
+        lua_getfield(L, 2, "armour");
+        if (!lua_isnil(L, -1)) s.armour = (float) luaL_checknumber(L, -1);
+        lua_pop(L, 1);
+        lua_getfield(L, 2, "anim_speed");
+        if (!lua_isnil(L, -1)) s.animspeed = (float) luaL_checknumber(L, -1);
+        lua_pop(L, 1);
+        lua_getfield(L, 2, "sunglasses");
+        s.sunglasses = lua_toboolean(L, -1);
+        lua_pop(L, 1);
+        lua_getfield(L, 2, "knife_range");
+        if (!lua_isnil(L, -1)) s.knifeRange = (float) luaL_checknumber(L, -1);
+        lua_pop(L, 1);
+        lua_getfield(L, 2, "knife_cooldown");
+        if (!lua_isnil(L, -1)) s.knifeCooldown = (float) luaL_checknumber(L, -1);
+        lua_pop(L, 1);
+        lua_getfield(L, 2, "sight");
+        if (!lua_isnil(L, -1)) s.sight = (float) luaL_checknumber(L, -1);
+        lua_pop(L, 1);
+        lua_getfield(L, 2, "engage");
+        if (!lua_isnil(L, -1)) s.engage = (float) luaL_checknumber(L, -1);
+        lua_pop(L, 1);
+        lua_getfield(L, 2, "health");
+        if (!lua_isnil(L, -1)) s.health = (float) luaL_checknumber(L, -1);
+        lua_pop(L, 1);
+        lua_getfield(L, 2, "accuracy");
+        if (!lua_isnil(L, -1)) s.accuracy = (int) luaL_checknumber(L, -1);
+        lua_pop(L, 1);
+        lua_getfield(L, 2, "speed");
+        if (!lua_isnil(L, -1)) s.speed = (int) luaL_checknumber(L, -1);
+        lua_pop(L, 1);
+        lua_getfield(L, 2, "behaviour");
+        if (!lua_isnil(L, -1)) s.behaviour = luaL_checkoption(L, -1, "chase", sBehaviours);
+        lua_pop(L, 1);
+        lua_getfield(L, 2, "knives");
+        s.knives = lua_toboolean(L, -1);
+        lua_pop(L, 1);
+        lua_getfield(L, 2, "face");
+        if (lua_istable(L, -1))
+        {
+            lua_rawgeti(L, -1, 1);
+            s.fx = (float) luaL_checknumber(L, -1);
+            lua_pop(L, 1);
+            lua_rawgeti(L, -1, 2);
+            s.fz = (float) luaL_checknumber(L, -1);
+            lua_pop(L, 1);
+            s.hasface = 1;
+        }
+        lua_pop(L, 1);
+    }
+    c = portLuaGameSpawnChr(pad, &s);
+    if (c == -2) return luaL_error(L, "unknown skin '%s' (see spawn.skins())", s.skin);
+    if (c == -3) return luaL_error(L, "unknown weapon '%s' (see spawn.weapons())", s.weapon);
+    if (c == -4) return luaL_error(L, "unknown body '%s' (see spawn.bodies())", s.bodyname ? s.bodyname : "?");
+    if (c == -5) return luaL_error(L, "unknown head '%s' (see spawn.bodies())", s.headname ? s.headname : "?");
+    if (c < 0) lua_pushnil(L); else lua_pushinteger(L, c);
+    return 1;
+}
+
+static int arenaSpawnRemove(lua_State *L)
+{
+    needStage(L, "spawn.remove");
+    lua_pushboolean(L, portLuaGameChrRemove((int) luaL_checkinteger(L, 1)));
+    return 1;
+}
+
+/* spawn.kill(chr) -> bool: test helper, lethal damage (a normal death: drops, events) */
+static int arenaSpawnKill(lua_State *L)
+{
+    needStage(L, "spawn.kill");
+    lua_pushboolean(L, portLuaGameChrKill((int) luaL_checkinteger(L, 1)));
+    return 1;
+}
+
+/* spawn.pools() -> loose, held, free weapon slots, free props: the 30-slot weapon pool and the 600-prop pool */
+static int arenaSpawnPools(lua_State *L)
+{
+    int loose, held, fw, fp;
+
+    needStage(L, "spawn.pools");
+    portLuaGamePools(&loose, &held, &fw, &fp);
+    lua_pushinteger(L, loose);
+    lua_pushinteger(L, held);
+    lua_pushinteger(L, fw);
+    lua_pushinteger(L, fp);
+    return 4;
+}
+
+/* spawn.trim_drops(max [, keep_radius]) -> number freed: drop cap, oldest loose weapons first, none within keep_radius (400) of a Bond */
+static int arenaSpawnTrimDrops(lua_State *L)
+{
+    needStage(L, "spawn.trim_drops");
+    lua_pushinteger(L, portLuaGameTrimDrops((int) luaL_checkinteger(L, 1), (float) luaL_optnumber(L, 2, 400.0)));
+    return 1;
+}
+
+/* bond.give_ammo(player, frac): ammo for the guns he carries (+frac of each type's max), no gun */
+static int arenaBondGiveAmmo(lua_State *L)
+{
+    needStage(L, "bond.give_ammo");
+    lua_pushinteger(L, portLuaGameGiveAmmo((int) luaL_checkinteger(L, 1), (float) luaL_checknumber(L, 2)));
+    return 1;
+}
+
+/* bond.take_drop(player [, radius]) -> item id (0 = none near), ammo of its type before, after: test helper, the real pickup */
+static int arenaBondTakeDrop(lua_State *L)
+{
+    int before = 0, after = 0, item;
+
+    needStage(L, "bond.take_drop");
+    item = portLuaGameTakeDrop((int) luaL_checkinteger(L, 1), (float) luaL_optnumber(L, 2, 400.0), &before, &after);
+    lua_pushinteger(L, item);
+    lua_pushinteger(L, before);
+    lua_pushinteger(L, after);
+    return 3;
+}
+
+/* bond.warp(player, pad [, dx, dz]): test helper, Bond to a pad (plus an offset from its centre) */
+static int arenaBondWarp(lua_State *L)
+{
+    needStage(L, "bond.warp");
+    lua_pushboolean(L, portLuaGameBondWarp((int) luaL_checkinteger(L, 1), (int) luaL_checkinteger(L, 2), (float) luaL_optnumber(L, 3, 0.0), (float) luaL_optnumber(L, 4, 0.0)));
+    return 1;
+}
+
+/* spawn.item(pad, item [, {ammo=, amount=}]) -> handle | nil. A real pickup on the floor at the pad, collected by walking over it.
+ * item: a weapon name of spawn.weapons() (the pickup carries its ammo; ammo= sets the rounds, default the stock amount) or "armour"
+ * (the stock MP body armour; amount= 0..1, default 1). Raises on an unknown item or pad; nil when there was no room. */
+static int arenaSpawnItem(lua_State *L)
+{
+    int pad = (int) luaL_checkinteger(L, 1), ammo = -1, r;
+    const char *what = luaL_checkstring(L, 2);
+    float amount = 1.0f;
+    const char *cnames[16];
+    int crounds[16], ncrate = 0;
+
+    needStage(L, "spawn.item");
+    if (lua_istable(L, 3))
+    {
+        lua_getfield(L, 3, "ammo");
+        if (lua_istable(L, -1))
+        {   /* an ammo box: {weaponname = rounds, ...} */
+            lua_pushnil(L);
+            while (lua_next(L, -2) && ncrate < 16)
+            {
+                if (lua_type(L, -2) == LUA_TSTRING)
+                {
+                    cnames[ncrate] = lua_tostring(L, -2);   /* the key stays referenced by the table */
+                    crounds[ncrate++] = (int) luaL_checkinteger(L, -1);
+                }
+                lua_pop(L, 1);
+            }
+        }
+        else if (!lua_isnil(L, -1)) ammo = (int) luaL_checkinteger(L, -1);
+        lua_pop(L, 1);
+        lua_getfield(L, 3, "amount");
+        if (!lua_isnil(L, -1)) amount = (float) luaL_checknumber(L, -1);
+        lua_pop(L, 1);
+    }
+    r = portLuaGameItemSpawn(pad, what, ammo, amount, ncrate, cnames, crounds);
+    if (r == -1) return luaL_error(L, "unknown item '%s' (a spawn.weapons() name, or \"armour\")", what);
+    if (r == -2) return luaL_error(L, "pad %d has no floor", pad);
+    if (r <= 0) lua_pushnil(L); else lua_pushinteger(L, r);
+    return 1;
+}
+
+/* spawn.item_alive(h) -> bool: still lying on the floor (not collected, removed or recycled) */
+static int arenaSpawnItemAlive(lua_State *L)
+{
+    needStage(L, "spawn.item_alive");
+    lua_pushboolean(L, portLuaGameItemAlive((int) luaL_checkinteger(L, 1)));
+    return 1;
+}
+
+/* spawn.item_remove(h) -> bool: take it off the floor */
+static int arenaSpawnItemRemove(lua_State *L)
+{
+    needStage(L, "spawn.item_remove");
+    lua_pushboolean(L, portLuaGameItemRemove((int) luaL_checkinteger(L, 1)));
+    return 1;
+}
+
+/* spawn.item_pos(h) -> x, z (nil when gone) */
+static int arenaSpawnItemPos(lua_State *L)
+{
+    float x, z;
+
+    needStage(L, "spawn.item_pos");
+    if (!portLuaGameItemPos((int) luaL_checkinteger(L, 1), &x, &z)) return 0;
+    lua_pushnumber(L, x);
+    lua_pushnumber(L, z);
+    return 2;
+}
+
+/* bond.walk(player, x, z) -> distance (test helper): steer Bond toward x, z with the real stick for this tick (call it every tick);
+ * bond.walk_stop() releases the stick. Player 0 only. */
+static int arenaBondWalk(lua_State *L)
+{
+    needStage(L, "bond.walk");
+    lua_pushnumber(L, portLuaGameBondWalk((int) luaL_checkinteger(L, 1), (float) luaL_checknumber(L, 2), (float) luaL_checknumber(L, 3)));
+    return 1;
+}
+
+/* bond.ammo(player, weapon) -> carries it (bool), reserve ammo of its type (nil: no such Bond / weapon) */
+static int arenaBondAmmo(lua_State *L)
+{
+    int has, ammo;
+
+    needStage(L, "bond.ammo");
+    if (!portLuaGameBondAmmo((int) luaL_checkinteger(L, 1), luaL_checkstring(L, 2), &has, &ammo)) return 0;
+    lua_pushboolean(L, has);
+    lua_pushinteger(L, ammo);
+    return 2;
+}
+
+static int arenaBondWalkStop(lua_State *L)
+{
+    (void) L;
+    portLuaGameBondWalkStop();
+    return 0;
+}
+
+static int arenaSpawnAlive(lua_State *L)
+{
+    needStage(L, "spawn.alive");
+    lua_pushboolean(L, portLuaGameChrAlive((int) luaL_checkinteger(L, 1)));
+    return 1;
+}
+
+/* spawn.where(chr) -> x, z, actiontype (nil when gone); a test/diagnostic helper */
+extern int portLuaGameChrWhere(int chr, float *x, float *z, int *act);
+static int arenaSpawnWhere(lua_State *L)
+{
+    float x, z;
+    int act;
+
+    needStage(L, "spawn.where");
+    if (!portLuaGameChrWhere((int) luaL_checkinteger(L, 1), &x, &z, &act)) return 0;
+    lua_pushnumber(L, x);
+    lua_pushnumber(L, z);
+    lua_pushinteger(L, act);
+    return 3;
+}
+
+static int arenaSpawnFree(lua_State *L)
+{
+    needStage(L, "spawn.free");
+    lua_pushinteger(L, portLuaGameChrFree());
+    return 1;
+}
+
+/* spawn.anim(chr, name [, force]) -> true when started. A fidget (no force) only starts on an idle chr; force plays at once. Unknown names raise.
+ * Names: yawn flies scratch_leg scratch_butt adjust sneeze chat listen cough laugh startled surrender dance look. */
+static int arenaSpawnAnim(lua_State *L)
+{
+    const char *name = luaL_checkstring(L, 2);
+    int r;
+
+    needStage(L, "spawn.anim");
+    r = portLuaGameChrAnim((int) luaL_checkinteger(L, 1), name, lua_toboolean(L, 3));
+    if (r < 0) return luaL_error(L, "unknown animation '%s'", name);
+    lua_pushboolean(L, r);
+    return 1;
+}
+
+static int arenaSpawnSkins(lua_State *L)
+{
+    int i, n = portLuaGameSkinCount();
+
+    lua_createtable(L, n, 0);
+    for (i = 0; i < n; i++)
+    {
+        lua_pushstring(L, portLuaGameSkinName(i));
+        lua_rawseti(L, -2, i + 1);
+    }
+    return 1;
+}
+
+static int arenaSpawnWeapons(lua_State *L)
+{
+    int i;
+
+    lua_newtable(L);
+    for (i = 0; sWeaponNames[i] != NULL; i++)
+    {
+        lua_pushstring(L, sWeaponNames[i]);
+        lua_rawseti(L, -2, i + 1);
+    }
+    return 1;
+}
+
+/* spawn.bodies() -> { body names }, { head names } (the names spawn.chr's body= / head= take) */
+static int arenaSpawnBodies(lua_State *L)
+{
+    int h, i;
+
+    for (h = 0; h < 2; h++)
+    {
+        const char *nm;
+
+        lua_newtable(L);
+        for (i = 0; (nm = portLuaGameBodyName(h, i)) != NULL; i++)
+        {
+            lua_pushstring(L, nm);
+            lua_rawseti(L, -2, i + 1);
+        }
+    }
+    return 2;
+}
+
+/* bond.give(player, item [, ammo]): the item name as weapon.set takes it (any case, aliases ok) */
+static int arenaBondGive(lua_State *L)
+{
+    char key[48];
+    const char *name = luaL_checkstring(L, 2);
+    size_t n = 0;
+
+    needStage(L, "bond.give");
+    for (; *name != '\0' && n < sizeof(key) - 1; name++)
+    {
+        key[n++] = (*name >= 'a' && *name <= 'z') ? (char) (*name - 32) : *name;
+    }
+    key[n] = '\0';
+    lua_pushboolean(L, portLuaGameGive((int) luaL_checkinteger(L, 1), key, (int) luaL_optinteger(L, 3, -1)));
+    return 1;
+}
+
+static int arenaBondHeal(lua_State *L)
+{
+    needStage(L, "bond.heal");
+    portLuaGameHeal((int) luaL_checkinteger(L, 1), (float) luaL_optnumber(L, 2, 0.0), (float) luaL_optnumber(L, 3, 0.0));
+    return 0;
+}
+
+static int arenaBondVitals(lua_State *L)
+{
+    float h, a;
+
+    needStage(L, "bond.vitals");
+    if (!portLuaGameBondVitals((int) luaL_optinteger(L, 1, 0), &h, &a))
+    {
+        lua_pushnil(L);
+        return 1;
+    }
+    lua_pushnumber(L, h);
+    lua_pushnumber(L, a);
+    return 2;
+}
+
+static void addTo(lua_State *L, const char *lib, const luaL_Reg *reg)
+{
+    lua_getglobal(L, lib);
+    luaL_setfuncs(L, reg, 0);
+    lua_pop(L, 1);
+}
+
+void portLuaArenaRegister(lua_State *L)
+{
+    static const luaL_Reg spawnAdd[] = { { "chr", arenaSpawnChr }, { "remove", arenaSpawnRemove },
+        { "alive", arenaSpawnAlive }, { "free", arenaSpawnFree }, { "where", arenaSpawnWhere }, { "skins", arenaSpawnSkins }, { "anim", arenaSpawnAnim },
+        { "weapons", arenaSpawnWeapons }, { "bodies", arenaSpawnBodies }, { "kill", arenaSpawnKill }, { "pools", arenaSpawnPools },
+        { "trim_drops", arenaSpawnTrimDrops }, { "item", arenaSpawnItem }, { "item_alive", arenaSpawnItemAlive },
+        { "item_remove", arenaSpawnItemRemove }, { "item_pos", arenaSpawnItemPos }, { NULL, NULL } };
+    static const luaL_Reg bondAdd[] = { { "give", arenaBondGive }, { "heal", arenaBondHeal },
+        { "vitals", arenaBondVitals }, { "warp", arenaBondWarp }, { "give_ammo", arenaBondGiveAmmo }, { "take_drop", arenaBondTakeDrop },
+        { "ammo", arenaBondAmmo }, { "walk", arenaBondWalk }, { "walk_stop", arenaBondWalkStop }, { NULL, NULL } };
+
+    addTo(L, "spawn", spawnAdd);
+    addTo(L, "bond", bondAdd);
+}
