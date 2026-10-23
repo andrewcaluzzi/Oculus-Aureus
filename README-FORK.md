@@ -7,7 +7,13 @@ This is an **experimental fork** of [Project Midas](https://github.com/murkantor
 - Spawning, factions, AI lists and thrown knives for any character, a Mods menu page with a game-mode picker, choosable level music, a hostage-rescue example mode, and a flat test level ("Flatland").
 - **Experimental, off by default:** a second Bond (local co-op), lockstep netplay over UDP (ENet), and rollback snapshots. These work in the test setups they were built in but are not polished. See [Co-op and netplay](#co-op-and-netplay-experimental).
 
-Upstream is working on its own Lua support. This fork is a place to publish this work, not a replacement for upstream and not a pull request; expect the two to diverge. The fork branches from upstream commit `4b5ca71`. Upstream's own README and docs still apply for everything not listed here; this file covers what is different.
+### Why a fork and not a pull request?
+
+Upstream asks for contributions rather than forks, and normally that is the right call. The exception here is Lua: official Lua modding support is already coming to Project Midas. I integrated Lua 5.5.1 so I could muck around with scripting, get familiar with the port and try out a wave-survival arena, and I did not want to open a PR that adds a second, competing Lua integration while upstream's is in progress.
+
+So this fork is a place to share builds and let people have a bash at the arena, not a replacement for upstream. When Lua modding is officially supported, the plan is to rewrite the arena (and anything else worth keeping) against the official API and submit it upstream properly. Until then, expect this fork's Lua API to differ from upstream's.
+
+The fork branches from upstream commit `4b5ca71`. Upstream's own README and docs still apply for everything not listed here; this file covers what is different. Feedback and feature ideas for the arena are welcome as issues on this fork.
 
 No game data is included in this repository or in any build of it. See the next section.
 
