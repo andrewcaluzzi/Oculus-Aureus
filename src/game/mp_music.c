@@ -31,6 +31,69 @@ s32 music_slot_seconds_0[4];
 //D:800484C0
 s32 mission_state = MISSION_STATE_0;
 
+#ifndef TARGET_N64
+/* PORT: netplay job 3e: the level's music is held until the lockstep GO. A co-op stage launched in a netplay session loads (and plays
+ * its track) while the two machines are still waiting for each other ("Waiting for players"); the track is chosen at the same moment
+ * as before (getmusictrack_or_randomtrack may draw the sim RNG: the draw count must not change) but only STARTED when both machines
+ * run (portNetMusicRelease, called at GO). Audio only: nothing here is read by the simulation. */
+extern int portNetMusicHold(void);   /* port_net.c: a netplay stage is loaded and the GO has not come */
+u16 sub_GAME_7F0C0BF0(void);
+u16 sub_GAME_7F0C0C10(void);
+static s32 sMusicPending;
+static s32 sMusicTrack;
+static s32 sMusicBgTrack;
+static s32 sMusicWithBg;
+
+static void portMusicLevelPlayNow(s32 track, s32 withbg, s32 bg)
+{
+    extern int printf(const char *, ...);
+
+    printf("ge: music: level track %d starts (stage %d)\n", (int) track, (int) stageMusicID);   /* the netplay test reads this against "ge: net: GO" */
+    musicTrack1ApplySeqpVol(sub_GAME_7F0C0BF0());
+    g_musicXTrack1Fade = 0;
+    musicTrack1Play(track);
+    if (withbg)
+    {
+        musicTrack3ApplySeqpVol(sub_GAME_7F0C0C10());
+        g_musicXTrack3Fade = 0;
+        musicTrack3Play(bg);
+    }
+}
+
+static void MP_LEVEL_MUSIC_FN(s32 withbg)
+{
+    s32 track = getmusictrack_or_randomtrack(stageMusicID);   /* same RNG draw, same moment as the vanilla call */
+    s32 bg = withbg ? musicGetBgTrackForStage(stageMusicID) : -1;
+
+    if (portNetMusicHold())
+    {
+        sMusicPending = 1;
+        sMusicTrack = track;
+        sMusicBgTrack = bg;
+        sMusicWithBg = withbg;
+        return;
+    }
+    sMusicPending = 0;
+    portMusicLevelPlayNow(track, withbg, bg);
+}
+
+/* GO (port_net.c netGo) or any later tick without a hold: start the held track, if the mission is still the one that asked */
+void portNetMusicRelease(void)
+{
+    if (sMusicPending && !portNetMusicHold())
+    {
+        sMusicPending = 0;
+        if (mission_state == MISSION_STATE_1 || mission_state == MISSION_STATE_4)
+        {
+            portMusicLevelPlayNow(sMusicTrack, sMusicWithBg, sMusicBgTrack);
+        }
+    }
+}
+#define MP_LEVEL_MUSIC(withbg) MP_LEVEL_MUSIC_FN(withbg)
+#else
+#define MP_LEVEL_MUSIC(withbg) do {         musicTrack1ApplySeqpVol(sub_GAME_7F0C0BF0());         g_musicXTrack1Fade = 0;         musicTrack1Play(getmusictrack_or_randomtrack(stageMusicID));         if (withbg)         {             musicTrack3ApplySeqpVol(sub_GAME_7F0C0C10());             g_musicXTrack3Fade = 0;             musicTrack3Play(musicGetBgTrackForStage(stageMusicID));         }     } while (0)
+#endif
+
 
 
 u16 sub_GAME_7F0C0BF0(void)
@@ -68,21 +131,14 @@ void set_missionstate(MISSION_STATE_ID arg0)
             case MISSION_STATE_0:
                 return;
             case MISSION_STATE_1:
-                musicTrack1ApplySeqpVol(sub_GAME_7F0C0BF0());
-                g_musicXTrack1Fade = 0;
-                musicTrack1Play(getmusictrack_or_randomtrack(stageMusicID));
+                MP_LEVEL_MUSIC(0);
                 return;
             case MISSION_STATE_2:
                 break;
             case MISSION_STATE_3:
                 break;
             case MISSION_STATE_4: // switch 2
-                musicTrack1ApplySeqpVol(sub_GAME_7F0C0BF0());
-                g_musicXTrack1Fade = 0;
-                musicTrack1Play(getmusictrack_or_randomtrack(stageMusicID));
-                musicTrack3ApplySeqpVol(sub_GAME_7F0C0C10());
-                g_musicXTrack3Fade = 0;
-                musicTrack3Play(musicGetBgTrackForStage(stageMusicID));
+                MP_LEVEL_MUSIC(1);
                 return;
             case MISSION_STATE_5:
                 break;
@@ -97,21 +153,14 @@ void set_missionstate(MISSION_STATE_ID arg0)
                 musicTrack3Stop();
                 return;
             case MISSION_STATE_1: // switch 2
-                musicTrack1ApplySeqpVol(sub_GAME_7F0C0BF0());
-                g_musicXTrack1Fade = 0;
-                musicTrack1Play(getmusictrack_or_randomtrack(stageMusicID));
+                MP_LEVEL_MUSIC(0);
                 return;
             case MISSION_STATE_2:
                 break;
             case MISSION_STATE_3:
                 break;
             case MISSION_STATE_4:
-                musicTrack1ApplySeqpVol(sub_GAME_7F0C0BF0());
-                g_musicXTrack1Fade = 0;
-                musicTrack1Play(getmusictrack_or_randomtrack(stageMusicID));
-                musicTrack3ApplySeqpVol(sub_GAME_7F0C0C10());
-                g_musicXTrack3Fade = 0;
-                musicTrack3Play(musicGetBgTrackForStage(stageMusicID));
+                MP_LEVEL_MUSIC(1);
                 return;
                 break;
             case MISSION_STATE_5:
@@ -321,6 +370,7 @@ void sub_GAME_7F0C11FC(s32 stagenum)
     /* Mission load: nothing from the previous mission may still be
      * sounding (see portMusicKillAll in music.c). */
     portMusicKillAll();
+    sMusicPending = 0;   /* a held track of the previous launch never starts */
 #endif
     musicTrack1Stop();
     musicTrack2Stop();

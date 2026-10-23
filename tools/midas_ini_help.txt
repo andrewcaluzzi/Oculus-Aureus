@@ -197,6 +197,32 @@ padN_stickmode.
                       |            | Special Forces model. Cosmetic
   unlock_all          | 0          | 1 = every mission, difficulty and cheat
                       |            | selectable. Saves still record
+  Co-op bot (single player, first person only; console: bot, bot off, bot info, bot skin <name|random|list>)
+  coop_bot            | 0          | 1 = a Natalya-style bot follows you and
+                      |            | throws knives at guards. Never in demos
+  coop_bot_skin       | natalya    | Her look: a multiplayer character name
+                      |            | (bot skin list shows them) or random (a new
+                      |            | pick at each respawn). Beats coop_bot_body
+  coop_bot_body       | 16         | BODY_ id of her look (default Natalya_Skirt).
+                      |            | Kept for compatibility; coop_bot_skin wins
+  coop_bot_follow_dist | 250       | Personal space: she stops this far from you
+                      |            | (50..2000) and makes no move inside it
+  coop_bot_loiter     | 1          | 1 = when you stand still and nothing is
+                      |            | fighting she strolls round you and looks out
+  coop_bot_health     | 4.0        | Toughness: multiplier on a guard's health
+  coop_bot_respawn_secs | 5        | Seconds before she respawns after dying
+  coop_bot_knife_cooldown | 1.2    | Seconds between her throws
+  coop_bot_knife_range | 1000      | How far she throws, in game units
+  coop_bot_friendly_fire | 0.5     | 0..1 scale on her knives' damage to you
+  coop_bot_guard_hit  | 0.35       | 0..1 chance a guard's shot at her lands
+  coop_bot_teleport   | 0          | 1 = she warps to you when left far behind
+                      |            | (off: she sprints to catch up)
+                      |            | A bad value is logged and ignored
+  Modifiers (single player; console: mod list, mod <name> [on|off|n]; env GE_MODS)
+  mods                | (empty)    | name=value,... for every modifier that is
+                      |            | not at its default, e.g.
+                      |            | mods=enemy_knives=1,enemy_damage=150
+                      |            | Written by the game. Bad names are logged
   Multiplayer (read only with 2 or more players)
   mp_aim_lock         | 0          | Same as aim_lock
   mp_sight_on_screen  | 1          | Same as sight_on_screen

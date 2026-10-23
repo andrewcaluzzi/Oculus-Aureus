@@ -1184,6 +1184,13 @@ ALSoundState *sndPlaySfx(struct ALBankAlt_s *soundBank, s16 soundIndex, ALSoundS
 
     if(0); // debug?
 
+#ifndef TARGET_N64
+    /* PORT rollback R1/R3: EVERY one-shot sound the sim triggers (guns, hits, yelps, doors, pickups, explosions) funnels through
+     * here, called straight from sim code, so a sim-only tick (re-simulation) still starts it. R3 gives each sound an id (tick +
+     * source + sound) and skips it here when its tick already played; R1 only counts them (GE_SIMONLY_STATS). Not sim-driven
+     * sound state: the looped ambient slots (propsTick -> loop_set_sound_effect_all_slots) and music. */
+    { extern void portSimOnlySfx(s32 soundIndex); portSimOnlySfx(soundIndex); }
+#endif
     if (g_sndBootswitchSound)
     {
         return NULL;

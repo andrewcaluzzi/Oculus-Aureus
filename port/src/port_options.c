@@ -253,7 +253,8 @@ static const struct PortOpt sOpts[] = {
     TOGGLE("unlimited_explosions", "[display]", "Unlimited Explosions\n", PORTOPT_CAT_GAMEPLAY), /* Port Options; 100 live, not 6 */
     TOGGLE("mouse_auto_aim",     "[display]", "Mouse Auto Aim\n",     PORTOPT_CAT_GAMEPLAY), /* Port Options; off = a mouse player never gets
                                                                                               * Auto-Aim, whatever else says (video.c) */
-    TOGGLE("watch_static",       "[display]", "Watch Static\n",       PORTOPT_CAT_GAMEPLAY), /* Port Options; the watch screen's static
+    TOGGLE("coop_bot",           "[display]", "Co-op Bot\n",          PORTOPT_CAT_GAMEPLAY), /* Port Options; port_bot.c owns the value */
+    TOGGLE("watch_static",      "[display]", "Watch Static\n",       PORTOPT_CAT_GAMEPLAY), /* Port Options; the watch screen's static
                                                                                               * effect */
     /* multiplayer-only cheats, unlocked from the start and never applied in solo (lv.c);
      * renamed from Bond Invisible / Tiny Bond to Invisibility / Tiny Players */

@@ -35,6 +35,7 @@ struct music_setup music_setup_entries[] = {
     { LEVELID_CRADLE,    M_CRADLE,       0xFFFF,   M_CRADLEX },
     { LEVELID_SHO,       M_SURFACE2,     0xFFFF,   0xFFFF },
     { LEVELID_SURFACE2,  M_SURFACE2,     M_WIND,   M_SURFACE2END },
+    { LEVELID_EAR,       M_CITADEL,      0xFFFF,   0xFFFF }, /* PORT: the Colosseum arena (port/colosseum) */
     { LEVELID_CUBA,      M_CUBA,         0xFFFF,   0xFFFF },
     { 0 }
 };
@@ -94,7 +95,19 @@ s16 random_tracks[] = {
 s32 getmusictrack_or_randomtrack(s32 arg0)
 {
     s32 index;
-    
+
+#ifndef TARGET_N64
+    /* PORT: music override (Lua music.set, level_music modifier): port_music.c; returns 0 at once when nothing is set */
+    {
+        extern s32 portMusicOverride(s32 kind, s32 stage, s32 *track);
+        s32 ovr;
+
+        if (portMusicOverride(0, arg0, &ovr))
+        {
+            return ovr;
+        }
+    }
+#endif
     for (index = 0; music_setup_entries[index].stage_id != 0; index++)
     {
         if (music_setup_entries[index].stage_id == arg0)
@@ -143,9 +156,21 @@ s32 getmusictrack_or_randomtrack(s32 arg0)
 s32 musicGetBgTrackForStage(s32 stageID)
 {
     s32 i;
+#ifndef TARGET_N64
+    /* PORT: music override, see getmusictrack_or_randomtrack */
+    {
+        extern s32 portMusicOverride(s32 kind, s32 stage, s32 *track);
+        s32 ovr;
+
+        if (portMusicOverride(1, stageID, &ovr))
+        {
+            return ovr;
+        }
+    }
+#endif
     for (i=0; music_setup_entries[i].stage_id!=0; i++)
     {
-        if (stageID == music_setup_entries[i].stage_id) 
+        if (stageID == music_setup_entries[i].stage_id)
         {
             return music_setup_entries[i].bg_sound;
         }
@@ -158,9 +183,21 @@ s32 musicGetBgTrackForStage(s32 stageID)
 s32 musicGetXTrackForStage(s32 stageID)
 {
     s32 i;
+#ifndef TARGET_N64
+    /* PORT: music override, see getmusictrack_or_randomtrack */
+    {
+        extern s32 portMusicOverride(s32 kind, s32 stage, s32 *track);
+        s32 ovr;
+
+        if (portMusicOverride(2, stageID, &ovr))
+        {
+            return ovr;
+        }
+    }
+#endif
     for (i=0; music_setup_entries[i].stage_id!=0; i++)
     {
-        if (stageID == music_setup_entries[i].stage_id) 
+        if (stageID == music_setup_entries[i].stage_id)
         {
             return music_setup_entries[i].xtrack;
         }

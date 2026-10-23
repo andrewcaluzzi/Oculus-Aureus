@@ -23,6 +23,8 @@
 
 #include "port_console.h"
 #include "port_console_env.h"
+#include "port_mode.h"
+#include "port_blocks.h"
 #include "game/textrelated.h"
 #include "game/dyn.h"
 #include "fr.h"
@@ -42,6 +44,7 @@
 #define CON_ROW_PITCH 12           /* units between console rows in its 480-line space */
 #define CON_TEXT_X    10
 #define CON_TOP_Y     4
+#define CON_HUD_Y     90           /* mode HUD lines (port_blocks.h), below the transient message rows */
 
 static char conBuf[CON_ROWS][CON_COLS + 1];
 static char conInput[CON_COLS + 1];
@@ -321,6 +324,14 @@ void portConLogf(const char *fmt, ...)
     va_end(ap);
     tmp[sizeof(tmp) - 1] = '\0';
 
+    {
+        extern int g_PortResim;   /* port_snap.c: a rollback re-simulates this tick; its lines are marked so a test can tell them from the first run's */
+
+        if (g_PortResim)
+        {
+            fputs("[resim] ", stderr);
+        }
+    }
     fputs(tmp, stderr);
     portConPrint(0, tmp);
 }
@@ -404,6 +415,13 @@ static void conCmdHelp(void)
     conPrintLn(0, "console commands:");
     conPrintLn(0, "  list [text]           the cl_ settings matching key or label");
     conPrintLn(0, "  harness [text]        the GE_* diagnostic env knobs");
+    conPrintLn(0, "  bot [off|info|stats]  summon / dismiss / report / scoreboard for the co-op bot");
+    conPrintLn(0, "  mod [list|name [on|off|n]]  gameplay modifiers (GE_MODS, midas.ini mods=)");
+    conPrintLn(0, "  net [info]            netplay: role, delay, ping, KB/s, loss/late, run, last hash tick, desync count");
+    conPrintLn(0, "  net_graph 0|1|2|3     overlay: 1 numbers, 2 + graphs (ping, bytes, input wait, sim/render ms), 3 + sub-hash lights");
+    conPrintLn(0, "  lua <code>            run Lua (weapon.set/get/reset, print); lua_reload re-runs Data/Scripts");
+    conPrintLn(0, "  spawn guard [n] [dist]|clear  arena: hostile guards in a ring around Bond (netplay: both sides, around the issuer)");
+    conPrintLn(0, "  give <item> [p1|p2] [ammo]    give an item by game name (give list); netplay: both sides");
     conPrintLn(0, "  clear                 empty the scrollback");
     conPrintLn(0, "  help                  this");
     conPrintLn(0, "keys: PgUp/PgDn/Home/End scroll, Up/Down recall");
@@ -750,6 +768,38 @@ static void conExecute(char *line)
         }
     }
 
+    {   /* Netplay job 3b: every command below that changes the game changes it on THIS machine only, while the partner simulates
+         * the same Bonds. Reading (get / list / harness / help) and the display-only cl_ settings stay available. */
+        extern int portNetBlocked(const char *what);
+        static const char *const okCl[] = { "showfps", "show_fps", "fps", "maxfps", "vsync", "hitchms", "fadedbg", NULL };
+        const int isCl = (cmd[0] == 'c' || cmd[0] == 'C') && (cmd[1] == 'l' || cmd[1] == 'L') && cmd[2] == '_';
+        const char *clName = isCl ? cmd + 3 : (conStrEqI(cmd, "set") && arg1 != NULL ? arg1 : NULL);
+        const int readOnlyArg = arg1 == NULL || conStrEqI(arg1, "list") || conStrEqI(arg1, "info") || conStrEqI(arg1, "stats");
+        int mutate = conStrEqI(cmd, "lua") || conStrEqI(cmd, "lua_reload")
+                     || ((conStrEqI(cmd, "bot") || conStrEqI(cmd, "coop") || conStrEqI(cmd, "mod")) && !readOnlyArg);
+
+        if (clName != NULL && (isCl ? arg1 != NULL : arg2 != NULL))   /* cl_<key> <value>, set <key> <value>: a write */
+        {
+            int k, ok = 0;
+
+            for (k = 0; okCl[k] != NULL; k++)
+            {
+                ok |= conStrEqI(clName, okCl[k]);
+            }
+            mutate |= !ok;
+        }
+        if (mutate)
+        {
+            char what[64];
+
+            snprintf(what, sizeof(what), "console command '%s'", cmd);
+            if (portNetBlocked(what))
+            {
+                portConPrintf(0, "%s: not available while netplay is on (it would change this machine's game only)\n", cmd);
+                return;
+            }
+        }
+    }
     if (conStrEqI(cmd, "help") || conStrEqI(cmd, "?"))
     {
         conCmdHelp();
@@ -783,6 +833,76 @@ static void conExecute(char *line)
             snprintf(value, sizeof(value), "%s", arg1);
         }
         conCmdClient(cmd + 3, arg1 != NULL ? value : NULL);
+    }
+    else if (conStrEqI(cmd, "bot"))
+    {
+        extern void portBotConsole(const char *arg, const char *arg2);
+
+        portBotConsole(arg1, arg2);
+    }
+    else if (conStrEqI(cmd, "coop"))
+    {
+        extern void portCoopConsole(const char *arg1, const char *arg2);   /* port_coop.c */
+
+        portCoopConsole(arg1, arg2);
+    }
+    else if (conStrEqI(cmd, "net"))
+    {
+        extern void portNetConsole(const char *arg1);   /* port_net.c (job 4) */
+
+        portNetConsole(arg1);
+    }
+    else if (conStrEqI(cmd, "net_graph"))
+    {
+        extern int portNetGraphLevel(void);   /* port_netstats.c (job 6) */
+        extern void portNetGraphSet(int level);
+
+        if (arg1 != NULL && arg1[0] >= '0' && arg1[0] <= '3' && arg1[1] == '\0')
+        {
+            portNetGraphSet(arg1[0] - '0');
+        }
+        else if (arg1 != NULL)
+        {
+            portConPrintf(0, "usage: net_graph 0|1|2|3   (0 off, 1 numbers, 2 + graphs, 3 + sub-hash lights)\n");
+            return;
+        }
+        portConPrintf(0, "net_graph %d\n", portNetGraphLevel());
+    }
+    else if (conStrEqI(cmd, "mod"))
+    {
+        extern void portModifierConsole(const char *arg1, const char *arg2);
+
+        portModifierConsole(arg1, arg2);
+    }
+    else if (conStrEqI(cmd, "music"))
+    {
+        extern void portMusicConsole(const char *arg1);   /* port_music.c */
+
+        portMusicConsole(arg1);
+    }
+    else if (conStrEqI(cmd, "lua"))
+    {
+        extern void portLuaConsole(const char *arg1, const char *arg2);
+
+        portLuaConsole(arg1, arg2);
+    }
+    else if (conStrEqI(cmd, "lua_reload"))
+    {
+        extern void portLuaReload(void);
+
+        portLuaReload();
+    }
+    else if (conStrEqI(cmd, "give"))
+    {
+        extern void portGiveConsole(const char *arg1, const char *rest);   /* port_netcmd.c */
+
+        portGiveConsole(arg1, arg2);
+    }
+    else if (conStrEqI(cmd, "spawn"))
+    {
+        extern void portArenaConsole(const char *sub, const char *rest);
+
+        portArenaConsole(arg1, arg2);
     }
     else if (conStrEqI(cmd, "clear"))
     {
@@ -1133,6 +1253,410 @@ static void conEnvHarness(void)
     }
 }
 
+/* Runs one console line as if typed (test hooks: GE_NET_TEST_CMD). */
+void portConExec(const char *line)
+{
+    char work[256];
+
+    snprintf(work, sizeof(work), "%s", line);
+    portConPrintf(0, "> %s", work);
+    portConPrint(0, "\n");
+    conExecute(work);
+}
+
+/**
+ * Netplay (port_net.c, boss.c): a whole frame that is only a line of text on black, for the moments the sim is held
+ * (handshake, the partner's stage load, a long wait for its input). Self-contained: the caller starts from an empty
+ * master list, so nothing of the game's frame is needed. Returns gdl untouched when the fonts or the console are not up.
+ */
+Gfx *portConNotice(Gfx *gdl, const char *text)
+{
+    s32 x, y;
+
+    if (text == NULL || text[0] == '\0' || !conInited || ptrFontBankGothic == NULL || ptrFontBankGothicChars == NULL)
+    {
+        return gdl;
+    }
+    if (dynGetFreeGfx2(gdl) < CON_GFX_SETUP + CON_GFX_TAIL + CON_GFX_ROWLEN(strlen(text)))
+    {
+        return gdl;
+    }
+    gdl = conSpaceBegin(gdl);
+    gdl = microcode_constructor_related_to_menus(gdl, 0, 0, conSpaceW, conSpaceH, 0xFF);   /* opaque black */
+    x = (conSpaceW - conTextWidth(text)) / 2;
+    y = conSpaceH / 2 - CON_ROW_PITCH;
+    gdl = conDrawRow(gdl, x < CON_TEXT_X ? CON_TEXT_X : x, y, text, CON_COL_TEXT);
+    return conSpaceEnd(gdl);
+}
+
+/* ---- net_graph (netplay job 6) ------------------------------------------------------------------------------------------------
+ * A Counter-Strike style network / frame-time overlay in the console's own 2D space (480 lines by the window's width, so it scales
+ * with any window). Render only: it reads the stats ring (port_netstats.c) and port_net.c's counters, never sim state.
+ *   1: numbers (ping, KB/s, packets/s, loss/late, delay, tick, last hash check, desyncs)
+ *   2: + scrolling bar graphs of the last ~4 s: ping, bytes in/out, input wait, sim + render ms; yellow = a tick that waited, red = DESYNC
+ *   3: + the 12 sub-hash fields as status lights (red = that field differed in the last failed check)
+ * Two passes (all rects, then all text) because text and rects need different combiner state. */
+#include "port_netstats.h"
+
+#define NG_GRAPH_W   NETSTAT_HIST      /* one unit per sample (the console font is about 7 units per character) */
+#define NG_PANEL_W   (NG_GRAPH_W + 8)
+#define NG_GRAPH_H   34
+#define NG_COL_GREEN  0x60FF60FFu
+#define NG_COL_YELLOW 0xFFE040FFu
+#define NG_COL_RED    0xFF4848FFu
+#define NG_COL_CYAN   0x50E8FFFFu
+#define NG_COL_WHITE  0xFFFFFFFFu
+#define NG_COL_GRAY   0x9A9A9AFFu
+#define NG_COL_ORANGE 0xFFA030FFu
+#define NG_RESERVE_TEXT 2600           /* Gfx kept free for the text pass */
+
+static u32 ngLastPrim;
+static s32 ngHavePrim;
+
+static Gfx *ngRect(Gfx *gdl, s32 x0, s32 y0, s32 x1, s32 y1, u32 rgba)
+{
+    if (x1 <= x0 || y1 <= y0)
+    {
+        return gdl;
+    }
+    if (!ngHavePrim || rgba != ngLastPrim)
+    {
+        gDPSetPrimColor(gdl++, 0, 0, (rgba >> 24) & 0xFF, (rgba >> 16) & 0xFF, (rgba >> 8) & 0xFF, rgba & 0xFF);
+        ngLastPrim = rgba;
+        ngHavePrim = 1;
+    }
+    gDPFillRectangle(gdl++, x0, y0, x1, y1);
+    return gdl;
+}
+
+static u32 ngPingColour(s32 ms)
+{
+    return ms < 60 ? NG_COL_GREEN : ms < 120 ? NG_COL_YELLOW : NG_COL_RED;
+}
+
+/* graph kinds */
+enum { NG_PING = 0, NG_BYTES, NG_WAIT, NG_MS, NG_FRAME };
+
+static f32 ngValue(const PortNetStatSample *s, s32 kind)
+{
+    switch (kind)
+    {
+    case NG_PING:  return (f32) s->pingMs;
+    case NG_BYTES: return (f32) s->inBytes;
+    case NG_WAIT:  return s->waitMs;
+    case NG_FRAME: return s->frameMs;
+    default:       return s->simMs + s->renderMs;
+    }
+}
+
+/* the scale of a graph: the largest visible value, at least `minv`, rounded up to a tidy number */
+static f32 ngScale(s32 kind, f32 minv)
+{
+    f32 m = minv;
+    s32 i;
+    const s32 n = portNetStatsCount() < NG_GRAPH_W ? portNetStatsCount() : NG_GRAPH_W;
+
+    for (i = 0; i < n; i++)
+    {
+        const PortNetStatSample *s = portNetStatsBack(i);
+        f32 v = ngValue(s, kind);
+
+        if (kind == NG_BYTES && (f32) s->outBytes > v)
+        {
+            v = (f32) s->outBytes;
+        }
+        if (kind == NG_PING && (f32) (s->pingMs + s->jitterMs) > v)
+        {
+            v = (f32) (s->pingMs + s->jitterMs);
+        }
+        if (v > m)
+        {
+            m = v;
+        }
+    }
+    if (m > 1000.0f) { m = (f32) ((s32) (m / 500.0f) + 1) * 500.0f; }
+    else if (m > 100.0f) { m = (f32) ((s32) (m / 50.0f) + 1) * 50.0f; }
+    else if (m > 10.0f) { m = (f32) ((s32) (m / 10.0f) + 1) * 10.0f; }
+    return m;
+}
+
+/* one graph box; the rects only (labels are in the text pass) */
+static Gfx *ngGraphRects(Gfx *gdl, s32 x, s32 y, s32 kind, f32 scale)
+{
+    const s32 n = portNetStatsCount() < NG_GRAPH_W ? portNetStatsCount() : NG_GRAPH_W;
+    s32 i;
+
+    gdl = ngRect(gdl, x - 1, y - 1, x + NG_GRAPH_W + 1, y + NG_GRAPH_H + 1, 0x00000098u);   /* the box */
+    gdl = ngRect(gdl, x, y + NG_GRAPH_H / 2, x + NG_GRAPH_W, y + NG_GRAPH_H / 2 + 1, 0x60606060u);   /* half-scale guide */
+    if (kind == NG_MS || kind == NG_FRAME)
+    {   /* the 60 Hz frame budget (16.7 ms) */
+        const s32 gy = y + NG_GRAPH_H - (s32) (16.7f / scale * (f32) NG_GRAPH_H);
+
+        if (gy > y)
+        {
+            gdl = ngRect(gdl, x, gy, x + NG_GRAPH_W, gy + 1, 0x40C0FF70u);
+        }
+    }
+    for (i = 0; i < n; i++)
+    {
+        const PortNetStatSample *s = portNetStatsBack(i);
+        const s32 cx = x + NG_GRAPH_W - 1 - i;
+        f32 v;
+        s32 h;
+
+        if (dynGetFreeGfx2(gdl) < NG_RESERVE_TEXT)
+        {
+            break;
+        }
+        if (s->flags & NSF_HASH_BAD)
+        {   /* a failed hash check: a red column through the whole graph */
+            gdl = ngRect(gdl, cx, y, cx + 2, y + NG_GRAPH_H, 0xFF202090u);
+        }
+        switch (kind)
+        {
+        case NG_PING:
+            v = (f32) s->pingMs;
+            h = (s32) (v / scale * (f32) NG_GRAPH_H);
+            gdl = ngRect(gdl, cx, y + NG_GRAPH_H - h, cx + 1, y + NG_GRAPH_H, ngPingColour(s->pingMs));
+            if (s->jitterMs > 0)
+            {   /* the jitter band on top of the ping, dimmer */
+                const s32 jh = (s32) ((f32) s->jitterMs / scale * (f32) NG_GRAPH_H);
+
+                gdl = ngRect(gdl, cx, y + NG_GRAPH_H - h - jh, cx + 1, y + NG_GRAPH_H - h, 0xFFFFFF55u);
+            }
+            break;
+        case NG_BYTES:
+            h = (s32) ((f32) s->inBytes / scale * (f32) NG_GRAPH_H);
+            gdl = ngRect(gdl, cx, y + NG_GRAPH_H - h, cx + 1, y + NG_GRAPH_H, 0x40D040E0u);
+            h = (s32) ((f32) s->outBytes / scale * (f32) NG_GRAPH_H);
+            gdl = ngRect(gdl, cx, y + NG_GRAPH_H - h - 1, cx + 1, y + NG_GRAPH_H - h + 1, NG_COL_CYAN);
+            break;
+        case NG_WAIT:
+            v = s->waitMs;
+            h = (s32) (v / scale * (f32) NG_GRAPH_H);
+            if (h < 2 && (s->flags & NSF_WAITED))
+            {
+                h = 2;
+            }
+            gdl = ngRect(gdl, cx, y + NG_GRAPH_H - h, cx + 1, y + NG_GRAPH_H, v > 33.0f ? NG_COL_RED : NG_COL_YELLOW);
+            break;
+        case NG_FRAME:
+            h = (s32) (s->frameMs / scale * (f32) NG_GRAPH_H);
+            gdl = ngRect(gdl, cx, y + NG_GRAPH_H - h, cx + 1, y + NG_GRAPH_H, s->frameMs > 20.0f ? NG_COL_YELLOW : 0x60FF60E0u);
+            break;
+        default:
+            h = (s32) (s->simMs / scale * (f32) NG_GRAPH_H);
+            gdl = ngRect(gdl, cx, y + NG_GRAPH_H - h, cx + 1, y + NG_GRAPH_H, 0x3C9CFFE0u);
+            {
+                const s32 rh = (s32) (s->renderMs / scale * (f32) NG_GRAPH_H);
+
+                gdl = ngRect(gdl, cx, y + NG_GRAPH_H - h - rh, cx + 1, y + NG_GRAPH_H - h, s->simMs + s->renderMs > 33.4f ? NG_COL_RED : NG_COL_ORANGE);
+            }
+            break;
+        }
+        if (s->flags & NSF_WAITED)
+        {   /* a tick that waited for the partner: a yellow marker on the top edge */
+            gdl = ngRect(gdl, cx, y, cx + 1, y + 4, NG_COL_YELLOW);
+        }
+        if (s->flags & NSF_HASH_OK)
+        {   /* a passed hash check: a green dot on the bottom edge */
+            gdl = ngRect(gdl, cx, y + NG_GRAPH_H - 2, cx + 1, y + NG_GRAPH_H, 0x30FF30FFu);
+        }
+    }
+    return gdl;
+}
+
+/* a label on the left and a right-aligned value in the same row, inside the graph box (text pass) */
+static Gfx *ngLabel(Gfx *gdl, s32 x, s32 y, const char *left, u32 lcol, const char *right)
+{
+    gdl = conDrawRow(gdl, x + 3, y + 1, left, lcol);
+    if (right != NULL)
+    {
+        gdl = conDrawRow(gdl, x + NG_GRAPH_W - 3 - conTextWidth(right), y + 1, right, NG_COL_GRAY);
+    }
+    return gdl;
+}
+
+static Gfx *portNetGraphRender(Gfx *gdl)
+{
+    const s32 level = portNetGraphLevel();
+    const PortNetStatSecond *sec = portNetStatsSecond();
+    const PortNetStatSample *cur = portNetStatsBack(0);
+    PortNetGraphInfo in;
+    char l[7][96];
+    u32 lc[7];
+    s32 nl = 0;
+    s32 px, py, i;
+    s32 gx, gy[4], ng;
+    f32 sc[4];
+    s32 panelH, lightsY = 0, lightsH = 0;
+    const s32 *kinds;
+    static const s32 kindsOn[4] = { NG_PING, NG_BYTES, NG_WAIT, NG_MS };
+    static const f32 floorsOn[4] = { 60.0f, 200.0f, 5.0f, 20.0f };
+    static const s32 kindsOff[2] = { NG_MS, NG_FRAME };
+    static const f32 floorsOff[2] = { 20.0f, 20.0f };
+    const f32 *floors;
+
+    if (level <= 0 || cur == NULL || dynGetFreeGfx2(gdl) < NG_RESERVE_TEXT + 1500)
+    {
+        return gdl;
+    }
+    portNetGraphInfo(&in);
+    ng = in.netplay ? 4 : 2;   /* no netplay: just the frame-time graphs */
+    kinds = in.netplay ? kindsOn : kindsOff;
+    floors = in.netplay ? floorsOn : floorsOff;
+
+    /* the numbers */
+    if (in.netplay)
+    {
+        snprintf(l[nl], sizeof(l[0]), "NET %s   tick %u   delay %d", in.role == 1 ? "HOST" : in.role == 2 ? "GUEST" : "REPLAY", in.tick, in.delay);
+        lc[nl++] = in.linked ? NG_COL_CYAN : NG_COL_GRAY;
+        snprintf(l[nl], sizeof(l[0]), "ping %3d ms +-%d   loss %d%%  rsnd %u", in.pingMs, in.jitterMs, in.enetLossPct, in.resends);
+        lc[nl++] = ngPingColour(in.pingMs);
+        snprintf(l[nl], sizeof(l[0]), "in  %5.1f KB/s  %3.0f pkt/s", sec->valid ? sec->inKBs : 0.0f, sec->valid ? sec->inPps : 0.0f);
+        lc[nl++] = NG_COL_GREEN;
+        snprintf(l[nl], sizeof(l[0]), "out %5.1f KB/s  %3.0f pkt/s", sec->valid ? sec->outKBs : 0.0f, sec->valid ? sec->outPps : 0.0f);
+        lc[nl++] = NG_COL_CYAN;
+        snprintf(l[nl], sizeof(l[0]), "late %u   dup %u   oow %u   wait %.1f ms", in.lateTicks, in.dups, in.oow, cur->waitMs);
+        lc[nl++] = in.lateTicks != 0 ? NG_COL_YELLOW : NG_COL_GRAY;
+    }
+    else
+    {
+        snprintf(l[nl], sizeof(l[0]), "NET off   (frame times only)");
+        lc[nl++] = NG_COL_GRAY;
+    }
+    snprintf(l[nl], sizeof(l[0]), "sim %.1f  rend %.1f ms   %.0f fps", sec->valid ? sec->simAvg : cur->simMs, sec->valid ? sec->renderAvg : cur->renderMs,
+             sec->valid ? sec->fps : 0.0f);
+    lc[nl++] = NG_COL_WHITE;
+    if (in.netplay)
+    {
+        if (in.lastHashVerdict < 0)
+        {
+            snprintf(l[nl], sizeof(l[0]), "hash: no check yet   desyncs %u", in.desyncs);
+            lc[nl++] = NG_COL_GRAY;
+        }
+        else
+        {
+            snprintf(l[nl], sizeof(l[0]), "hash t%u %s   desyncs %u/%u", in.lastHashTick, in.lastHashVerdict ? "DESYNC" : "OK", in.desyncs, in.hashCompared);
+            lc[nl++] = in.lastHashVerdict ? NG_COL_RED : NG_COL_GREEN;
+        }
+    }
+
+    {   /* placement: the top-right corner, whatever the window's shape */
+        s32 w = conSpaceW;
+        const s32 need = (level >= 2) ? NG_GRAPH_W + 8 : NG_PANEL_W;
+
+        px = w - need - 6;
+        if (px < 2) { px = 2; }
+        py = 6;
+    }
+    panelH = nl * CON_ROW_PITCH + 6;
+    gx = px + 4;
+    gy[0] = py + panelH + 12;
+    for (i = 1; i < ng; i++) { gy[i] = gy[i - 1] + NG_GRAPH_H + 16; }
+    if (level >= 3)
+    {
+        lightsY = gy[ng - 1] + NG_GRAPH_H + 10;
+        lightsH = 3 * 13 + 4;
+    }
+
+    /* pass 1: rects */
+    ngHavePrim = 0;
+    gdl = conSpaceBegin(gdl);
+    gDPSetRenderMode(gdl++, G_RM_XLU_SURF, G_RM_XLU_SURF2);
+    gDPSetCombineMode(gdl++, G_CC_PRIMITIVE, G_CC_PRIMITIVE);
+    gdl = ngRect(gdl, px, py - 3, px + (level >= 2 ? NG_GRAPH_W + 8 : NG_PANEL_W), py + panelH, 0x000000A8u);
+    if (in.netplay && in.lastHashVerdict == 1)
+    {   /* a red frame on the panel while the last check failed */
+        const s32 pw = level >= 2 ? NG_GRAPH_W + 8 : NG_PANEL_W;
+
+        gdl = ngRect(gdl, px, py - 3, px + pw, py - 1, NG_COL_RED);
+        gdl = ngRect(gdl, px, py + panelH - 2, px + pw, py + panelH, NG_COL_RED);
+    }
+    if (level >= 2)
+    {
+        for (i = 0; i < ng; i++)
+        {
+            sc[i] = ngScale(kinds[i], floors[i]);
+            gdl = ngGraphRects(gdl, gx, gy[i], kinds[i], sc[i]);
+        }
+    }
+    if (level >= 3)
+    {
+        const s32 colw = NG_GRAPH_W / 4;
+
+        gdl = ngRect(gdl, gx - 1, lightsY - 2, gx + NG_GRAPH_W + 1, lightsY + lightsH, 0x000000A0u);
+        for (i = 0; i < in.nfields; i++)
+        {
+            const s32 lx = gx + 3 + (i % 4) * colw;
+            const s32 ly = lightsY + (i / 4) * 13 + 2;
+            u32 col;
+
+            if (!in.netplay || in.lastHashVerdict < 0) { col = 0x505050FFu; }
+            else if (in.diffMask & (1u << i)) { col = 0xFF2020FFu; }
+            else { col = 0x30E030FFu; }
+            gdl = ngRect(gdl, lx, ly, lx + 8, ly + 8, 0x000000FFu);
+            gdl = ngRect(gdl, lx + 1, ly + 1, lx + 7, ly + 7, col);
+        }
+    }
+    gDPSetCombineLERP(gdl++, 0, 0, 0, PRIMITIVE, TEXEL0, 0, PRIMITIVE, 0, 0, 0, 0, PRIMITIVE, TEXEL0, 0, PRIMITIVE, 0);
+
+    /* pass 2: text */
+    for (i = 0; i < nl; i++)
+    {
+        gdl = conDrawRow(gdl, px + 4, py + 1 + i * CON_ROW_PITCH, l[i], lc[i]);
+    }
+    if (level >= 2)
+    {
+        char a[48], b[48];
+
+        for (i = 0; i < ng; i++)
+        {
+            u32 col = NG_COL_WHITE;
+
+            snprintf(b, sizeof(b), "max %.0f", sc[i]);
+            switch (kinds[i])
+            {
+            case NG_PING:
+                snprintf(a, sizeof(a), "ping %d ms", cur->pingMs);
+                col = ngPingColour(cur->pingMs);
+                break;
+            case NG_BYTES:
+                snprintf(a, sizeof(a), "in %u out %u B/frame", cur->inBytes, cur->outBytes);
+                col = NG_COL_GREEN;
+                break;
+            case NG_WAIT:
+                snprintf(a, sizeof(a), "input wait %.1f ms", cur->waitMs);
+                col = NG_COL_YELLOW;
+                break;
+            case NG_FRAME:
+                snprintf(a, sizeof(a), "frame %.1f ms", cur->frameMs);
+                break;
+            default:
+                snprintf(a, sizeof(a), "sim %.1f render %.1f ms", cur->simMs, cur->renderMs);
+                col = NG_COL_ORANGE;
+                break;
+            }
+            (void) col;   /* the labels are white: they sit on bars of the series' own colour */
+            gdl = ngLabel(gdl, gx, gy[i], a, NG_COL_WHITE, b);
+        }
+    }
+    if (level >= 3)
+    {
+        const s32 colw = NG_GRAPH_W / 4;
+
+        for (i = 0; i < in.nfields; i++)
+        {
+            const s32 lx = gx + 3 + (i % 4) * colw;
+            const s32 ly = lightsY + (i / 4) * 13 + 2;
+            const s32 bad = in.netplay && in.lastHashVerdict >= 0 && (in.diffMask & (1u << i)) != 0;
+
+            gdl = conDrawRow(gdl, lx + 11, ly - 1, in.fieldName[i], bad ? NG_COL_RED : NG_COL_WHITE);
+        }
+    }
+    return conSpaceEnd(gdl);
+}
+
 Gfx *portConRender(Gfx *gdl)
 {
     s32 i;
@@ -1153,6 +1677,36 @@ Gfx *portConRender(Gfx *gdl)
     if (dynGetFreeGfx2(gdl) < CON_GFX_SETUP + CON_GFX_TAIL)
     {
         return gdl;
+    }
+
+    gdl = portNetGraphRender(gdl);   /* job 6: net_graph 1-3 (a no-op at 0) */
+
+    if (portModeActive())
+    {   /* PORT: mode HUD: 1-3 lines, copied out of the sim's buffer before drawing */
+        char hud[PORT_HUD_LINES][64];
+        s32 n = 0;
+
+        for (i = 0; i < PORT_HUD_LINES; i++)
+        {
+            const char *t = portModeHudGetLocal(i);   /* this machine's Bond's text, else the all-players one */
+
+            hud[i][0] = '\0';
+            if (t != NULL)
+            {
+                memcpy(hud[i], t, 63);
+                hud[i][63] = '\0';
+                n++;
+            }
+        }
+        if (n > 0)
+        {
+            gdl = conSpaceBegin(gdl);
+            for (i = 0; i < PORT_HUD_LINES; i++)
+            {
+                gdl = conDrawRow(gdl, CON_TEXT_X, CON_HUD_Y + CON_ROW_PITCH * i, hud[i], CON_COL_TEXT);
+            }
+            gdl = conSpaceEnd(gdl);
+        }
     }
 
     if (!conOpen)
