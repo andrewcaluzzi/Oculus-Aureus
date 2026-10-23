@@ -914,7 +914,7 @@ typedef struct { u8 used, armour; s32 serial; ObjectRecord *obj; PropRecord *pro
 static ArenaItem sItems[ITEM_N];
 /* Records are NOT tied to the sItems slot: spawn.item_remove only flags the old object REMOVE, and the object tick frees it
  * later, so a spawn in the same tick (the "replaced" centre drop) that wiped the same record left that old prop ticking with
- * model == NULL (objTick -> getinstsize crash, AC's share build). Each spawn takes the next record round-robin; REC_N spawns
+ * model == NULL (objTick -> getinstsize crash, found in a shared build). Each spawn takes the next record round-robin; REC_N spawns
  * of one kind are far more than can be pending removal at once. */
 #define REC_N      64
 static BodyArmourRecord sArmourRecs[REC_N];

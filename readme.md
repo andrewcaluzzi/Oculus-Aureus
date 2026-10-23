@@ -1,5 +1,7 @@
 ![Project Midas](port/include/presskit/PM%20thin%201%20-%20full.png)
 
+> **This is an experimental fork** of Project Midas that adds Lua modding, a Colosseum wave-survival arena, and experimental co-op/netplay. See [README-FORK.md](README-FORK.md). The rest of this README is upstream's.
+
 # Project Midas
 
 This is a video game about Jimothy's presumed-dead best friend Jarvis turns out to be alive, and in possession of a space laser he intends to point at a city - so Jimothy goes to the Cuban jungle and drops Jarvis off a satellite dish.

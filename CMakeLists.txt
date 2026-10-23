@@ -214,7 +214,12 @@ endif()
 # Every asset comes from the user's ROM except three inline-texture menu models
 # (PORT_ASSET_OBJS_KEEP); with GE_ROMDATA_FALLBACK=OFF the rest are dropped and
 # their weak file symbols resolve to NULL (ob_end.seg always lives in ob_seg.s).
-set(PORT_ASSET_KEEP_SYMS PlegalpageZ PnintendologoZ PgoldeneyelogoZ)
+# Flatland (lab): the generated test level (tools/gen_flatland.py -> port/flatland/) is
+# compiled in, since the ROM CRC gate serves stock data only. Its bg takes the cut slot's
+# bg_sho_all_p_seg symbol; the stan and setup are fetched by symbol (bg.c, prop.c).
+set(PORT_ASSET_KEEP_SYMS PlegalpageZ PnintendologoZ PgoldeneyelogoZ
+    bg_sho_all_p_seg Tbg_flatland_all_p_stanZ UsetupflatlandZ
+    bg_ear_all_p_seg Tbg_colosseum_all_p_stanZ UsetupcolosseumZ)
 function(port_asset_record obj sym)
     if(${sym} IN_LIST PORT_ASSET_KEEP_SYMS)
         set_property(GLOBAL APPEND PROPERTY PORT_ASSET_OBJS_KEEP ${obj})
@@ -254,6 +259,14 @@ function(port_add_asset_seg src sym)
 endfunction()
 
 include(${CMAKE_SOURCE_DIR}/port/generated/asset_manifest.cmake)
+port_add_asset_seg(port/flatland/bg_flatland_all_p.c bg_sho_all_p_seg)
+port_add_asset_direct(port/flatland/Tbg_flatland_all_p_stanZ.c Tbg_flatland_all_p_stanZ)
+port_add_asset_direct(port/flatland/UsetupflatlandZ.c UsetupflatlandZ)
+# Colosseum (lab): the arena level (tools/gen_colosseum.py -> port/colosseum/), same arrangement
+# on the cut slot LEVELID_EAR (bg symbol bg_ear_all_p_seg).
+port_add_asset_seg(port/colosseum/bg_colosseum_all_p.c bg_ear_all_p_seg)
+port_add_asset_direct(port/colosseum/Tbg_colosseum_all_p_stanZ.c Tbg_colosseum_all_p_stanZ)
+port_add_asset_direct(port/colosseum/UsetupcolosseumZ.c UsetupcolosseumZ)
 get_property(ASSET_OBJS_KEEP GLOBAL PROPERTY PORT_ASSET_OBJS_KEEP)
 get_property(ASSET_OBJS_SERVED GLOBAL PROPERTY PORT_ASSET_OBJS_SERVED)
 # GE_ROMDATA_FALLBACK OFF: drop the served asset objects (models/bg/setups/
@@ -396,6 +409,37 @@ else()
         ${CMAKE_SOURCE_DIR}/port/src/raphnet.c)
 endif()
 
+# Embedded Lua 5.5 (vendored unmodified in port/lua) plus its glue, port/luavm. The repo's
+# include/ shadows libc headers (limits.h, math.h, stdlib.h ...) and the global flags are
+# -ffreestanding -funsigned-char, so this is its own library: the directory-level include
+# paths and compile options are replaced on the target, giving Lua the real libc.
+file(GLOB LUA_SRC CONFIGURE_DEPENDS port/lua/*.c port/luavm/*.c)
+add_library(ge_lua STATIC ${LUA_SRC})
+set_target_properties(ge_lua PROPERTIES
+    INCLUDE_DIRECTORIES "${CMAKE_SOURCE_DIR}/port/lua"
+    COMPILE_OPTIONS "-m32;-msse2;-mfpmath=sse;-O2;-g;-w;-fsigned-char;-include;${CMAKE_SOURCE_DIR}/port/luavm/ge_lua_ctype.h")
+target_compile_definitions(ge_lua PRIVATE __USE_MINGW_ANSI_STDIO=1)   # msvcrt's snprintf mangles %lld
+if(NOT WIN32)
+    # A 32-bit Linux readdir() fails (EOVERFLOW, NULL at once) on a filesystem with 64-bit inode numbers (the Docker bind mount of the WSL
+    # drive), so Data/Scripts looked empty: no scripts ran and the netplay script hash saw no files. 64-bit file offsets fix it.
+    target_compile_definitions(ge_lua PRIVATE _FILE_OFFSET_BITS=64)
+    set_source_files_properties(${CMAKE_SOURCE_DIR}/port/src/port_net.c PROPERTIES COMPILE_DEFINITIONS _FILE_OFFSET_BITS=64)
+endif()
+# src/str.c defines its own isalpha/isspace/toupper, which collide with the C runtime's at
+# link time; the force-included header gives Lua private ASCII copies (port_luavm.c).
+
+# Netplay transport: ENet 1.3.18 (vendored unmodified in port/enet, MIT) plus port/netio, its
+# glue. Same reason and treatment as ge_lua: its own library with the real libc headers.
+file(GLOB ENET_SRC CONFIGURE_DEPENDS port/enet/*.c port/netio/*.c)
+add_library(ge_enet STATIC ${ENET_SRC})
+set_target_properties(ge_enet PROPERTIES
+    INCLUDE_DIRECTORIES "${CMAKE_SOURCE_DIR}/port/enet/include;${CMAKE_SOURCE_DIR}/port/include"
+    COMPILE_OPTIONS "-m32;-msse2;-mfpmath=sse;-O2;-g;-w;-fsigned-char")
+if(NOT WIN32)
+    target_compile_definitions(ge_enet PRIVATE HAS_FCNTL=1 HAS_POLL=1 HAS_GETADDRINFO=1 HAS_GETNAMEINFO=1
+        HAS_GETHOSTBYNAME_R=1 HAS_GETHOSTBYADDR_R=1 HAS_INET_PTON=1 HAS_INET_NTOP=1 HAS_MSGHDR_FLAGS=1 HAS_SOCKLEN_T=1)
+endif()
+
 add_executable(ge ${GAME_SRC} ${ENGINE_SRC} ${GU_SRC} ${PORT_SRC}
                ${ASSET_LOOSE_SRC} ${ASSET_OBJS} ${FAST3D_SRC})
 # The executable is named ProjectMidas, but the CMake target stays `ge` so build
@@ -425,8 +469,26 @@ add_custom_target(ge_buildinfo
 add_dependencies(ge ge_buildinfo)
 target_include_directories(ge PRIVATE ${CMAKE_BINARY_DIR}/generated)
 
+# Rollback R2: the sim-statics range table is embedded in the exe after the link (scripts/port/snap_embed.py reads the linker map and
+# patches the fixed-size const table g_PortSnapTable in port/src/port_snaptable.c in place: no relink, no map file at run time).
+# Without python the exe still runs; it just refuses GE_SNAP* (rollback snapshots) and says why.
+target_link_options(ge PRIVATE -Wl,-Map=${CMAKE_BINARY_DIR}/ProjectMidas.map)
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_FOUND)
+    add_custom_command(TARGET ge POST_BUILD
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/port/snap_embed.py --soft
+                --exe $<TARGET_FILE:ge> --map ${CMAKE_BINARY_DIR}/ProjectMidas.map
+        COMMENT "rollback snapshots: embedding the sim-statics range table"
+        VERBATIM)
+else()
+    message(STATUS "python3 not found: the rollback snapshot range table is not embedded (GE_SNAP* will refuse to run)")
+endif()
+
 # libm: sinf/cosf/sqrtf (math_sincos.s and gu asm on N64; libm on PC).
-target_link_libraries(ge m)
+target_link_libraries(ge ge_lua ge_enet m)
+if(WIN32)
+    target_link_libraries(ge ws2_32 winmm)
+endif()
 
 if(GE_VIDEO)
     if(WIN32)
@@ -467,5 +529,26 @@ if(GE_VIDEO)
             $<TARGET_FILE_DIR:ge>
         COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:ge>/Data
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            ${CMAKE_SOURCE_DIR}/tools/shaders_base.txt $<TARGET_FILE_DIR:ge>/Data/shaders_base.txt)
+            ${CMAKE_SOURCE_DIR}/tools/shaders_base.txt $<TARGET_FILE_DIR:ge>/Data/shaders_base.txt
+        COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:ge>/Data/Scripts
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/tools/scripts_example.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/example.lua
+        COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:ge>/Data/Scripts/modes
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/tools/mode_hostage.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/hostage.lua
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/tools/mode_hostage_flatland.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/hostage-flatland.lua
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/tools/mode_arena.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/arena.lua
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/tools/mode_arena_endless.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/arena-endless.lua)
+    if(WIN32)
+        # the arena launchers (set GE_MODE / GE_STAGE, then start the exe), next to the exe
+        add_custom_command(TARGET ge POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${CMAKE_SOURCE_DIR}/launchers/Play Arena.bat"
+                "${CMAKE_SOURCE_DIR}/launchers/Play Arena (Endless).bat"
+                "$<TARGET_FILE_DIR:ge>"
+            VERBATIM)
+    endif()
 endif()

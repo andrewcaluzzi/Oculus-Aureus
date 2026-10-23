@@ -1181,7 +1181,7 @@ int portCoopNearestBond(const PropRecord *near)
  * escort (Natalya, Valentin) that flip-flops when the Bonds are about as far, and a follow command re-plots from scratch every flip.
  * So an escort keeps the Bond it follows until that one is dead / gone, or another living Bond is 30% closer AND 3 s have passed
  * since the last switch (port_cooplogic.c portCoopEscortPick). Sim state: fields, the same on both machines. Non-escort chrs (guards,
- * Trevelyan's conversation in Facility: AC decided to leave that as it is) keep the plain nearest Bond. */
+ * Trevelyan's conversation in Facility: left as it is by design) keep the plain nearest Bond. */
 #define ESCORT_SLOTS 8
 static struct { s32 chrnum; int bond; int since; } sEscort[ESCORT_SLOTS];
 
@@ -1353,7 +1353,7 @@ void portCoopEscortTrace(ChrRecord *self)
 
 /* "Every Bond is dead and the mission cannot go on" (the mission-lost test every KIA / failure site uses). With limited lives a Bond that is out
  * of lives stays down for good, so a survivor who then dies is NOT the end if it can still respawn: exactly one Bond waiting to respawn (not out)
- * while the others are out means that one comes back. Two waiting at once is the old "both dead at once" failure (AC's decision 4); none waiting
+ * while the others are out means that one comes back. Two waiting at once is the old "both dead at once" failure (design decision 4); none waiting
  * is the end of the run. Unlimited lives: nobody is ever out, so this is the plain all-dead test as before. */
 int portCoopAllDead(void)
 {
@@ -1825,7 +1825,7 @@ extern bool doorIsPadlockFree(DoorRecord *door);
 
 /* Stages whose progression is one-way in a way the waypoint graph and the door locks cannot show (the Train's brakes section, Bunker 2's escape,
  * Cradle's platform): a respawn at the start is only allowed while the partner is still near the start (horizontally within this many units,
- * and on about the same floor). AC deferred the proper per-level checkpoint table to the scripted-levels pass. */
+ * and on about the same floor). A proper per-level checkpoint table is deferred. */
 #define PORT_ONEWAY_NEAR 1500.0f
 
 static int stageIsOneWay(void)
