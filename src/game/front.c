@@ -4011,6 +4011,7 @@ s32 portMenuHarnessSheet(char first, char second)
     else if (first == 'c' && second == 'g') port_sheet_kind = PORT_SHEET_CTLGENERAL;   /* GE_MENU=cgeneral */
     else if (first == 'c' && second == 'l') port_sheet_kind = PORT_SHEET_CLASSIC;      /* GE_MENU=classic */
     else if (first == 'p' && second == 'a') port_sheet_kind = PORT_SHEET_PAD;
+    else if (first == 'p' && second == 'o') port_sheet_kind = PORT_SHEET_PORTOPTS;   /* GE_MENU=portopts */
     else if (first == 'p')
     {   /* GE_MENU=player[1-4]: straight to a player's page, which is two
          * A presses in and was otherwise unreachable headlessly - the input
@@ -4314,8 +4315,9 @@ Gfx *constructor_menu1B_portoptions(Gfx *DL)
 // table (docs/port/ini-options-placement.md says which key went where).
 //
 // Layout: label at x 0x37, value at x 0xBE, first row at y 0x35, Rare's own
-// cheat-page pitch (0x14) and twelve rows a page (tighter spacing read as
-// cramped). Longer pages turn over: NEXT (Rare's middle tab) goes a page on,
+// cheat-page pitch (0x14) and thirteen rows a page (tighter spacing read as
+// cramped). A page that would run past Rare's last line (y 293: thirteen rows
+// plus APPLY) closes its pitch up instead. Longer pages turn over: NEXT (Rare's middle tab) goes a page on,
 // PREVIOUS a page back, and PREVIOUS (or B) on the first page returns to the
 // Options folder.
 //
@@ -4337,13 +4339,15 @@ Gfx *constructor_menu1B_portoptions(Gfx *DL)
 #define PORT_SHEET_TITLE_Y    0x21
 #define PORT_SHEET_ROW_Y0     0x35
 #define PORT_SHEET_ROW_PITCH  0x14  /* Rare's cheat page */
-#define PORT_SHEET_PAGE_ROWS  12    /* Rare's cheat page shows twelve */
+#define PORT_SHEET_PAGE_ROWS  13    /* Rare's cheat page shows twelve; VIDEO needs thirteen */
 /* Two-column sheets (Gameplay Options) have no APPLY row and no heading,
  * so each column also uses the heading's and APPLY's lines: 14 rows. */
 #define PORT_SHEET_TWOCOL_ROWS 14
 #define PORT_SHEET_TWOCOL_Y0   (PORT_SHEET_ROW_Y0 - PORT_SHEET_ROW_PITCH)
-#define PORT_SHEET_APPLY_SLOT 12    /* the pinned APPLY CHANGES row: y 0x35 + 12*0x14 = 293, the sheet's last line */
-#define PORT_SHEET_SLOTS      13    /* slots 0..11 are rows, 12 is APPLY */
+#define PORT_SHEET_APPLY_SLOT 13    /* the pinned APPLY CHANGES row, after the page's rows */
+#define PORT_SHEET_SLOTS      14    /* slots 0..12 are rows, 13 is APPLY */
+#define PORT_SHEET_LAST_Y     (PORT_SHEET_ROW_Y0 + 12 * PORT_SHEET_ROW_PITCH)   /* 293: Rare's last line; no row goes lower */
+#define PORT_SHEET_LIST_LINES 13    /* a drop-down list's window: the slot lines from the first row to y 293 */
 #define PORT_SHEET_ROWS_MAX   80  /* the CONTROL page carries the whole bind list */
 #define PORT_SHEET_LIST_MAX   32    /* a row with more values than this steps instead of listing (mouse sensitivity: 100) */
 #define PORT_SHEET_LIST_PAD   4
@@ -4355,6 +4359,18 @@ Gfx *constructor_menu1B_portoptions(Gfx *DL)
 #define PORT_SHEET_COL_LIST_HOT  0x000000A0 /* the entry under the cursor: white text on a dark band */
 #define PORT_SHEET_ANIM_W 0.30f
 #define PORT_SHEET_ANIM_H 0.22f
+/* SETTING HELP ([display] setting_help): the highlighted row's line from
+ * port_option_help.c, in the drop-down list's panel along the sheet's foot.
+ * Two lines of the sheet's font, else three of the watch's small font. */
+#define PORT_SHEET_HELP_X0     (PORT_SHEET_LABEL_X - PORT_SHEET_LIST_PAD - 1)
+#define PORT_SHEET_HELP_X1     0x178   /* clear of the tabs (390) */
+#define PORT_SHEET_HELP_Y0     0x124   /* rows on a page must end above this */
+#define PORT_SHEET_HELP_Y1     0x147   /* the frontend picture ends at 330 */
+#define PORT_SHEET_HELP_LINES  2
+#define PORT_SHEET_HELP_PITCH  14
+#define PORT_SHEET_HELP_SMALL_LINES 3
+#define PORT_SHEET_HELP_SMALL_PITCH 10
+#define PORT_SHEET_HELP_PITCH_MIN 16   /* rows never closer than this to make room */
 
 extern s32 portOptFind(const char *key);
 extern const char *portOptKey(s32 i);
@@ -4540,9 +4556,11 @@ static const struct PortSheetRow port_sheet_rows_portopts[] = {
     { SHROW_OPT, "true_enemy_rockets" },
     { SHROW_OPT, "unlimited_explosions" },   /* default ON */
     { SHROW_OPT, "watch_static" },           /* the watch's fuzz, default ON (vanilla) */
+    { SHROW_OPT, "fast_pause" },             /* the watch at Rare's top speed, default OFF */
     { SHROW_OPT, "mouse_auto_aim" },         /* off: no Auto-Aim on the mouse, above every other Auto-Aim setting */
     { SHROW_OPT, "high_lod", "High Detail Models\n" },   /* moved from GRAPHICS */
     { SHROW_OPT, "coop_bot" },               /* the co-op bot (port_bot.c), default off */
+    { SHROW_OPT, "setting_help" },   /* the help box under the folder sheets, default ON */
 };
 static const struct PortSheetRow port_sheet_rows_hud[] = {
     { SHROW_OPT, "sight_on_screen" }, { SHROW_OPT, "always_crosshair" },
@@ -4553,6 +4571,9 @@ static const struct PortSheetRow port_sheet_rows_hud[] = {
     /* aim lock, stamina sway and steady scope moved to General Settings */
     /* the watch's last two (the HUD and Health options), here too */
     { SHROW_OPT, "hud_wide" }, { SHROW_OPT, "health_wide" },
+    { SHROW_OPT, "hud_scale" },   /* the HUD on a 640x480 canvas */
+    { SHROW_OPT, "show_fps" },   /* the corner counter (bondview2.c portDrawFpsCounter) */
+    { SHROW_OPT, "armor_hud" },   /* the arcs on a body armour pickup */
 };
 /* MULTIPLAYER OPTIONS: settings kept separate from single player; every key is
  * multiplayer's own copy (mp_*, video.c), and the solo keys of the same name
@@ -4606,6 +4627,8 @@ static const struct PortSheetRow port_sheet_rows_mousekb[] = {
     /* not on his list; it is the keyboard-and-mouse's relationship to the
      * pad, so it waits here */
     { SHROW_OPT, "p1_hybrid" },
+    /* aim inversion: General Settings' own look_updown row, here too (murkantor/Project-Midas#35) */
+    { SHROW_OPT, "look_updown" },
 };
 static const struct PortSheetRow port_sheet_rows_pad[] = {
     /* twin_stick and right_stick_c removed - see port_options.c */
@@ -4623,6 +4646,8 @@ static const struct PortSheetRow port_sheet_rows_pad[] = {
 static const struct PortSheetRow port_sheet_rows_ctlgeneral[] = {
     { SHROW_OPT, "detonate_use_reload" },   /* always_walk removed (Walk is a bind) */
     { SHROW_OPT, "shoot_next_prev" },
+    { SHROW_OPT, "no_aim_crouch" },          /* aim + down does not crouch (bondview2.c) */
+    { SHROW_OPT, "background_input" },       /* pads work while the window is unfocused */
 };
 /* AIMING page removed: every row on it was a repeat of the
  * Mouse and Keyboard or Controller page. */
@@ -4687,9 +4712,9 @@ static const char *portSheetPageLabel(s32 kind)
 }
 
 /* VIDEO / AUDIO / GRAPHICS rows. Requested rows with no option behind them yet
- * (folder music, MP death music, gun FOV, crosshair style / sway, explosion
- * shake) are left out rather than added as dead rows, and go in at the marked
- * positions once they exist. */
+ * (folder music, MP death music, crosshair style / sway, explosion shake) are
+ * left out rather than added as dead rows, and go in at the marked positions
+ * once they exist. */
 static const struct PortSheetRow port_sheet_rows_video[] = {
     /* the whole sheet is DEFERRED to APPLY CHANGES (portSheetDeferred).
      * widescreen, msaa, classic mode (n64_aa), mipmaps and 2d filtering moved
@@ -4703,10 +4728,11 @@ static const struct PortSheetRow port_sheet_rows_video[] = {
     /* FIELD OF VIEW above 3D resolution. Not a classic key, so Classic
      * Mode leaves it live (portSheetRowDisabled goes by key) */
     { SHROW_OPT, "hfov_wide" },
+    { SHROW_OPT, "weapon_fov" },   /* beside Field of View; not a classic key */
     { SHROW_OPT, "low_res" },
     { SHROW_OPT, "filtering" }, { SHROW_OPT, "anisotropy" }, { SHROW_OPT, "msaa" },
     { SHROW_OPT, "filter_2d" },   /* no Mipmaps row: part of Classic Mode */
-    { SHROW_OPT, "maxfps" },   /* show_fps: ini-only */
+    { SHROW_OPT, "maxfps" },   /* show_fps: on HUD */
 };
 /* CLASSIC: one On/Off per part of Classic Mode, live (not deferred). A part
  * switched off is left at the player's own setting while Classic Mode is on,
@@ -4724,11 +4750,12 @@ static const struct PortSheetRow port_sheet_rows_audio[] = {
     /* disable mp death music goes here */
     /* not one of the requested rows, but it is audio, so it lives here */
     { SHROW_OPT, "stereo_pan" },
+    { SHROW_OPT, "mute_unfocused" },   /* silence while the window has no focus */
 };
 static const struct PortSheetRow port_sheet_rows_graphics[] = {
     /* EMPTY: FOV went to VIDEO, High Detail Models to PORT
      * OPTIONS; the page is off AUDIO VISUAL's list until it has rows */
-    /* gun fov, swap crosshair style, crosshair sway, explosion shake go here */
+    /* swap crosshair style, crosshair sway, explosion shake go here (gun fov is on VIDEO, beside FOV) */
     /* shadow_alpha: ini-only */
 };
 
@@ -4804,10 +4831,55 @@ static s32 port_sheet_twocol_split = 12; /* rows in the left column (an SHROW_CO
 #define PORT_SHEET_COL1_VALUE_R  0xE8   /* right edge of a left-column value */
 #define PORT_SHEET_COL2_VALUE_R  (0x180 - PORT_SHEET_TWOCOL_SHIFT)  /* clear of the tabs (390) */
 
+static s32 portSheetSlotRow(s32 slot);
+
+/** 1 = the help box is on ([display] setting_help) */
+static s32 portSheetHelpOn(void)
+{
+    static s32 opt = -2;
+
+    if (opt == -2)
+    {
+        opt = portOptFind("setting_help");
+    }
+    return opt >= 0 && portOptGet(opt) != 0;
+}
+
+/** The row pitch: Rare's, or less on a page whose rows would pass y 293 or reach the help box. */
+static s32 portSheetPitch(void)
+{
+    const s32 y0 = port_sheet_twocol ? PORT_SHEET_TWOCOL_Y0 : PORT_SHEET_ROW_Y0;
+    const s32 nslots = port_sheet_twocol ? 2 * PORT_SHEET_TWOCOL_ROWS : PORT_SHEET_SLOTS;
+    s32 last = 0;
+    s32 slot;
+    s32 p;
+
+    for (slot = 0; slot < nslots; slot++)
+    {
+        const s32 line = port_sheet_twocol ? slot % PORT_SHEET_TWOCOL_ROWS : slot;
+
+        if (line > last && portSheetSlotRow(slot) != -2)
+        {
+            last = line;
+        }
+    }
+    if (!portSheetHelpOn())
+    {   /* thirteen rows and APPLY: close up to end on Rare's last line */
+        return (last == 0 || y0 + last * PORT_SHEET_ROW_PITCH <= PORT_SHEET_LAST_Y) ? PORT_SHEET_ROW_PITCH
+                                                                                   : (PORT_SHEET_LAST_Y - y0) / last;
+    }
+    if (last == 0 || y0 + last * PORT_SHEET_ROW_PITCH + 0xE < PORT_SHEET_HELP_Y0 - 2)
+    {
+        return PORT_SHEET_ROW_PITCH;
+    }
+    p = (PORT_SHEET_HELP_Y0 - 2 - 0xE - y0) / last;
+    return (p < PORT_SHEET_HELP_PITCH_MIN) ? PORT_SHEET_HELP_PITCH_MIN : p;
+}
+
 static s32 portSheetSlotY(s32 slot)
 {
-    return port_sheet_twocol ? PORT_SHEET_TWOCOL_Y0 + (slot % PORT_SHEET_TWOCOL_ROWS) * PORT_SHEET_ROW_PITCH
-                             : PORT_SHEET_ROW_Y0 + slot * PORT_SHEET_ROW_PITCH;
+    return port_sheet_twocol ? PORT_SHEET_TWOCOL_Y0 + (slot % PORT_SHEET_TWOCOL_ROWS) * portSheetPitch()
+                             : PORT_SHEET_ROW_Y0 + slot * portSheetPitch();
 }
 
 /** the slot's label x */
@@ -4820,7 +4892,7 @@ static s32 portSheetSlotLabelX(s32 slot)
     return PORT_SHEET_LABEL_X;
 }
 
-/** how many slots a page has: 13 (12 rows + APPLY), or 24 in two columns */
+/** how many slots a page has: 14 (13 rows + APPLY), or 28 in two columns */
 static s32 portSheetSlotCount(void)
 {
     return port_sheet_twocol ? 2 * PORT_SHEET_TWOCOL_ROWS : PORT_SHEET_SLOTS;
@@ -4837,7 +4909,7 @@ static s32 portSheetSlotHit(s32 slot, s32 cx, s32 cy)
 {
     const s32 sy = portSheetSlotY(slot);
 
-    if (cy < sy - 1 || cy >= sy - 1 + PORT_SHEET_ROW_PITCH)
+    if (cy < sy - 1 || cy >= sy - 1 + portSheetPitch())
     {
         return FALSE;
     }
@@ -7027,7 +7099,7 @@ static void portSheetListOpen(s32 row, s32 slot)
 {
     const s32 count = portSheetListCount(row);
     const s32 rowy = portSheetSlotY(slot);
-    const s32 ymax = PORT_SHEET_ROW_Y0 + (PORT_SHEET_SLOTS - 1) * PORT_SHEET_ROW_PITCH; /* the sheet's last line, either layout */
+    const s32 ymax = PORT_SHEET_LAST_Y; /* the sheet's last line, either layout */
     s32 live;
     s32 top;
     s32 at;
@@ -7046,7 +7118,7 @@ static void portSheetListOpen(s32 row, s32 slot)
     if (live < 0) live = 0;
     port_sheet_list_row = row;
     port_sheet_list_slot = slot;
-    port_sheet_list_vis = (count < PORT_SHEET_SLOTS) ? count : PORT_SHEET_SLOTS;
+    port_sheet_list_vis = (count < PORT_SHEET_LIST_LINES) ? count : PORT_SHEET_LIST_LINES;
     port_sheet_list_idx = live;
     top = rowy - live * PORT_SHEET_ROW_PITCH;
     if (top > ymax - (port_sheet_list_vis - 1) * PORT_SHEET_ROW_PITCH)
@@ -7345,6 +7417,261 @@ static void portSheetDpadStep(s32 *sx, s32 *sy)
     *sy = out[1];
 }
 
+/* ---- SETTING HELP: the box along the sheet's foot ---------------------- */
+extern const char *portOptHelp(const char *key);   /* port_option_help.c */
+static f32 port_sheet_help_anim;   /* the list's CRT switch-on, 0..2, restarted when the box appears */
+
+/** The key port_option_help.c files a row under; row -1 is APPLY CHANGES. */
+static const char *portSheetHelpKey(s32 row)
+{
+    if (row == -1)
+    {
+        return "@apply";
+    }
+    switch (port_sheet_row_kind[row])
+    {
+        case SHROW_OPT:          return portOptKey(port_sheet_row_opt[row]);
+        case SHROW_RES:          return "@resolution";
+        case SHROW_XHAIR:        return "crosshair_color";
+        case SHROW_BINDDEV:      return "@input_device";
+        case SHROW_GOBINDS:      return "@rebind";
+        case SHROW_PLAYERPICK:   return "@player";
+        case SHROW_BINDMODE:     return "@bind_mode";
+        case SHROW_CTRLSTYLE:    return "@control_style";
+        case SHROW_LAYOUT:       return "@bind_config";
+        case SHROW_MANAGELAYOUT: return "@manage_config";
+        case SHROW_RESETBINDS:   return "@reset_binds";
+        case SHROW_BIND:         return "@bind";
+        case SHROW_GOSHEET:
+            switch (port_sheet_row_bind[row])
+            {
+                case PORT_SHEET_MOUSEKB:    return "@page_mousekb";
+                case PORT_SHEET_PAD:        return "@page_pad";
+                case PORT_SHEET_CTLGENERAL: return "@page_ctlgeneral";
+                case PORT_SHEET_GENERAL:    return "@page_general";
+                case PORT_SHEET_HUD:        return "@page_hud";
+                case PORT_SHEET_PORTOPTS:   return "@page_portopts";
+                case PORT_SHEET_VIDEO:      return "@page_video";
+                case PORT_SHEET_AUDIO:      return "@page_audio";
+            }
+            break;
+    }
+    return NULL;
+}
+
+/** The highlighted row's help line, NULL = no box: the row the open list or
+ * edit belongs to, else the one under the cursor (never a tab). */
+static const char *portSheetHelpText(void)
+{
+    s32 row;
+
+    if (!portSheetHelpOn() || port_sheet_kind == PORT_SHEET_CREDITS || port_osk_open || portDlgIsOpen()
+        || portBindCaptureActive())
+    {
+        return NULL;
+    }
+    if (port_sheet_list_row >= 0)
+    {
+        row = port_sheet_list_row;
+    }
+    else if (port_sheet_edit_row >= 0)
+    {
+        row = port_sheet_edit_row;
+    }
+    else if (port_sheet_highlighted >= 0 && !tab_prev_highlight && !tab_next_highlight && !tab_start_highlight)
+    {
+        row = portSheetSlotRow(port_sheet_highlighted);
+    }
+    else
+    {
+        return NULL;
+    }
+    if (row == -2)
+    {
+        return NULL;
+    }
+    {   /* GE_HELPTEXT=<text>: capture harness, never midas.ini - a long line to show the small font */
+        extern char *getenv(const char *);
+        const char *e = getenv("GE_HELPTEXT");
+
+        if (e != NULL && e[0] != '\0')
+        {
+            return e;
+        }
+    }
+    return portOptHelp(portSheetHelpKey(row));
+}
+
+/** The box's switch-on, in 60 Hz fields like the list's; it restarts each time the box appears. */
+static void portSheetHelpTick(void)
+{
+    static f32 field;
+
+    if (portSheetHelpText() == NULL)
+    {
+        port_sheet_help_anim = 0.0f;
+        field = 0.0f;
+        return;
+    }
+    field += portTickDelta;
+    if (field > 4.0f) field = 4.0f;
+    while (field >= 1.0f)
+    {
+        field -= 1.0f;
+        port_sheet_help_anim += (port_sheet_help_anim < 1.0f) ? PORT_SHEET_ANIM_W : PORT_SHEET_ANIM_H;
+        if (port_sheet_help_anim > 2.0f) port_sheet_help_anim = 2.0f;
+    }
+}
+
+/**
+ * The drop-down list's panel: a dark edge round opaque paper, and its CRT
+ * switch-on (anim 0..1 a line grows from the centre, 1..2 it opens).
+ * Fill rects are lower-right exclusive.
+ */
+static Gfx *portSheetDrawPanel(Gfx *DL, s32 bx0, s32 by0, s32 bx1, s32 by1, f32 anim)
+{
+    const f32 aw = (anim < 1.0f) ? anim : 1.0f;
+    const f32 ah = (anim > 1.0f) ? anim - 1.0f : 0.0f;
+    const s32 cx = (bx0 + bx1) / 2;
+    const s32 cy = (by0 + by1) / 2;
+
+    {   /* the animated size as a WIDTH placed about the centre, not two
+         * halves: at full size it is exactly the box above, odd or even */
+        const s32 curw = (s32) ((f32) (bx1 - bx0) * aw);
+        s32 curh = (s32) ((f32) (by1 - by0) * ah);
+
+        if (curh < 2) curh = 2;
+        bx0 = cx - (bx1 - bx0) / 2 + ((bx1 - bx0) - curw) / 2;
+        bx1 = bx0 + curw;
+        by0 = cy - (by1 - by0) / 2 + ((by1 - by0) - curh) / 2;
+        by1 = by0 + curh;
+    }
+    if (bx1 - bx0 < 2)
+    {
+        return DL;
+    }
+    DL = microcode_constructor_related_to_menus(DL, bx0, by0, bx1, by1, PORT_SHEET_COL_LIST_EDGE);
+    if (bx1 - bx0 > 4 && by1 - by0 > 4)
+    {
+        DL = microcode_constructor_related_to_menus(DL, bx0 + 1, by0 + 1, bx1 - 1, by1 - 1, PORT_SHEET_COL_LIST_BG);
+    }
+    DL = microcode_constructor(DL);
+    return DL;
+}
+
+#define PORT_SHEET_HELP_LINE 80
+/** Word-wrap `text` to the box in one font; returns the lines it needs (more
+ * than `maxlines` = it does not fit, and only the first `maxlines` are kept). */
+static s32 portSheetHelpWrap(const char *text, s32 small, s32 maxlines, char out[][PORT_SHEET_HELP_LINE])
+{
+    const s32 maxw = PORT_SHEET_HELP_X1 - 1 - PORT_SHEET_LIST_PAD - PORT_SHEET_LABEL_X;
+    struct fontchar *chars = small ? ptrFontBankGothicChars : ptrFontZurichBoldChars;
+    struct font *font = small ? ptrFontBankGothic : ptrFontZurichBold;
+    char cur[PORT_SHEET_HELP_LINE];
+    char cand[PORT_SHEET_HELP_LINE + 2];
+    s32 n = 0;
+
+    cur[0] = '\0';
+    while (*text != '\0')
+    {
+        s32 len = 0;
+        s32 h = 0, w = 0;
+
+        while (*text == ' ') text++;
+        while (text[len] != '\0' && text[len] != ' ') len++;
+        if (len == 0)
+        {
+            break;
+        }
+        snprintf(cand, sizeof(cand) - 1, "%s%s%.*s", cur, (cur[0] != '\0') ? " " : "", (int) len, text);
+        strcat(cand, "\n");
+        textMeasure(&h, &w, cand, chars, font, 0);
+        if (w <= maxw || cur[0] == '\0')
+        {
+            cand[strlen(cand) - 1] = '\0';
+            snprintf(cur, sizeof(cur), "%s", cand);
+        }
+        else
+        {
+            if (n < maxlines)
+            {
+                snprintf(out[n], PORT_SHEET_HELP_LINE - 1, "%s", cur);
+            }
+            n++;
+            snprintf(cur, sizeof(cur), "%.*s", (int) len, text);
+        }
+        text += len;
+    }
+    if (cur[0] != '\0')
+    {
+        if (n < maxlines)
+        {
+            snprintf(out[n], PORT_SHEET_HELP_LINE - 1, "%s", cur);
+        }
+        n++;
+    }
+    return n;
+}
+
+/** The help box: the highlighted row's line, in the list's panel, on every folder sheet. */
+static Gfx *portSheetDrawHelp(Gfx *DL)
+{
+    char lines[PORT_SHEET_HELP_SMALL_LINES][PORT_SHEET_HELP_LINE];
+    const char *text = portSheetHelpText();
+    s32 small = FALSE;
+    s32 n, pitch, i, y;
+
+    if (text == NULL)
+    {
+        return DL;
+    }
+    DL = portSheetDrawPanel(DL, PORT_SHEET_HELP_X0, PORT_SHEET_HELP_Y0, PORT_SHEET_HELP_X1, PORT_SHEET_HELP_Y1,
+                            port_sheet_help_anim);
+    if (port_sheet_help_anim < 2.0f)
+    {
+        return DL;   /* still switching on: the shell only */
+    }
+    n = portSheetHelpWrap(text, FALSE, PORT_SHEET_HELP_LINES, lines);
+    pitch = PORT_SHEET_HELP_PITCH;
+    if (n > PORT_SHEET_HELP_LINES)
+    {   /* too long for the sheet's font: the watch's small one */
+        small = TRUE;
+        n = portSheetHelpWrap(text, TRUE, PORT_SHEET_HELP_SMALL_LINES, lines);
+        pitch = PORT_SHEET_HELP_SMALL_PITCH;
+        if (n > PORT_SHEET_HELP_SMALL_LINES)
+        {   /* still too long: cut the last line */
+            char *last = lines[PORT_SHEET_HELP_SMALL_LINES - 1];
+            s32 len = (s32) strlen(last);
+
+            n = PORT_SHEET_HELP_SMALL_LINES;
+            for (; len > 0; len--)
+            {
+                char cut[PORT_SHEET_HELP_LINE + 8];
+                s32 h = 0, w = 0;
+
+                snprintf(cut, sizeof(cut), "%.*s...\n", (int) len, last);
+                textMeasure(&h, &w, cut, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+                if (w <= PORT_SHEET_HELP_X1 - 1 - PORT_SHEET_LIST_PAD - PORT_SHEET_LABEL_X)
+                {
+                    snprintf(last, PORT_SHEET_HELP_LINE - 1, "%.*s...", (int) len, cut);
+                    break;
+                }
+            }
+        }
+    }
+    y = (PORT_SHEET_HELP_Y0 + PORT_SHEET_HELP_Y1) / 2 - (n * pitch) / 2;
+    for (i = 0; i < n; i++)
+    {
+        s32 x = PORT_SHEET_LABEL_X;
+        s32 ly = y + i * pitch;
+
+        strcat(lines[i], "\n");
+        DL = frontPrintText(DL, &x, &ly, lines[i], small ? ptrFontBankGothicChars : ptrFontZurichBoldChars,
+                            small ? ptrFontBankGothic : ptrFontZurichBold, 0xFF, viGetX(), viGetY(), 0, 0);
+    }
+    return DL;
+}
+
 void interface_menu1C_portsheet(void)
 {
     const s32 bwaitlive = port_sheet_bwait_live;   /* before any early return */
@@ -7376,6 +7703,7 @@ void interface_menu1C_portsheet(void)
     {
         portModMenuTick();   /* Lua getters are polled here, never from the draw */
     }
+    portSheetHelpTick();
     press = joyGetButtonsPressedThisFrame(PLAYER_1, START_BUTTON|Z_TRIG|A_BUTTON);
     wheel = portMouseWheelSteps();
     portSheetDpadStep(&dpx, &dpy);   /* every tick, before any early return: it tracks the press edge */
@@ -7812,7 +8140,7 @@ void interface_menu1C_portsheet(void)
         }
         if (best >= 0)
         {
-            cursor_v_pos = (f32) (portSheetSlotY(best) - 1 + PORT_SHEET_ROW_PITCH / 2);
+            cursor_v_pos = (f32) (portSheetSlotY(best) - 1 + portSheetPitch() / 2);
             if (cursor_h_pos > TABS_LEFT_EDGE)
             {   /* the tabs are the whole right-hand column: off them, onto the value */
                 cursor_h_pos = (f32) PORT_SHEET_VALUE_X;
@@ -8127,47 +8455,13 @@ static Gfx *portSheetDrawList(Gfx *DL)
     const s32 count = portSheetListCount(port_sheet_list_row);
     const s32 live = portSheetListLive(port_sheet_list_row);
     s32 x0, y0, w, n, e;
-    s32 bx0, by0, bx1, by1, cx, cy;
-    f32 aw, ah;
 
     portSheetListBox(&x0, &y0, &w, &n);
 
-    /* THE CRT SWITCH-ON: a horizontal line grows out of the centre (aw), then
-     * opens vertically into the panel (ah); closing runs the same back down */
-    aw = (port_sheet_list_anim < 1.0f) ? port_sheet_list_anim : 1.0f;
-    ah = (port_sheet_list_anim > 1.0f) ? port_sheet_list_anim - 1.0f : 0.0f;
-    /* Leave one pixel of paper between the edge and the bands on all four
-     * sides: the box is x0-1 .. x0+w+1 and y0-3 .. last+16 (fill rects are
-     * lower-right exclusive). The open animation below must size it with exact
-     * halves, since integer halving made odd sizes one pixel short on the far
-     * side. */
-    bx0 = x0 - 1;
-    bx1 = x0 + w + 1;
-    by0 = y0 - 3;
-    by1 = y0 + (n - 1) * PORT_SHEET_ROW_PITCH + 16;
-    cx = (bx0 + bx1) / 2;
-    cy = (by0 + by1) / 2;
-    {   /* the animated size as a WIDTH placed about the centre, not two
-         * halves: at full size it is exactly the box above, odd or even */
-        const s32 curw = (s32) ((f32) (bx1 - bx0) * aw);
-        s32 curh = (s32) ((f32) (by1 - by0) * ah);
-
-        if (curh < 2) curh = 2;
-        bx0 = cx - (bx1 - bx0) / 2 + ((bx1 - bx0) - curw) / 2;
-        bx1 = bx0 + curw;
-        by0 = cy - (by1 - by0) / 2 + ((by1 - by0) - curh) / 2;
-        by1 = by0 + curh;
-    }
-    if (bx1 - bx0 < 2)
-    {
-        return DL;
-    }
-    DL = microcode_constructor_related_to_menus(DL, bx0, by0, bx1, by1, PORT_SHEET_COL_LIST_EDGE);
-    if (bx1 - bx0 > 4 && by1 - by0 > 4)
-    {
-        DL = microcode_constructor_related_to_menus(DL, bx0 + 1, by0 + 1, bx1 - 1, by1 - 1, PORT_SHEET_COL_LIST_BG);
-    }
-    DL = microcode_constructor(DL);
+    /* THE CRT SWITCH-ON (portSheetDrawPanel). Leave one pixel of paper between
+     * the edge and the bands on all four sides: the box is x0-1 .. x0+w+1 and
+     * y0-3 .. last+16. */
+    DL = portSheetDrawPanel(DL, x0 - 1, y0 - 3, x0 + w + 1, y0 + (n - 1) * PORT_SHEET_ROW_PITCH + 16, port_sheet_list_anim);
     if (port_sheet_list_anim < 2.0f)
     {
         return DL; /* still opening or closing: the shell only */
@@ -8429,7 +8723,7 @@ Gfx *constructor_menu1C_portsheet(Gfx *DL)
             if (port_sheet_row_bind[row] < 0)
             {   /* the player page: the same rule under its device, at
                  * the height the Control sheet draws its rules between players */
-                const s32 ry = portSheetSlotY(slot) + PORT_SHEET_ROW_PITCH - (PORT_SHEET_ROW_PITCH - 0xE) / 2 - 1;
+                const s32 ry = portSheetSlotY(slot) + portSheetPitch() - (portSheetPitch() - 0xE) / 2 - 1;
 
                 DL = microcode_constructor_related_to_menus(DL, portSheetSlotLabelX(slot) - 2, ry,
                                                             PORT_SHEET_RULE_R, ry + 1, PORT_SHEET_COL_RULE);
@@ -8440,7 +8734,7 @@ Gfx *constructor_menu1C_portsheet(Gfx *DL)
         if (row > 0 && port_sheet_row_kind[row] == SHROW_PLAYERPICK)
         {   /* A RULE BETWEEN PLAYERS, for clarity: a hairline half way
              * between the last player's device line and this name */
-            const s32 ry = portSheetSlotY(slot) - (PORT_SHEET_ROW_PITCH - 0xE) / 2 - 1;
+            const s32 ry = portSheetSlotY(slot) - (portSheetPitch() - 0xE) / 2 - 1;
 
             DL = microcode_constructor_related_to_menus(DL, portSheetSlotLabelX(slot) - 2, ry,
                                                         PORT_SHEET_RULE_R, ry + 1, PORT_SHEET_COL_RULE);
@@ -8482,6 +8776,7 @@ Gfx *constructor_menu1C_portsheet(Gfx *DL)
         }
     }
 
+    DL = portSheetDrawHelp(DL);   /* under the list, which may reach down over it */
     if (port_sheet_list_row >= 0)
     {
         DL = portSheetDrawList(DL); /* last, so it sits over the rows it covers */
@@ -14364,7 +14659,7 @@ static void portWsetListOpenFor(s32 slot)
                    : (slot == PORT_MPSET_LIST_LOAD) ? PORT_MP_PICK_Y0                        /* Load Settings, row 0 */
                    : (slot >= PORT_WSET_LIST_LOAD) ? PORT_MP_PICK_Y0 + PORT_MP_PICK_PITCH   /* Load Set, row 1 */
                                                    : PORT_MP_PICK_Y0 + slot * PORT_WSET_EDIT_PITCH;
-    const s32 ymax = PORT_SHEET_ROW_Y0 + (PORT_SHEET_SLOTS - 1) * PORT_SHEET_ROW_PITCH;
+    const s32 ymax = PORT_SHEET_LAST_Y;
     s32 count, live, top, at;
 
     port_wset_list_slot = slot;
@@ -14376,7 +14671,7 @@ static void portWsetListOpenFor(s32 slot)
         return;
     }
     if (live < 0) live = 0;
-    port_wset_list_vis = (count < PORT_SHEET_SLOTS) ? count : PORT_SHEET_SLOTS;
+    port_wset_list_vis = (count < PORT_SHEET_LIST_LINES) ? count : PORT_SHEET_LIST_LINES;
     port_wset_list_idx = live;
     top = rowy - live * PORT_SHEET_ROW_PITCH;
     if (top > ymax - (port_wset_list_vis - 1) * PORT_SHEET_ROW_PITCH)
@@ -17010,7 +17305,13 @@ void interface_menu0D_missioncomplete()
 
     if (tab_next_selected)
     {
+#ifdef TARGET_N64
         if (frontCompleteAllObjectivesAliveSuccess() && (!g_AppendCheatSinglePlayer))
+#else
+        /* With cheats on the next dossier opens too (murkantor/Project-Midas#23); nothing is
+         * saved for the run (end_of_mission_briefing). */
+        if (frontCompleteAllObjectivesAliveSuccess())
+#endif
         {
             if (mission_folder_setup_entries[briefingpage].mission_num == SP_LEVEL_CRADLE)
             {
@@ -17035,7 +17336,13 @@ void interface_menu0D_missioncomplete()
                     entry++;
                 }
 
-                if (mission_folder_setup_entries[entry].folder_text_preset)
+                if (mission_folder_setup_entries[entry].folder_text_preset
+#ifndef TARGET_N64
+                    /* with cheats, only a mission the folder would let you pick at this difficulty */
+                    && (!g_AppendCheatSinglePlayer
+                        || get_highest_unlocked_difficulty_for_level(mission_folder_setup_entries[entry].mission_num) >= selected_difficulty)
+#endif
+                    )
                 {
                     briefingpage = entry;
                     selected_stage = mission_folder_setup_entries[entry].stage_id;

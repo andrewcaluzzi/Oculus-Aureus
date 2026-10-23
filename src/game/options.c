@@ -969,10 +969,12 @@ void portHudSlideTick(void)
         g_portHealthSlide = health;
     }
     last = g_PortFramesPumped;
-    g_portHudSlide +=(hud > g_portHudSlide) ? step : -step;
-    g_portHealthSlide += (health > g_portHealthSlide) ? step : -step;
-    if ((step > 0.0f) && ((hud - g_portHudSlide) * (hud - g_portHudSlide) < step * step)) { g_portHudSlide = hud; }
-    if ((step > 0.0f) && ((health - g_portHealthSlide) * (health - g_portHealthSlide) < step * step)) { g_portHealthSlide = health; }
+    /* step toward the setting and stop on it: stepping away from it at rest made
+     * a Wide HUD bounce between 1 and 1 - step every other tick */
+    if (hud > g_portHudSlide) { g_portHudSlide = (g_portHudSlide + step < hud) ? g_portHudSlide + step : hud; }
+    else { g_portHudSlide = (g_portHudSlide - step > hud) ? g_portHudSlide - step : hud; }
+    if (health > g_portHealthSlide) { g_portHealthSlide = (g_portHealthSlide + step < health) ? g_portHealthSlide + step : health; }
+    else { g_portHealthSlide = (g_portHealthSlide - step > health) ? g_portHealthSlide - step : health; }
     if (g_portHudSlide < 0.0f) { g_portHudSlide = 0.0f; }
     if (g_portHudSlide > 1.0f) { g_portHudSlide = 1.0f; }
     if (g_portHealthSlide < 0.0f) { g_portHealthSlide = 0.0f; }
@@ -1007,6 +1009,45 @@ f32 portHealthSlide(void)
 u32 portHudAnchorFrac(void)
 {
     return 0x01000000u | ((u32) (portHudSlide() * 255.0f + 0.5f) << 16);
+}
+
+/* HUD SCALE (midas.ini [display] hud_scale, video.c portHudScaleActive): the
+ * in-game HUD drawn as on a 640x480 canvas. Each element is bracketed with the
+ * screen point its layout is measured from (a viewport corner or edge, the
+ * aim point for the sight), and gfx_pc.cpp draws its 2D rects at half size
+ * about it, so the layout keeps its places and the elements get smaller. */
+s32 portHudScaleOn(void)
+{
+    extern s32 portHudScaleActive(void);   /* video.c; weak 0 headless */
+
+    /* the Cuba credits keep their full-size text */
+    return bossGetStageNum() != LEVELID_CUBA && portHudScaleActive();
+}
+
+/** Opens a HUD element's bracket at pivot (x, y) in screen units; nothing when off. */
+Gfx *portHudScaleBegin(Gfx *gdl, f32 x, f32 y)
+{
+    s32 x4 = (s32) (x * 4.0f + 0.5f);
+    s32 y4 = (s32) (y * 4.0f + 0.5f);
+
+    if (!portHudScaleOn())
+    {
+        return gdl;
+    }
+    x4 = (x4 < 0) ? 0 : (x4 > 0xFFE) ? 0xFFE : x4;
+    y4 = (y4 < 0) ? 0 : (y4 > 0xFFE) ? 0xFFE : y4;
+    gDPNoOpTag(gdl++, 0x58000000u | ((u32) x4 << 12) | (u32) y4);
+    return gdl;
+}
+
+Gfx *portHudScaleEnd(Gfx *gdl)
+{
+    if (!portHudScaleOn())
+    {
+        return gdl;
+    }
+    gDPNoOpTag(gdl++, 0x58FFFFFFu);
+    return gdl;
 }
 
 s32 hudAnchorsToEdges(void)
@@ -1215,6 +1256,7 @@ extern s32 portMouseClickHeld(void);
 extern s32 portMouseWheelSteps(void);
 extern u16 portMouseBindMask(void);
 extern s32 portJoyPortWatchStep(void);
+extern s32 portJoyPortWatchStepUpDown(void);
 extern void portWatchProjectFace(f32 mx, f32 mz, f32 *nx, f32 *ny);
 extern void portMouseMenuWarp(f32 gx, f32 gy, f32 left, f32 top, f32 width, f32 height);
 extern void portMouseMenuPark(f32 gx, f32 gy, f32 cx, f32 cy, f32 left, f32 top, f32 width, f32 height);
@@ -1437,6 +1479,12 @@ void portWatchMouseTick(void)
         s32 step = portJoyPortWatchStep();
         if (step > 0) portJoyInjectPressed(PLAYER_1, R_JPAD);
         else if (step < 0) portJoyInjectPressed(PLAYER_1, L_JPAD);
+    }
+    { /* watch_up / watch_down = the D-pad up/down edge, one step per press;
+       * holding them repeats through portWatchHoldRepeatTick */
+        s32 step = portJoyPortWatchStepUpDown();
+        if (step > 0) portJoyInjectPressed(PLAYER_1, D_JPAD);
+        else if (step < 0) portJoyInjectPressed(PLAYER_1, U_JPAD);
     }
     { /* USE = CONFIRM: the Port use bind is A in the watch
        * too (front.c menu_init does the same for the frontend menus) */
@@ -2374,8 +2422,9 @@ void disable_watch_stick_y_nav_ready(void)
 
 
 #ifndef TARGET_N64
-/* Hold to repeat: holding up/down (stick, the pad's digital Move, D-pad or C
- * buttons) repeats after 0.4 s and then every 0.1 s, like portSheetDpadStep.
+/* Hold to repeat: holding up/down (stick, the pad's digital Move, D-pad, C
+ * buttons or the watch_up / watch_down binds) repeats after 0.4 s and then
+ * every 0.1 s, like portSheetDpadStep.
  * Computed once per watch tick and ORed into every page's up/down checks, since
  * vanilla stepped once and waited for the stick to recentre. */
 static s32 port_watch_rep[2];   /* this tick: 0 up, 1 down */
@@ -2384,9 +2433,11 @@ static void portWatchHoldRepeatTick(void)
 {
     extern f32 portTickDelta;   /* frametiming.c: this tick's field delta */
     extern s32 portInputPadDigMoveP1(s32 *dx, s32 *dy) __attribute__((weak)); /* input_pc.c */
+    extern void portJoyPortWatchHeldUpDown(s32 *up, s32 *down) __attribute__((weak)); /* joy_port.c */
     static f32 held[2];
     static s32 prev[2];
     s32 dx = 0, dy = 0;
+    s32 bindup = 0, binddown = 0;
     s32 dir[2];
     s32 a;
 
@@ -2394,8 +2445,12 @@ static void portWatchHoldRepeatTick(void)
     {
         portInputPadDigMoveP1(&dx, &dy);
     }
-    dir[0] = is_holding_greater_than_2E_up_on_stick() || dy > 0 || joyGetButtons(PLAYER_1, U_JPAD | U_CBUTTONS);
-    dir[1] = is_holding_greater_than_2E_down_on_stick() || dy < 0 || joyGetButtons(PLAYER_1, D_JPAD | D_CBUTTONS);
+    if (portJoyPortWatchHeldUpDown != NULL)
+    {
+        portJoyPortWatchHeldUpDown(&bindup, &binddown);
+    }
+    dir[0] = is_holding_greater_than_2E_up_on_stick() || dy > 0 || bindup || joyGetButtons(PLAYER_1, U_JPAD | U_CBUTTONS);
+    dir[1] = is_holding_greater_than_2E_down_on_stick() || dy < 0 || binddown || joyGetButtons(PLAYER_1, D_JPAD | D_CBUTTONS);
     for (a = 0; a < 2; a++)
     {
         port_watch_rep[a] = FALSE;
@@ -2895,10 +2950,33 @@ void game_options_inventory_navigation(void)
     s32 count;
     s32 item_line_height;
     s32 selected_item_line_height;
+#ifndef TARGET_N64
+    /* A key or a pad's digital Move drives the stick at full tilt, which scrolls an
+     * item every tick; while one is down the list steps once per press and repeats. */
+    extern s32 portVideoKbdStickDown(void);
+    extern void portVideoKbdDigitalMove(s32 *dx, s32 *dy) __attribute__((weak)); /* video.c */
+    extern s32 portInputPadDigMoveP1(s32 *dx, s32 *dy) __attribute__((weak));
+    s32 port_dx = 0;
+    s32 port_dy = 0;
+    s32 port_ky = 0;
+    s32 port_stick;
+
+    if (portVideoKbdDigitalMove != NULL)
+    {
+        portVideoKbdDigitalMove(&port_dx, &port_ky);
+    }
+    if (portInputPadDigMoveP1 != NULL)
+    {
+        portInputPadDigMoveP1(&port_dx, &port_dy);
+    }
+    port_stick = !(portVideoKbdStickDown() && port_ky != 0) && port_dy == 0;
+#else
+#define port_stick 1
+#endif
 
     count = bondinvCountTotalItemsInInv();
 
-    if (!get_debug_gunwatchpos_flag())
+    if (!get_debug_gunwatchpos_flag() && port_stick)
     {
         if (joyGetButtonsPressedThisFrame(PLAYER_1, U_JPAD | U_CBUTTONS) || joyGetStickY(PLAYER_1) >= 0x47)
         {
@@ -2942,20 +3020,25 @@ after_updown:
         }
     }
 
-    if (joyGetStickY(PLAYER_1) >= 0x1f
+    if (port_stick
+        && joyGetStickY(PLAYER_1) >= 0x1f
         && joyGetStickY(PLAYER_1) < 0x46
         && g_curWatchItemIndex > 0
         && !watch_item_is_actively_selected)
     {
         if (portWatchMenuField()) watch_inventory_cursor_pos -= (f32) joyGetStickY(PLAYER_1) / 300.0f;
     }
-    else if (joyGetStickY(PLAYER_1) < -0x1e
+    else if (port_stick
+        && joyGetStickY(PLAYER_1) < -0x1e
         && joyGetStickY(PLAYER_1) >= -0x45
         && (s32) watch_inventory_cursor_pos < count - 1
         && !watch_item_is_actively_selected)
     {
         if (portWatchMenuField()) watch_inventory_cursor_pos -= (f32) joyGetStickY(PLAYER_1) / 300.0f;
     }
+#ifdef TARGET_N64
+#undef port_stick
+#endif
 
 #ifndef TARGET_N64
     /* hold to repeat here too (portWatchHoldRepeatTick) */

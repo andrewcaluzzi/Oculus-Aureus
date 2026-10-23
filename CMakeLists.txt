@@ -174,6 +174,7 @@ set(GU_SRC
 # Known caveats: bg .c interior point tables, ANIM_DATA_* streams and
 # oddtextures texel data are big-endian blobs.
 set(ASSET_C_FLAGS
+    -std=gnu11
     -m32 -malign-data=abi
     -fms-extensions -ffreestanding -fno-strict-aliasing -fwrapv -funsigned-char
     -fno-common -fno-zero-initialized-in-bss -fno-toplevel-reorder -fno-pic

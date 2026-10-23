@@ -81,7 +81,15 @@ void end_of_mission_briefing(void)
 #endif
         if ((getMissiontimer() / GAME_TICKRATE) <= var1)
         {
+#ifndef TARGET_N64
+            /* the save's own bit: under Unlock All fileGetIsCheatUnlocked reports
+             * every cheat owned, so a target time beaten would never be saved */
+            extern bool portFileGetIsCheatUnlockedRaw(save_data *save, s32 cheat);
+
+            if (!portFileGetIsCheatUnlockedRaw(fileGetSaveForFoldernum(selected_folder_num), mission_folder_setup_entries[briefingpage].mission_num))
+#else
             if (!fileGetIsCheatUnlocked(fileGetSaveForFoldernum(selected_folder_num), mission_folder_setup_entries[briefingpage].mission_num))
+#endif
             {
                 fileSaveFolderUnlockCheat(selected_folder_num, mission_folder_setup_entries[briefingpage].mission_num);
                 g_NewCheatUnlocked = TRUE;

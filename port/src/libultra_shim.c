@@ -37,6 +37,7 @@
 #include <ultra64.h>
 #include "libultra/io/controller.h" /* OSPifRam + the __osCont/__osSi internal API */
 #include "port_libultra.h"
+#include "game/file.h"  /* save_data / smallSave: EEPROM import from big-endian saves */
 
 /* port_console.c: same output as the fprintf(stderr, ...) this replaced,
  * plus a silent copy in the tilde console ring (spec section 7). */
@@ -109,6 +110,21 @@ __attribute__((weak)) s32 portInputPadLookYP1(void)   /* input_pc.c: no pads hea
 __attribute__((weak)) s32 portWatchStatic(void)   /* video.c: [display] watch_static, vanilla on */
 {
     return 1;
+}
+
+__attribute__((weak)) s32 portFastPause(void)   /* video.c: [display] fast_pause, vanilla off */
+{
+    return 0;
+}
+
+__attribute__((weak)) s32 portArmorHud(void)   /* video.c: [display] armor_hud, vanilla off */
+{
+    return 0;
+}
+
+__attribute__((weak)) s32 portWeaponFov(void)   /* video.c: [display] weapon_fov, vanilla off (Match View) */
+{
+    return 0;
 }
 
 __attribute__((weak)) void portConsoleSpace(s32 *w, s32 *h)   /* video.c: the console's 2D space */
@@ -200,6 +216,12 @@ __attribute__((weak)) s32 portClassicPillars(void)
 __attribute__((weak)) s32 portPausePillars(void)
 {
     return 1;
+}
+
+/** Weak default: N64-size HUD headless (no window to measure); video.c overrides. */
+__attribute__((weak)) s32 portHudScaleActive(void)
+{
+    return 0;
 }
 
 /** Weak default: no always-on crosshair (vanilla look); video.c overrides. */
@@ -807,6 +829,10 @@ __attribute__((weak)) f32 portFovCfg(void)
  * count = us * (46875000/1000) / (1000000/1000) = us * 46875 / 1000.
  */
 #ifdef _WIN32
+/* Lean: only QueryPerformance* is used, and the full header pulls in
+ * winsock.h, whose ntohl/ntohs prototypes are mangled by the macros of the
+ * same name in bondconstants.h (via game/file.h above). */
+#define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 static u64 portHostMicroseconds(void)
 {
@@ -1454,6 +1480,56 @@ u8 __osContAddressCrc(u16 addr)
 
 static u8 sEeprom[PORT_EEPROM_SIZE];
 
+void fileGenerateCRC(u8 *addressA, u8 *addressB, save_data *retval); /* game/crc.c */
+
+static s32 eepromGetBE32(const u8 *p)
+{
+    return (s32)(((u32)p[0] << 24) | ((u32)p[1] << 16) | ((u32)p[2] << 8) | p[3]);
+}
+
+/* One header or folder record: keep it if its checksums pass as stored by the
+ * port (host order), else convert it if they pass as big-endian cart data. */
+static s32 eepromImportRecord(u8 *rec, u32 len, s32 optionsoff)
+{
+    save_data crc;
+    s32 host[2];
+
+    memcpy(host, rec, sizeof(host));
+    fileGenerateCRC(rec + 8, rec + len, &crc);
+    if (crc.chksum1 == host[0] && crc.chksum2 == host[1]) {
+        return 0;
+    }
+    if (crc.chksum1 != eepromGetBE32(rec) || crc.chksum2 != eepromGetBE32(rec + 4)) {
+        return 0;
+    }
+    if (optionsoff >= 0) {
+        u16 options = (u16)((rec[optionsoff] << 8) | rec[optionsoff + 1]);
+
+        memcpy(rec + optionsoff, &options, sizeof(options));
+        fileGenerateCRC(rec + 8, rec + len, &crc);
+    }
+    memcpy(rec, &crc.chksum1, sizeof(s32));
+    memcpy(rec + 4, &crc.chksum2, sizeof(s32));
+    return 1;
+}
+
+/* Project64 .eep files and real carts hold GE's save structs big-endian; the
+ * port stores them in host order. Convert records that only validate big-endian. */
+static void eepromImportN64(void)
+{
+    s32 converted = 0;
+    s32 i;
+
+    converted += eepromImportRecord(sEeprom, sizeof(smallSave), -1);
+    for (i = 0; i < 5; i++) {
+        converted += eepromImportRecord(sEeprom + sizeof(smallSave) + i * sizeof(save_data),
+                sizeof(save_data), offsetof(save_data, options));
+    }
+    if (converted) {
+        portConLogf("ge: eeprom: imported %d big-endian (Project64/cart) records\n", converted);
+    }
+}
+
 static void eepromEnsureDir(void)
 {
     extern const char *portRootPath(const char *name);
@@ -1506,6 +1582,9 @@ static void eepromLoad(void)
         size_t n = fread(sEeprom, 1, sizeof(sEeprom), f);
         fclose(f);
         portConLogf("ge: eeprom.bin loaded (%u bytes)\n", (unsigned)n);
+        if (n == sizeof(sEeprom)) {
+            eepromImportN64();
+        }
     }
 }
 

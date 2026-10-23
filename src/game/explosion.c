@@ -1937,6 +1937,14 @@ Gfx *explosionRenderFlyingParticles(Gfx *gdl)
     s32 i;
     Mtx *temp_v0_2;
     struct FlyingParticles *particles;
+#ifndef TARGET_N64
+    /* Debris steps once per 60Hz field; at higher tick rates draw each piece
+     * `phase` of the way to its next step (render only). */
+    extern f32 portRenderFieldPhase(void); /* frametiming.c */
+    f32 ph = portRenderFieldPhase();
+    struct coord3d drawpos;
+    struct coord3d drawrot;
+#endif
 
     gSPClearGeometryMode(gdl++, G_CULL_BOTH);
     gSPSegment(gdl++, SPSEGMENT_GETITLE, osVirtualToPhysical((void*)pGlobalimagetable));
@@ -1952,7 +1960,17 @@ Gfx *explosionRenderFlyingParticles(Gfx *gdl)
 
         if (particles->unk00 > 0)
         {
+#ifndef TARGET_N64
+            drawpos.f[0] = particles->position.f[0] + particles->position_drift.f[0] * ph;
+            drawpos.f[1] = particles->position.f[1] + particles->position_drift.f[1] * ph;
+            drawpos.f[2] = particles->position.f[2] + particles->position_drift.f[2] * ph;
+            drawrot.f[0] = particles->rotation.f[0] + particles->rotation_drift.f[0] * ph;
+            drawrot.f[1] = particles->rotation.f[1] + particles->rotation_drift.f[1] * ph;
+            drawrot.f[2] = particles->rotation.f[2] + particles->rotation_drift.f[2] * ph;
+            matrix_4x4_set_position_and_rotation_around_xyz(&drawpos, &drawrot, &sp80);
+#else
             matrix_4x4_set_position_and_rotation_around_xyz(&particles->position, &particles->rotation, &sp80);
+#endif
             matrix_4x4_multiply_homogeneous_in_place(camGetWorldToScreenMtxf(), &sp80);
 
             if ((sp80.m[3][0] < 20000.0f)

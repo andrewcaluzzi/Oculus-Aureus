@@ -64,6 +64,8 @@ static float s_OptStickScale = 1.0f;    /* extra stick sensitivity */
 static int   s_OptPads = 4;             /* N64 pads reported connected */
 static int   s_OptRumble = 1;
 static int   s_OptShowInput = 0;        /* on-screen stick X/Y readout */
+static int   s_OptBgInput = 0;          /* [input] background_input: pads keep working while the
+                                         * window is unfocused; keyboard and mouse do not */
 static int   s_OptSmartLock = 1;        /* [input] smart_mouse_lock: capture the pointer exactly
                                          * while gameplay owns it, instead of click-to-capture */
 /* [input] p1_hybrid (default on): player 1 takes keyboard, mouse and pad
@@ -75,6 +77,7 @@ static int   s_OptP1Hybrid = 1;
  * mouse and keyboard, 1 = the pad in slot 0), set by pressing a key or button
  * on the page's "input device" row; with p1_hybrid both still drive player 1. */
 static int   s_OptP1View = 0;
+static int   s_OptP1ViewKbm = 0;      /* p1_view says "kbm": mouse and keyboard were picked, not just the default */
 /* [input] p1_settings_for: whose Devices/ record the pad1_* keys currently
  * belong to ("kbm", a GUID or raphnet<chan>; "" = unknown). It never decides
  * who sits in slot 0, only where settings get saved (see the PER-DEVICE
@@ -144,8 +147,10 @@ enum
     PM_PORT_FIRST,
     /* +19 mouse_unlock (never bound on a pad, but the order must match
      * joy_port's, checked at init),
-     * +20 classic_toggle (Classic Mode bindable on a pad, as Tab is on the keyboard) */
-    PM_PORT_LAST = PM_PORT_FIRST + 20,
+     * +20 classic_toggle (Classic Mode bindable on a pad, as Tab is on the keyboard),
+     * +21 / +22 watch_up / watch_down (unbound: a pad's D-pad or Move already
+     * steps the watch lists) */
+    PM_PORT_LAST = PM_PORT_FIRST + 22,
     PM_COUNT
 };
 #define PM_PORT_COUNT (PM_PORT_LAST - PM_PORT_FIRST + 1)
@@ -166,6 +171,7 @@ static const char *sPadMapNames[PM_COUNT] =
     "zoom_in", "zoom_out",
     "menu_accept", "menu_back",
     "mouse_unlock", "classic_toggle",
+    "watch_up", "watch_down",
 };
 /* The raw (unmapped DInput) fallback layout of portInputPadMerge expressed as
  * map tokens, so the launcher, first-rebind seed and bind rows can describe it.
@@ -772,6 +778,9 @@ static bool s_InputInitDone = false;
 static int s_MouseLocked = 0;
 static int s_MouseFreed = 0;  /* smart lock: Escape handed the pointer back - hold off until a click */
 static int s_ClickIsTouch = 0; /* the last mouse press was a touch tap */
+/* the game window's keyboard focus, from SDL's FOCUS_GAINED / FOCUS_LOST
+ * (inputEventWatch); starts at 1 so a run that never gets a focus event is focused */
+static volatile int s_WindowFocused = 1;
 /* FREE-POINTER WARP CHECK: on platforms that ignore warps of a free pointer
  * (Wayland, gamescope on the Deck) the menu cursor stays pinned at the clamp
  * edge, so detect an ignored warp and drive the free cursor from OS deltas from
@@ -1982,7 +1991,17 @@ static int inputEventWatch(void *userdata, SDL_Event *event)
          * the pointer (portInputMouseUpdate). Whichever device pressed last. */
         s_ClickIsTouch = (event->button.which == SDL_TOUCH_MOUSEID);
         break;
+    case SDL_WINDOWEVENT:
+        if (event->window.event == SDL_WINDOWEVENT_FOCUS_GAINED || event->window.event == SDL_WINDOWEVENT_FOCUS_LOST)
+        {
+            s_WindowFocused = (event->window.event == SDL_WINDOWEVENT_FOCUS_GAINED);
+        }
+        break;
     case SDL_MOUSEWHEEL:
+        if (s_OptBgInput && !s_WindowFocused)
+        {
+            break;   /* background_input: a wheel over the unfocused window is not ours */
+        }
         { /* "Mouse Wheel Up/Down" binds (video.c) */
             extern void videoMouseWheel(int dy);
             videoMouseWheel(event->wheel.y);
@@ -2225,6 +2244,17 @@ void portInputInit(void)
     SDL_GameControllerUpdate();
     inputAssignSlotsEx(1);
 
+    { /* the focus as it stands now: a window that opens behind another one
+       * (a launcher, an alt-tab during the load) gets no FOCUS_LOST, so the
+       * watch below would read "focused" until the first focus change */
+        extern SDL_Window *gfx_sdl_get_window(void);
+        SDL_Window *w = gfx_sdl_get_window();
+
+        if (w != NULL)
+        {
+            s_WindowFocused = (SDL_GetWindowFlags(w) & SDL_WINDOW_INPUT_FOCUS) != 0;
+        }
+    }
     SDL_AddEventWatch(inputEventWatch, NULL);
 }
 
@@ -3521,6 +3551,24 @@ void portInputCalibratePadAndExit(const char *arg)
     exit(0);
 }
 
+/** 1 = the game window has keyboard focus (SDL window focus events). */
+s32 portInputWindowFocused(void)
+{
+    return s_WindowFocused;
+}
+
+/* SDL drops joystick events while no window of ours has focus unless this hint
+ * is set; its callback applies a change at once, before or after SDL_Init. */
+static void inputSetBgInput(int on)
+{
+    if (s_OptBgInput != (on != 0))
+    {
+        portConLogf("ge: input: background_input %s\n", on ? "on - pads read while unfocused" : "off");
+    }
+    s_OptBgInput = on != 0;
+    SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, s_OptBgInput ? "1" : "0");
+}
+
 /* ---- midas.ini settings ---------------------------------------------------- */
 
 /**
@@ -3534,7 +3582,12 @@ s32 portInputSetOption(const char *key, const char *value)
                                                                    * ignored */
     if (SDL_strcmp(key, "smart_mouse_lock") == 0)   { s_OptSmartLock = SDL_atoi(value); return 1; }
     if (SDL_strcmp(key, "p1_hybrid") == 0)          { s_OptP1Hybrid = SDL_atoi(value); return 1; }
-    if (SDL_strcmp(key, "p1_view") == 0)            { s_OptP1View = (SDL_strcasecmp(value, "pad") == 0); return 1; }
+    if (SDL_strcmp(key, "p1_view") == 0)
+    {
+        s_OptP1View = (SDL_strcasecmp(value, "pad") == 0);
+        s_OptP1ViewKbm = (SDL_strcasecmp(value, "kbm") == 0);
+        return 1;
+    }
     if (SDL_strcmp(key, "p1_settings_for") == 0)    { SDL_strlcpy(s_P1SettingsFor, value, sizeof(s_P1SettingsFor)); return 1; }
     if (SDL_strcmp(key, "mouse_sens_x") == 0)       { s_OptMouseSensX = (float)SDL_atof(value); return 1; }
     if (SDL_strcmp(key, "mouse_sens_y") == 0)       { s_OptMouseSensY = (float)SDL_atof(value); return 1; }
@@ -3552,6 +3605,7 @@ s32 portInputSetOption(const char *key, const char *value)
     if (SDL_strcmp(key, "xinput") == 0)             { s_OptXInput = SDL_atoi(value) != 0; return 1; }
     if (SDL_strcmp(key, "rumble") == 0)             { s_OptRumble = SDL_atoi(value); return 1; }
     if (SDL_strcmp(key, "show_input") == 0)         { s_OptShowInput = SDL_atoi(value); return 1; }
+    if (SDL_strcmp(key, "background_input") == 0)   { inputSetBgInput(SDL_atoi(value)); return 1; }
     if (SDL_strncmp(key, "raphnet", 7) == 0 && (key[7] == '0' || key[7] == '1')
         && SDL_strcmp(key + 8, "_style") == 0)
     {   /* raphnet<chan>_style: auto, 1.1 .. 2.4, 2.1p2 .. 2.4p2 (see s_RaphnetStyle) */
@@ -7257,6 +7311,7 @@ s32 portInputOptionGet(const char *key, s32 *out)
     if (SDL_strcmp(key, "pads") == 0)              { *out = s_OptPads; return 1; }
     if (SDL_strcmp(key, "rumble") == 0)            { *out = s_OptRumble; return 1; }
     if (SDL_strcmp(key, "show_input") == 0)        { *out = s_OptShowInput; return 1; }
+    if (SDL_strcmp(key, "background_input") == 0)  { *out = s_OptBgInput; return 1; }
     return 0;
 }
 
@@ -7294,6 +7349,7 @@ s32 portInputOptionSet(const char *key, s32 v)
     if (SDL_strcmp(key, "pads") == 0)              { s_OptPads = (v < 1) ? 1 : (v > 4) ? 4 : v; return 1; }
     if (SDL_strcmp(key, "rumble") == 0)            { s_OptRumble = v != 0; return 1; }
     if (SDL_strcmp(key, "show_input") == 0)        { s_OptShowInput = v != 0; return 1; }
+    if (SDL_strcmp(key, "background_input") == 0)  { inputSetBgInput(v); return 1; }
     return 0;
 }
 
@@ -8678,11 +8734,13 @@ void portInputMouseUpdate(void)
             if (s_MouseVY < 0) s_MouseVY = 0;
             if (ww > 0 && s_MouseVX >= ww) s_MouseVX = ww - 1;
             if (wh > 0 && s_MouseVY >= wh) s_MouseVY = wh - 1;
-            s_MouseMoved = (fdx != 0 || fdy != 0);
+            s_MouseMoved = (fdx != 0 || fdy != 0) && !(s_OptBgInput && !s_WindowFocused);
         }
         else
         {
-            s_MouseMoved = (ax != s_MouseVX || ay != s_MouseVY);
+            /* background_input: a pointer crossing the unfocused window
+             * must not steer the menus the pad is driving */
+            s_MouseMoved = (ax != s_MouseVX || ay != s_MouseVY) && !(s_OptBgInput && !s_WindowFocused);
             s_MouseVX = ax;
             s_MouseVY = ay;
         }
@@ -9095,6 +9153,11 @@ void portInputRumble(s32 channel, s32 on)
     if (channel < 0 || channel >= INPUT_MAX_PADS || !s_OptRumble
         || !s_PadRumbleOn[channel])
     {
+        return;
+    }
+    if (on && channel == 0 && s_OptP1View == 0 && s_OptP1ViewKbm)
+    {   /* player 1 picked mouse and keyboard: the pad left in slot 1 for
+         * p1_hybrid is not what they hold, so it stays still */
         return;
     }
     if (s_PadRaphnet[channel] != 0)

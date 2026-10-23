@@ -6,7 +6,10 @@
 #   releases\<name>\windows\    ProjectMidas.exe SDL2.dll gamecontrollerdb.txt gamecontrollerdefault.txt midas_ini_help.txt Data\ Mods\
 #   releases\<name>\linux\      ProjectMidas (build_deck) libSDL2-2.0.so.0 (i386) gamecontrollerdb.txt gamecontrollerdefault.txt midas_ini_help.txt Data\ Mods\
 #   releases\<name>\steamdeck\  the linux set + libSDL2-2.0.so.0 (i386) + run.sh
-#   releases\<name>\GE-<name>-{windows,linux,steamdeck}.7z   when 7z is on the PATH
+#   releases\<name>\ProjectMidas-<name>-{windows,linux,steamdeck}.zip
+#
+# Name it after the version for a release, e.g. -Name v1.0.2b gives
+# ProjectMidas-v1.0.2b-windows.zip. Zips, not 7z: some players could not open 7z.
 #
 # RUNTIME payload only: never a ROM, midas.ini, eeprom.bin, gamecontrolleruser.txt
 # or logs. The launcher is NOT bundled. Build first - this
@@ -102,15 +105,27 @@ Copy-Item $sdlso (Join-Path $deck "libSDL2-2.0.so.0")
 [IO.File]::WriteAllText((Join-Path $deck "run.sh"),
     "#!/bin/sh`n# Steam Deck / 32-bit-capable Linux with ${glibcNote}: run the game with the bundled SDL.`n# If the bundled SDL needs a library this system lacks, fall back to the`n# system 32-bit SDL2 (lib32-sdl2) if it has one.`ncd `"`$(dirname `"`$0`")`"`nchmod +x ./ProjectMidas 2>/dev/null`nif LD_LIBRARY_PATH=. ldd ./ProjectMidas 2>/dev/null | grep -q `"not found`"; then`n    echo `"run.sh: bundled SDL2 is missing a dependency here; using the system SDL2`" >&2`n    exec ./ProjectMidas `"`$@`"`nfi`nLD_LIBRARY_PATH=.; export LD_LIBRARY_PATH`nexec ./ProjectMidas `"`$@`"`n")
 
-$sevenzip = (Get-Command 7z -ErrorAction SilentlyContinue).Source
-if (-not $sevenzip -and (Test-Path "C:\Program Files\7-Zip\7z.exe")) { $sevenzip = "C:\Program Files\7-Zip\7z.exe" }
-if ($sevenzip) {
-    foreach ($p in @("windows", "linux", "steamdeck")) {
-        $arc = Join-Path $out "GE-$Name-$p.7z"
-        & $sevenzip a -bso0 -bsp0 $arc (Join-Path $out $p) | Out-Null
+# each zip holds one top folder named like the zip; entry names use '/' so
+# Linux unzip sees folders (Compress-Archive on PowerShell 5 writes '\')
+Add-Type -AssemblyName System.IO.Compression
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+foreach ($p in @("windows", "linux", "steamdeck")) {
+    $base = "ProjectMidas-$Name-$p"
+    $arc = Join-Path $out "$base.zip"
+    $src = Join-Path $out $p
+    $zip = [IO.Compression.ZipFile]::Open($arc, [IO.Compression.ZipArchiveMode]::Create)
+    try {
+        Get-ChildItem -Recurse $src | ForEach-Object {
+            $rel = $_.FullName.Substring($src.Length + 1) -replace '\\', '/'
+            if ($_.PSIsContainer) {
+                [void]$zip.CreateEntry("$base/$rel/")
+            } else {
+                [void][IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $_.FullName, "$base/$rel", [IO.Compression.CompressionLevel]::Optimal)
+            }
+        }
+    } finally {
+        $zip.Dispose()
     }
-} else {
-    "7z not found: folders only, no archives"
 }
 
 Get-ChildItem -Recurse $out | Where-Object { -not $_.PSIsContainer } |

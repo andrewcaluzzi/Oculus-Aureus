@@ -69,6 +69,13 @@ static void portFadeNote(PropRecord *prop, s32 state, s32 alpha, f32 foga);
 #define MONITOR_TIMER_DELTA g_GlobalTimerDelta
 #endif
 
+#ifndef TARGET_N64
+/* Monitor scripts count their pauses in whole fields, so their scrolls must too or
+ * one-field steps smear across sub-ticks and drift from the pauses (murkantor/Project-Midas#27). */
+#undef MONITOR_TIMER_DELTA
+#define MONITOR_TIMER_DELTA ((portTickHz() != 60) ? (f32) g_ClockTimer : g_GlobalTimerDelta)
+#endif
+
 #if defined(VERSION_JP)
 #define OBJECT_INTERACTION_TIMER_DELTA g_JP_GlobalTimerDelta
 #else
@@ -2134,7 +2141,7 @@ s32 sub_GAME_7F042EB4(struct ObjectRecord *arg0, f32 *arg1, struct coord3d *arg2
  * than portAnimTicks() (which made guards under-turn and drift off patrol paths
  * at high tick rates). Per-tick callers (doors, lifts, autoguns) keep sub-field
  * smoothing; at tickhz 60 and in demo replay both are the same. */
-s32 g_portApplySpeedFieldPaced;
+s32 g_portApplySpeedFieldPaced; /* 2 = step exactly one whole field */
 #endif
 
 void chrobjApplySpeed(f32 *openPosition, f32 maxFrac, f32 *speedPtr, f32 accel, f32 decel, f32 maxSpeed)
@@ -2145,7 +2152,8 @@ void chrobjApplySpeed(f32 *openPosition, f32 maxFrac, f32 *speedPtr, f32 accel, 
     /* Sub-field smoothing: whole fields step exactly as vanilla (s == 1),
      * then one trailing step scaled by the fractional remainder, so doors
      * and lifts move every tick instead of only on field ticks. */
-    f32 ticks = g_portApplySpeedFieldPaced ? (f32) g_ClockTimer : portAnimTicks();
+    f32 ticks = (g_portApplySpeedFieldPaced > 1) ? 1.0f
+              : g_portApplySpeedFieldPaced ? (f32) g_ClockTimer : portAnimTicks();
     s32 whole = (s32) ticks;
     f32 frac = ticks - (f32) whole;
     s32 steps = whole + ((frac > 0.0f) ? 1 : 0);
@@ -3962,6 +3970,13 @@ s32 chrobjTestPointPolygonCollision(struct coord3d *point, f32 collision_radius,
 }
 
 
+#ifndef TARGET_N64
+/* The truck's Bond-brush check (portVehiclePlayerBrush) re-runs the test with
+ * one prop ignored, and needs to know which prop refused. */
+static PropRecord *s_portCollideSkip;
+static PropRecord *s_portCollideBlocker;
+#endif
+
 /**
  * NTSC address 0x7F0448A8.
 */
@@ -3985,6 +4000,9 @@ s32 sub_GAME_7F0448A8(struct PropRecord *argProp)
     f32 top;
     f32 bottom;
 
+#ifndef TARGET_N64
+    s_portCollideBlocker = NULL;
+#endif
     chraiGetCollisionBounds(argProp, &polygon2, &edges2, &chrTop, &chrBottom);
 
     if (edges2 <= 0)
@@ -4000,6 +4018,13 @@ s32 sub_GAME_7F0448A8(struct PropRecord *argProp)
     for (temp_s0 = ptr_list_object_lookup_indices; *temp_s0 >= 0; temp_s0++)
     {
         PropRecord *prop = &propss[*temp_s0];
+
+#ifndef TARGET_N64
+        if (prop == s_portCollideSkip)
+        {
+            continue;
+        }
+#endif
 
         if (prop != argProp)
         {
@@ -4033,6 +4058,9 @@ s32 sub_GAME_7F0448A8(struct PropRecord *argProp)
 
                             if (var_s0 == 0)
                             {
+#ifndef TARGET_N64
+                                s_portCollideBlocker = prop;
+#endif
                                 if ((prop->type == PROP_TYPE_CHR) && (argProp->type == PROP_TYPE_DOOR))
                                 {
                                     prop->chr->hidden |= CHRHIDDEN_OFFSCREEN_PATROL;
@@ -4057,6 +4085,9 @@ s32 sub_GAME_7F0448A8(struct PropRecord *argProp)
                     && (chrBottom <= top)
                     && (chrobjTestPolygonsTouchingOrOverlap2D(polygon, edges, polygon2, edges2) != 0))
                 {
+#ifndef TARGET_N64
+                    s_portCollideBlocker = prop;
+#endif
                     return 0;
                 }
             }
@@ -4316,6 +4347,288 @@ s32 glassCalculateOpacity(coord3d *pos, f32 xludist, f32 opadist, f32 arg3)
     return opacity;
 }
 
+
+#ifndef TARGET_N64
+#define PORT_VEHICLE_CARRY_MAX 8
+#define PORT_VEHICLE_BRUSH_SLACK 0.01f /* float noise in a player's distance to the truck near x=17000 */
+
+/* Far from the origin a short step is only a few float ulps, so rounding
+ * loses part of the truck's sideways motion every tick and it drifts off its
+ * heading into door frames. Carry each truck's rounding remainder to its next step. */
+struct PortVehicleCarry
+{
+    VehichleRecord *truck;
+    f32 x;
+    f32 z;
+    f64 remx;
+    f64 remz;
+    s32 lossfield; /* g_GlobalTimer of the truck's last refusal speed loss */
+};
+
+static struct PortVehicleCarry s_portVehicleCarry[PORT_VEHICLE_CARRY_MAX];
+static struct PortVehicleCarry s_portVehicleCarryPending;
+
+/* Stage load (lv.c): the slots key on setup addresses the new stage reuses,
+ * and entries left by earlier stages would otherwise fill the table for good. */
+void portVehicleCarryReset(void)
+{
+    s32 i;
+
+    for (i = 0; i < PORT_VEHICLE_CARRY_MAX; i++)
+    {
+        s_portVehicleCarry[i].truck = NULL;
+    }
+
+    s_portVehicleCarryPending.truck = NULL;
+}
+
+static void portVehicleCarryStep(VehichleRecord *truck, f64 stepx, f64 stepz, struct coord3d *dest)
+{
+    struct PortVehicleCarry *c = NULL;
+    f64 remx = 0.0;
+    f64 remz = 0.0;
+    f64 wantx;
+    f64 wantz;
+    s32 i;
+
+    s_portVehicleCarryPending.truck = NULL;
+
+    if (!portFastTickFixOn())
+    {
+        return;
+    }
+
+    for (i = 0; i < PORT_VEHICLE_CARRY_MAX; i++)
+    {
+        if (s_portVehicleCarry[i].truck == truck)
+        {
+            c = &s_portVehicleCarry[i];
+            break;
+        }
+    }
+
+    if (c != NULL && c->x == truck->runtime_pos.f[0] && c->z == truck->runtime_pos.f[2])
+    {
+        remx = c->remx;
+        remz = c->remz;
+    }
+
+    wantx = (f64) truck->runtime_pos.f[0] + stepx + remx;
+    wantz = (f64) truck->runtime_pos.f[2] + stepz + remz;
+    dest->f[0] = (f32) wantx;
+    dest->f[2] = (f32) wantz;
+
+    s_portVehicleCarryPending.truck = truck;
+    s_portVehicleCarryPending.x = dest->f[0];
+    s_portVehicleCarryPending.z = dest->f[2];
+    s_portVehicleCarryPending.remx = wantx - (f64) dest->f[0];
+    s_portVehicleCarryPending.remz = wantz - (f64) dest->f[2];
+}
+
+/* The move was taken: keep its remainder for the truck's next step. */
+static void portVehicleCarryCommit(VehichleRecord *truck)
+{
+    s32 i;
+    s32 slot = 0;
+
+    if (s_portVehicleCarryPending.truck != truck)
+    {
+        return;
+    }
+
+    for (i = 0; i < PORT_VEHICLE_CARRY_MAX; i++)
+    {
+        if (s_portVehicleCarry[i].truck == truck || s_portVehicleCarry[i].truck == NULL)
+        {
+            slot = i;
+            break;
+        }
+    }
+
+    if (s_portVehicleCarry[slot].truck != truck)
+    {
+        s_portVehicleCarry[slot].lossfield = g_GlobalTimer - 2;
+    }
+
+    s_portVehicleCarry[slot].truck = truck;
+    s_portVehicleCarry[slot].x = s_portVehicleCarryPending.x;
+    s_portVehicleCarry[slot].z = s_portVehicleCarryPending.z;
+    s_portVehicleCarry[slot].remx = s_portVehicleCarryPending.remx;
+    s_portVehicleCarry[slot].remz = s_portVehicleCarryPending.remz;
+    s_portVehicleCarryPending.truck = NULL;
+}
+
+/* A refused step zeroes the truck's speed (vanilla). At 30 fps a refusal can
+ * cost it at most once a frame; a faster tick tries many more steps per field,
+ * so brushing past Bond kept zeroing it and the truck crawled. On ticks under
+ * two fields the speed loss runs at most once per two fields; a refused step
+ * in between just doesn't move the truck. */
+static s32 portVehicleSpeedLossDue(VehichleRecord *truck)
+{
+    struct PortVehicleCarry *c = NULL;
+    s32 i;
+
+    if (!portFastTickFixOn())
+    {
+        return 1;
+    }
+
+    for (i = 0; i < PORT_VEHICLE_CARRY_MAX; i++)
+    {
+        if (s_portVehicleCarry[i].truck == truck)
+        {
+            c = &s_portVehicleCarry[i];
+            break;
+        }
+    }
+
+    for (i = 0; c == NULL && i < PORT_VEHICLE_CARRY_MAX; i++)
+    {
+        if (s_portVehicleCarry[i].truck == NULL)
+        {
+            c = &s_portVehicleCarry[i];
+            c->truck = truck;
+            c->x = c->z = 0.0f;
+            c->remx = c->remz = 0.0;
+            c->lossfield = g_GlobalTimer - 2;
+        }
+    }
+
+    if (c == NULL)
+    {
+        return 1;
+    }
+
+    if (g_GlobalTimer >= c->lossfield && g_GlobalTimer - c->lossfield < 2)
+    {
+        return 0;
+    }
+
+    c->lossfield = g_GlobalTimer;
+    return 1;
+}
+
+/* Distance from (x, z) to the polygon's outline, 0 inside it. */
+static f32 portPointPolygonDist2D(f32 x, f32 z, struct rect4f *poly, s32 edges)
+{
+    f32 best = -1.0f;
+    s32 inside = 0;
+    s32 i;
+
+    for (i = 0; i < edges; i++)
+    {
+        struct coord2d *a = &poly->points[i];
+        struct coord2d *b = &poly->points[(i + 1) % edges];
+        f32 ex = b->f[0] - a->f[0];
+        f32 ez = b->f[1] - a->f[1];
+        f32 len2 = ex * ex + ez * ez;
+        f32 t = 0.0f;
+        f32 dx;
+        f32 dz;
+        f32 d;
+
+        if (len2 > 0.0f)
+        {
+            t = ((x - a->f[0]) * ex + (z - a->f[1]) * ez) / len2;
+            t = (t < 0.0f) ? 0.0f : ((t > 1.0f) ? 1.0f : t);
+        }
+
+        dx = x - (a->f[0] + t * ex);
+        dz = z - (a->f[1] + t * ez);
+        d = sqrtf(dx * dx + dz * dz);
+
+        if (best < 0.0f || d < best)
+        {
+            best = d;
+        }
+
+        if (((a->f[1] > z) != (b->f[1] > z)) && (x < a->f[0] + (ex * (z - a->f[1])) / ez))
+        {
+            inside = !inside;
+        }
+    }
+
+    return inside ? 0.0f : best;
+}
+
+/* Bond running beside the truck stopped it on fast ticks: his own collision
+ * holds him at his radius from its side, so whether the touch test refuses a
+ * step is float noise, and a fast tick takes enough steps that some always
+ * are; on Hardware pacing the same light touch refuses none. When the only
+ * prop refusing a straight step is a player who is not ahead of the truck's
+ * front, and the step brings the truck no closer to him, the step is taken.
+ * A turn into him (the Dam tunnel entrance), a player in front, doors, guards
+ * and objects still refuse it. Same gate as the other fast-tick fixes, so 30
+ * fps and below, Hardware pacing and demos stay vanilla. */
+static s32 portVehiclePlayerBrush(PropRecord *prop, struct coord3d *from, f32 roty, f32 previousYaw)
+{
+    PropRecord *player = s_portCollideBlocker;
+    struct rect4f *poly;
+    s32 edges;
+    f32 top;
+    f32 bottom;
+    f32 fx;
+    f32 fz;
+    f32 front = 0.0f;
+    f32 before;
+    f32 after;
+    f32 radius;
+    f32 height;
+    f32 ground;
+    s32 clear;
+    s32 i;
+
+    if (!portFastTickFixOn() || player == NULL || player->type != PROP_TYPE_VIEWER || roty != previousYaw)
+    {
+        return 0;
+    }
+
+    /* The heading, not the step: a slow truck's step is a float ulp or two
+     * and points anywhere. */
+    fx = sinf(roty);
+    fz = cosf(roty);
+    chraiGetCollisionBounds(prop, &poly, &edges, &top, &bottom);
+
+    if (edges <= 0)
+    {
+        return 0;
+    }
+
+    for (i = 0; i < edges; i++)
+    {
+        f32 f = (poly->points[i].f[0] - prop->pos.f[0]) * fx + (poly->points[i].f[1] - prop->pos.f[2]) * fz;
+
+        if (i == 0 || f > front)
+        {
+            front = f;
+        }
+    }
+
+    if ((player->pos.f[0] - prop->pos.f[0]) * fx + (player->pos.f[2] - prop->pos.f[2]) * fz > front)
+    {
+        return 0;
+    }
+
+    /* The polygon only moved, so the one before the step is this one shifted back. */
+    after = portPointPolygonDist2D(player->pos.f[0], player->pos.f[2], poly, edges);
+    before = portPointPolygonDist2D(player->pos.f[0] + (prop->pos.f[0] - from->f[0]), player->pos.f[2] + (prop->pos.f[2] - from->f[2]), poly, edges);
+
+    /* No closer than he already is, or still outside his radius but for float
+     * noise, so a run of tiny steps can never creep the truck into him. */
+    chrpropGetCollisionBounds(player, &radius, &height, &ground);
+
+    if (after < before && after < radius - PORT_VEHICLE_BRUSH_SLACK)
+    {
+        return 0;
+    }
+
+    s_portCollideSkip = player;
+    clear = sub_GAME_7F0448A8(prop);
+    s_portCollideSkip = NULL;
+
+    return clear;
+}
+#endif
 
 s32 objTick(struct PropRecord *prop)
 {
@@ -5818,6 +6131,10 @@ s32 objTick(struct PropRecord *prop)
 				RocketCurrent.f[0] = (poTruck->runtime_pos.f[0] + ((poTruck->speed * g_GlobalTimerDelta) * forwardDir.f[0])) - (forwardDir.f[2] * sp460);
 				RocketCurrent.f[1] = poTruck->runtime_pos.f[1];
 				RocketCurrent.f[2] = (poTruck->runtime_pos.f[2] + ((poTruck->speed * g_GlobalTimerDelta) * forwardDir.f[2])) + (forwardDir.f[0] * sp460);
+#ifndef TARGET_N64
+				portVehicleCarryStep(poTruck, ((f64) poTruck->speed * g_GlobalTimerDelta * forwardDir.f[0]) - ((f64) forwardDir.f[2] * sp460),
+				                     ((f64) poTruck->speed * g_GlobalTimerDelta * forwardDir.f[2]) + ((f64) forwardDir.f[0] * sp460), &RocketCurrent);
+#endif
 				if ((stanTestLineUnobstructed(&currentTile, prop->pos.f[0], prop->pos.f[2], RocketCurrent.f[0], RocketCurrent.f[2], 0x1F, 0.0f, 1.0f, 0.0f, 1.0f) != 0) && (stanTestVolume(&currentTile, RocketCurrent.f[0], RocketCurrent.f[2], 10.0f, 0x1F, 0.0f, 1.0f) < 0))
 				{
 					nextTile = prop->stan;
@@ -5830,6 +6147,12 @@ s32 objTick(struct PropRecord *prop)
 					chrobjCollisionRelated(obj);
 					setupUpdateObjectRoomPosition(obj);
 					var_s2_5 = sub_GAME_7F0448A8(prop);
+#ifndef TARGET_N64
+					if (var_s2_5 == 0)
+					{
+						var_s2_5 = portVehiclePlayerBrush(prop, &sp450, poTruck->roty, previousYaw);
+					}
+#endif
 					if (var_s2_5 != 0)
 					{
 						temp_v0_25 = (f32 *) model->obj->Switches[10]->Data;
@@ -5850,6 +6173,9 @@ s32 objTick(struct PropRecord *prop)
 
 					if (var_s2_5 != 0)
 					{
+#ifndef TARGET_N64
+						portVehicleCarryCommit(poTruck);
+#endif
 						sub_GAME_7F044B38(poTruck);
 						sub_GAME_7F0402B4(prop, &poTruck->nextcol);
 						detonate_proxmine_In_range(&poTruck->runtime_pos);
@@ -5866,13 +6192,18 @@ s32 objTick(struct PropRecord *prop)
 					}
 					else
 					{
-						if (poTruck->speedtime60 < 0.0f)
+#ifndef TARGET_N64
+						if (portVehicleSpeedLossDue(poTruck))
+#endif
 						{
-							poTruck->speedaim = (f32) poTruck->speed;
-							poTruck->speedtime60 = 60.0f;
-						}
+							if (poTruck->speedtime60 < 0.0f)
+							{
+								poTruck->speedaim = (f32) poTruck->speed;
+								poTruck->speedtime60 = 60.0f;
+							}
 
-						poTruck->speed = 0.0f;
+							poTruck->speed = 0.0f;
+						}
 						poTruck->roty = previousYaw;
 						poTruck->turnrot60 = sp434;
 						prop->stan = nextTile;
@@ -5885,13 +6216,18 @@ s32 objTick(struct PropRecord *prop)
 				}
 				else
 				{
-					if (poTruck->speedtime60 < 0.0f)
+#ifndef TARGET_N64
+					if (portVehicleSpeedLossDue(poTruck))
+#endif
 					{
-						poTruck->speedaim = (f32) poTruck->speed;
-						poTruck->speedtime60 = 60.0f;
-					}
+						if (poTruck->speedtime60 < 0.0f)
+						{
+							poTruck->speedaim = (f32) poTruck->speed;
+							poTruck->speedtime60 = 60.0f;
+						}
 
-					poTruck->speed = 0.0f;
+						poTruck->speed = 0.0f;
+					}
 					poTruck->roty = previousYaw;
 					poTruck->turnrot60 = sp434;
 				}
@@ -14967,6 +15303,71 @@ s32 updateDoorDisplacement(DoorRecord* door)
 
 
 
+#ifndef TARGET_N64
+#define PORT_DOOR_RING_MAX 4
+
+/* A fractional step lets a blocked door creep far closer to a truck or guard than
+ * the 60 tick does, and they then catch on it. Also require the ring's whole-field
+ * step from the same state to be clear, as the 60 tick would test it. */
+static s32 portDoorSubFieldClear(DoorRecord *door, f32 *speeds, s32 count)
+{
+    extern s32 g_portApplySpeedFieldPaced;
+    f32 pos[PORT_DOOR_RING_MAX];
+    f32 spd[PORT_DOOR_RING_MAX];
+    DoorRecord *d;
+    s32 clear = 1;
+    f32 ticks = portAnimTicks();
+    s32 i;
+
+    /* A whole-field door step is already the step re-tested here. */
+    if (count > PORT_DOOR_RING_MAX || !portFastTickFixOn() || ticks == (f32) (s32) ticks)
+    {
+        return 1;
+    }
+
+    for (d = door, i = 0; i < count; d = d->linkedDoor, i++)
+    {
+        pos[i] = d->openPosition;
+        spd[i] = d->speed;
+
+        if (d->openstate == DOORSTATE_OPENING || d->openstate == DOORSTATE_CLOSING)
+        {
+            d->openPosition = d->lastcalc60f;
+            d->speed = speeds[i];
+            g_portApplySpeedFieldPaced = 2;
+            chrobjApplySpeed(&d->openPosition, (d->openstate == DOORSTATE_OPENING) ? d->maxFrac : 0.0f,
+                             &d->speed, d->accel, d->decel, d->maxSpeed);
+            g_portApplySpeedFieldPaced = 0;
+
+            if (d->openPosition > d->maxFrac)
+            {
+                d->openPosition = d->maxFrac;
+            }
+            else if (d->openPosition < 0.0f)
+            {
+                d->openPosition = 0.0f;
+            }
+        }
+
+        doorUpdateBbox(d);
+    }
+
+    for (d = door, i = 0; i < count && clear; d = d->linkedDoor, i++)
+    {
+        clear = sub_GAME_7F0448A8(d->prop);
+    }
+
+    for (d = door, i = 0; i < count; d = d->linkedDoor, i++)
+    {
+        d->openPosition = pos[i];
+        d->speed = spd[i];
+        doorUpdateBbox(d);
+    }
+
+    return clear;
+}
+#endif
+
 /**
  * NTSC address 0x7F054FB4.
 */
@@ -14982,6 +15383,11 @@ void door7F054FB4(DoorRecord *door)
     struct ModelRoData_DisplayList_CollisionRecord *temp_s0;
     struct ModelRwData_DisplayList_CollisionRecord *temp_v0_3;
 
+#ifndef TARGET_N64
+    f32 portSpeeds[PORT_DOOR_RING_MAX];
+    s32 portCount = 0;
+#endif
+
     var_s4 = 0;
     var_s5 = 1;
 
@@ -14989,6 +15395,13 @@ void door7F054FB4(DoorRecord *door)
     while (var_s1 != NULL)
     {
         var_s1->lastcalc60f = var_s1->openPosition;
+#ifndef TARGET_N64
+        if (portCount < PORT_DOOR_RING_MAX)
+        {
+            portSpeeds[portCount] = var_s1->speed;
+        }
+        portCount++;
+#endif
         if (updateDoorDisplacement(var_s1) != 0)
         {
             var_s4 = 1;
@@ -15022,6 +15435,12 @@ void door7F054FB4(DoorRecord *door)
                 break;
             }
         }
+#ifndef TARGET_N64
+        if (var_s5 != 0)
+        {
+            var_s5 = portDoorSubFieldClear(door, portSpeeds, portCount);
+        }
+#endif
     }
 
     var_s1 = door;
@@ -15750,6 +16169,14 @@ Gfx *countdownTimerRender(Gfx *DL)
         secs = (s32) floorFloat(time / 60.0f) - (mins * 60);
         ms = ((s32) floorFloat((time * 100.0f) / 60.0f) - (mins * 6000)) - (secs * 100);
 
+#ifndef TARGET_N64
+        {   /* HUD Scale (options.c): the clock is laid out about the screen's
+             * centre column and the view's bottom */
+            extern Gfx *portHudScaleBegin(Gfx *gdl, f32 x, f32 y);
+
+            DL = portHudScaleBegin(DL, (f32) viGetX() * 0.5f, (f32) (viGetViewTop() + viGetViewHeight()));
+        }
+#endif
         DL = microcode_constructor(DL);
 
         #if defined(VERSION_US) || defined(VERSION_JP)
@@ -15777,6 +16204,13 @@ Gfx *countdownTimerRender(Gfx *DL)
         DL = gunDrawHudInteger(DL, ms % 10, 0xBE, HUDHALIGN_MIDDLE, (viGetViewTop() + viGetViewHeight()) - valign_offset, HUDVALIGN_MIDDLE, 1);
 
         DL = combiner_bayer_lod_perspective(DL);
+#ifndef TARGET_N64
+        {
+            extern Gfx *portHudScaleEnd(Gfx *gdl);
+
+            DL = portHudScaleEnd(DL);
+        }
+#endif
     }
 
     return DL;

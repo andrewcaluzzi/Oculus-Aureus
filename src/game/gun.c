@@ -1988,6 +1988,18 @@ void generate_player_thrown_grenade(s32 hand)
     spE0.f[0] = g_CurrentPlayer->hands[hand].throw_item_pos_related.m[3][0];
     spE0.f[1] = g_CurrentPlayer->hands[hand].throw_item_pos_related.m[3][1];
     spE0.f[2] = g_CurrentPlayer->hands[hand].throw_item_pos_related.m[3][2];
+#ifndef TARGET_N64
+    {   /* Weapon FOV: thrown from the hand as drawn, toward the same aim */
+        coord3d aimdir = base_speed_vec;
+
+        if (gunWeaponFovLaunch(hand, &spE0, &aimdir))
+        {
+            throw_speed_vec.f[0] += (aimdir.f[0] - base_speed_vec.f[0]) * base_velocity;
+            throw_speed_vec.f[1] += (aimdir.f[1] - base_speed_vec.f[1]) * base_velocity;
+            throw_speed_vec.f[2] += (aimdir.f[2] - base_speed_vec.f[2]) * base_velocity;
+        }
+    }
+#endif
 
     matrix_4x4_set_identity(&spA0_a);
     matrix_4x4_copy(&g_CurrentPlayer->hands[hand].throw_item_pos_related, &sp40_f);
@@ -2076,6 +2088,18 @@ void generate_player_thrown_knife(s32 hand)
     spE0.f[0] = g_CurrentPlayer->hands[hand].throw_item_pos_related.m[3][0];
     spE0.f[1] = g_CurrentPlayer->hands[hand].throw_item_pos_related.m[3][1];
     spE0.f[2] = g_CurrentPlayer->hands[hand].throw_item_pos_related.m[3][2];
+#ifndef TARGET_N64
+    {   /* Weapon FOV: thrown from the hand as drawn, toward the same aim */
+        coord3d aimdir = base_speed_vec;
+
+        if (gunWeaponFovLaunch(hand, &spE0, &aimdir))
+        {
+            throw_speed_vec.f[0] += (aimdir.f[0] - base_speed_vec.f[0]) * base_velocity;
+            throw_speed_vec.f[1] += (aimdir.f[1] - base_speed_vec.f[1]) * base_velocity;
+            throw_speed_vec.f[2] += (aimdir.f[2] - base_speed_vec.f[2]) * base_velocity;
+        }
+    }
+#endif
 
     matrix_4x4_set_rotation_around_z(4.712389f, &spA0_a);
     matrix_4x4_set_rotation_around_x(M_PI_F, &sp40_f);
@@ -2171,6 +2195,18 @@ void generate_player_thrown_object(s32 hand)
     spE0.f[0] = g_CurrentPlayer->hands[hand].throw_item_pos_related.m[3][0];
     spE0.f[1] = g_CurrentPlayer->hands[hand].throw_item_pos_related.m[3][1];
     spE0.f[2] = g_CurrentPlayer->hands[hand].throw_item_pos_related.m[3][2];
+#ifndef TARGET_N64
+    {   /* Weapon FOV: thrown from the hand as drawn, toward the same aim */
+        coord3d aimdir = base_speed_vec;
+
+        if (gunWeaponFovLaunch(hand, &spE0, &aimdir))
+        {
+            throw_speed_vec.f[0] += (aimdir.f[0] - base_speed_vec.f[0]) * base_velocity;
+            throw_speed_vec.f[1] += (aimdir.f[1] - base_speed_vec.f[1]) * base_velocity;
+            throw_speed_vec.f[2] += (aimdir.f[2] - base_speed_vec.f[2]) * base_velocity;
+        }
+    }
+#endif
 
     matrix_4x4_set_identity(&spA0_a);
     matrix_4x4_copy(&g_CurrentPlayer->hands[hand].throw_item_pos_related, &sp40_f);
@@ -2329,6 +2365,9 @@ void gunSpawnGLGrenade(s32 handnum)
     coord3d aimdir;
     PropRecord *playerprop;
     coord3d *prevplayerpos;
+#ifndef TARGET_N64
+    coord3d launchpos;
+#endif
 
     hand = &g_CurrentPlayer->hands[handnum];
 
@@ -2338,6 +2377,10 @@ void gunSpawnGLGrenade(s32 handnum)
     matrix_4x4_set_identity(&identitymtx);
     bullet_path_from_screen_center(&aimpos, &aimdir, handnum);
     mtx4RotateVecInPlace(currentPlayerGetViewToWorldMtxf(), &aimdir);
+#ifndef TARGET_N64
+    launchpos = hand->field_B58;
+    gunWeaponFovLaunch(handnum, &launchpos, &aimdir);   /* Weapon FOV: from the drawn launcher, toward the same aim */
+#endif
 
     launchvel.x = aimdir.x * 33.333332f;
     launchvel.y = aimdir.y * 33.333332f;
@@ -2364,7 +2407,11 @@ void gunSpawnGLGrenade(s32 handnum)
         grenadeobj->runtime_bitflags &= ~RUNTIMEBITFLAG_OWNER;
         grenadeobj->runtime_bitflags |= get_cur_playernum() << RUNTIMEBITSHIFT_OWNER;
 
+#ifdef TARGET_N64
         gunInitProjectileFromPlayer(grenadeobj, &hand->field_B58, &launchmtx, &launchvel, (s32 *)&identitymtx);
+#else
+        gunInitProjectileFromPlayer(grenadeobj, &launchpos, &launchmtx, &launchvel, (s32 *)&identitymtx);
+#endif
 
         if (grenadeobj->runtime_bitflags & RUNTIMEBITFLAG_00000080)
         {
@@ -2561,6 +2608,9 @@ void gunFireTankShell(s32 handnum)
         spawnpos.x = hand->field_B58.x;
         spawnpos.y = hand->field_B58.y;
         spawnpos.z = hand->field_B58.z;
+#ifndef TARGET_N64
+        gunWeaponFovLaunch(handnum, &spawnpos, &aimdir);   /* from the drawn launcher, toward the same aim */
+#endif
 
         if (1);
 

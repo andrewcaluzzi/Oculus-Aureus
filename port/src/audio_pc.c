@@ -14,11 +14,14 @@
  *
  *   2. portAudioPump(): the frame driver replacing the N64 audio thread
  *      (amMain is never scheduled by pcsched). Called once per video
- *      frame from the main loop, it keeps ~4 frames of samples queued:
+ *      frame from the main loop, it renders one frame per game field and
+ *      keeps the SDL queue just above a small target:
  *      alAudioFrame() -> portAcmdRun() -> SDL_QueueAudio().
  *
  *   3. portAudioInit(): SDL audio device setup, invoked lazily by the
  *      first pump after amCreateAudioManager has run alInit/alSynNew.
+ *      A failed open, or a device closed after it stalled, is retried
+ *      every 2 s or more while the mixer runs on the wall clock.
  *
  * Honest limits (bring-up quality, refine later):
  *   - A_RESAMPLE is linear interpolation (RSP uses a windowed table);
@@ -45,18 +48,40 @@
 /* ---- config ------------------------------------------------------------ */
 
 #define PORT_AUDIO_RATE      22050  /* both GE banks; alSynConfig outputRate */
-#define PORT_AUDIO_QUEUE_LOW (4 * 1024)  /* bytes queued before we top up   */
+#define PORT_AUDIO_DEV_SAMPLES 256       /* device period, 11.6 ms */
 #define PORT_AUDIO_QUEUE_MAX (16 * 1024)
+#define PORT_AUDIO_TARGET    3584        /* lowest queue level the drift trim aims for (41 ms) */
+#define PORT_AUDIO_TARGET_MAX (6 * 1024) /* raised this far by queues that ran dry */
+#define PORT_AUDIO_TRIM_MS   500
+#define PORT_AUDIO_FIELD_BYTES (PORT_AUDIO_RATE / PORT_AUDIO_FIELD_HZ * 4)
 #define PORT_MAX_FRAME_SAMPLES 1024
+#define PORT_AUDIO_RETRY_MS  2000   /* open again this long after a failure */
+#define PORT_AUDIO_RETRY_MAX_MS 30000
+#ifdef REFRESH_PAL
+#define PORT_AUDIO_FIELD_HZ 50
+#else
+#define PORT_AUDIO_FIELD_HZ 60
+#endif
 
 extern void ge_dbg_vec(const char *tag, const f32 *v, s32 n);
+extern void portConLogf(const char *fmt, ...); /* port_console.c */
 
 /* audi.c globals we drive directly (the amMain thread never runs) */
 extern u32 g_FrameSize;
 
 static SDL_AudioDeviceID s_AudioDev;
-static s32 s_AudioDead; /* init failed - stay silent, don't retry every frame */
-static s32 s_ForceOneFrame; /* portAudioPumpForce: bypass the queue-low gate */
+static u32 s_AudioRetryTick; /* SDL_GetTicks() of the next open attempt */
+static u32 s_AudioFails;     /* failed opens in a row */
+static u32 s_AudioReopens;   /* stalled devices closed for a reopen */
+static s32 s_AudioSubsys;    /* SDL_InitSubSystem(SDL_INIT_AUDIO) holds a reference */
+static s32 s_AudioLogOpen;   /* this open attempt logs its details */
+static s32 s_ForceOneFrame; /* portAudioPumpForce: one frame, whatever the queue */
+
+/* Output health, summarised in the log every ~10 s when any is nonzero. */
+static u32 s_StatSkipped;  /* frames portAcmdValidate refused (played as silence) */
+static u32 s_StatDry;      /* pumps that found the SDL queue already empty */
+static u32 s_StatOverCap;  /* rendered frames dropped at PORT_AUDIO_QUEUE_MAX */
+static u32 s_StatMaxGapMs; /* longest wait between two pumps */
 
 /* ---- aspMain interpreter ------------------------------------------------ */
 
@@ -392,7 +417,10 @@ static s32 portAcmdValidate(Acmd *list, s32 count)
                     v[3 + k * 2] = (f32)list[lo + k].words.w1;
                 }
                 ge_dbg_vec("acmd INSANE op/idx/window7", v, 16);
+                portConLogf("ge: audio: WARNING - audio frame skipped (silent): command %d op 0x%02X has address 0x%08X\n",
+                            c, op, w1);
             }
+            s_StatSkipped++;
             return 0;
         }
     }
@@ -632,32 +660,371 @@ void portAcmdRun(Acmd *list, s32 count)
 
 /* ---- SDL device + frame pump ------------------------------------------- */
 
-static void portAudioInit(void)
+#if defined(__linux__) && defined(__i386__)
+static s32 portAudioFileExists(const char *path)
+{
+    SDL_RWops *rw = SDL_RWFromFile(path, "rb");
+
+    if (rw == NULL) {
+        return 0;
+    }
+    SDL_RWclose(rw);
+    return 1;
+}
+
+/**
+ * A 32-bit libpipewire on a 64-bit distro can look for its plugins in the 64-bit
+ * directory and fail to start (murkantor/Project-Midas#19). When the variables are
+ * unset and a 32-bit plugin directory exists, point PipeWire at it.
+ */
+static void portAudioPipeWire32Dirs(void)
+{
+    static const char *const prefixes[] = { "/usr/lib32", "/lib32", "/usr/lib/i386-linux-gnu" };
+    char path[256];
+    u32 i;
+
+    if (SDL_getenv("SPA_PLUGIN_DIR") != NULL) {
+        return;
+    }
+    for (i = 0; i < sizeof(prefixes) / sizeof(prefixes[0]); i++) {
+        SDL_snprintf(path, sizeof(path), "%s/spa-0.2/support/libspa-support.so", prefixes[i]);
+        if (!portAudioFileExists(path)) {
+            continue;
+        }
+        SDL_snprintf(path, sizeof(path), "%s/spa-0.2", prefixes[i]);
+        SDL_setenv("SPA_PLUGIN_DIR", path, 0);
+        portConLogf("ge: audio: SPA_PLUGIN_DIR unset - using the 32-bit PipeWire plugins in %s\n", path);
+
+        SDL_snprintf(path, sizeof(path), "%s/pipewire-0.3/libpipewire-module-protocol-native.so", prefixes[i]);
+        if (SDL_getenv("PIPEWIRE_MODULE_DIR") == NULL && portAudioFileExists(path)) {
+            SDL_snprintf(path, sizeof(path), "%s/pipewire-0.3", prefixes[i]);
+            SDL_setenv("PIPEWIRE_MODULE_DIR", path, 0);
+            portConLogf("ge: audio: PIPEWIRE_MODULE_DIR unset - using %s\n", path);
+        }
+        return;
+    }
+}
+#endif
+
+/**
+ * Open the default output device. SDL only tries one driver per init, and a
+ * driver that initialises can still fail to open (a 32-bit PipeWire without its
+ * plugins), so every other real driver is tried before giving up.
+ */
+static SDL_AudioDeviceID portAudioOpenAnyDriver(SDL_AudioSpec *want, SDL_AudioSpec *have)
+{
+    SDL_AudioDeviceID dev = 0;
+    const char *first = NULL;
+    s32 i;
+
+#if defined(__linux__) && defined(__i386__)
+    static s32 s_PipeWireChecked;
+
+    if (!s_PipeWireChecked) {
+        s_PipeWireChecked = 1; /* before the first open only: retries reuse it */
+        portAudioPipeWire32Dirs();
+    }
+#endif
+    if (SDL_InitSubSystem(SDL_INIT_AUDIO) == 0) {
+        s_AudioSubsys = 1;
+        first = SDL_GetCurrentAudioDriver();
+        dev = SDL_OpenAudioDevice(NULL, 0, want, have, 0);
+        if (dev != 0) {
+            return dev;
+        }
+        if (s_AudioLogOpen) {
+            portConLogf("ge: audio: driver '%s' could not open a device: %s\n", first ? first : "?", SDL_GetError());
+        }
+    } else if (s_AudioLogOpen) {
+        portConLogf("ge: audio: SDL audio init failed: %s\n", SDL_GetError());
+    }
+
+    for (i = 0; i < SDL_GetNumAudioDrivers() && dev == 0; i++) {
+        const char *name = SDL_GetAudioDriver(i);
+
+        /* disk writes a file and dummy plays nothing: neither is a fallback */
+        if (name == NULL || (first != NULL && SDL_strcmp(name, first) == 0) ||
+            SDL_strcmp(name, "disk") == 0 || SDL_strcmp(name, "dummy") == 0) {
+            continue;
+        }
+        if (SDL_AudioInit(name) != 0) {
+            if (s_AudioLogOpen) {
+                portConLogf("ge: audio: driver '%s' unavailable: %s\n", name, SDL_GetError());
+            }
+            continue;
+        }
+        dev = SDL_OpenAudioDevice(NULL, 0, want, have, 0);
+        if (dev == 0 && s_AudioLogOpen) {
+            portConLogf("ge: audio: driver '%s' could not open a device: %s\n", name, SDL_GetError());
+        }
+    }
+    return dev;
+}
+
+/* Log the first of a run of failures, then every 30th. */
+static s32 portAudioLogDue(u32 n)
+{
+    return n <= 1 || n % 30 == 0;
+}
+
+/**
+ * Close the device and shut the audio driver down, so the next open starts from
+ * a clean driver (a restarted sound server needs a new connection).
+ */
+static void portAudioClose(void)
+{
+    if (s_AudioDev != 0) {
+        SDL_CloseAudioDevice(s_AudioDev);
+        s_AudioDev = 0;
+    }
+    if (s_AudioSubsys) {
+        s_AudioSubsys = 0;
+        SDL_QuitSubSystem(SDL_INIT_AUDIO);
+    }
+    SDL_AudioQuit(); /* a fallback driver is not reference counted */
+}
+
+/* Returns 1 when a device is open; on failure the pump retries later. */
+static s32 portAudioInit(void)
 {
     SDL_AudioSpec want;
     SDL_AudioSpec have;
-
-    if (SDL_InitSubSystem(SDL_INIT_AUDIO) != 0) {
-        s_AudioDead = 1;
-        return;
-    }
+    const char *drv;
+    u32 start = SDL_GetTicks();
+    u32 wait;
+    s32 n, i;
 
     memset(&want, 0, sizeof(want));
+    memset(&have, 0, sizeof(have));
     want.freq = PORT_AUDIO_RATE;
     want.format = AUDIO_S16SYS;
     want.channels = 2;
-    want.samples = 512;
+    want.samples = PORT_AUDIO_DEV_SAMPLES;
 
-    s_AudioDev = SDL_OpenAudioDevice(NULL, 0, &want, &have, 0);
+    s_AudioLogOpen = s_AudioFails != 0 ? portAudioLogDue(s_AudioFails + 1) : portAudioLogDue(s_AudioReopens);
+    s_AudioDev = portAudioOpenAnyDriver(&want, &have);
     if (s_AudioDev == 0) {
-        s_AudioDead = 1;
-        return;
+        portAudioClose();
+        /* A driver teardown can stall the frame (ALSA's takes ~100 ms), so a
+         * slow attempt is spaced out to cost at most 1% of the time. */
+        wait = (SDL_GetTicks() - start) * 100;
+        if (wait < PORT_AUDIO_RETRY_MS) {
+            wait = PORT_AUDIO_RETRY_MS;
+        }
+        if (wait > PORT_AUDIO_RETRY_MAX_MS) {
+            wait = PORT_AUDIO_RETRY_MAX_MS;
+        }
+        s_AudioRetryTick = SDL_GetTicks() + wait;
+        s_AudioFails++;
+        if (s_AudioLogOpen) {
+            portConLogf("ge: audio: WARNING - no audio device could be opened (attempt %u, %u ms), the game is silent;"
+                        " retrying every %u ms\n", s_AudioFails, SDL_GetTicks() - start, wait);
+        }
+        return 0;
     }
     SDL_PauseAudioDevice(s_AudioDev, 0);
+    if (s_AudioFails != 0) {
+        portConLogf("ge: audio: a device opened after %u failed attempts\n", s_AudioFails);
+        s_AudioFails = 0;
+        s_AudioLogOpen = 1; /* name the driver that recovered */
+    }
+    if (!s_AudioLogOpen) {
+        return 1;
+    }
 
-    {
-        f32 v = (f32)have.freq;
-        ge_dbg_vec("audio: SDL device open, rate", &v, 1);
+    /* always-on: a silent-game report needs the backend that was chosen */
+    drv = SDL_GetCurrentAudioDriver();
+    portConLogf("ge: audio: opened the default device on driver '%s': %d Hz, %d ch, format 0x%04X, %d-sample buffer"
+                " (asked %d Hz, 2 ch, 0x%04X, %d)\n",
+                drv ? drv : "?", have.freq, (s32)have.channels, (u32)have.format, (s32)have.samples,
+                PORT_AUDIO_RATE, (u32)AUDIO_S16SYS, PORT_AUDIO_DEV_SAMPLES);
+    n = SDL_GetNumAudioDevices(0);
+    for (i = 0; i < n && i < 8; i++) {
+        const char *dname = SDL_GetAudioDeviceName(i, 0);
+
+        portConLogf("ge: audio: output device %d of %d: '%s'\n", i + 1, n, dname ? dname : "?");
+    }
+    return 1;
+}
+
+/* Wall-clock pacing, in samples x 1000, for frames no device is draining. */
+static u32 s_ClockTick;
+static s32 s_ClockPrimed;
+static s32 s_ClockCredit;
+
+/* Queue level the last pump left, and when the device last consumed any. */
+static u32 s_QueuedAfterPump;
+static u32 s_DrainTick;
+static s32 s_DrainPrimed;
+static s32 s_Stalled;
+
+/* Drift trim: the lowest queue level the pumps saw in this PORT_AUDIO_TRIM_MS
+ * window, and the field frames still to skip for the last one. */
+static u32 s_Target = PORT_AUDIO_TARGET;
+static u32 s_Trough;
+static u32 s_TroughTick;
+static s32 s_TroughPrimed;
+static s32 s_TrimFrames;
+
+#define PORT_AUDIO_CLOCK_CAP   (250 * PORT_AUDIO_RATE) /* 250 ms of catch-up */
+#define PORT_AUDIO_STALL_MS    2000
+#define PORT_AUDIO_REOPEN_MS   2000 /* stalled this much longer: close and reopen */
+
+static s32 portAudioClockDue(u32 samples)
+{
+    u32 now = SDL_GetTicks();
+    u32 dt;
+
+    if (!s_ClockPrimed) {
+        s_ClockPrimed = 1;
+        s_ClockTick = now;
+        s_ClockCredit = 0;
+    }
+    dt = now - s_ClockTick;
+    s_ClockTick = now;
+    if (dt > 250) {
+        dt = 250; /* a load stall must not turn into a burst of frames */
+    }
+    s_ClockCredit += (s32)dt * PORT_AUDIO_RATE;
+    if (s_ClockCredit > PORT_AUDIO_CLOCK_CAP) {
+        s_ClockCredit = PORT_AUDIO_CLOCK_CAP;
+    }
+    return s_ClockCredit >= (s32)samples * 1000;
+}
+
+static void portAudioClockSpend(u32 samples)
+{
+    s_ClockCredit -= (s32)samples * 1000;
+    if (s_ClockCredit < -PORT_AUDIO_CLOCK_CAP) {
+        s_ClockCredit = -PORT_AUDIO_CLOCK_CAP; /* forced frames ran ahead */
+    }
+}
+
+/**
+ * True while the open device has consumed nothing for PORT_AUDIO_STALL_MS. Its
+ * queue then never drops below the top-up mark, so without this the synthesizer
+ * would stop and the sound player's event queue would fill. A device stalled for
+ * PORT_AUDIO_REOPEN_MS more is closed, and the pump's retry opens a new one.
+ */
+static s32 portAudioStalled(void)
+{
+    u32 q = SDL_GetQueuedAudioSize(s_AudioDev);
+    u32 now = SDL_GetTicks();
+
+    if (!s_DrainPrimed || q < s_QueuedAfterPump || q == 0) {
+        s_DrainPrimed = 1;
+        s_DrainTick = now;
+        if (s_Stalled) {
+            s_Stalled = 0;
+            portConLogf("ge: audio: the device is consuming audio again\n");
+        }
+    } else if (!s_Stalled && now - s_DrainTick > PORT_AUDIO_STALL_MS) {
+        s_Stalled = 1;
+        s_ClockPrimed = 0;
+        if (portAudioLogDue(s_AudioReopens + 1)) {
+            portConLogf("ge: audio: WARNING - the device has played nothing for %d ms (%u bytes queued);"
+                        " running the mixer without it\n", PORT_AUDIO_STALL_MS, q);
+        }
+    } else if (s_Stalled && now - s_DrainTick > PORT_AUDIO_STALL_MS + PORT_AUDIO_REOPEN_MS) {
+        s_AudioReopens++;
+        if (portAudioLogDue(s_AudioReopens)) {
+            portConLogf("ge: audio: closing the stalled device to reopen it (reopen %u)\n", s_AudioReopens);
+        }
+        portAudioClose();
+        s_AudioRetryTick = now; /* the next pump opens a new one */
+        s_DrainPrimed = 0;
+        s_QueuedAfterPump = 0;
+        s_Stalled = 0; /* the clock keeps running: there is no device now */
+        return 1;
+    }
+    return s_Stalled;
+}
+
+/**
+ * Count pumps that arrive to an empty queue (the device ran out and played
+ * silence) and log the counters every ~10 s, so a crackle report says whether
+ * the output starved.
+ */
+static void portAudioHealth(s32 byClock)
+{
+    static u32 lastPump;
+    static u32 lastLog;
+    static s32 primed;
+    u32 now = SDL_GetTicks();
+
+    if (!primed) {
+        primed = 1;
+        lastPump = now;
+        lastLog = now;
+        return;
+    }
+    if (now - lastPump > s_StatMaxGapMs) {
+        s_StatMaxGapMs = now - lastPump;
+    }
+    /* a device that was just opened starts empty, which is not a dry queue */
+    if (!byClock && s_QueuedAfterPump != 0 && SDL_GetQueuedAudioSize(s_AudioDev) == 0) {
+        s_StatDry++;
+        /* ran dry with the pumps on time: keep more queued on this machine */
+        if (now - lastPump < 100 && s_Target < PORT_AUDIO_TARGET_MAX) {
+            s_Target += 1024;
+        }
+    }
+    lastPump = now;
+    if (now - lastLog >= 10000) {
+        if (s_StatDry != 0 || s_StatOverCap != 0 || s_StatSkipped != 0) {
+            portConLogf("ge: audio: last %u s: queue ran dry %u times, %u frames over the cap dropped,"
+                        " %u frames skipped as invalid | longest gap between pumps %u ms | queue target %u ms\n",
+                        (now - lastLog) / 1000, s_StatDry, s_StatOverCap, s_StatSkipped, s_StatMaxGapMs,
+                        s_Target * 1000 / (PORT_AUDIO_RATE * 4));
+        } else if (s_Target > PORT_AUDIO_TARGET) {
+            s_Target -= 256; /* a quiet window: ease back toward the base target */
+        }
+        lastLog = now;
+        s_StatDry = 0;
+        s_StatOverCap = 0;
+        s_StatSkipped = 0;
+        s_StatMaxGapMs = 0;
+    }
+}
+
+/**
+ * Size of the next audio frame: multiples of 16 samples averaging exactly one
+ * field of output (367.5 at 60 Hz), so the paced frames keep step with the game.
+ */
+static u32 portAudioFrameSamples(void)
+{
+    static s32 s_Debt; /* samples owed, in 1/PORT_AUDIO_FIELD_HZ units */
+    s32 size;
+
+    s_Debt += PORT_AUDIO_RATE;
+    size = ((s_Debt / PORT_AUDIO_FIELD_HZ) + 8) & ~15;
+    s_Debt -= size * PORT_AUDIO_FIELD_HZ;
+
+    return (u32) size;
+}
+
+/**
+ * Track the lowest queue level the pumps see and, once per window, skip as many
+ * field frames as it stayed above the target. Whatever the drift between the
+ * device and game clocks, the queue then settles just above the target.
+ */
+static void portAudioTrim(u32 q)
+{
+    u32 now = SDL_GetTicks();
+
+    if (!s_TroughPrimed) {
+        s_TroughPrimed = 1;
+        s_TroughTick = now;
+        s_Trough = q;
+    }
+    if (q < s_Trough) {
+        s_Trough = q;
+    }
+    if (now - s_TroughTick >= PORT_AUDIO_TRIM_MS) {
+        if (s_Trough >= s_Target + PORT_AUDIO_FIELD_BYTES) {
+            s_TrimFrames = (s32)((s_Trough - s_Target) / PORT_AUDIO_FIELD_BYTES);
+        }
+        s_TroughPrimed = 0;
     }
 }
 
@@ -677,10 +1044,8 @@ void portAudioPump(void)
     static s16 frameBuf[PORT_MAX_FRAME_SAMPLES * 2];
     static s32 s_InPump;
     s32 guard;
-
-    if (s_AudioDead) {
-        return;
-    }
+    s32 byClock;
+    s32 due = 0;
 
     /* REENTRANCY GUARD: portPumpEvents fires from inside blocking
      * osRecvMesg, and the AL client handlers (sndp, the CSP sequencers)
@@ -696,58 +1061,142 @@ void portAudioPump(void)
         s_InPump = 0;
         return; /* synthesizer not up yet (or no clients registered) */
     }
-    if (s_AudioDev == 0) {
+    /* A failed or closed device is retried every PORT_AUDIO_RETRY_MS or more,
+     * so a sink that appears later (a headset, a restarted sound server) is used. */
+    if (s_AudioDev == 0 && (s32)(SDL_GetTicks() - s_AudioRetryTick) >= 0) {
         portAudioInit();
-        if (s_AudioDead) {
-            s_InPump = 0;
-            return;
+    }
+
+    /* No device, or one that stopped draining: the sound player and the
+     * sequencers only advance inside alAudioFrame, so keep it running anyway. */
+    byClock = s_AudioDev == 0 || portAudioStalled();
+    if (!s_ForceOneFrame) {
+        portAudioHealth(byClock);
+    }
+
+    if (!s_ForceOneFrame) {
+        /* One audio frame per game field, keeping the N64 audio thread's lock
+         * to the retrace at half its frame length. Topping up by queue level
+         * alone made each sound's start follow the device's pull bursts
+         * (murkantor/Project-Midas#51). */
+        extern s32 currentFrameCounter;
+        static s32 s_LastField;
+        static s32 s_FieldPrimed;
+        s32 fields;
+
+        if (!s_FieldPrimed) {
+            s_FieldPrimed = 1;
+            s_LastField = currentFrameCounter;
+        }
+        fields = currentFrameCounter - s_LastField;
+        s_LastField = currentFrameCounter;
+        if (fields < 0 || fields > 16) {
+            fields = 0; /* long stall: the queue floor below refills */
+        }
+        due = fields;
+        if (byClock) {
+            s_TroughPrimed = 0;
+            s_TrimFrames = 0;
+        } else {
+            portAudioTrim(SDL_GetQueuedAudioSize(s_AudioDev));
         }
     }
 
-    for (guard = 0; guard < 8; guard++) {
+    for (guard = 0; guard < 20; guard++) {
         s32 cmdLen = 0;
-        u32 samples = g_FrameSize != 0 ? g_FrameSize : 368;
+        u32 samples;
 
-        if (!s_ForceOneFrame &&
-            SDL_GetQueuedAudioSize(s_AudioDev) >= PORT_AUDIO_QUEUE_LOW) {
-            break;
-        }
-        if (samples > PORT_MAX_FRAME_SAMPLES) {
-            samples = PORT_MAX_FRAME_SAMPLES;
+        if (byClock) {
+            samples = g_FrameSize != 0 ? g_FrameSize : 368;
+            if (samples > PORT_MAX_FRAME_SAMPLES) {
+                samples = PORT_MAX_FRAME_SAMPLES;
+            }
+            if (!s_ForceOneFrame && !portAudioClockDue(samples)) {
+                break;
+            }
+        } else {
+            if (s_ForceOneFrame) {
+                /* render regardless of the queue */
+            } else if (SDL_GetQueuedAudioSize(s_AudioDev) < s_Target / 2) {
+                /* below the floor: an extra frame ahead of the field frames */
+            } else if (due > 0) {
+                due--;
+                if (s_TrimFrames > 0) {
+                    s_TrimFrames--;
+                    continue; /* the queue sat above the target: drop this one */
+                }
+            } else {
+                break;
+            }
+            samples = g_FrameSize != 0 ? portAudioFrameSamples() : 368;
+            if (samples > PORT_MAX_FRAME_SAMPLES) {
+                samples = PORT_MAX_FRAME_SAMPLES;
+            }
         }
 
         alAudioFrame(cmdList, &cmdLen, frameBuf, (s32)samples);
         if (cmdLen <= 0) {
             break; /* no clients / nothing to render */
         }
-        portAcmdRun(cmdList, cmdLen);
+        {
+            u32 skipped = s_StatSkipped;
 
-        { /* bring-up (GE_DUMP_BOND): digital proof of synthesis - report
-           * the first frame that contains a nonzero sample */
+            portAcmdRun(cmdList, cmdLen);
+            if (s_StatSkipped != skipped) {
+                /* nothing was written: play silence, not the previous frame again */
+                memset(frameBuf, 0, samples * 4);
+            }
+        }
+
+        { /* always-on: digital proof of synthesis - report the first frame
+           * that contains a nonzero sample */
             static s32 heard;
+            static u32 frames;
 
+            frames++;
             if (!heard) {
                 u32 i;
 
                 for (i = 0; i < samples * 2; i++) {
                     if (frameBuf[i] != 0) {
-                        f32 v[2];
-
                         heard = 1;
-                        v[0] = (f32)frameBuf[i];
-                        v[1] = (f32)cmdLen;
-                        ge_dbg_vec("audio: FIRST NONZERO sample/cmds", v, 2);
+                        portConLogf("ge: audio: first nonzero sample %d after %u mixer frames (%d cmds)\n",
+                                    (s32)frameBuf[i], frames, cmdLen);
                         break;
                     }
                 }
             }
         }
 
-        if (SDL_GetQueuedAudioSize(s_AudioDev) < PORT_AUDIO_QUEUE_MAX) {
+        { /* [display] mute_unfocused: silence at the output, so the game's
+           * own volumes and the saved ones are never touched */
+            extern s32 portVideoMuteUnfocused(void);
+            extern s32 portInputWindowFocused(void);
+            static s32 s_WasMuted;
+            const s32 mute = portVideoMuteUnfocused() && !portInputWindowFocused();
+
+            if (mute) {
+                memset(frameBuf, 0, samples * 4);
+            }
+            if (mute != s_WasMuted) {
+                s_WasMuted = mute;
+                portConLogf("ge: audio: %s\n", mute ? "muted (window lost focus)" : "unmuted");
+            }
+        }
+
+        if (byClock) {
+            portAudioClockSpend(samples);
+        } else if (SDL_GetQueuedAudioSize(s_AudioDev) < PORT_AUDIO_QUEUE_MAX) {
             SDL_QueueAudio(s_AudioDev, frameBuf, samples * 4);
+        } else {
+            s_StatOverCap++;
+        }
+        if (s_ForceOneFrame) {
+            break;
         }
     }
 
+    s_QueuedAfterPump = s_AudioDev != 0 ? SDL_GetQueuedAudioSize(s_AudioDev) : 0;
     s_InPump = 0;
 }
 

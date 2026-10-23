@@ -1010,6 +1010,8 @@ class OptionsForm : Form
         new string[] { "zoom_out",       "Zoom out (aiming)",   "press it / push the stick", "Port actions" },
         new string[] { "menu_accept",    "Menu: accept",        "press the button", "Port actions" },
         new string[] { "menu_back",      "Menu: back",          "press the button", "Port actions" },
+        new string[] { "watch_up",       "Watch: up",           "press the button", "Port actions" },
+        new string[] { "watch_down",     "Watch: down",         "press the button", "Port actions" },
         // the rest of the N64 pad: C buttons (digital; the Look stick above
         // replaces them on twin-stick pads) and the D-pad - pure pass-through
         new string[] { "c_up",       "N64 C-Up",        "press it, or push the C stick UP",    "N64 C buttons and D-pad (pass-through)" },

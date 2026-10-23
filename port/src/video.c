@@ -75,6 +75,7 @@ static int s_CfgRenderThread = -1;
 static int s_CfgAdzy = 0;        /* [display] adzy: Siberian Special Forces + snow cuff */
 static int s_CfgUnlockAll = 0;   /* [display] unlock_all: every mission/difficulty/cheat available */
 static int s_CfgPausePillars = 0; /* [display] pause_pillars: animated 4:3 pillarbox while the watch is up */
+static int s_CfgHudScale = 0;     /* [display] hud_scale: 1 = the in-game HUD on a 640x480 canvas (half size) */
 static int s_CfgHealthWide = 0;   /* [display] health_wide: the health / armour arcs at the edges (1) or centred (0) */
 static int s_CfgHudWide = -1;     /* [display] hud_wide: Rare's ratio option kept global (-1 = not set yet: the save's stands) */
 static int s_CfgAlwaysCrosshair = 0; /* [display] always_crosshair: PD "Show Target" plus while not aiming (gunfire.c gunDrawSight) */
@@ -129,11 +130,19 @@ static int s_CfgMpHeadRoll = 1;     /* [display] mp_head_roll: the camera rolls 
 static int s_CfgMpUnlimitedExplosions = 1; /* [display] mp_unlimited_explosions: 100 live explosions, not 6, 2+ players (explosion.c) */
 static int s_CfgUnlimitedExplosions = 1;   /* [display] unlimited_explosions: the same, solo (Port Options, default ON) */
 static int s_CfgWatchStatic = 1;
+static int s_CfgFastPause = 0;     /* [display] fast_pause: the watch opens and closes at Rare's top speed (bondview2.c) */
 static int s_CfgMouseAutoAim = 0;   /* [display] mouse_auto_aim: 1 lets a mouse player use Auto-Aim (default: never) */
+static int s_CfgMuteUnfocused = 0; /* [display] mute_unfocused: audio_pc.c plays silence while the window has no focus */
+static int s_CfgArmorHud = 0;       /* [display] armor_hud: the health / armour arcs show on a body armour pickup (bondview2.c) */
+static int s_CfgWeaponFov = 0;      /* [display] weapon_fov: 1 = the gun draws at the default FOV (gunfire.c), 0 = Match View */
+static int s_CfgSettingHelp = 1;   /* [display] setting_help: the folder sheets' help box (front.c), default on */
 /* Classic Mode's NTSC composite filter (gfx_opengl.cpp vi_prog[3]) is a Classic
  * Mode part ([display] classic_composite): it runs wherever Classic Mode's VI
  * resolve does while the part is on. GE_NOCOMPOSITE=1 turns it off. */
 uint32_t gfx_composite = 1;
+/* Classic Mode's N64 AA part ([display] classic_n64aa): 0 = the VI resolve
+ * skips its edge blend, so the other parts keep their passes. */
+uint32_t gfx_vi_blend = 1;
 static int s_CfgMpLtkHealth = 0;           /* [display] mp_ltk_health: Licence to Kill's one-hit kills in any scenario (lv.c, bondview2.c) */
 static int s_CfgMpFriendlyFire = 1;       /* [display] mp_friendly_fire: team-mates can hurt each other in team scenarios (bondview2.c) */
 static int s_CfgMpNoArmor = 0;             /* [display] mp_no_armor: no body armour pickups on MP maps (prop.c) */
@@ -216,12 +225,14 @@ extern void gfx_set_aa(uint32_t msaa_level, uint32_t n64_aa); /* gfx_pc.cpp: lat
 static int videoClassicViOn(void); /* with the Classic parts table below */
 static void videoApplyAa(void)
 {
-    /* Classic Mode's N64 AA part: off keeps Classic Mode but uses plain MSAA */
-    const int vi = videoClassicViOn();
+    /* Classic Mode always runs the VI resolve: the composite pass and the soft
+     * upscale live there. The N64 AA part only switches its edge blend (gfx_vi_blend). */
+    const int vi = s_CfgN64Aa;
+    const uint32_t floor_level = videoClassicViOn() ? 4u : 2u;
     uint32_t level = (s_CfgMsaa == 2 || s_CfgMsaa == 4 || s_CfgMsaa == 8) ? (uint32_t) s_CfgMsaa : 1u;
-    if (vi && level < 4u)
+    if (vi && level < floor_level)
     {
-        level = 4u;
+        level = floor_level;
     }
     gfx_set_aa(level, vi ? 1u : 0u); /* never a direct store: with the render
                                       * thread on it lands mid-frame */
@@ -350,10 +361,37 @@ static double videoFovAcross(double deg, double ratio)
     return 2.0 * atan(tan(deg * VIDEO_DEG2RAD * 0.5) * ratio) / VIDEO_DEG2RAD;
 }
 
+/** [display] mute_unfocused: audio_pc.c portAudioPump silences its output while unfocused */
+s32 portVideoMuteUnfocused(void)
+{
+    return s_CfgMuteUnfocused;
+}
+
 /** [display] watch_static: options.c sub_GAME_7F0A51D8 starts a fuzz burst only while on */
 s32 portWatchStatic(void)
 {
     return s_CfgWatchStatic;
+}
+
+/** [display] fast_pause: bondview2.c runs the watch's open and close at 1.7, the cap Rare's
+ * watch_transition_time grows to. Never in demo playback. */
+s32 portFastPause(void)
+{
+    extern s32 get_is_ramrom_flag(void);
+
+    return s_CfgFastPause && get_is_ramrom_flag() == 0;
+}
+
+/** [display] armor_hud: bondview2.c bondviewAddCurrentPlayerArmor shows the arcs on a pickup */
+s32 portArmorHud(void)
+{
+    return s_CfgArmorHud;
+}
+
+/** [display] weapon_fov: gunfire.c gunWeaponFovY draws the gun at the default FOV, not the view's */
+s32 portWeaponFov(void)
+{
+    return s_CfgWeaponFov;
 }
 
 /** The console's own 2D space (port_console.c, gfx_pc.cpp G_CONSOLE2D_EXT): 480
@@ -920,8 +958,8 @@ static void videoPersistDerivedTick(void)
 /* [display] classic_res .. classic_hitches: which parts Classic Mode applies
  * (the CLASSIC sheet, opened from VIDEO's middle tab). Bits 0..6 follow
  * port_options.c sClassicKeys (the settings it forces), 7 is the 4:3 pillars,
- * 8 the load hitches, 9 the composite filter, 10 the N64 AA (VI) filter,
- * which the composite filter needs. All on by default = Classic
+ * 8 the load hitches, 9 the composite filter, 10 the N64 AA (VI) edge
+ * blend. All on by default = Classic
  * Mode as it always was. */
 static const char *const s_ClassicPartKeys[] = {
     "classic_res", "classic_filter", "classic_aniso", "classic_pacing", "classic_msaa",
@@ -956,7 +994,7 @@ s32 portClassicPart(s32 i)
     return (i >= 0 && i < CLASSIC_PART_COUNT) ? ((s_CfgClassicParts >> i) & 1) : 0;
 }
 
-/* Classic Mode is on and its N64 AA part too: the VI resolve runs (videoApplyAa) */
+/* Classic Mode is on and its N64 AA part too: the VI edge blend runs (videoApplyAa) */
 static int videoClassicViOn(void)
 {
     return s_CfgN64Aa && portClassicPart(CLASSIC_PART_N64AA);
@@ -1170,12 +1208,14 @@ static int videoSetDisplayOption(const char *key, const char *value)
     if (SDL_strcasecmp(key, "adzy") == 0)          { s_CfgAdzy = SDL_atoi(value); return 1; }
     if (SDL_strcasecmp(key, "unlock_all") == 0)    { s_CfgUnlockAll = SDL_atoi(value); return 1; }
     if (SDL_strcasecmp(key, "pause_pillars") == 0) { s_CfgPausePillars = SDL_atoi(value); return 1; }
+    if (SDL_strcasecmp(key, "hud_scale") == 0)     { s_CfgHudScale = SDL_atoi(value) != 0; return 1; }
     if (videoClassicPartIndex(key) >= 0)
     {
         const int bit = 1 << videoClassicPartIndex(key);
 
         s_CfgClassicParts = (SDL_atoi(value) != 0) ? (s_CfgClassicParts | bit) : (s_CfgClassicParts & ~bit);
         gfx_composite = (uint32_t) portClassicPart(CLASSIC_PART_COMPOSITE);
+        gfx_vi_blend = (uint32_t) portClassicPart(CLASSIC_PART_N64AA);
         return 1;
     }
     if (SDL_strcasecmp(key, "health_wide") == 0)   { s_CfgHealthWide = SDL_atoi(value) != 0; return 1; }
@@ -1225,7 +1265,12 @@ static int videoSetDisplayOption(const char *key, const char *value)
     if (SDL_strcasecmp(key, "mp_unlimited_explosions") == 0) { s_CfgMpUnlimitedExplosions = SDL_atoi(value) != 0; return 1; }
     if (SDL_strcasecmp(key, "unlimited_explosions") == 0) { s_CfgUnlimitedExplosions = SDL_atoi(value) != 0; return 1; }
     if (SDL_strcasecmp(key, "watch_static") == 0) { s_CfgWatchStatic = SDL_atoi(value) != 0; return 1; }
+    if (SDL_strcasecmp(key, "fast_pause") == 0)   { s_CfgFastPause = SDL_atoi(value) != 0; return 1; }
+    if (SDL_strcasecmp(key, "armor_hud") == 0)    { s_CfgArmorHud = SDL_atoi(value) != 0; return 1; }
+    if (SDL_strcasecmp(key, "weapon_fov") == 0)   { s_CfgWeaponFov = SDL_atoi(value) != 0; return 1; }
+    if (SDL_strcasecmp(key, "setting_help") == 0) { s_CfgSettingHelp = SDL_atoi(value) != 0; return 1; }
     if (SDL_strcasecmp(key, "mouse_auto_aim") == 0) { s_CfgMouseAutoAim = SDL_atoi(value) != 0; return 1; }
+    if (SDL_strcasecmp(key, "mute_unfocused") == 0) { s_CfgMuteUnfocused = SDL_atoi(value) != 0; return 1; }
     if (SDL_strcasecmp(key, "composite") == 0)    { (void) value; return 1; }   /* a day-one ini line: Classic Mode owns it now */
     if (SDL_strcasecmp(key, "mp_ltk_health") == 0) { s_CfgMpLtkHealth = SDL_atoi(value) != 0; return 1; }
     if (SDL_strcasecmp(key, "mp_no_armor") == 0)   { s_CfgMpNoArmor = SDL_atoi(value) != 0; return 1; }
@@ -1459,6 +1504,7 @@ s32 portVideoOptionGet(const char *key, s32 *out)
     if (SDL_strcasecmp(key, "sfx_volume") == 0)    { *out = s_CfgSfxVolume;    return 1; }
     if (SDL_strcasecmp(key, "show_fps") == 0)      { *out = s_CfgShowFps;      return 1; }
     if (SDL_strcasecmp(key, "pause_pillars") == 0) { *out = s_CfgPausePillars; return 1; }
+    if (SDL_strcasecmp(key, "hud_scale") == 0)     { *out = s_CfgHudScale; return 1; }
     if (videoClassicPartIndex(key) >= 0)           { *out = portClassicPart(videoClassicPartIndex(key)); return 1; }
     if (SDL_strcasecmp(key, "health_wide") == 0)   { *out = s_CfgHealthWide; return 1; }
     if (SDL_strcasecmp(key, "hud_wide") == 0)      { extern s32 get_screen_ratio(void); *out = (s_CfgHudWide >= 0) ? s_CfgHudWide : get_screen_ratio() != 0; return 1; }
@@ -1489,7 +1535,12 @@ s32 portVideoOptionGet(const char *key, s32 *out)
     if (SDL_strcasecmp(key, "mp_unlimited_explosions") == 0) { *out = s_CfgMpUnlimitedExplosions; return 1; }
     if (SDL_strcasecmp(key, "unlimited_explosions") == 0) { *out = s_CfgUnlimitedExplosions; return 1; }
     if (SDL_strcasecmp(key, "watch_static") == 0) { *out = s_CfgWatchStatic; return 1; }
+    if (SDL_strcasecmp(key, "fast_pause") == 0)   { *out = s_CfgFastPause; return 1; }
+    if (SDL_strcasecmp(key, "armor_hud") == 0)    { *out = s_CfgArmorHud; return 1; }
+    if (SDL_strcasecmp(key, "weapon_fov") == 0)   { *out = s_CfgWeaponFov; return 1; }
+    if (SDL_strcasecmp(key, "setting_help") == 0) { *out = s_CfgSettingHelp; return 1; }
     if (SDL_strcasecmp(key, "mouse_auto_aim") == 0) { *out = s_CfgMouseAutoAim; return 1; }
+    if (SDL_strcasecmp(key, "mute_unfocused") == 0) { *out = s_CfgMuteUnfocused; return 1; }
     if (SDL_strcasecmp(key, "mp_ltk_health") == 0) { *out = s_CfgMpLtkHealth; return 1; }
     if (SDL_strcasecmp(key, "mp_no_armor") == 0)   { *out = s_CfgMpNoArmor; return 1; }
     if (SDL_strcasecmp(key, "mp_friendly_fire") == 0) { *out = s_CfgMpFriendlyFire; return 1; }
@@ -2198,6 +2249,11 @@ static void videoWriteDefaultIni(void)
         extern s32 portJoyPortShootNextPrev(void);
         fprintf(f, "shoot_next_prev=%d\n", portJoyPortShootNextPrev());
     }
+    {
+        extern s32 portJoyPortNoAimCrouch(void);
+        fprintf(f, "no_aim_crouch=%d\n", portJoyPortNoAimCrouch());
+    }
+    fprintf(f, "background_input=0\n");
     fprintf(f, "mouse=1\n");
     {   /* the live value, so the file can never drift from input_pc.c's
          * default again (it wrote 1 here after the default went to 0) */
@@ -2260,6 +2316,7 @@ static void videoWriteDefaultIni(void)
     fprintf(f, "distance_fading=%d\n", s_CfgDistanceFading);
     fprintf(f, "true_enemy_rockets=%d\n", s_CfgTrueEnemyRockets);
     fprintf(f, "hfov_wide=%d\n", (int) videoHfovWide());
+    fprintf(f, "weapon_fov=%d\n", s_CfgWeaponFov);
     fprintf(f, "crosshair_color=default\n");
     fprintf(f, "music_volume=%d\n", s_CfgMusicVolume);
     fprintf(f, "sfx_volume=%d\n", s_CfgSfxVolume);
@@ -2281,6 +2338,7 @@ static void videoWriteDefaultIni(void)
     fprintf(f, "adzy=%d\n", s_CfgAdzy);
     fprintf(f, "unlock_all=%d\n", s_CfgUnlockAll);
     fprintf(f, "pause_pillars=%d\n", s_CfgPausePillars);
+    fprintf(f, "hud_scale=%d\n", s_CfgHudScale);
     fprintf(f, "health_wide=%d\n", s_CfgHealthWide);
     fprintf(f, "shadow_alpha=%d\n", s_CfgShadowAlpha);
     fprintf(f, "always_crosshair=%d\n", s_CfgAlwaysCrosshair);
@@ -2308,7 +2366,11 @@ static void videoWriteDefaultIni(void)
     fprintf(f, "unlimited_explosions=%d\n", s_CfgUnlimitedExplosions);
     fprintf(f, "mp_unlimited_explosions=%d\n", s_CfgMpUnlimitedExplosions);
     fprintf(f, "watch_static=%d\n", s_CfgWatchStatic);
+    fprintf(f, "fast_pause=%d\n", s_CfgFastPause);
+    fprintf(f, "armor_hud=%d\n", s_CfgArmorHud);
+    fprintf(f, "setting_help=%d\n", s_CfgSettingHelp);
     fprintf(f, "mouse_auto_aim=%d\n", s_CfgMouseAutoAim);
+    fprintf(f, "mute_unfocused=%d\n", s_CfgMuteUnfocused);
     fprintf(f, "mp_ltk_health=%d\n", s_CfgMpLtkHealth);
     fprintf(f, "mp_no_armor=%d\n", s_CfgMpNoArmor);
     fprintf(f, "mp_friendly_fire=%d\n", s_CfgMpFriendlyFire);
@@ -2819,6 +2881,10 @@ extern void portInputDevRecHeader(FILE *f, const char *id); /* input_pc.c */
 
 #define VIDEO_KBM_MAX_LINES 256
 
+/* Port actions whose line was in the loaded binds (videoApplyBindLine), so an
+ * action added since the file was written can be told from one the player set. */
+static u8 sPortBindSeen[PORT_BIND_MAX];
+
 void portVideoKbmBindsAppend(FILE *f)
 {
     char buf[256];
@@ -2932,6 +2998,7 @@ static int videoApplyBindLine(const char *key, char *value, int *moveUpgraded)
         if (SDL_strcasecmp(key, portJoyPortBindName(i)) == 0)
         {
             videoParseBindValue(value, sPortBindings[i], portJoyPortBindName(i));
+            sPortBindSeen[i] = 1;
             return 1;
         }
     }
@@ -2973,6 +3040,74 @@ static int videoKbmBindsLoad(int *moveUpgraded)
     }
     fclose(f);
     return found;
+}
+
+/** A Port action missing from the loaded binds (added since they were saved)
+ * keeps its default keys, except a key the player already has on another bind:
+ * that key is dropped, so a new default never doubles up a custom bind.
+ * 1 = something was dropped. */
+static int videoPortBindNewDefaults(void)
+{
+    int changed = 0;
+    int i, j, k, m;
+
+    for (i = 0; i < portJoyPortBindCount() && i < PORT_BIND_MAX; i++)
+    {
+        if (sPortBindSeen[i])
+        {
+            continue;
+        }
+        for (k = 0; k < BIND_MAX_KEYS; k++)
+        {
+            const SDL_Scancode sc = sPortBindings[i][k];
+            const char *other = NULL;
+
+            if (sc == SDL_SCANCODE_UNKNOWN)
+            {
+                continue;
+            }
+            for (j = 0; j < BIND_COUNT && other == NULL; j++)
+            {
+                for (m = 0; m < BIND_MAX_KEYS; m++)
+                {
+                    if (sBindings[j][m] == sc)
+                    {
+                        other = sBindInfo[j].name;
+                        break;
+                    }
+                }
+            }
+            for (j = 0; j < portJoyPortBindCount() && j < PORT_BIND_MAX && other == NULL; j++)
+            {
+                for (m = 0; j != i && m < BIND_MAX_KEYS; m++)
+                {
+                    if (sPortBindings[j][m] == sc)
+                    {
+                        other = portJoyPortBindName(j);
+                        break;
+                    }
+                }
+            }
+            if (other != NULL)
+            {
+                SDL_Scancode one[BIND_MAX_KEYS] = { 0 };
+                char name[64];
+
+                one[0] = sc;
+                videoBindToText(one, name, (int) sizeof(name));
+                portConLogf("ge: input: new bind %s left without its default %s, already on %s\n",
+                        portJoyPortBindName(i), name, other);
+                for (m = k; m + 1 < BIND_MAX_KEYS; m++)
+                {
+                    sPortBindings[i][m] = sPortBindings[i][m + 1];
+                }
+                sPortBindings[i][BIND_MAX_KEYS - 1] = SDL_SCANCODE_UNKNOWN;
+                k--;
+                changed = 1;
+            }
+        }
+    }
+    return changed;
 }
 
 /** Removes a whole section (header to the next header) from midas.ini. */
@@ -3088,8 +3223,10 @@ static void videoLoadConfig(void)
     int i;
     int moveUpgraded = 0; /* the binds carry VIDEO_MOVE_UPGRADE_KEY */
     int iniHadBinds = 0;  /* midas.ini still has bind lines (an older file) */
+    int recBinds;         /* the keyboard's record had a [binds] section */
 
     videoBindCountCheck();
+    SDL_memset(sPortBindSeen, 0, sizeof(sPortBindSeen));
 
     /* code defaults first: a missing/partial/broken ini leaves these live */
     for (i = 0; i < BIND_COUNT; i++)
@@ -3115,7 +3252,10 @@ static void videoLoadConfig(void)
         s_CfgVolumesSet = 1;
         /* Deleting midas.ini resets settings, not binds: those are in the
          * keyboard's record. */
-        videoKbmBindsLoad(&moveUpgraded);
+        if (videoKbmBindsLoad(&moveUpgraded) && videoPortBindNewDefaults())
+        {
+            videoKbmBindsSave();
+        }
         /* No midas.ini yet: the defaults must still agree with each other (maxfps
          * vs tickhz) before being written, since the normal path couples only
          * after reading a file. */
@@ -3164,7 +3304,12 @@ static void videoLoadConfig(void)
 
     /* The keyboard's record wins over any old [controls] lines; a record
      * without binds takes them over, once, and midas.ini drops the section. */
-    if (!videoKbmBindsLoad(&moveUpgraded) && iniHadBinds)
+    recBinds = videoKbmBindsLoad(&moveUpgraded);
+    if ((recBinds || iniHadBinds) && videoPortBindNewDefaults() && recBinds)
+    {
+        videoKbmBindsSave(); /* settled once; the move below saves an old [controls] */
+    }
+    if (!recBinds && iniHadBinds)
     {
         if (videoKbmBindsSave())
         {
@@ -5312,6 +5457,34 @@ s32 portMouseBlocksAutoAim(s32 player)
 s32 portHealthWide(void)
 {
     return s_CfgHealthWide != 0;
+}
+
+/**
+ * midas.ini [display] hud_scale (env GE_HUDSCALE overrides): the in-game HUD
+ * on a 640x480 canvas (options.c portHudScaleBegin). It needs 480 rendered
+ * lines, so Low Res 240 and Classic Mode's 240-line render keep the N64 size.
+ */
+s32 portHudScaleActive(void)
+{
+    extern s16 viGetY(void);
+    static s32 env = -1;
+    s32 e = videoEnvKnob("GE_HUDSCALE", &env);
+    s32 lines;
+
+    if (!((e == 2) ? (s_CfgHudScale != 0) : e) || !s_VideoInitDone)
+    {
+        return 0;
+    }
+    lines = (s32) gfx_current_window_dimensions.height;
+    {
+        const s32 r = (s32) videoRenderLines(viGetY());
+
+        if (r > 0 && r < lines)
+        {
+            lines = r;
+        }
+    }
+    return lines >= 480;
 }
 
 s32 portPausePillars(void)

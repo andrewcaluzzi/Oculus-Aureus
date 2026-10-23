@@ -111,6 +111,9 @@ static const struct PortWatchRowDef sHud[] = {
     /* aim lock, stamina sway and steady scope moved to General Settings */
     { PWROW_PLAYEROPT, NULL, NULL, PLAYER_OPTION_RATIO, 0 }, /* lodger: "hud" (romdata.c relabel) */
     { PWROW_OPT,       "health_wide",      NULL, 0, 0 },       /* its split-off twin: the health / armour arcs */
+    { PWROW_OPT,       "hud_scale",        NULL, 0, 0 },       /* the HUD on a 640x480 canvas */
+    { PWROW_OPT,       "show_fps",         NULL, 0, 0 },       /* the folder's HUD row too */
+    { PWROW_OPT,       "armor_hud",        NULL, 0, 0 },       /* the arcs on a body armour pickup */
     { PWROW_BACK,      NULL, "Back\n", 0, 0 },
 };
 /* GENERAL SETTINGS: the folder's General Settings less Rare's four vanilla options, which are
@@ -128,9 +131,11 @@ static const struct PortWatchRowDef sPortOpts[] = {
     { PWROW_OPT,       "true_enemy_rockets", NULL, 0, 0 },
     { PWROW_OPT,       "unlimited_explosions", NULL, 0, 0 }, /* was folder-only */
     { PWROW_OPT,       "watch_static",       NULL, 0, 0 },   /* watch static */
+    { PWROW_OPT,       "fast_pause",         NULL, 0, 0 },   /* the watch at Rare's top speed */
     { PWROW_OPT,       "mouse_auto_aim",     NULL, 0, 0 },   /* the folder's row too */
     { PWROW_OPT,       "high_lod", "High Detail Models\n", 0, 0 },   /* from Graphics */
     { PWROW_OPT,       "coop_bot",           NULL, 0, 0 },   /* the co-op bot, default off */
+    { PWROW_OPT,       "setting_help",       NULL, 0, 0 },   /* the folder's help box; never drawn on the watch */
     { PWROW_BACK,      NULL, "Back\n", 0, 0 },
 };
 
@@ -148,6 +153,7 @@ static const struct PortWatchRowDef sVideo[] = {
      * A row classic mode does not own goes ABOVE it - same rule as the folder. */
     { PWROW_OPT,        "n64_aa",     "Classic Mode\n", 0, 0 },
     { PWROW_OPT,        "hfov_wide",  NULL, 0, 0 },  /* above 3d resolution; not a classic key */
+    { PWROW_OPT,        "weapon_fov", NULL, 0, 0 },  /* beside field of view; not a classic key */
     { PWROW_OPT,        "low_res",    NULL, 0, 0 },  /* 3d resolution: the level render */
     { PWROW_OPT,        "filtering",  NULL, 0, 0 },
     { PWROW_OPT,        "anisotropy", NULL, 0, 0 },
@@ -162,6 +168,7 @@ static const struct PortWatchRowDef sAudio[] = {
     { PWROW_OPT,       "music_volume", "Music\n", 0, 0 },
     { PWROW_OPT,       "sfx_volume",   "FX\n",    0, 0 },
     { PWROW_OPT,       "stereo_pan",   NULL, 0, 0 },
+    { PWROW_OPT,       "mute_unfocused", NULL, 0, 0 },
     { PWROW_BACK,      NULL, "Back\n", 0, 0 },
 };
 static const struct PortWatchRowDef sGraphics[] = {
@@ -226,6 +233,8 @@ static const struct PortBindDef sBindsPort[] = {
     { "Pause\n",             "start",          "start"          },
     { "Watch Page Left\n",   "watch_prev",     "watch_prev"     },
     { "Watch Page Right\n",  "watch_next",     "watch_next"     },
+    { "Watch Up\n",          "watch_up",       "watch_up"       },
+    { "Watch Down\n",        "watch_down",     "watch_down"     },
     { "Objectives\n",        "watch_objectives", "watch_objectives" },
     /* the menus' own two, so they can be moved without
      * moving use or the gadget buttons, which confirm and back out as well
@@ -517,11 +526,15 @@ static const struct PortWatchRowDef sControllerMoreMouse[] = {
     { PWROW_OPT, "mouse_sens_y",     NULL, 0, 0 },
     { PWROW_OPT, "mouse_sens_aim",   NULL, 0, 0 },
     { PWROW_OPT, "p1_hybrid",        NULL, 0, 0 },
+    /* aim inversion: the face's own Look Up/Down row, so both edit one value */
+    { PWROW_PLAYEROPT, NULL, NULL, PLAYER_OPTION_LOOK, 0 },
 };
 
 static const struct PortWatchRowDef sCtlGeneral[] = {
     { PWROW_OPT,  "detonate_use_reload", NULL, 0, 0 },
     { PWROW_OPT,  "shoot_next_prev",     NULL, 0, 0 },
+    { PWROW_OPT,  "no_aim_crouch",       NULL, 0, 0 },
+    { PWROW_OPT,  "background_input",    NULL, 0, 0 },
     { PWROW_BACK, NULL, "Back\n", 0, 0 },
 };
 

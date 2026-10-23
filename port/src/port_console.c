@@ -501,7 +501,7 @@ static void conCmdClient(const char *name, const char *value)
         }
     }
 
-    /* a live [display] key with no option-table row (show_fps): the video
+    /* a live [display] key with no option-table row: the video
      * bridge sets it, and the ini gets the line set would have written */
     if (portOptFind(key) < 0 && portVideoOptionGet(key, &live))
     {

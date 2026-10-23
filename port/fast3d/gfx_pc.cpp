@@ -216,6 +216,30 @@ static std::map<ColorCombinerKey, struct ColorCombiner>::iterator prev_combiner 
 
 static uint8_t* tex_upload_buffer = nullptr;
 
+/* Grows tex_upload_buffer to hold `texels` RGBA8 texels; false = out of memory and
+ * the import is skipped. A fixed 8192x8192 buffer was a 256 MB malloc that a 32-bit
+ * process can be refused at boot, and the NULL crashed the first upload. */
+static bool ge_tex_upload_reserve(uint64_t texels) {
+    static size_t cap;
+    const uint64_t need = (texels != 0 ? texels : 1) * 4;
+
+    if (need > cap) {
+        uint8_t* nb = need <= 0x7fffffffu ? (uint8_t*)realloc(tex_upload_buffer, (size_t)need) : nullptr;
+        if (nb == nullptr) {
+            static int said;
+            if (said < 8) {
+                said++;
+                fprintf(stderr, "ge: gfx: no memory for a %llu-texel texture upload - skipped\n",
+                        (unsigned long long)texels);
+            }
+            return false;
+        }
+        tex_upload_buffer = nb;
+        cap = (size_t)need;
+    }
+    return true;
+}
+
 static struct RSP {
     float modelview_matrix_stack[11][4][4];
     uint8_t modelview_matrix_stack_size;
@@ -428,6 +452,16 @@ static int32_t s_RectUvS0, s_RectUvS1, s_RectUvT0, s_RectUvT1;
  * border from the sampler (see gfx_dp_texture_rectangle). */
 static bool s_GeTextGlyphs = false;
 static bool s_RectGlyphBorder = false;
+/* options.c portHudScaleBegin (midas.ini hud_scale): G_NOOP tag 0x58 brackets
+ * a HUD element, whose 2D rects then draw at half size about the pivot (U10.2),
+ * as on a 640x480 canvas. 0x58FFFFFF ends the bracket. */
+static bool s_GeHudScale = false;
+static float s_GeHudPivotX = 0.f, s_GeHudPivotY = 0.f;
+/* bondwalk2.c portRectPreciseTag: G_NOOP tag 0x59 gives the NEXT rect sub-quarter
+ * edge fractions (1/64 of a U10.2 unit: ulx, uly, lrx, lry) and no lr round-up,
+ * so the crosshair is not snapped to the 10.2 grid. */
+static bool s_GeRectFracPending = false, s_GeRectFracOn = false;
+static float s_GeRectFrac[4];
 /* a wrap mode of our own, beside G_TX_WRAP / MIRROR / CLAMP: outside the
  * texture is TRANSPARENT (gfx_opengl.cpp maps it to GL_CLAMP_TO_BORDER) */
 #define GE_TX_BORDER 0x10
@@ -2268,6 +2302,9 @@ static void import_texture_rgba16(int tile, const LoadedTexture& loaded_texture,
                 fprintf(stderr, "\n");
             }
         }
+        if (!ge_tex_upload_reserve((uint64_t)w * h)) {
+            return;
+        }
         uint8_t *dest = tex_upload_buffer;
         for (uint32_t t = 0; t < h; t++) {
             for (uint32_t s = 0; s < w; s++, dest += 4) {
@@ -2284,6 +2321,9 @@ static void import_texture_rgba16(int tile, const LoadedTexture& loaded_texture,
         return;
     }
 
+    if (!ge_tex_upload_reserve(size_bytes / 2)) {
+        return;
+    }
     uint8_t *dest = tex_upload_buffer;
     for (uint32_t i = 0; i < size_bytes / 2; i++, dest += 4) {
         const uint16_t col16 = ((const uint16_t *)addr)[i];
@@ -2313,6 +2353,9 @@ static void import_texture_rgba32(int tile, const LoadedTexture& loaded_texture,
     const uint32_t line_size_bytes = loaded_texture.line_size_bytes;
     SUPPORT_CHECK(full_image_line_size_bytes == line_size_bytes);
 
+    if (!ge_tex_upload_reserve((size_bytes + 3) / 4)) {
+        return;
+    }
     uint32_t *dest = (uint32_t *)tex_upload_buffer;
     const uint32_t *src = (const uint32_t *)addr;
     for (uint32_t i = 0; i < size_bytes; i += 4, ++dest, ++src) {
@@ -2334,6 +2377,9 @@ static void import_texture_ia4(int tile, const LoadedTexture& loaded_texture, bo
     const uint32_t line_size_bytes = loaded_texture.line_size_bytes;
     SUPPORT_CHECK(full_image_line_size_bytes == line_size_bytes);
 
+    if (!ge_tex_upload_reserve((uint64_t)size_bytes * 2)) {
+        return;
+    }
     uint8_t *dest = tex_upload_buffer;
     for (uint32_t i = 0; i < size_bytes * 2; i++, dest += 4) {
         const uint8_t byte = addr[i / 2];
@@ -2363,6 +2409,9 @@ static void import_texture_ia8(int tile, const LoadedTexture& loaded_texture, bo
     const uint32_t line_size_bytes = loaded_texture.line_size_bytes;
     SUPPORT_CHECK(full_image_line_size_bytes == line_size_bytes);
 
+    if (!ge_tex_upload_reserve(size_bytes)) {
+        return;
+    }
     uint8_t *dest = tex_upload_buffer;
     for (uint32_t i = 0; i < size_bytes; i++, dest += 4) {
         const uint8_t intensity = SCALE_4_8(addr[i] >> 4);
@@ -2389,6 +2438,9 @@ static void import_texture_ia16(int tile, const LoadedTexture& loaded_texture, b
     const uint32_t line_size_bytes = loaded_texture.line_size_bytes;
     SUPPORT_CHECK(full_image_line_size_bytes == line_size_bytes);
 
+    if (!ge_tex_upload_reserve(size_bytes / 2)) {
+        return;
+    }
     uint8_t *dest = tex_upload_buffer;
     for (uint32_t i = 0; i < size_bytes / 2; i++, dest += 4) {
         /* native u16 IA16 (see rgba16 note): high byte = intensity */
@@ -2417,6 +2469,9 @@ static void import_texture_i4(int tile, const LoadedTexture& loaded_texture, boo
     const uint32_t line_size_bytes = loaded_texture.line_size_bytes;
     SUPPORT_CHECK(full_image_line_size_bytes == line_size_bytes);
 
+    if (!ge_tex_upload_reserve((uint64_t)size_bytes * 2)) {
+        return;
+    }
     uint8_t *dest = tex_upload_buffer;
     for (uint32_t i = 0; i < size_bytes * 2; i++, dest += 4) {
         const uint8_t byte = addr[i / 2];
@@ -2444,6 +2499,9 @@ static void import_texture_i8(int tile, const LoadedTexture& loaded_texture, boo
     const uint32_t line_size_bytes = loaded_texture.line_size_bytes;
     SUPPORT_CHECK(full_image_line_size_bytes == line_size_bytes);
 
+    if (!ge_tex_upload_reserve(size_bytes)) {
+        return;
+    }
     uint8_t *dest = tex_upload_buffer;
     for (uint32_t i = 0; i < size_bytes; i++, dest += 4) {
         const uint8_t intensity = addr[i];
@@ -2495,6 +2553,9 @@ static void import_texture_ci4(int tile, const LoadedTexture& loaded_texture, bo
     const uint16_t* palette = (const uint16_t *)(rdp.palette + pal_idx * 16); // 16 pixel entries, 16 bits each
     SUPPORT_CHECK(full_image_line_size_bytes == line_size_bytes);
 
+    if (!ge_tex_upload_reserve((uint64_t)size_bytes * 2)) {
+        return;
+    }
     for (uint32_t i = 0; i < size_bytes * 2; i++) {
         const uint8_t byte = addr[i / 2];
         const uint8_t idx = (byte >> (4 - (i % 2) * 4)) & 0xf;
@@ -2520,6 +2581,10 @@ static void import_texture_ci8(int tile, const LoadedTexture& loaded_texture, bo
         loaded_texture.full_image_line_size_bytes;
     const uint32_t line_size_bytes = loaded_texture.line_size_bytes;
 
+    /* the loop writes whole lines, so up to one line past size_bytes */
+    if (!ge_tex_upload_reserve((uint64_t)size_bytes + line_size_bytes)) {
+        return;
+    }
     for (uint32_t i = 0, j = 0; i < size_bytes; j += full_image_line_size_bytes - line_size_bytes) {
         for (uint32_t k = 0; k < line_size_bytes; i++, k++, j++) {
             const uint8_t idx = addr[j];
@@ -3171,7 +3236,7 @@ static void import_texture(int i, int tile, bool importReplacement) {
             w = 1u << rdp.texture_tile[tile].masks;
             h = 1u << rdp.texture_tile[tile].maskt;
         }
-        if (w != 0 && h != 0 && size2 >= 2) {
+        if (w != 0 && h != 0 && size2 >= 2 && ge_tex_upload_reserve((uint64_t)w * h)) {
             uint8_t *dest = tex_upload_buffer;
             for (uint32_t t = 0; t < h; t++) {
                 for (uint32_t s = 0; s < w; s++, dest += 4) {
@@ -5786,6 +5851,19 @@ static void gfx_draw_rectangle(int32_t ulx, int32_t uly, int32_t lrx, int32_t lr
     float lrxf = lrx;
     float lryf = lry;
 
+    if (s_GeRectFracOn) {
+        ulxf += s_GeRectFrac[0];
+        ulyf += s_GeRectFrac[1];
+        lrxf += s_GeRectFrac[2];
+        lryf += s_GeRectFrac[3];
+    }
+    if (s_GeHudScale) {
+        ulxf = s_GeHudPivotX + (ulxf - s_GeHudPivotX) * 0.5f;
+        ulyf = s_GeHudPivotY + (ulyf - s_GeHudPivotY) * 0.5f;
+        lrxf = s_GeHudPivotX + (lrxf - s_GeHudPivotX) * 0.5f;
+        lryf = s_GeHudPivotY + (lryf - s_GeHudPivotY) * 0.5f;
+    }
+
     ulxf = ulxf / (4.0f * HALF_SCREEN_WIDTH) - 1.0f;
     ulyf = -(ulyf / (4.0f * HALF_SCREEN_HEIGHT)) + 1.0f;
     lrxf = lrxf / (4.0f * HALF_SCREEN_WIDTH) - 1.0f;
@@ -5996,6 +6074,9 @@ static void gfx_ge_draw_rect_pinned(int32_t ulx, int32_t uly, int32_t lrx, int32
 
 static void gfx_dp_texture_rectangle(int32_t ulx, int32_t uly, int32_t lrx, int32_t lry, uint8_t tile, int16_t uls,
                                      int16_t ult, int16_t dsdx, int16_t dtdy, bool flip) {
+    const bool precise = s_GeRectFracPending; /* one-shot: this rect only */
+    s_GeRectFracPending = false;
+
     /* GE: zero-extent texrects occur (text path with bailed textures); the
      * N64 RDP draws nothing for them, but the math below divides by the
      * extent - SIGFPE. Match hardware: draw nothing. */
@@ -6061,7 +6142,7 @@ static void gfx_dp_texture_rectangle(int32_t ulx, int32_t uly, int32_t lrx, int3
         /* Skip this rounding for a grown glyph: its lr edge is sub-pixel on
          * purpose and the UVs already match it, so rounding up would stretch
          * the glyph w+1 texels over w+1.5 pixels. */
-        if (!s_RectGlyphBorder) {
+        if (!s_RectGlyphBorder && !precise) {
             lrx = (lrx + 3) & ~3;
             lry = (lry + 3) & ~3;
         }
@@ -6142,7 +6223,9 @@ static void gfx_dp_texture_rectangle(int32_t ulx, int32_t uly, int32_t lrx, int3
     s_RectUvT0 = (int32_t) ((ult < lrt) ? ult : lrt);
     s_RectUvT1 = (int32_t) ((ult < lrt) ? lrt : ult);
     s_RectUvValid = true;
+    s_GeRectFracOn = precise;
     gfx_ge_draw_rect_pinned(ulx, uly, lrx, lry);
+    s_GeRectFracOn = false;
     s_RectUvValid = false;
     s_RectGlyphBorder = false;
     if (saved_tile != tile) {
@@ -6201,6 +6284,8 @@ static void gfx_dp_image_rectangle(int32_t tile, int32_t w, int32_t h,
 }
 
 static void gfx_dp_fill_rectangle(int32_t ulx, int32_t uly, int32_t lrx, int32_t lry) {
+    const bool precise = s_GeRectFracPending; /* one-shot: this rect only (G_NOOP tag 0x59) */
+    s_GeRectFracPending = false;
     { /* GE bring-up (GE_DUMP_BOND): the sky-wedge fill hunt */
         static int logged = -1;
         if (logged < 0) logged = getenv("GE_DUMP_BOND") != NULL ? 0 : 999;
@@ -6254,6 +6339,7 @@ static void gfx_dp_fill_rectangle(int32_t ulx, int32_t uly, int32_t lrx, int32_t
         gfx_dp_set_combine_mode(color_comb(0, 0, 0, G_CCMUX_SHADE), alpha_comb(0, 0, 0, G_ACMUX_SHADE), 0, 0);
     }
 
+    s_GeRectFracOn = precise;
     {
         unsigned drawn_before = ge_tris_drawn;
         /* A marked full-screen wash (the gunbarrel's red and the fade after
@@ -6293,6 +6379,7 @@ static void gfx_dp_fill_rectangle(int32_t ulx, int32_t uly, int32_t lrx, int32_t
             }
         }
     }
+    s_GeRectFracOn = false;
     rdp.combine_mode = saved_combine_mode;
 }
 
@@ -7245,6 +7332,17 @@ static void gfx_run_dl(Gfx* cmd) {
                 } else if ((cmd->words.w1 >> 24) == 0x47u) {
                     /* font glyph run on / off (textrelated.c PORT_TEXT_GLYPHS) */
                     s_GeTextGlyphs = (cmd->words.w1 & 1u) != 0;
+                } else if ((cmd->words.w1 >> 24) == 0x58u) {
+                    /* HUD scale bracket (options.c portHudScaleBegin): pivot x, y in U10.2 */
+                    s_GeHudScale = (cmd->words.w1 & 0x00FFFFFFu) != 0x00FFFFFFu;
+                    s_GeHudPivotX = (float) ((cmd->words.w1 >> 12) & 0xFFFu);
+                    s_GeHudPivotY = (float) (cmd->words.w1 & 0xFFFu);
+                } else if ((cmd->words.w1 >> 24) == 0x59u) {
+                    /* the next rect's edge fractions (bondwalk2.c portRectPreciseTag) */
+                    for (int i = 0; i < 4; i++) {
+                        s_GeRectFrac[i] = (float) ((cmd->words.w1 >> (18 - 6 * i)) & 0x3Fu) * (1.0f / 64.0f);
+                    }
+                    s_GeRectFracPending = true;
                 }
                 break;
             case G_MTX: {
@@ -7664,12 +7762,6 @@ extern "C" void gfx_init(const GfxInitSettings *settings) {
         segmentPointers[i] = 0;
     }
 
-    if (tex_upload_buffer == nullptr) {
-        // We cap texture max to 8k, because why would you need more?
-        int max_tex_size = std::min(8192, gfx_rapi->get_max_texture_size());
-        tex_upload_buffer = (uint8_t*)malloc(max_tex_size * max_tex_size * 4);
-    }
-
     rsp.lookat[0].dir[0] = rsp.lookat[1].dir[1] = 0x7F;
     rsp.current_lookat_coeffs[0][0] = rsp.current_lookat_coeffs[1][1] = 1.f;
     rsp.lookat_enabled = true;
@@ -7831,6 +7923,8 @@ extern "C" void gfx_run(Gfx* commands) {
 
     ++num_dls;
     gfx_sp_reset();
+    s_GeHudScale = false;   /* a bracket never outlives its frame */
+    s_GeRectFracPending = false;
 
     // puts("New frame");
 

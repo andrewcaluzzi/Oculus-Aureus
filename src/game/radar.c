@@ -97,6 +97,11 @@ Gfx *display_red_blue_on_radar(Gfx *DL)
             DL++;
         }
     }
+    {   /* HUD Scale (options.c): the radar is laid out from the view's top-right */
+        extern Gfx *portHudScaleBegin(Gfx *gdl, f32 x, f32 y);
+
+        DL = portHudScaleBegin(DL, (f32) (viGetViewLeft() + viGetViewWidth()), (f32) viGetViewTop());
+    }
 #endif
     texSelect(&DL, mpradarimages, 2, 0, 2);
 
@@ -238,7 +243,9 @@ Gfx *display_red_blue_on_radar(Gfx *DL)
 #ifndef TARGET_N64
     {
         extern s32 hudLayoutWide(void);
+        extern Gfx *portHudScaleEnd(Gfx *gdl);
 
+        DL = portHudScaleEnd(DL);
         if (hudLayoutWide())
         {
             DL->words.w0 = ((u32) 0x3a << 24) | (0x00FFFFFF & ~(u32) 0x70);   /* PORT_HUD_ANCHOR_OFF */

@@ -397,6 +397,28 @@ f32 portTickFieldPhase(void)
 }
 
 /**
+ * Phase for drawing a field-stepped particle part of the way to its next
+ * step: 0 unless smoothing is on, and held while paused so nothing wobbles.
+ */
+f32 portRenderFieldPhase(void)
+{
+    extern f32 g_GlobalTimerDelta;
+    static f32 held;
+
+    if (!portSmoothOn())
+    {
+        return 0.0f;
+    }
+
+    if (g_GlobalTimerDelta > 0.0f)
+    {
+        held = portTickFieldPhase();
+    }
+
+    return held;
+}
+
+/**
  * Advance the first-order lag `x = x*d + in` by `delta` FIELDS in one step.
  *
  *   d'   = d^delta
@@ -497,6 +519,19 @@ s32 portTickHwPace(void)
 
     return portTickHwPaceFlag && g_ramromRecordFlag == 0 && get_is_ramrom_flag() == 0
         && portStageRunning() && !portWatchMenuUp();
+}
+
+/* Port-only collision fixes for rates faster than the N64's 20-30 fps (doors,
+ * vehicles): on for a tick under two fields, never under Hardware pacing or in a demo. */
+s32 portFastTickFixOn(void)
+{
+    extern f32 g_GlobalTimerDelta;
+    extern s32 g_ramromPlayBackFlag;
+    extern s32 get_recording_ramrom_flag(void);
+
+    return g_GlobalTimerDelta > 0.0f && g_GlobalTimerDelta < 2.0f && !portTickHwPaceFlag
+        && get_is_ramrom_flag() == 0 && g_ramromPlayBackFlag == 0
+        && get_recording_ramrom_flag() == 0 && g_ramromRecordFlag == 0;
 }
 /* ms = c0 + c1*fill2/1e3 + c2*fill1/1e3 + c3*fillx/1e3 + c4*fillr/1e3 + c5*loads + c6*lbytes/1e3 + c7*tris + c8*chrs */
 static const f32 sHwModel[9] = { 13.174978f, 0.027856f, 0.000000f, 0.050997f, 0.049921f, 0.000000f, 0.028149f, 0.004372f, 0.152045f }; /* fitted against 14 attract demos

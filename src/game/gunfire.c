@@ -247,6 +247,9 @@ void gunFireTankShell(s32 handnum)
         spawnpos.x = hand->field_B58.x;
         spawnpos.y = hand->field_B58.y;
         spawnpos.z = hand->field_B58.z;
+#ifndef TARGET_N64
+        gunWeaponFovLaunch(handnum, &spawnpos, &aimdir);   /* from the drawn launcher, toward the same aim */
+#endif
 
         if (1);
 
@@ -342,6 +345,319 @@ void gunFireTankShell(s32 handnum)
  * D_80053DDC belongs to gunFireTankShell, but must sit here
  * immediately ahead of this function's pool for that function to match.
  */
+#endif
+
+#ifndef TARGET_N64
+/*
+ * WEAPON FOV ([display] weapon_fov, murkantor/Project-Midas#10 and #45):
+ * presentation only. The gun keeps its simulated pose, so the aim ray and the
+ * bullets are unchanged. Only the gun pass draws through its own projection,
+ * at the vanilla 60-degree vertical FOV; what leaves the gun (the tracer, the
+ * watch laser's beam, casings, thrown items, grenade rounds and rockets)
+ * starts where the gun is drawn (gunWeaponFovPlaceWorld, gunWeaponFovLaunch).
+ *
+ * Gun projection Pg = S * Pw, S = diag(t, t, 1) in camera space, with
+ * t = tan(world/2) / tan(gun/2). The gun aims at A, the world unprojection of
+ * its screen aim point (field_FFC). It is re-aimed about its own origin at
+ * A' = (A.x / t, A.y / t, A.z), so Pg(A') = Pw(A) and the barrel lands on the
+ * same pixel as with the option off.
+ */
+extern s32 portWeaponFov(void); /* video.c: [display] weapon_fov; weak 0 headless */
+extern float tanf(float);
+extern float atanf(float);
+
+/* The gun's pose-time origin and aim point per player and hand (gunUpdateAndFire) */
+static coord3d s_WfovOrigin[4][2];
+static coord3d s_WfovAim[4][2];
+
+/**
+ * The gun's vertical FOV for a world FOV. Linear between the watch's zoomed-in
+ * FOV and the user's base FOV, so the base maps to vanilla's 60 and a fully
+ * raised watch still meets its face. At base 60 it is the world FOV itself.
+ * At or below the watch's FOV (the watch pages zoom further in, to 4.6 and
+ * 3.95) it is the world FOV too: the page text is 2D pinned to the vanilla
+ * face, so the face must draw exactly as vanilla does there.
+ */
+f32 gunWeaponFovY(f32 fovy)
+{
+#if defined(VERSION_EU)
+    const f32 watchfov = 6.09999990463f;
+#else
+    const f32 watchfov = 5.9f;
+#endif
+    const f32 base = GE_DEFAULT_FOV;
+    f32 g;
+
+    if (!portWeaponFov() || base == FOV_Y_F || base - watchfov < 1.0f || fovy <= watchfov)
+    {
+        return fovy;
+    }
+    g = watchfov + (fovy - watchfov) * (FOV_Y_F - watchfov) / (base - watchfov);
+    if (g < 1.0f)   { g = 1.0f; }
+    if (g > 170.0f) { g = 170.0f; }
+    return g;
+}
+
+/** t for the current player's view, or 0 when the gun draws with the world. */
+static f32 gunWeaponFovScale(void)
+{
+    const f32 deg2half = M_PI_F / 360.0f;
+    f32 z = g_CurrentPlayer->fovy;
+    f32 g = gunWeaponFovY(z);
+    f32 t;
+
+    if (g == z)
+    {
+        return 0.0f;
+    }
+    t = tanf(z * deg2half) / tanf(g * deg2half);
+    if (!(t > 0.01f && t < 100.0f) || (t > 0.9999f && t < 1.0001f))
+    {
+        return 0.0f;
+    }
+    return t;
+}
+
+/**
+ * C: the camera-space rotation about the gun origin that turns the pose aimed
+ * at A into one aimed at A' (row vectors, v' = (v - O) * M^T * M' + O).
+ */
+static void gunWeaponFovAimFix(s32 handnum, f32 t, Mtxf *out)
+{
+    s32 pn = get_cur_playernum() & 3;
+    coord3d *o = &s_WfovOrigin[pn][handnum];
+    coord3d *a = &s_WfovAim[pn][handnum];
+    Mtxf m;
+    Mtxf m2;
+    s32 i;
+    s32 j;
+
+    matrix_4x4_align(&m, 0.0f, o->x - a->x, o->y - a->y, o->z - a->z);
+    matrix_4x4_align(&m2, 0.0f, o->x - a->x / t, o->y - a->y / t, o->z - a->z);
+    matrix_4x4_set_identity(out);
+    for (i = 0; i < 3; i++)
+    {
+        for (j = 0; j < 3; j++)
+        {
+            out->m[i][j] = m.m[0][i] * m2.m[0][j] + m.m[1][i] * m2.m[1][j] + m.m[2][i] * m2.m[2][j];
+        }
+    }
+    for (j = 0; j < 3; j++)
+    {
+        out->m[3][j] = o->f[j] - (o->x * out->m[0][j] + o->y * out->m[1][j] + o->z * out->m[2][j]);
+    }
+}
+
+/**
+ * Loads the gun pass's projection, C * S * Pw, for one hand. Returns 0 and
+ * leaves the world projection loaded when the option has nothing to do.
+ */
+static s32 gunWeaponFovBegin(Gfx **gdlptr, s32 handnum)
+{
+    f32 t = gunWeaponFovScale();
+    Mtxf fix;
+    Mtxf *pw;
+    f32 l[4][4];
+    Mtx *mtx;
+    s32 i;
+    s32 j;
+
+    pw = currentPlayerGetProjectionMatrixF();
+    if (t == 0.0f || pw == NULL)
+    {
+        return 0;
+    }
+    gunWeaponFovAimFix(handnum, t, &fix);
+    for (i = 0; i < 4; i++)
+    {
+        fix.m[i][0] *= t;
+        fix.m[i][1] *= t;
+    }
+    for (i = 0; i < 4; i++)
+    {
+        for (j = 0; j < 4; j++)
+        {
+            l[i][j] = fix.m[i][0] * pw->m[0][j] + fix.m[i][1] * pw->m[1][j]
+                    + fix.m[i][2] * pw->m[2][j] + fix.m[i][3] * pw->m[3][j];
+        }
+    }
+    mtx = dynAllocateMatrix();
+    guMtxF2L(l, mtx);
+    gSPMatrix((*gdlptr)++, osVirtualToPhysical(mtx), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
+    return 1;
+}
+
+/**
+ * Moves a world point made from the gun's pose (an ejected casing) to where
+ * the gun pass draws that point, at the same depth. Returns how far it rose.
+ */
+static f32 gunWeaponFovPlaceWorld(s32 handnum, coord3d *pos)
+{
+    f32 t = gunWeaponFovScale();
+    Mtxf fix;
+    coord3d p;
+    f32 oldy = pos->y;
+
+    if (t == 0.0f)
+    {
+        return 0.0f;
+    }
+    gunWeaponFovAimFix(handnum, t, &fix);
+    p = *pos;
+    mtx4TransformVecInPlace(camGetWorldToScreenMtxf(), &p);
+    mtx4TransformVecInPlace(&fix, &p);
+    p.x *= t;
+    p.y *= t;
+    mtx4TransformVecInPlace(currentPlayerGetViewToWorldMtxf(), &p);
+    *pos = p;
+    return pos->y - oldy;
+}
+
+/**
+ * How much of the way from a point made from the gun's pose (from) to where
+ * it is drawn (to) is clear of walls, doors and objects: 1 = all of it, 0 =
+ * none, or from itself is behind something seen from the player. The stan
+ * line test with the projectile spawn's own arguments (gunInitProjectileFromPlayer);
+ * the collision state it leaves is put back, as the next real test expects.
+ */
+static f32 gunWeaponFovClearFrac(coord3d *from, coord3d *to)
+{
+    extern StandTile *stanSavedColl_tile;
+    extern s32 stanSavedColl_pointI;
+    extern struct coord2d stanSavedColl_pntA;
+    extern struct coord2d stanSavedColl_pntB;
+    extern s32 D_800413BC;
+    extern PropRecord *g_portBlockProp;
+    extern s32 g_portBlockSrc;
+    extern s32 g_portBlockTick;
+    extern f32 g_portBlockTop, g_portBlockBot, g_portBlockLo, g_portBlockHi;
+    extern s32 g_portBlockGate;
+    StandTile *savedtile = stanSavedColl_tile;
+    s32 savedpt = stanSavedColl_pointI;
+    struct coord2d savedpnta = stanSavedColl_pntA;
+    struct coord2d savedpntb = stanSavedColl_pntB;
+    f32 savedmin = stanSavedColl_someMin;
+    PropRecord *savedprop = stanSavedColl_posData;
+    s32 savedflag = D_800413BC;
+    PropRecord *savedbprop = g_portBlockProp;
+    s32 savedbsrc = g_portBlockSrc;
+    s32 savedbtick = g_portBlockTick;
+    f32 savedbtop = g_portBlockTop, savedbbot = g_portBlockBot, savedblo = g_portBlockLo, savedbhi = g_portBlockHi;
+    s32 savedbgate = g_portBlockGate;
+    PropRecord *playerprop = getCurrentPlayerProp();
+    f32 stanheight = bondviewGetPlayerStanHeight(g_CurrentPlayer);
+    StandTile *tile;
+    f32 frac = 0.0f;
+    f32 len;
+    f32 hi;
+    f32 lo;
+
+    if (playerprop == NULL || playerprop->stan == NULL)
+    {
+        return 0.0f;
+    }
+    tile = playerprop->stan;
+    bondviewUpdateGuardTankFlagsRelated(playerprop, 0);
+    hi = (playerprop->pos.y > from->y) ? playerprop->pos.y : from->y;
+    lo = (playerprop->pos.y > from->y) ? from->y : playerprop->pos.y;
+    if (stanTestLineUnobstructed(&tile, playerprop->pos.x, playerprop->pos.z, from->x, from->z, 0x1f,
+                                 hi - stanheight, lo - stanheight, 0.0f, 1.0f)
+        && tile != NULL)
+    {
+        hi = (to->y > from->y) ? to->y : from->y;
+        lo = (to->y > from->y) ? from->y : to->y;
+        if (stanTestLineUnobstructed(&tile, from->x, from->z, to->x, to->z, 0x1f,
+                                     hi - stanheight, lo - stanheight, 0.0f, 1.0f))
+        {
+            frac = 1.0f;
+        }
+        else
+        {   /* stop 2 units short of what it hit */
+            len = sqrtf((to->x - from->x) * (to->x - from->x) + (to->z - from->z) * (to->z - from->z));
+            frac = (len > 0.0f) ? stanSavedColl_someMin - 2.0f / len : 0.0f;
+            if (!(frac > 0.0f)) { frac = 0.0f; }
+            if (frac > 1.0f)    { frac = 1.0f; }
+        }
+    }
+    bondviewUpdateGuardTankFlagsRelated(playerprop, 1);
+    stanSavedColl_tile = savedtile;
+    stanSavedColl_pointI = savedpt;
+    stanSavedColl_pntA = savedpnta;
+    stanSavedColl_pntB = savedpntb;
+    stanSavedColl_someMin = savedmin;
+    stanSavedColl_posData = savedprop;
+    D_800413BC = savedflag;
+    g_portBlockProp = savedbprop;
+    g_portBlockSrc = savedbsrc;
+    g_portBlockTick = savedbtick;
+    g_portBlockTop = savedbtop; g_portBlockBot = savedbbot; g_portBlockLo = savedblo; g_portBlockHi = savedbhi;
+    g_portBlockGate = savedbgate;
+    return frac;
+}
+
+/**
+ * gunWeaponFovPlaceWorld for something that then exists in the world (an
+ * ejected casing): it goes from the gun's pose toward where the gun is drawn
+ * only as far as nothing is in the way. Returns how far it rose.
+ */
+static f32 gunWeaponFovPlaceWorldClamped(s32 handnum, coord3d *pos)
+{
+    coord3d to = *pos;
+    f32 oldy = pos->y;
+    f32 frac;
+
+    if (gunWeaponFovScale() == 0.0f)
+    {
+        return 0.0f;
+    }
+    gunWeaponFovPlaceWorld(handnum, &to);
+    frac = gunWeaponFovClearFrac(pos, &to);
+    pos->x += (to.x - pos->x) * frac;
+    pos->y += (to.y - pos->y) * frac;
+    pos->z += (to.z - pos->z) * frac;
+    return pos->y - oldy;
+}
+
+/**
+ * A thrown item, grenade round or rocket: spawn it where the gun or hand is
+ * drawn rather than where the simulated one is, when nothing is between the
+ * two (else it stays put), and turn its unit aim direction (world) so it
+ * still meets the simulated path where the gun aims, 1000 units out
+ * (field_A40). Never during a demo, which must replay as recorded. Returns 1
+ * when it moved.
+ */
+s32 gunWeaponFovLaunch(s32 handnum, coord3d *spawnpos, coord3d *aimdir)
+{
+    extern s32 is_ramrom_flag;
+    extern s32 g_ramromPlayBackFlag;
+    coord3d to;
+    coord3d dir;
+    f32 len;
+
+    if (gunWeaponFovScale() == 0.0f || is_ramrom_flag != 0 || g_ramromPlayBackFlag != 0)
+    {
+        return 0;
+    }
+    to = *spawnpos;
+    gunWeaponFovPlaceWorld(handnum, &to);
+    if (gunWeaponFovClearFrac(spawnpos, &to) < 1.0f)
+    {
+        return 0;   /* something between: launch from the simulated gun, as with the option off */
+    }
+    dir.x = spawnpos->x + aimdir->x * 1000.0f - to.x;
+    dir.y = spawnpos->y + aimdir->y * 1000.0f - to.y;
+    dir.z = spawnpos->z + aimdir->z * 1000.0f - to.z;
+    len = sqrtf(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
+    if (!(len > 1.0f))
+    {
+        return 0;
+    }
+    aimdir->x = dir.x / len;
+    aimdir->y = dir.y / len;
+    aimdir->z = dir.z / len;
+    *spawnpos = to;
+    return 1;
+}
 #endif
 
 void gunUpdateAndFire(GUNHAND handnum)
@@ -606,6 +922,13 @@ void gunUpdateAndFire(GUNHAND handnum)
     matrix_4x4_copy(&rotmtx, &gunmtx);
     matrix_4x4_set_position(&gunofs, &gunmtx);
     matrix_4x4_copy(&gunmtx, &hand->gunmtx_camspace);
+#ifndef TARGET_N64
+    /* Weapon FOV: the origin and aim point this pose was built from */
+    s_WfovOrigin[get_cur_playernum() & 3][handnum] = gunofs;
+    s_WfovAim[get_cur_playernum() & 3][handnum].x = hand->field_A38;
+    s_WfovAim[get_cur_playernum() & 3][handnum].y = hand->field_A3C;
+    s_WfovAim[get_cur_playernum() & 3][handnum].z = hand->field_A40;
+#endif
     matrix_4x4_copy(&hand->throw_item_pos_related, &hand->throw_item_pos_related_prev);
     matrix_4x4_multiply_homogeneous(currentPlayerGetViewToWorldMtxf(), &hand->gunmtx_camspace, &hand->throw_item_pos_related);
     hand->field_87F = 1;
@@ -1240,7 +1563,17 @@ void gunCreateBeamForHand(enum GUNHAND hand)
 
     weapon_beam = &hand_ptr->weapon_beam;
 
+#ifdef TARGET_N64
     CapBeamLengthAndDecideIfRendered(weapon_beam, getCurrentPlayerWeaponId(hand), &hand_ptr->field_B58, &hand_ptr->item_related);
+#else
+    {   /* Weapon FOV: the tracer (and the watch laser's beam) leaves the muzzle
+         * where it is drawn; it still ends where the bullet hit */
+        coord3d beamstart = hand_ptr->field_B58;
+
+        gunWeaponFovPlaceWorld(hand, &beamstart);
+        CapBeamLengthAndDecideIfRendered(weapon_beam, getCurrentPlayerWeaponId(hand), &beamstart, &hand_ptr->item_related);
+    }
+#endif
 
     if ((g_CurrentPlayer->prop->chr == NULL) || (portAllPlayerCount() < 2))
     {
@@ -1596,12 +1929,15 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
     ModelRenderData renderdata;
     s32 handnum;
     Model *model;
-    /* Weapon FOV: the hands and guns draw under the scene projection (as in
-     * vanilla), so the fov setting widens the weapon too and the barrel points
-     * at the crosshair, because the gun's aim direction is derived through the
-     * scene projection. DO NOT reintroduce a separate weapon projection: the
-     * aim, the gun's lean and the tracer would all need hand-correcting, and an
-     * earlier attempt at that never came right. */
+    /* Weapon FOV: by default the hands and guns draw under the scene
+     * projection (as in vanilla), so the fov setting widens the weapon too.
+     * With weapon_fov on, gunWeaponFovBegin gives each hand its own projection
+     * and re-aims it at the same pixel; the pose and aim ray stay the
+     * world's, and the tracer (drawn here in the world) starts at the drawn
+     * muzzle (gunCreateBeamForHand). */
+#ifndef TARGET_N64
+    s32 wfov;
+#endif
  
 #ifdef TARGET_N64
     renderdata = *(ModelRenderData *)&D_80035CC0;
@@ -1636,6 +1972,10 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
         {
             gdl = sub_GAME_7F061E18(gdl, &handptr->weapon_beam, 0);
         }
+
+#ifndef TARGET_N64
+        wfov = gunWeaponFovBegin(&gdl, handnum); /* after the tracer, which is drawn in the world */
+#endif
 
         if (item == ITEM_GOLDENGUN || item == ITEM_RUGER || item == ITEM_KNIFE || item == ITEM_THROWKNIFE || item == ITEM_SILVERWPPK || item == ITEM_GOLDWPPK)
         {
@@ -1716,6 +2056,12 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
         matrix_4x4_7F058C88();
 
         gSPPerspNormalize(gdl++, viGetPerspNorm());
+#ifndef TARGET_N64
+        if (wfov)
+        {
+            gSPMatrix(gdl++, osVirtualToPhysical(currentPlayerGetProjectionMatrix()), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
+        }
+#endif
  
         if (item == ITEM_WATCHLASER)
         {
@@ -5618,6 +5964,21 @@ void sub_GAME_7F068508(GUNHAND handnum, f32 floor_y_pos)
         matrix_4x4_copy(THROWMTX, &mtx);
     }
 
+#ifndef TARGET_N64
+    { /* Weapon FOV: eject from where the gun is drawn, but never past a wall
+       * the simulated gun is in front of; the floor moves with it so the fall
+       * is unchanged */
+        coord3d ejectpos;
+
+        ejectpos.x = mtx.m[3][0];
+        ejectpos.y = mtx.m[3][1];
+        ejectpos.z = mtx.m[3][2];
+        floor_y_pos += gunWeaponFovPlaceWorldClamped(handnum, &ejectpos);
+        mtx.m[3][0] = ejectpos.x;
+        mtx.m[3][1] = ejectpos.y;
+        mtx.m[3][2] = ejectpos.z;
+    }
+#endif
     casing = casingCreate(cartridge_header, &mtx);
 
     if (casing == NULL)
@@ -5976,6 +6337,21 @@ void sub_GAME_7F068508(GUNHAND handnum, f32 floor_y_pos)
         matrix_4x4_copy(THROWMTX, &mtx);
     }
 
+#ifndef TARGET_N64
+    { /* Weapon FOV: eject from where the gun is drawn, but never past a wall
+       * the simulated gun is in front of; the floor moves with it so the fall
+       * is unchanged */
+        coord3d ejectpos;
+
+        ejectpos.x = mtx.m[3][0];
+        ejectpos.y = mtx.m[3][1];
+        ejectpos.z = mtx.m[3][2];
+        floor_y_pos += gunWeaponFovPlaceWorldClamped(handnum, &ejectpos);
+        mtx.m[3][0] = ejectpos.x;
+        mtx.m[3][1] = ejectpos.y;
+        mtx.m[3][2] = ejectpos.z;
+    }
+#endif
     casing = casingCreate(cartridge_header, &mtx);
 
     if (casing == NULL)
@@ -6646,6 +7022,7 @@ static Gfx *portDrawMissionTimer(Gfx *gdl, s32 x0)
     {
         PORT_HUD_ANCHOR(gdl, PORT_HUD_ANCHOR_LEFT);
     }
+    gdl = portHudScaleBegin(gdl, (f32) viGetViewLeft(), (f32) (viGetViewTop() + viGetViewHeight()));
     gdl = microcode_constructor(gdl);
     for (i = 0; timerbuf[i] != '\0'; i++)
     {
@@ -6656,6 +7033,7 @@ static Gfx *portDrawMissionTimer(Gfx *gdl, s32 x0)
         x += cell + 1;
     }
     gdl = combiner_bayer_lod_perspective(gdl);
+    gdl = portHudScaleEnd(gdl);
     if (hudAnchorsToEdges())
     {
         PORT_HUD_ANCHOR_OFF(gdl);
@@ -6728,10 +7106,12 @@ static Gfx *portDrawMpPlayerName(Gfx *gdl)
     {
         PORT_HUD_ANCHOR(gdl, PORT_HUD_ANCHOR_RIGHT);
     }
+    gdl = portHudScaleBegin(gdl, (f32) (viGetViewLeft() + viGetViewWidth()), (f32) (viGetViewTop() + viGetViewHeight()));
     gdl = microcode_constructor(gdl);
     gdl = textRenderOutlined(gdl, &x, &y, (s8 *) text, ptrFontBankGothicChars, ptrFontBankGothic, -1, 0x646464FF,
                              (s32) viGetX(), viGetY(), 0, 0);
     gdl = combiner_bayer_lod_perspective(gdl);
+    gdl = portHudScaleEnd(gdl);
     if (hudLayoutWide())
     {
         PORT_HUD_ANCHOR_OFF(gdl);
@@ -6826,6 +7206,8 @@ Gfx *generate_ammo_total_microcode(Gfx *gdl)
                          * 4:3 keeps it in the band. */
                         PORT_HUD_ANCHOR(gdl, (getPlayerCount() < 3) ? PORT_HUD_ANCHOR_RIGHT : PORT_HUD_ANCHOR_LEFT);
                     }
+                    /* HUD Scale: laid out from the view's bottom-right corner */
+                    gdl = portHudScaleBegin(gdl, (f32) (viGetViewLeft() + viGetViewWidth()), (f32) (viGetViewTop() + viGetViewHeight()));
 #endif
 
                     if (imageoffset_r != 0)
@@ -6882,6 +7264,7 @@ Gfx *generate_ammo_total_microcode(Gfx *gdl)
 
                     gdl = combiner_bayer_lod_perspective(gdl);
 #ifndef TARGET_N64
+                    gdl = portHudScaleEnd(gdl);
                     if (hudAnchorsToEdges())
                     {
                         PORT_HUD_ANCHOR_OFF(gdl);
@@ -6911,6 +7294,8 @@ Gfx *generate_ammo_total_microcode(Gfx *gdl)
                          * Wide, as the right-hand arm. */
                         PORT_HUD_ANCHOR(gdl, PORT_HUD_ANCHOR_LEFT);
                     }
+                    /* HUD Scale: laid out from the view's bottom-left corner */
+                    gdl = portHudScaleBegin(gdl, (f32) viGetViewLeft(), (f32) (viGetViewTop() + viGetViewHeight()));
 #endif
 
                     if (imageoffset_l != 0)
@@ -6967,6 +7352,7 @@ Gfx *generate_ammo_total_microcode(Gfx *gdl)
 
                     gdl = combiner_bayer_lod_perspective(gdl);
 #ifndef TARGET_N64
+                    gdl = portHudScaleEnd(gdl);
                     if (hudAnchorsToEdges())
                     {
                         PORT_HUD_ANCHOR_OFF(gdl);
@@ -6989,6 +7375,7 @@ Gfx *generate_ammo_total_microcode(Gfx *gdl)
                 {
                     PORT_HUD_ANCHOR(gdl, PORT_HUD_ANCHOR_LEFT);
                 }
+                gdl = portHudScaleBegin(gdl, (f32) viGetViewLeft(), (f32) (viGetViewTop() + viGetViewHeight()));
                 gdl = microcode_constructor(gdl);
                 gdl = gunDrawHudString(gdl, (s8 *) name, viGetViewLeft() + 30, HUDHALIGN_LEFT,
 #if defined(VERSION_EU)
@@ -6997,6 +7384,7 @@ Gfx *generate_ammo_total_microcode(Gfx *gdl)
                     (viGetViewTop() + viGetViewHeight()) - 18, HUDVALIGN_MIDDLE, 1);
 #endif
                 gdl = combiner_bayer_lod_perspective(gdl);
+                gdl = portHudScaleEnd(gdl);
                 if (hudAnchorsToEdges())
                 {
                     PORT_HUD_ANCHOR_OFF(gdl);
@@ -7263,6 +7651,22 @@ static Gfx *portTargetRectQ(Gfx *g, s32 x1q, s32 y1q, s32 x2q, s32 y2q)
     return g + 1;
 }
 
+/* CROSSHAIR PRECISION (bondwalk2.c g_portRectPrecise): on unless GE_XHAIRQUANT=1,
+ * which restores the old 10.2-snapped sight for A/B. */
+static s32 portXhairPrecise(void)
+{
+    static s32 env = -1;
+
+    if (env < 0)
+    {
+        extern char *getenv(const char *);
+        const char *e = getenv("GE_XHAIRQUANT");
+
+        env = (e != NULL && e[0] != '0') ? 0 : 1;
+    }
+    return env;
+}
+
 static void portDrawTargetPlus(s32 *gdl)
 {
     extern f32 portAimReachX(void);
@@ -7274,6 +7678,7 @@ static void portDrawTargetPlus(s32 *gdl)
     f32 xs = 1.0f; /* screen-square px -> native x units (SPAN: 1 / wide) */
     extern s32 portPlayerCrosshairColor(s32 player); /* video.c: the player's own with 2+ players */
     s32 chcol = portPlayerCrosshairColor(get_cur_playernum()); /* midas.ini crosshair_color (or the player's), -1 = vanilla */
+    const s32 precise = portXhairPrecise();
     s32 i;
 
     if (reachx > 1.001f)
@@ -7282,6 +7687,7 @@ static void portDrawTargetPlus(s32 *gdl)
         fx = bondviewAimUnpinX(fx);
         xs = 1.0f / g_bondviewSceneWideFactor;
     }
+    g = portHudScaleBegin(g, fx, fy);   /* HUD Scale: about the aim point */
 
     gDPPipeSync(g++);
     gDPSetCycleType(g++, G_CYC_1CYCLE);
@@ -7306,6 +7712,13 @@ static void portDrawTargetPlus(s32 *gdl)
         x1q = (s32) ((fx + (f32) (dx + 1) * xs) * 4.0f + 0.5f);
         y0q = (s32) ((fy + (f32) dy) * 4.0f + 0.5f);
         y1q = y0q + 4;
+        if (precise)
+        {   /* floor to 10.2; the dropped fractions go in the tag below */
+            x0q = (s32) ((fx + (f32) dx * xs) * 4.0f);
+            x1q = (s32) ((fx + (f32) (dx + 1) * xs) * 4.0f);
+            y0q = (s32) ((fy + (f32) dy) * 4.0f);
+            y1q = y0q + 4;
+        }
 
         if (x1q <= x0q)
         {
@@ -7337,10 +7750,20 @@ static void portDrawTargetPlus(s32 *gdl)
             if (cb > 255) { cb = 255; }
             gDPSetPrimColor(g++, 0, 0, (u8) cr, (u8) cg, (u8) cb, (u8) t[5]);
         }
+        if (precise && x0q >= 0 && y0q >= 0 && x1q > x0q)
+        {
+            extern Gfx *portRectPreciseTag(Gfx *gdl, f32 ulx, f32 uly, f32 lrx, f32 lry,
+                                           s32 iulx, s32 iuly, s32 ilrx, s32 ilry); /* bondwalk2.c */
+            const f32 yf = (fy + (f32) dy) * 4.0f;
+
+            g = portRectPreciseTag(g, (fx + (f32) dx * xs) * 4.0f, yf, (fx + (f32) (dx + 1) * xs) * 4.0f, yf + 4.0f,
+                                   x0q, y0q, x1q, y1q);
+        }
         g = portTargetRectQ(g, x0q, y0q, x1q, y1q);
     }
 
     gDPPipeSync(g++);
+    g = portHudScaleEnd(g);
     if (reachx > 1.001f)
     {
         PORT_HUD_ANCHOR_OFF(g);
@@ -7447,10 +7870,26 @@ void gunDrawSight(s32 *gdl) {
                 xypos[0] = bondviewAimUnpinX(xypos[0]);
                 halfedxy[0] = halfedxy[0] / g_bondviewSceneWideFactor;
             }
+            {   /* HUD Scale: the sight shrinks about the aim point */
+                Gfx *agdl = (Gfx *) sp54;
+                agdl = portHudScaleBegin(agdl, xypos[0], xypos[1]);
+                sp54 = (s32) agdl;
+            }
             /* CROSSHAIR COLOUR: bondwalk2.c owns the tint-or-vanilla
              * decision for every crosshair sprite in the game. */
-            portDisplayCrosshairImage((Gfx **) &sp54, xypos, halfedxy, 0x20, 0x20, 0x6E,
-                                      (crosshairimage->level > 0));
+            {
+                extern s32 g_portRectPrecise; /* bondwalk2.c: sub-10.2 sight */
+
+                g_portRectPrecise = portXhairPrecise();
+                portDisplayCrosshairImage((Gfx **) &sp54, xypos, halfedxy, 0x20, 0x20, 0x6E,
+                                          (crosshairimage->level > 0));
+                g_portRectPrecise = 0;
+            }
+            {
+                Gfx *agdl = (Gfx *) sp54;
+                agdl = portHudScaleEnd(agdl);
+                sp54 = (s32) agdl;
+            }
             if (reachx > 1.001f)
             {
                 Gfx *agdl = (Gfx *) sp54;

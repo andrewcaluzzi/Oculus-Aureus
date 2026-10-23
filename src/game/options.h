@@ -169,6 +169,10 @@ s32 hudAnchorsToEdges(void);
 s32 healthAnchorsToEdges(void);   /* the health / armour arcs' own (midas.ini health_wide) */
 s32 hudLayoutWide(void);          /* the radar's anchor: HUD Layout Wide, any player count */
 s32 portHealthIsWide(void);
+/* HUD Scale (options.c): bracket one HUD element about its layout pivot */
+s32 portHudScaleOn(void);
+Gfx *portHudScaleBegin(Gfx *gdl, f32 x, f32 y);
+Gfx *portHudScaleEnd(Gfx *gdl);
 #endif
 
 s32 cur_player_get_autoaim(void);

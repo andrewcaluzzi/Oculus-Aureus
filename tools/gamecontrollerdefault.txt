@@ -49,7 +49,7 @@
 #             (a = change weapon, b = use/reload, z = fire, r/l = aim)
 #   Port      reload use walk run walk_toggle prev_weapon next_weapon
 #             prev_inventory next_inventory crouch_toggle crouch_hold
-#             watch_prev watch_next watch_objectives
+#             watch_prev watch_next watch_up watch_down watch_objectives
 #
 # Remember: Move stick = stick_x/y, Look stick = look_x/y; with a Look stick
 # bound the port drives the pad twin-stick, and a layout with the C buttons on

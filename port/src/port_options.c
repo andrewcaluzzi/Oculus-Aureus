@@ -99,6 +99,9 @@ static const char *const sAnisoText[] = { "OFF\n", "2x\n", "4x\n", "8x\n", "16x\
 /* [display] msaa: 1 = off, not 0 - that is the ini's own spelling and the
  * launcher's, and changing it would break every existing file. */
 static const s32 sMsaaVals[] = { 1, 2, 4, 8 };
+static const char *const sHudScaleText[] = { "Normal\n", "High\n" };
+/* weapon_fov: off = the gun follows the view FOV (vanilla), on = the default FOV */
+static const char *const sWeaponFovText[] = { "Match View\n", "Default\n" };
 static const char *const sMsaaText[] = { "OFF\n", "2x\n", "4x\n", "8x\n" };
 
 /* -1 = "hardware": the N64's own frame pacing on the 60 Hz sim (tickhz=hw in the ini) */
@@ -212,7 +215,10 @@ static const struct PortOpt sOpts[] = {
      * 91.5, rounded to sit on the grid). The older ini keys hfov= (4:3) and
      * fov= (vertical) are still read (video.c "hfov_wide"). */
     INTR  ("hfov_wide",     "[display]", "Field of View\n",   PORTOPT_CAT_DISPLAY, 70, 140, 5, ""),
-    /* show_fps is ini-only now - video.c still reads the key */
+    /* the gun and hands at the default FOV whatever the view's (murkantor/Project-Midas#10) */
+    TOGGLET("weapon_fov",   "[display]", "Weapon FOV\n",      PORTOPT_CAT_DISPLAY, sWeaponFovText),
+    /* show_fps: HUD page, both menus (murkantor/Project-Midas#43) */
+    TOGGLE("show_fps",      "[display]", "FPS Counter\n",     PORTOPT_CAT_GAMEPLAY),
     /* mission_timer lives on the gameplay page: the display page is full
      * at PORTOPT_ROWS_MAX 13 */
     TOGGLE("mission_timer", "[display]", "Mission Timer\n",   PORTOPT_CAT_GAMEPLAY),
@@ -221,6 +227,8 @@ static const struct PortOpt sOpts[] = {
     ENUMR("health_wide",        "[display]", "Health\n",             PORTOPT_CAT_GAMEPLAY, sHealthWideVals, sHealthWideText, NULL),
     /* the folder's HUD row: Rare's ratio option, same as the watch's "hud" row */
     ENUMR("hud_wide",           "[display]", "HUD\n",                PORTOPT_CAT_GAMEPLAY, sHealthWideVals, sHealthWideText, NULL),
+    /* HUD Scale: the in-game HUD on a 640x480 canvas, half size (options.c portHudScaleBegin) */
+    TOGGLET("hud_scale",        "[display]", "HUD Scale\n",          PORTOPT_CAT_GAMEPLAY, sHudScaleText),
 
     /* gameplay - [display] keys too (that is where the parser + launcher keep them) */
     TOGGLE("scope_steady",       "[display]", "Steady Scope\n",       PORTOPT_CAT_GAMEPLAY),
@@ -256,6 +264,10 @@ static const struct PortOpt sOpts[] = {
     TOGGLE("coop_bot",           "[display]", "Co-op Bot\n",          PORTOPT_CAT_GAMEPLAY), /* Port Options; port_bot.c owns the value */
     TOGGLE("watch_static",      "[display]", "Watch Static\n",       PORTOPT_CAT_GAMEPLAY), /* Port Options; the watch screen's static
                                                                                               * effect */
+    TOGGLE("fast_pause",         "[display]", "Fast Pause\n",         PORTOPT_CAT_GAMEPLAY), /* Port Options; the watch at Rare's top
+                                                                                              * speed, 1.7 */
+    TOGGLE("armor_hud",          "[display]", "Armor Pickup HUD\n",   PORTOPT_CAT_GAMEPLAY), /* HUD; the health / armour arcs show on a
+                                                                                              * body armour pickup, as on XBLA */
     /* multiplayer-only cheats, unlocked from the start and never applied in solo (lv.c);
      * renamed from Bond Invisible / Tiny Bond to Invisibility / Tiny Players */
     TOGGLE("mp_invisibility",    "[display]", "Invisibility\n",       PORTOPT_CAT_GAMEPLAY),
@@ -321,6 +333,14 @@ static const struct PortOpt sOpts[] = {
     INTR  ("music_volume",      "[display]", "Music Volume\n",  PORTOPT_CAT_AUDIO, 0, 100, 5, "%"),
     INTR  ("sfx_volume",        "[display]", "Sound Volume\n",  PORTOPT_CAT_AUDIO, 0, 100, 5, "%"),
     TOGGLE("stereo_pan",        "[display]", "Stereo Pan\n",    PORTOPT_CAT_AUDIO),
+    /* silence while the window has no focus (audio_pc.c); the volumes are untouched */
+    TOGGLE("mute_unfocused",    "[display]", "Mute in Background\n", PORTOPT_CAT_AUDIO),
+    /* aim + down = crouch off (joy_port.c), General Control Options */
+    TOGGLE("no_aim_crouch",     "[input]", "No Aim+Dn Crouch\n", PORTOPT_CAT_CONTROLLER),
+    /* pads while the window is unfocused (input_pc.c), General Control Options */
+    TOGGLE("background_input",  "[input]", "BG Input\n", PORTOPT_CAT_CONTROLLER),
+    /* the folder sheets' help box (front.c portSheetDrawHelp), Port Options */
+    TOGGLE("setting_help",      "[display]", "Setting Help\n", PORTOPT_CAT_GAMEPLAY),
 };
 
 #define PORTOPT_COUNT ((s32)(sizeof(sOpts) / sizeof(sOpts[0])))

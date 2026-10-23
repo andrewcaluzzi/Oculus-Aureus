@@ -2724,6 +2724,7 @@ static void gl_ret_clear_programs(void) {
 extern "C" uint32_t gfx_n64_aa; /* gfx_pc.cpp, set by video.c */
 extern "C" uint32_t gfx_line_mode; /* gfx_pc.cpp: the Line Mode cheat is on this frame */
 extern "C" uint32_t gfx_composite; /* video.c: [display] composite */
+extern "C" uint32_t gfx_vi_blend; /* video.c: Classic Mode's N64 AA part; 0 = pass 2 copies */
 static GLuint vi_prog[4] = { 0, 0, 0, 0 };
 static GLint vi_u_src[4] = { -1, -1, -1, -1 }, vi_u_samples = -1, vi_u_size = -1, vi_u_strength = -1, vi_u_gain = -1;
 static GLint vi_u_csize = -1, vi_u_cscale = -1, vi_u_cfreq = -1, vi_u_cframe = -1;   /* the composite pass */
@@ -3009,7 +3010,7 @@ static void gfx_opengl_resolve_n64_aa(int fb_dst, int fb_src) {
         glUseProgram(vi_prog[1]);
         glUniform1i(vi_u_src[1], 0);
         glUniform2i(vi_u_size, (GLint)src.width, (GLint)src.height);
-        glUniform1f(vi_u_strength, vi_strength());
+        glUniform1f(vi_u_strength, gfx_vi_blend ? vi_strength() : 0.0f);
     }
     glDrawArrays(GL_TRIANGLES, 0, 3);
     /* pass 3 (optional): the NTSC composite signal (fs4 in vi_init) */

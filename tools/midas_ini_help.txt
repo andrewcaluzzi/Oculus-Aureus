@@ -41,6 +41,9 @@ Data/Devices/kbm.gedevice (see the last section).
                       |         | pressed together detonate them
   shoot_next_prev     | 1       | Hold next weapon (or next gadget) and tap
                       |         | shoot to go back one, as N64 A held + Z
+  no_aim_crouch       | 0       | 1 = aiming and pushing down (stick, C-down,
+                      |         | D-down or the back key) no longer crouches.
+                      |         | The crouch binds still work
   Controllers
   pads                | 4       | N64 pads reported connected (1 to 4)
   rumble              | 1       | Vibration on or off
@@ -58,6 +61,10 @@ Data/Devices/kbm.gedevice (see the last section).
   hidapi, wgi, xinput | 1       | Other controller backend switches. Change
                       |         | only to work around a driver problem
   show_input          | 0       | 1 = show live stick X/Y on screen (testing)
+  background_input    | 0       | 1 = controllers keep working while the
+                      |         | game window is not focused. Keyboard and
+                      |         | mouse are still ignored then. Applies at
+                      |         | once
 
 Built-in controller layout: left stick moves, right stick looks, right
 trigger fires, left trigger aims, A uses, X reloads, Y and B change gadget,
@@ -106,6 +113,9 @@ padN_stickmode.
                       |            | picture with black side bars
   hfov_wide           | 90         | Horizontal field of view in degrees on a
                       |            | 16:9 picture. 90 is the original view
+  weapon_fov          | 0          | 0 = the gun and hands widen with the
+                      |            | field of view (as N64), 1 = they keep
+                      |            | their size at the default view
   pause_pillars       | 1          | Black side bars ease in while the watch
                       |            | is open (wide windows only)
   Frame rate
@@ -142,9 +152,9 @@ padN_stickmode.
   classic_mipmaps     | 1          | MSAA, mipmaps, 2D filtering, the 4:3
   classic_filter2d    | 1          | pillars, the load hitches (which also
   classic_pillars     | 1          | need hardware pacing), the composite
-  classic_hitches     | 1          | video filter and N64 AA (the VI filter;
-  classic_composite   | 1          | off = plain MSAA, and no composite
-  classic_n64aa       | 1          | filter, which needs it)
+  classic_hitches     | 1          | video filter and N64 AA (the VI edge
+  classic_composite   | 1          | blend; off = plain MSAA edges, the
+  classic_n64aa       | 1          | other parts stay)
   room_cache          | 2          | 2 = keep room geometry on the GPU
                       |            | (faster), 0 = classic path. Forced off
                       |            | with maxfps=-1
@@ -164,14 +174,35 @@ padN_stickmode.
                       |            | when not aiming
   mission_timer       | 1          | Elapsed time (MM:SS:MS) bottom-left in
                       |            | solo missions
+  hud_scale           | 0          | 1 = draw the in-game HUD as on a 640x480
+                      |            | screen: same places, half size (text,
+                      |            | ammo, timer, radar, sight; the health
+                      |            | and armour arcs keep their full size).
+                      |            | Needs 480 or more rendered lines (not
+                      |            | Low Res 240 or Classic Mode)
   watch_static        | 1          | 0 removes the watch's static and sound
+  fast_pause          | 0          | 1 = the watch opens and closes at the
+                      |            | top speed the game reaches by itself
+                      |            | (after about 7 pauses in a level)
+  show_fps            | 0          | 1 = frames per second in small digits
+                      |            | in the top-left corner during play
+  setting_help        | 1          | 1 = a box under the folder's option
+                      |            | pages says what the highlighted
+                      |            | setting does. Not on the watch
+  armor_hud           | 0          | 1 = health and armour arcs show briefly
+                      |            | when you pick up body armour (as XBLA)
   Sound
   music_volume        | 100        | 0 to 100 percent, from startup
   sfx_volume          | 100        | 0 to 100 percent, from startup
   stereo_pan          | 1          | 1 = effects pan by position, 0 = centred
                       |            | (as N64). Solo only
+  mute_unfocused      | 0          | 1 = silent while the game window is not
+                      |            | focused; sound returns at your volumes
+                      |            | when it is focused again
   Player options (global, not per save file)
-  look_updown         | 0          | 0 = normal, 1 = inverted up/down look
+  look_updown         | 1          | 1 = upright, 0 = reverse (inverted)
+                      |            | up/down look. Also on the Mouse and
+                      |            | Keyboard pages (folder and watch)
   auto_aim            | 1          | Auto-aim
   mouse_auto_aim      | 0          | 1 = allow auto-aim when aiming with the
                       |            | mouse. 0 = never on the mouse, whatever
@@ -327,6 +358,8 @@ Port actions (extra actions beyond the N64 pad)
   crouch_hold      | Left Ctrl        | Crouch while held
   watch_prev       | Comma            | Watch page left
   watch_next       | .                | Watch page right
+  watch_up         | Up               | Watch menu up one row (hold to repeat)
+  watch_down       | Down             | Watch menu down one row (hold to repeat)
   watch_objectives |                  | Open watch on the objectives page
   detonate         |                  | Detonate remote mines
   zoom_in          |                  | Zoom in while aiming (held)

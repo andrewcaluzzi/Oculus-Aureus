@@ -1067,7 +1067,9 @@ void lvlStageLoad(s32 stage)
     { /* the model-part cache's keys are memp addresses this load reused (roc_hooks.c) */
         extern void portPartCacheStageLoaded(s32 stage);
         extern void portHwLoadStageLoaded(void);
+        extern void portVehicleCarryReset(void);
         portPartCacheStageLoaded(stage);
+        portVehicleCarryReset(); /* vehicle rounding-carry slots keyed by setup address (propobj.c) */
         portHwLoadStageLoaded(); /* the stage's own loads are the load time, not a hitch (boss.c holds it) */
     }
 #endif

@@ -81,6 +81,12 @@ static s32 portAimLockActive(void)
 /* PORT: intro-camera skip needs a FRESH press - see bondviewFrozenCameraTick. */
 #define PORT_INTRO_SKIP_BUTTONS (CONT_A | B_BUTTON | Z_TRIG | START_BUTTON | CONT_R | CONT_L)
 static s32 s_PortIntroSkipArmed = 0;
+/* PORT: fields of AI passes that have seen the Bond swirl; see its exit. */
+static s32 s_PortSwirlAiFields = 0;
+/* PORT: how the intro camera ended, for the log line when it advances. */
+static u16 s_PortIntroSkipMask = 0;
+static s32 s_PortIntroSkipPort = 0;
+static u32 s_PortIntroStartCount = 0;
 #endif
 
 #ifdef VERSION_EU
@@ -871,6 +877,9 @@ void bondviewSetCameraMode(s32 arg0)
     {
 #ifndef TARGET_N64
         s_PortIntroSkipArmed = 0;   /* re-arm on release; see the skip site */
+        s_PortIntroSkipMask = 0;
+        s_PortIntroSkipPort = 0;
+        s_PortIntroStartCount = osGetCount();
 #endif
         if ((ptr_random06cam_entry != NULL) && (get_recording_ramrom_flag() == 0) && (get_is_ramrom_flag() == 0))
         {
@@ -913,6 +922,9 @@ void bondviewSetCameraMode(s32 arg0)
 
         if ((g_IntroSwirl != 0) && (get_recording_ramrom_flag() == 0) && (get_is_ramrom_flag() == 0))
         {
+#ifndef TARGET_N64
+            s_PortSwirlAiFields = 0;
+#endif
             camera_transition_timer = 0.0f;
             intro_camera_index = CAMERAMODE_INTRO;
             currentPlayerStartChrFade(0.0f, 1.0f);
@@ -1126,6 +1138,13 @@ void bondviewAdvanceCameraMode(void)
 
     if (mode == CAMERAMODE_INTRO)
     {
+#ifndef TARGET_N64
+        /* Always on, so a report of a short intro (murkantor/Project-Midas#13) can say what ended it. */
+        fprintf(stderr, "ge: intro: overview camera ended at %.1f fields, %u ms wall, by %s (buttons 0x%04x)\n",
+                camera_transition_timer, (unsigned) ((u32) (osGetCount() - s_PortIntroStartCount) / 46875u),
+                s_PortIntroSkipPort ? "a Port button" : (s_PortIntroSkipMask ? "a skip press" : "its timer"),
+                (unsigned) s_PortIntroSkipMask);
+#endif
         bondviewSetCameraMode(CAMERAMODE_FADESWIRL);
     }
     else if (mode == CAMERAMODE_FADESWIRL)
@@ -1137,6 +1156,9 @@ void bondviewAdvanceCameraMode(void)
     {
         if (mode == CAMERAMODE_SWIRL)
         {
+#ifndef TARGET_N64
+            fprintf(stderr, "ge: intro: Bond swirl ended after %d fields of AI passes\n", (int) s_PortSwirlAiFields);
+#endif
             bondviewRemovePlayerBody();
             currentPlayerStartChrFade(0.0f, 1.0f); // What's the point of this call?
             bondviewSetCameraMode(CAMERAMODE_FP);
@@ -1420,6 +1442,8 @@ void bondviewFrozenCameraTick(u16 buttons, u16 oldbuttons, struct coord3d *pos, 
                     && ((buttons & ~oldbuttons & PORT_INTRO_SKIP_BUTTONS) || portskip))
                 {
                     g_CameraAfterCinema = CAMERAMODE_INTRO;
+                    s_PortIntroSkipMask = buttons & ~oldbuttons & PORT_INTRO_SKIP_BUTTONS;
+                    s_PortIntroSkipPort = portskip;
                 }
             }
 #else
@@ -1639,6 +1663,17 @@ void bondviewFrozenCameraTick(u16 buttons, u16 oldbuttons, struct coord3d *pos, 
                 }
             }
         }
+
+#ifndef TARGET_N64
+        /* Silo's timer and Statue's guards wait for this mode, and chr AI runs every
+         * 2 fields here (portAiGovDefer), so hold the exit until an AI pass saw it. */
+        if (s_PortSwirlAiFields < 2)
+        {
+            g_CameraAfterCinema = CAMERAMODE_NONE;
+        }
+
+        s_PortSwirlAiFields += g_ClockTimer;
+#endif
 
         bondviewCalcIntroSwirlCamera(intro_camera_index, camera_transition_timer, pos, pos2);
 
@@ -3247,6 +3282,44 @@ static s32 portUnwedgePlayer(struct coord3d *edge0, struct coord3d *edge1)
     portUnwedgeWhy("no legal point within the push cap");
     return 0;
 }
+
+/* A sub-field tick moves Bond too little to clear a guard or object overlapping
+ * him, so judge a prop-refused move at the whole-field step as the 60 tick would. */
+static s32 portSubFieldPropMove(struct coord3d *next_pos)
+{
+    struct coord3d full;
+    StandTile *stan;
+    StandTile *tile;
+    f32 *cur = g_CurrentPlayer->field_488.collision_position.f;
+
+    if (portTickHz() == 60 || get_is_ramrom_flag() != 0 || g_PlayerIsInTank == 1
+        || g_GlobalTimerDelta <= 0.0f || g_GlobalTimerDelta >= 1.0f)
+    {
+        return 0;
+    }
+
+    full.f[0] = cur[0] + ((next_pos->f[0] - cur[0]) / g_GlobalTimerDelta);
+    full.f[1] = cur[1];
+    full.f[2] = cur[2] + ((next_pos->f[2] - cur[2]) / g_GlobalTimerDelta);
+
+    if (bondviewTryMoveToStan(&full, &stan) == 0)
+    {
+        return 0;
+    }
+
+    tile = g_CurrentPlayer->field_488.current_tile_ptr;
+
+    if (walkTilesBetweenPoints_NoCallback(&tile, cur[0], cur[2], next_pos->f[0], next_pos->f[2]) == 0 || tile == NULL)
+    {
+        return 0;
+    }
+
+    g_CurrentPlayer->field_488.current_tile_ptr = tile;
+    cur[0] = next_pos->f[0];
+    cur[2] = next_pos->f[2];
+
+    return 1;
+}
 #endif
 
 
@@ -3378,6 +3451,11 @@ void bondviewCalcUpdatePlayerCollision(struct coord3d *offset, s32 allow_scoot)
                                     && stanSavedColl_tile == NULL) ? g_portBlockProp : NULL;
             s_portBlockCauseTop = g_portBlockTop;
         }
+        if (s_portBlockCauseProp != NULL && portSubFieldPropMove(&next_pos))
+        {
+            temp_v0_7 = 1;
+            goto port_subfield_moved;
+        }
 #endif
         // return values are:
         //   1 if able to update stan and collision position
@@ -3407,6 +3485,7 @@ void bondviewCalcUpdatePlayerCollision(struct coord3d *offset, s32 allow_scoot)
             }
         }
 #ifndef TARGET_N64
+port_subfield_moved:
         /* GE_BLOCKDBG: did any escape path move him? allow_scoot gates the
          * edge-scoot and end-hop that vanilla uses to slide out of a
          * collision; frac is the fraction-move result. */
@@ -3734,6 +3813,25 @@ bool bondViewIsPauseTransitioning(void) {
 }
 
 
+#ifndef TARGET_N64
+/* The watch's open and close rate. Port Options' Fast Pause uses 1.7, the cap that
+ * trigger_solo_watch_menu grows watch_transition_time to on each open. */
+#define WATCH_RATE_LEVEL_LOAD 0.9090909f   /* bondview_r.c, at every level load */
+#define WATCH_RATE_CAP        1.7f
+static s32 bondviewFastPause(void)
+{
+    extern s32 portFastPause(void);   /* video.c */
+
+    return portFastPause();
+}
+static f32 bondviewWatchRate(void)
+{
+    return bondviewFastPause() ? WATCH_RATE_CAP : watch_transition_time;
+}
+#else
+#define bondviewWatchRate() watch_transition_time
+#endif
+
 /**
  * Transition camera pitch from playing to watch menu (-40.0f degrees).
  * Then when the game is unpaused, transition the camera pitch back to its pitch before pausing began.
@@ -3747,7 +3845,7 @@ void bondviewUpdatePauseTransition(void) {
 
     // Entering pause.
     if (g_CurrentPlayer->pause_state == 1) {
-        g_CurrentPlayer->pause_transition_time += g_GlobalTimerDelta * watch_transition_time;
+        g_CurrentPlayer->pause_transition_time += g_GlobalTimerDelta * bondviewWatchRate();
 
         if (g_CurrentPlayer->pause_transition_time < g_CurrentPlayer->pause_transition_duration) {
             // Cosine ease-in-out
@@ -3763,7 +3861,7 @@ void bondviewUpdatePauseTransition(void) {
         }
     // Leaving pause.
     } else if (g_CurrentPlayer->pause_state == 2) {
-        g_CurrentPlayer->pause_transition_time += g_GlobalTimerDelta * watch_transition_time;
+        g_CurrentPlayer->pause_transition_time += g_GlobalTimerDelta * bondviewWatchRate();
 
         if (g_CurrentPlayer->pause_transition_time < g_CurrentPlayer->pause_transition_duration) {
             // Cosine ease-in-out
@@ -4008,6 +4106,19 @@ void bondviewUpdateWatchZoomIn(void)
 #if defined(BUGFIX_R1)
             g_CurrentPlayer->zoomintime = g_CurrentPlayer->zoomintime + (jpD_800484D0 * watch_transition_time);
 #else
+#ifndef TARGET_N64
+            /* The aim/sniper zoom only stepped on 60Hz field ticks; advance it by
+             * the true delta so it is smooth at higher tick rates. */
+            if ((g_CurrentPlayer->watch_animation_state == WATCH_ANIMATION_0x0) && portSmoothOn())
+            {
+                g_CurrentPlayer->zoomintime = g_CurrentPlayer->zoomintime + (g_GlobalTimerDelta * watch_transition_time);
+            }
+            else if (g_CurrentPlayer->watch_animation_state != WATCH_ANIMATION_0x0)
+            {
+                g_CurrentPlayer->zoomintime = g_CurrentPlayer->zoomintime + (speedgraphframes * bondviewWatchRate());
+            }
+            else
+#endif
             g_CurrentPlayer->zoomintime = g_CurrentPlayer->zoomintime + (speedgraphframes * watch_transition_time);
 #endif
         }
@@ -4078,7 +4189,7 @@ void sub_GAME_7F07E7CC(void) {
 #endif
     animInit((Model *)((u8 *)g_CurrentPlayer + 0x230), itemheader, (u32 *)((u8 *)g_CurrentPlayer + 0x2ec));
     modelSetScale((Model *)((u8 *)g_CurrentPlayer + 0x230), c_item_entries[41].scale * 0.10000001f);
-    modelSetAnimation((Model *)((u8 *)g_CurrentPlayer + 0x230), (ModelAnimation *)&ptr_animation_table->data[PTR_ANIM_bond_watch], 0, 0.0f, 0.5f * watch_transition_time, 0.0f);
+    modelSetAnimation((Model *)((u8 *)g_CurrentPlayer + 0x230), (ModelAnimation *)&ptr_animation_table->data[PTR_ANIM_bond_watch], 0, 0.0f, 0.5f * bondviewWatchRate(), 0.0f);
     *(s32 *)((u8 *)g_CurrentPlayer + 0x220) = 0;
 }
 
@@ -4138,7 +4249,7 @@ void bondviewStepWatchAnimation(void)
     {
         if (g_CurrentPlayer->step_in_view_watch_animation == 1)
         {
-            g_CurrentPlayer->pause_animation_counter += g_GlobalTimerDelta * watch_transition_time * g_CurrentPlayer->pause_watch_related_scaled;
+            g_CurrentPlayer->pause_animation_counter += g_GlobalTimerDelta * bondviewWatchRate() * g_CurrentPlayer->pause_watch_related_scaled;
 
             if (g_CurrentPlayer->pause_animation_counter > 20.0f)
             {
@@ -4148,7 +4259,7 @@ void bondviewStepWatchAnimation(void)
         }
         else if (g_CurrentPlayer->step_in_view_watch_animation == 2)
         {
-            g_CurrentPlayer->pause_animation_counter -= g_GlobalTimerDelta * watch_transition_time * g_CurrentPlayer->pause_watch_related_scaled;
+            g_CurrentPlayer->pause_animation_counter -= g_GlobalTimerDelta * bondviewWatchRate() * g_CurrentPlayer->pause_watch_related_scaled;
 
             if (g_CurrentPlayer->pause_animation_counter < 0.0f)
             {
@@ -4411,6 +4522,14 @@ static void portPauseBoxTick(void)
         if (e > 1.0f) { e = 1.0f; }
         p = opening ? (1.0f - powf(1.0f - e, 1.0f / PORT_PAUSEBOX_K)) : powf(e, 1.0f / PORT_PAUSEBOX_K);
         was_opening = opening;
+    }
+    /* Fast Pause: keep pace with the faster arm and tilt. The 95 and 60 tick spans
+     * below were measured at the level-load rate; the ratio is against that, not
+     * the still-growing watch_transition_time, so the box runs the same on every
+     * pause of a level (the watch itself holds at the cap). */
+    if (bondviewFastPause())
+    {
+        dt *= WATCH_RATE_CAP / WATCH_RATE_LEVEL_LOAD;
     }
     if (skipbox)                     { /* not this Bond's picture */ }
     else if (getPlayerCount() != 1)  { p = 0.0f; }
@@ -6033,6 +6152,8 @@ static f32 s_BondGunSwayLpY[4];
 #define g_bondviewAimSwivelPosY s_BondAimSwivelPosY[portSwivelIdx()]
 #define g_bondviewGunSwayLpX s_BondGunSwayLpX[portSwivelIdx()]
 #define g_bondviewGunSwayLpY s_BondGunSwayLpY[portSwivelIdx()]
+static s32 s_BondSwayFromMouse[4];  /* upstream 1.0.2b: this Bond's last look input was the mouse, so the gun's sway is the mouse's */
+#define g_bondviewSwayFromMouse s_BondSwayFromMouse[portSwivelIdx()]
 
 #ifndef TARGET_N64
 /* DIRECT MOUSE, modelled on the 1964 GEPD mouse injector: the mouse delta
@@ -7564,8 +7685,6 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
              * buttons can lean. Uses the twin-stick +-30 of 85 threshold and
              * ORs in, so the vanilla C-button lean still works. */
             extern s32 portJoyPortHeld(s32 act);
-            extern s32 portJoyPortActZoomIn(void);
-            extern s32 portJoyPortActZoomOut(void);
 
             if (moveData.controlStickXSafe < -30)
             {
@@ -7639,24 +7758,6 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
                 else
                 {
                     portAimEdgeTurnFromLook(&moveData, ax, ay);
-                }
-            }
-            /* zoom gets its own binds, since modern pads have no C buttons: read
-             * as a LEVEL, so a stick zooms by how far it is pushed and a key
-             * zooms at the 1.x C-button rate of 1.0. As in vanilla, only the
-             * sniper rifle and camera zoom, and only while aiming. */
-            {
-                extern f32 portJoyPortLevel(s32 act);
-                const f32 zi = portJoyPortLevel(portJoyPortActZoomIn());
-                const f32 zo = portJoyPortLevel(portJoyPortActZoomOut());
-
-                if (zi > 0.0f)
-                {
-                    moveData.zoomInFovPersec = zi;
-                }
-                if (zo > 0.0f)
-                {
-                    moveData.zoomOutFovPersec = zo;
                 }
             }
         }
@@ -7821,6 +7922,41 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
                 moveData.digitalStepLeft = (kx < 0);
             }
         }
+        else if (pl == 0 && !portCoopActive() && portInputPadIsN64(0) && portBondControlsLive() && g_PlayerIsInTank != 1
+            && g_CurrentPlayer->insightaimmode)
+        {   /* While aiming, the Move keys do the C-button jobs they stand in for on
+             * an N64 slot: A / D lean, S ducks, and W / S zoom a sniper or camera.
+             * PORT (fork): solo only - it reads this machine's keyboard inside the sim, which co-op/netplay must never do. */
+            extern void portVideoKbdDigitalMove(s32 *dx, s32 *dy);
+            const s32 nocrouch = bondwalkItemCheckBitflags(getCurrentPlayerWeaponId(GUNRIGHT), WEAPONSTATBITFLAG_DISABLE_CROUCH) != 0;
+            s32 kx = 0;
+            s32 ky = 0;
+
+            portVideoKbdDigitalMove(&kx, &ky);
+            if (kx < 0)
+            {
+                moveData.rLeanLeft = 1;
+            }
+            else if (kx > 0)
+            {
+                moveData.rLeanRight = 1;
+            }
+            if (ky < 0)
+            {
+                if (nocrouch)
+                {
+                    moveData.zoomOutFovPersec = 1.0f;
+                }
+                else
+                {
+                    moveData.crouchDown = 1;
+                }
+            }
+            else if (ky > 0 && nocrouch)
+            {
+                moveData.zoomInFovPersec = 1.0f;
+            }
+        }
         else if (!portSimPadIsN64(pl) && g_portBondFrozenTick != 0 && g_PlayerIsInTank != 1
             && g_CurrentPlayer->watch_animation_state == WATCH_ANIMATION_0x0
             && g_CurrentPlayer->bonddead == FALSE
@@ -7863,6 +7999,29 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
                         }
                     }
                 }
+            }
+        }
+
+        /* zoom gets its own binds, since modern pads have no C buttons: read
+         * as a LEVEL, so a stick zooms by how far it is pushed and a key
+         * zooms at the 1.x C-button rate of 1.0. As in vanilla, only the
+         * sniper rifle and camera zoom, and only while aiming. */
+        if (portBondControlsLive() && g_PlayerIsInTank != 1 && g_CurrentPlayer->insightaimmode)
+        {   /* any slot class: the keyboard rides player 1's slot even when it is N64-class,
+             * and the faster of the C buttons and the bind wins */
+            extern f32 portJoyPortLevel(s32 act);
+            extern s32 portJoyPortActZoomIn(void);
+            extern s32 portJoyPortActZoomOut(void);
+            const f32 zi = portJoyPortLevel(portJoyPortActZoomIn());
+            const f32 zo = portJoyPortLevel(portJoyPortActZoomOut());
+
+            if (zi > moveData.zoomInFovPersec)
+            {
+                moveData.zoomInFovPersec = zi;
+            }
+            if (zo > moveData.zoomOutFovPersec)
+            {
+                moveData.zoomOutFovPersec = zo;
             }
         }
     }
@@ -8356,6 +8515,15 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
         }
 
 #ifndef TARGET_N64
+        { /* [input] no_aim_crouch: every crouchDown above is aim + down, so
+           * drop it; the crouch binds below still work. */
+            extern s32 portJoyPortNoAimCrouch(void);
+
+            if (portJoyPortNoAimCrouch())
+            {
+                moveData.crouchDown = 0;
+            }
+        }
         { /* Port suite crouch toggle/hold (joy_port.c): the aim-mode duck
            * without aim mode - stand <-> squat through the same +-2 step */
             extern s32 portJoyPortCrouchStep(void);
@@ -8982,6 +9150,18 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
         g_bondviewAimSwivelPosY = 0.0f;
         g_bondviewAimSeeded = 0;
         g_bondviewAimMouseMoved = 0;
+        /* who swayed the gun: the mouse, or the stick / pad look stick /
+         * keyboard turn (speedtheta, speedverta), whichever turned last */
+        if (g_portMouseYawDeg != 0.0f || g_portMousePitchDeg != 0.0f
+            || moveData.freeLookDx != 0.0f || moveData.freeLookDy != 0.0f)
+        {
+            g_bondviewSwayFromMouse = 1;
+        }
+        else if (g_CurrentPlayer->speedtheta != 0.0f || g_CurrentPlayer->speedverta != 0.0f
+                 || g_portPadLookYawDeg != 0.0f || g_portPadLookPitchDeg != 0.0f)
+        {
+            g_bondviewSwayFromMouse = 0;
+        }
     }
     else
     {
@@ -8990,19 +9170,29 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
         /* AIM ENTRY: seed the mouse offset with the turn that holds the gun
          * where it currently points (pos*(1-d), from gunfire.c's sway filter),
          * so the crosshair starts at the muzzle instead of snapping to the
-         * centre. With the tank turret weapon, X belongs to the turret. */
+         * centre. With the tank turret weapon, X belongs to the turret.
+         * Only when the mouse did the looking: after a pad or keyboard turn
+         * the sight glides back to the centre as in vanilla, and so does an
+         * axis Auto-Aim was steering, since aiming drops the lock. */
+        extern s32 get_is_ramrom_flag(void); /* a demo replays an N64 pad */
+
         g_bondviewAimSeeded = 1;
-        if (g_portMouseDirect)
+        if (g_portMouseDirect && g_bondviewSwayFromMouse && get_is_ramrom_flag() == 0)
         {
             f32 d = g_CurrentPlayer->guncrossdamp;
+            s32 autoGun = bondwalkItemCheckBitflags(getCurrentPlayerWeaponId(GUNRIGHT), WEAPONSTATBITFLAG_HAS_AUTO_AIM);
 
             if (d > 0.0f && d < 1.0f)
             {
-                if (!portTankTurretWeaponHeld())
+                if (!portTankTurretWeaponHeld()
+                    && !(autoGun && g_CurrentPlayer->autoaim_target_x && currentPlayerGetXAutoAimEnabledRedirect()))
                 {
                     g_bondviewMouseSwivelX = g_CurrentPlayer->crosshair_x_pos * (1.0f - d);
                 }
-                g_bondviewMouseSwivelY = g_CurrentPlayer->crosshair_y_pos * (1.0f - d);
+                if (!(autoGun && g_CurrentPlayer->autoaim_target_y && currentPlayerGetYAutoAimEnabledRedirect()))
+                {
+                    g_bondviewMouseSwivelY = g_CurrentPlayer->crosshair_y_pos * (1.0f - d);
+                }
             }
         }
     }
@@ -12006,17 +12196,18 @@ Gfx *bondviewRenderWatch(Gfx *gdl)
          * the authored aspect keeps the watch the same size on screen, so the
          * pinned menu 2D still sits on the watch face. */
         waspect *= g_bondviewSceneWideFactorReal;   /* the WINDOW's factor (g_bondviewSceneWideFactor is the sim's in co-op) */
-#endif
-        {
-#ifndef TARGET_N64
+        {   /* Weapon FOV (upstream 1.0.2b): the arm raises at the gun's FOV, ending on the face as before; in co-op the
+             * zoom FOV is the sim's canonical one, so it goes through the display mapping first */
+            extern f32 gunWeaponFovY(f32 fovy); /* gunfire.c */
             extern s32 portSimViewOn(void);
             extern f32 portSimDisplayFovY(f32 fovy, s32 realViewY);
             const f32 wfov = portSimViewOn() ? portSimDisplayFovY(g_CurrentPlayer->zoominfovy, 0) : g_CurrentPlayer->zoominfovy;
-#else
-            const f32 wfov = g_CurrentPlayer->zoominfovy;
-#endif
-            guPerspective(perspmtx, &perspNorm, wfov, waspect, 10.0f, 300.0f, 1.0f);
+
+            guPerspective(perspmtx, &perspNorm, gunWeaponFovY(wfov), waspect, 10.0f, 300.0f, 1.0f);
         }
+#else
+        guPerspective(perspmtx, &perspNorm, g_CurrentPlayer->zoominfovy, waspect, 10.0f, 300.0f, 1.0f);
+#endif
     }
  
     gSPMatrix(gdl++, OS_PHYSICAL_TO_K0((u32) perspmtx), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
@@ -12898,10 +13089,13 @@ static Gfx *portPillarOverlayDraw(Gfx *gdl)
         if (ep > 0.0f && getPlayerCount() == 1)
         {
             f32 wf = portFrameWideFactor();
+            /* the frame's own size: the Cuba credits draw at 440x330, not 320x240 */
+            const s32 sw = viGetX();
+            const s32 sh = viGetY();
             const f32 ew = portPausePillars() ? ep : portClassicPillarsProgress();   /* Pause Pillars off: Classic Mode's still draw */
-            s32 w4 = (wf > 1.001f) ? (s32) (ew * ((wf - 1.0f) * 0.5f * (f32) SCREEN_WIDTH) * 4.0f + 0.5f) : 0;
+            s32 w4 = (wf > 1.001f) ? (s32) (ew * ((wf - 1.0f) * 0.5f * (f32) sw) * 4.0f + 0.5f) : 0;
             s32 h4 = portFullHeightActive() ? (s32) (e * (f32) VIEWPORT_ULY_DEFAULT * 4.0f + 0.5f) : 0;
-            if (w4 > SCREEN_WIDTH * 4) { w4 = SCREEN_WIDTH * 4; } /* wf is clamped at 3 (= 320 native px per side); 12-bit 10.2 fields hold it */
+            if (w4 > sw * 4) { w4 = sw * 4; } /* wf is clamped at 3 (= 440 native px per side at most); 12-bit 10.2 fields hold it */
             if (w4 >= 4 || h4 >= 4)
             {
 #define PORT_FILLRECT_Q(g, ulx4, uly4, lrx4, lry4) do { \
@@ -12915,15 +13109,15 @@ static Gfx *portPillarOverlayDraw(Gfx *gdl)
                 if (w4 >= 4)
                 {
                     PORT_HUD_ANCHOR_FULL(gdl, PORT_HUD_ANCHOR_LEFT);
-                    PORT_FILLRECT_Q(gdl, 0, 0, w4 - 4, SCREEN_HEIGHT * 4 - 1);
+                    PORT_FILLRECT_Q(gdl, 0, 0, w4 - 4, sh * 4 - 1);
                     PORT_HUD_ANCHOR_FULL(gdl, PORT_HUD_ANCHOR_RIGHT);
-                    PORT_FILLRECT_Q(gdl, SCREEN_WIDTH * 4 - w4, 0, SCREEN_WIDTH * 4 - 1, SCREEN_HEIGHT * 4 - 1);
+                    PORT_FILLRECT_Q(gdl, sw * 4 - w4, 0, sw * 4 - 1, sh * 4 - 1);
                     PORT_HUD_ANCHOR_OFF(gdl);
                 }
                 if (h4 >= 4)
                 {
-                    PORT_FILLRECT_Q(gdl, 0, 0, SCREEN_WIDTH * 4 - 1, h4 - 4);
-                    PORT_FILLRECT_Q(gdl, 0, SCREEN_HEIGHT * 4 - h4, SCREEN_WIDTH * 4 - 1, SCREEN_HEIGHT * 4 - 1);
+                    PORT_FILLRECT_Q(gdl, 0, 0, sw * 4 - 1, h4 - 4);
+                    PORT_FILLRECT_Q(gdl, 0, sh * 4 - h4, sw * 4 - 1, sh * 4 - 1);
                 }
 #undef PORT_FILLRECT_Q
                 gDPPipeSync(gdl++);
@@ -13416,6 +13610,28 @@ s32 sub_GAME_7F0898E8(void)
 }
 
 
+#ifndef TARGET_N64
+extern s32 portArmorHud(void); /* video.c: midas.ini [display] armor_hud; weak 0 headless */
+
+/* Starts the health / armour arcs as damage does. If they are already up it
+ * restarts at frame 1, since frame 0 hides them for a frame. */
+static void portHealthShowRestart(void)
+{
+    if (g_CurrentPlayer->healthshowtime > 0)
+    {
+        s32 type = (s32)(currentPlayerGetHealth() * 8.0f);
+
+        g_CurrentPlayer->healthdamagetype = (type >= 8) ? 7 : ((type < 0) ? 0 : type);
+        g_CurrentPlayer->healthshowtime = 1;
+    }
+    else
+    {
+        g_CurrentPlayer->healthshowtime = 0;
+    }
+}
+#endif
+
+
 /**
  * @param damage_amount: damage amount
  * @param vectorx: damage source x coordinate
@@ -13654,6 +13870,13 @@ void record_damage_kills(f32 damage_amount, f32 vectorx, f32 vectorz, s32 player
                 }
 
                 g_CurrentPlayer->damageshowtime = ZERO_7F08991C;
+#ifndef TARGET_N64
+                if (portArmorHud())
+                {   /* Armor Pickup HUD: a hit during a pickup's display must not blink it */
+                    portHealthShowRestart();
+                }
+                else
+#endif
                 g_CurrentPlayer->healthshowtime = ZERO_7F08991C;
 
 #undef ZERO_7F08991C
@@ -13950,6 +14173,24 @@ void bondviewAddCurrentPlayerArmor(f32 arg0)
 {
     g_playerPerm->body_armor_pickups += arg0;
     g_CurrentPlayer->bondarmour = arg0;
+#ifndef TARGET_N64
+    /* Armor Pickup HUD (XBLA): show this player's arcs with the new armor at
+     * once. A hit's display still on its old values shows the new ones itself. */
+    if (portArmorHud() && !g_CurrentPlayer->bonddead &&
+        !(g_CurrentPlayer->healthshowtime >= 0 &&
+          g_CurrentPlayer->healthshowtime <= g_HealthDisplayDurations[g_CurrentPlayer->healthdamagetype].updateToRealHealthFrame))
+    {
+        s32 type = (s32)(currentPlayerGetHealth() * 8.0f);
+
+        g_CurrentPlayer->oldhealth = g_CurrentPlayer->apparenthealth = g_CurrentPlayer->bondhealth;
+        g_CurrentPlayer->oldarmour = g_CurrentPlayer->apparentarmour = g_CurrentPlayer->bondarmour;
+        /* Start at frame 1 with the shown values set: the pickup runs after
+         * the health tick and before the arcs draw (lv.c lvlRender), so frame
+         * 0, which draws nothing, would leave the pickup frame blank. */
+        g_CurrentPlayer->healthdamagetype = (type >= 8) ? 7 : ((type < 0) ? 0 : type);
+        g_CurrentPlayer->healthshowtime = 1;
+    }
+#endif
 }
 
 
@@ -14269,10 +14510,13 @@ Gfx* hudmsgBottomRender(Gfx* arg0)
             {
                 PORT_HUD_ANCHOR(arg0, PORT_HUD_ANCHOR_LEFT);
             }
+            /* HUD Scale: the message is laid out from the view's bottom-left */
+            arg0 = portHudScaleBegin(arg0, (f32) viGetViewLeft(), (f32) (viGetViewTop() + viGetViewHeight()));
 #endif
             arg0 = draw_blackbox_to_screen(arg0, (s32) &view_left, (s32) &view_vert, (s32) &view_horiz, (s32) &view_top);
             arg0 = combiner_bayer_lod_perspective(textRenderOutlined(arg0, &view_left, &view_vert, stringbuffer_lowerleft[status_bar_text_buffer_index], BONDVIEW_2ND_FONTTABLE(status_bar_text_buffer_index), BONDVIEW_1ST_FONTTABLE(status_bar_text_buffer_index), -1, 0x646464FFU, (s16) (s32) viGetX(), (s16) viGetY(), 0, 0));
 #ifndef TARGET_N64
+            arg0 = portHudScaleEnd(arg0);
             if (portMsgAnchor)
             {
                 PORT_HUD_ANCHOR_OFF(arg0);
@@ -14437,6 +14681,19 @@ Gfx *sub_GAME_7F08AAE8(Gfx *gdl)
                     }
 
                     msg.bottom = msg.y + msg.textheight;
+#ifndef TARGET_N64
+                    if (portHudScaleOn())
+                    {   /* HUD Scale: the bar keeps the full width at the text's
+                         * halved rows, and the text is laid out from the view's
+                         * top-left */
+                        const s32 vt = viGetViewTop();
+
+                        gdl = microcode_constructor_related_to_menus(gdl, 0, vt + (msg.y - 2 - vt) / 2, viGetX(),
+                                                                     vt + (msg.bottom - vt + 1) / 2, 0x64);
+                        gdl = portHudScaleBegin(gdl, (f32) viGetViewLeft(), (f32) vt);
+                    }
+                    else
+#endif
                     gdl = microcode_constructor_related_to_menus(gdl, 0, msg.y - 2, viGetX(), msg.bottom, 0x64);
 #ifdef VERSION_US
                     sw.screenwidth = viGetX();
@@ -14460,6 +14717,9 @@ Gfx *sub_GAME_7F08AAE8(Gfx *gdl)
                         gdl = textRender(gdl, &msg.x, &msg.y, dword_CODE_bss_80079DC8[upper_text_buffer_index], ptrFontZurichBoldChars, ptrFontZurichBold, -1, sw.screenwidth, viGetY(), 0, 0);
 #endif
                     }
+#endif
+#ifndef TARGET_N64
+                    gdl = portHudScaleEnd(gdl);
 #endif
                     gdl = combiner_bayer_lod_perspective(gdl);
                     goto end;

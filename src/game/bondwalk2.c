@@ -1,5 +1,29 @@
 #include <ultra64.h>
 
+#ifndef TARGET_N64
+/* CROSSHAIR PRECISION (murkantor/Project-Midas#7): set by gunfire.c around the
+ * aim sight. The texrect's 10.2 corners are sent with their dropped fractions
+ * (G_NOOP tag 0x59, gfx_pc.cpp), so the sight moves by display pixel rather
+ * than by quarter native pixel, and its far edges are not rounded up to a
+ * whole native pixel. Drawing only: the aim maths already runs in floats. */
+s32 g_portRectPrecise;
+
+static u32 portRectFrac6(f32 q, s32 iq)
+{
+    s32 v = (s32) ((q - (f32) iq) * 64.0f + 0.5f);
+
+    return (u32) ((v < 0) ? 0 : (v > 63) ? 63 : v);
+}
+
+/** The tag for the next rect: each corner's U10.2 value q and the integer it was sent as. */
+Gfx *portRectPreciseTag(Gfx *gdl, f32 ulx, f32 uly, f32 lrx, f32 lry, s32 iulx, s32 iuly, s32 ilrx, s32 ilry)
+{
+    gDPNoOpTag(gdl++, 0x59000000u | (portRectFrac6(ulx, iulx) << 18) | (portRectFrac6(uly, iuly) << 12)
+                      | (portRectFrac6(lrx, ilrx) << 6) | portRectFrac6(lry, ilry));
+    return gdl;
+}
+#endif
+
 /**
  * Draws a textured rectangle on the screen.
  * 
@@ -110,6 +134,16 @@ void draw_textured_rectangle(Gfx **gdlptr, f32 *position, f32 *size, s32 width, 
 #endif
             }
 
+#ifndef TARGET_N64
+            if (g_portRectPrecise)
+            {   /* a clipped edge (xl or yl forced to 0 above) keeps no fraction */
+                gdl = portRectPreciseTag(gdl,
+                                         (xl == 0) ? 0.0f : (position[0] - size[0]) * 4.0f,
+                                         (yl == 0) ? 0.0f : (position[1] - size[1]) * 4.0f,
+                                         (position[0] + size[0]) * 4.0f, (position[1] + size[1]) * 4.0f,
+                                         xl, yl, xh, yh);
+            }
+#endif
             // Draw the textured rectangle with optional flipping
             if (flipXY)
             {

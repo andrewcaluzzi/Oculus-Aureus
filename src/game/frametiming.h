@@ -43,6 +43,7 @@ void portTickSetHz(s32 hz);     /* midas.ini [display] tickhz; GE_TICKHZ still w
 void portTickSetHwPace(s32 on); /* tickhz=hw: the console's frame pacing on the 60 Hz sim (frametiming.c) */
 s32 portTickHwPace(void);       /* 1 = hold frames for the modelled N64 fields (not during demos / recording) */
 s32 portHwPaceFields(void);     /* the fields the last frame would have cost the console, 1..6 */
+s32 portFastTickFixOn(void);    /* port collision fixes: tick under two fields, no demo, no Hardware pacing */
 /* Sub-field smoothing (see frametiming.c "Sub-field SMOOTHING"):
  * portAnimTicks() = fractional anim ticks this tick (== g_ClockTimer when the
  * delta is whole); portLagStep advances `x = x*d + in` by delta fields exactly;
@@ -50,6 +51,7 @@ s32 portHwPaceFields(void);     /* the fields the last frame would have cost the
 s32 portSmoothOn(void);
 f32 portAnimTicks(void);
 f32 portTickFieldPhase(void); /* sub-field phase [0,1) banked by the field carry */
+f32 portRenderFieldPhase(void); /* that phase for render-only particle smoothing, held while paused */
 void portLagStep(f32 *x, f32 d, f32 in, f32 delta);
 void portDecayStep(f32 *x, f32 d, f32 delta);
 /* tickhz=hw stage-load work (frametiming.c "texture decode and stage setup"):

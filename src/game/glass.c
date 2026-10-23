@@ -269,6 +269,14 @@ Gfx *glassRenderShards(Gfx *gdl)
     Mtxf mtxf;
     s32 i;
     Mtx *mtx;
+#ifndef TARGET_N64
+    /* Shards step once per 60Hz field; at higher tick rates draw each one
+     * `phase` of the way to its next step (render only). */
+    extern f32 portRenderFieldPhase(void); /* frametiming.c */
+    f32 ph = portRenderFieldPhase();
+    coord3d drawpos;
+    coord3d drawrot;
+#endif
 
     texSelect(&gdl, glassoverlayimage + 1, 2, 1, 2);
 
@@ -286,7 +294,17 @@ Gfx *glassRenderShards(Gfx *gdl)
         if (WINDOW_PIECE(i)->active > 0) {
             mtx = dynAllocateMatrix();
 
+#ifndef TARGET_N64
+            drawpos.x = WINDOW_PIECE(i)->pos.x + WINDOW_PIECE(i)->velocity.x * ph;
+            drawpos.y = WINDOW_PIECE(i)->pos.y + WINDOW_PIECE(i)->velocity.y * ph;
+            drawpos.z = WINDOW_PIECE(i)->pos.z + WINDOW_PIECE(i)->velocity.z * ph;
+            drawrot.x = WINDOW_PIECE(i)->rot.x + WINDOW_PIECE(i)->angvel.x * ph;
+            drawrot.y = WINDOW_PIECE(i)->rot.y + WINDOW_PIECE(i)->angvel.y * ph;
+            drawrot.z = WINDOW_PIECE(i)->rot.z + WINDOW_PIECE(i)->angvel.z * ph;
+            matrix_4x4_set_position_and_rotation_around_xyz(&drawpos, &drawrot, &mtxf);
+#else
             matrix_4x4_set_position_and_rotation_around_xyz(&WINDOW_PIECE(i)->pos, &WINDOW_PIECE(i)->rot, &mtxf);
+#endif
 
             mtxf.m[3][0] -= g_CurrentPlayer->current_model_pos.x;
             mtxf.m[3][1] -= g_CurrentPlayer->current_model_pos.y;
