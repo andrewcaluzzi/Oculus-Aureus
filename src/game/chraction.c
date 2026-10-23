@@ -88,6 +88,19 @@ coord3d *chrlvGetChrOrPresetLocation          (ChrRecord *self, s32 flags, s32 l
 void chrStopFiring                            (ChrRecord *self);
 void sub_GAME_7F0281F4                        (ChrRecord *self);
 s32 plot_course_for_actor                     (ChrRecord *self, coord3d *arg1, StandTile *stan, SPEED speed);
+#ifndef TARGET_N64
+extern int portCoopChrIsBondBody(ChrRecord *chr);   /* port_coop.c: 1 if this chr is one of the Bonds' own bodies (co-op only) */
+extern int portModeActive(void);                    /* port_mode.c */
+extern s32 portHostageNotAGuard(ChrRecord *chr);    /* port_hostage.c: a live hostage (WAIT / FOLLOW) of a game mode: a chr search must skip it */
+extern s32 portArenaChrIsEnemy(const ChrRecord *chr);   /* port_arenamode.c: an enemy spawned by the arena mode */
+extern s32 portArenaDirect(const ChrRecord *chr);       /* port_arenamode.c: an arena enemy that uses the A5 direct route / retarget (not with GE_ARENA_OLDAI=1) */
+extern void portArenaNoteShot(ChrRecord *chr);          /* port_arenamode.c: first-shot range log */
+/* PORT: the N64's "at most 10 guards recently saw Bond" throttle on path plotting (and the kneel in the go-to-position tick) is lifted in a game
+ * mode: a 20-guard fight would otherwise freeze every walking chr, hostages included. Outside a mode it is the stock 10. */
+#define PORT_SEEN_BOND_CAP (portModeActive() ? 100000 : 10)
+#else
+#define PORT_SEEN_BOND_CAP 10
+#endif
 void chrlvPlotCourseRelated                   (ChrRecord *self);
 void chrlvActGoposSetTargetPosRelated         (ChrRecord *self);
 void chrlvActGoposIncCurIndex                 (ChrRecord *self);
@@ -1349,6 +1362,13 @@ void sub_GAME_7F025560(ChrRecord *self, s32 attack_type, s32 arg2)
     PropRecord * left2;
     PropRecord * right2;
 
+#ifndef TARGET_N64
+    { /* PORT: co-op bot: an engaged guard's attack on Bond goes to its engaged chr */
+        extern void portFactionRedirectAttack(ChrRecord *self, s32 *attacktype, s32 *entityid);
+        portFactionRedirectAttack(self, &attack_type, &arg2);
+    }
+#endif
+
     left = chrGetEquippedWeaponProp(self, GUNLEFT);
     right = chrGetEquippedWeaponProp(self, GUNRIGHT);
 
@@ -1420,6 +1440,13 @@ void sub_GAME_7F0256F0(ChrRecord *self, s32 attack_type, s32 arg2)
     point2d sp;
     PropRecord * left2;
     PropRecord * right2;
+
+#ifndef TARGET_N64
+    { /* PORT: co-op bot: an engaged guard's attack on Bond goes to its engaged chr */
+        extern void portFactionRedirectAttack(ChrRecord *self, s32 *attacktype, s32 *entityid);
+        portFactionRedirectAttack(self, &attack_type, &arg2);
+    }
+#endif
 
     left = chrGetEquippedWeaponProp(self, GUNLEFT);
     right = chrGetEquippedWeaponProp(self, GUNRIGHT);
@@ -2074,7 +2101,20 @@ void triggered_on_shot_hit(ChrRecord *self, coord3d *arg1, f32 arg2, s32 req_ani
     another_flag = 0;
     animation_something_index = 0;
 
-    if ((self->prop->type != PROP_TYPE_VIEWER) || (getPlayerCount() < 2))
+#ifndef TARGET_N64
+    {   /* GE_HITLOG=1 (test only): a shot landed on a character; the current Bond is the one whose tick fired it */
+        static int hitlog = -1;
+        extern char *getenv(const char *);
+        extern int printf(const char *, ...);
+        if (hitlog < 0) { hitlog = getenv("GE_HITLOG") != NULL; }
+        if (hitlog && self->prop->type != PROP_TYPE_VIEWER)
+        {
+            printf("ge: hit: chr %d action %d by player %d at timer %d\n", (int) self->chrnum, (int) self->actiontype, (int) get_cur_playernum(), (int) g_GlobalTimer);
+        }
+    }
+#endif
+
+    if ((self->prop->type != PROP_TYPE_VIEWER) || (portAllPlayerCount() < 2))
     {
         flag1 = (self->actiontype == ACT_ARGH) && (g_GlobalTimer == self->act_argh.unk30);
 
@@ -2478,6 +2518,21 @@ bool handles_shot_actors(ChrRecord *self, s32 hitpart, coord3d *vector, s32 weap
     PropRecord *myprop = self->prop; //sp60
     s32 padd;
 
+#ifndef TARGET_N64
+    if (isPlayer) /* PORT: mode: Bond's shot, for the CHR_DIED killer */
+    {
+        extern int portModeActive(void);
+        extern void portModeNoteHit(s32 victimchrnum, s32 attackerchrnum);
+        extern int portEventAnyListeners(void);
+        extern int portCoopActive(void);
+        if (portModeActive() || portEventAnyListeners())
+        {
+            /* PORT_CHR_BOND is player 0; in co-op the shooter is the player whose pass fires (-3 = player 1) */
+            portModeNoteHit(self->chrnum, portCoopActive() ? -2 - (s32) get_cur_playernum() : -2);
+        }
+    }
+#endif
+
     // Handle hat shots.
     if (hitpart == HIT_HAT && self->handle_positiondata_hat)
     {
@@ -2638,10 +2693,32 @@ bool handles_shot_actors(ChrRecord *self, s32 hitpart, coord3d *vector, s32 weap
         else
         {
             self->chrflags |= CHRFLAG_WAS_DAMAGED;
+#ifndef TARGET_N64
+            { /* PORT: modifier enemy_health scales the damage taken (1.0f at the default) */
+                extern f32 portModChrDamageScale(ChrRecord *chr);
+                damageToCause *= portModChrDamageScale(self);
+            }
+#endif
 #    ifdef XBLA
             if (!cheatIsActive(76))
 #    endif
                 self->damage += damageToCause;
+#ifndef TARGET_N64
+            { /* PORT: modifier one_hit_kills: any damage that lands is lethal */
+                extern int portModOneHitKills(ChrRecord *chr);
+                if (damageToCause > 0.0f && portModOneHitKills(self))
+                {
+                    self->damage = self->maxdamage;
+                }
+            }
+#endif
+#ifndef TARGET_N64
+            { /* PORT: event: DAMAGE(victim, attacker, amount, weapon); Bond's shots come in as isPlayer */
+                extern void portEventEmitDamage(int victim, int attacker, float amount, int weapon);
+                extern int portEventAttacker(void);
+                portEventEmitDamage(self->chrnum, isPlayer ? -2 : portEventAttacker(), damageToCause, weaponid);
+            }
+#endif
 
             if (self->damage < 0.0f)
             {
@@ -2722,6 +2799,12 @@ s32 chrlvExplosionDamage(ChrRecord *self, coord3d *arg1, f32 damage, s32 arg3)
     self->numarghs += 1;
     self->damage += damage;
     self->chrflags |= CHRFLAG_WAS_DAMAGED;
+#ifndef TARGET_N64
+    { /* PORT: event: DAMAGE from a blast (attacker and weapon unknown); the dead return above, so none for corpses */
+        extern void portEventEmitDamage(int victim, int attacker, float amount, int weapon);
+        portEventEmitDamage(self->chrnum, -1, damage, -1);
+    }
+#endif
 
     if (self->damage > 0.0f)
     {
@@ -3752,6 +3835,51 @@ s32 plot_course_for_actor(ChrRecord *self, coord3d *arg1, StandTile *stan, SPEED
 
     phi_v0 = (self->actiontype == ACT_GOPOS) && (self->act_gopos.unk59 == (u8)speed);
 
+#ifndef TARGET_N64
+    { /* PORT: arena (drop A5): an arena enemy with a clear straight line to the target (stan walk + body-width side lines, the same tests the
+       * waypoint shortcut uses) goes straight there: no waypoint route at all (all waypoints NULL = head for targetpos). The Colosseum's
+       * waypoint groups are BFS clusters of 12 pads; the route crosses each group border at the first linked waypoint found, which is
+       * what made enemies zig-zag round the pit. A blocked line (pillars, low walls) still uses the stock route. A re-plot of the course
+       * the chr is already on keeps its speed (the stock plot resets it to 0 and the chr stutters). */
+        if (stan != NULL && prop->stan != NULL && portArenaDirect(self)
+            && sub_GAME_7F030128(self, &prop->pos, prop->stan, arg1, stan, CDTYPE_PATHBLOCKER)
+            && sub_GAME_7F0301FC(self, &prop->pos, prop->stan, arg1, self->chrwidth * 1.2f, CDTYPE_PATHBLOCKER))
+        {
+            f32 oldspeed = self->act_gopos.speed;
+
+            chrStopFiring(self);
+            self->actiontype = ACT_GOPOS;
+            self->act_gopos.targetpos.f[0] = arg1->f[0];
+            self->act_gopos.targetpos.f[1] = arg1->f[1];
+            self->act_gopos.targetpos.f[2] = arg1->f[2];
+            self->act_gopos.target = stan;
+            self->act_gopos.target_path = NULL;
+            self->act_gopos.curindex = 0;
+            self->act_gopos.unk59 = speed;
+            self->act_gopos.speed = phi_v0 ? oldspeed : 0.0f;
+            self->act_gopos.waydata.age = (s32) (randomGetNext() % 100U);
+            self->act_gopos.waydata.unk03 = 0;
+            self->act_gopos.unk9c = -1;
+            for (i = 0; i < MAX_CHRWAYPOINTS; i++)
+            {
+                self->act_gopos.waypoints[i] = NULL;
+            }
+            chrlvActGoposSetTargetPosRelated(self);
+            self->sleep = 0;
+            if (phi_v0 == 0)
+            {
+                play_hit_soundeffect_and_proper_volume(self);
+            }
+            chrlvActGoposRelated(self, &sp34, &sp30);
+            if (((prop->flags & 2) == 0) && (chrlvStanRoomRelated(self, &sp34, sp30) != 0))
+            {
+                chrlvSetGoposSegDistTotal(self, &self->act_gopos.waydata, &sp34);
+            }
+            return 1;
+        }
+    }
+#endif
+
     prop_waypoint = chrlvStanPathRelated(&prop->pos, prop->stan);
     target_waypoint = chrlvStanPathRelated(arg1, stan);
 
@@ -3760,6 +3888,9 @@ s32 plot_course_for_actor(ChrRecord *self, coord3d *arg1, StandTile *stan, SPEED
         && !(waypointFindRoute(prop_waypoint, target_waypoint, (waypoint **)&sp44, MAX_CHRWAYPOINTS) < 2)
     )
     {
+#ifndef TARGET_N64
+        f32 oldspeed2 = self->act_gopos.speed;   /* arena: see above */
+#endif
         chrStopFiring(self);
 
         self->actiontype = ACT_GOPOS;
@@ -3772,6 +3903,12 @@ s32 plot_course_for_actor(ChrRecord *self, coord3d *arg1, StandTile *stan, SPEED
         self->act_gopos.curindex = 0;
         self->act_gopos.unk59 = speed;
         self->act_gopos.speed = 0.0f;
+#ifndef TARGET_N64
+        if (phi_v0 && portArenaDirect(self))
+        {
+            self->act_gopos.speed = oldspeed2;
+        }
+#endif
         self->act_gopos.waydata.age = (s32) (randomGetNext() % 100U);
         self->act_gopos.waydata.unk03 = 0;
         self->act_gopos.unk9c = -1;
@@ -4525,6 +4662,18 @@ bool chrCheckTargetInSight(ChrRecord *self)
         chrlvSetTargetToPlayer(self);
     }
 
+#ifndef TARGET_N64
+    { /* PORT: co-op bot: seeing a hostile Bond-team chr counts as seeing Bond, but the
+       * target is not set to Bond; portFactionSightPass engages the guard with that chr */
+        extern s32 portFactionActive(void);
+        extern s32 portFactionSightPass(ChrRecord *guard);
+        if (!pass && portFactionActive() && portFactionSightPass(self))
+        {
+            pass = TRUE;
+        }
+    }
+#endif
+
     return pass;
 }
 
@@ -5022,6 +5171,13 @@ bool actor_fire_or_aim_at_target_update(ChrRecord *self, s32 newtargettype, s32 
                 self->model->frameb++;
             }
 
+#ifndef TARGET_N64
+            { /* PORT: co-op bot: an engaged guard's attack on Bond goes to its engaged chr */
+                extern void portFactionRedirectAttack(ChrRecord *self, s32 *attacktype, s32 *entityid);
+                portFactionRedirectAttack(self, &newtargettype, &newtargetid);
+            }
+#endif
+
             self->act_attack.attacktype = newtargettype;
             self->act_attack.entityid   = newtargetid;
             chrlvAttackActionRelated(self);
@@ -5040,6 +5196,13 @@ bool check_set_actor_standing_still(ChrRecord *self, s32 faceentitytype, s32 fac
 {
     if (chrIsNotDeadOrShot(self) != 0)
     {
+#ifndef TARGET_N64
+        { /* PORT: co-op bot: an engaged guard faces its engaged chr instead of Bond */
+            extern void portFactionRedirectAttack(ChrRecord *self, s32 *attacktype, s32 *entityid);
+            portFactionRedirectAttack(self, &faceentitytype, &faceentityid);
+        }
+#endif
+
         if (self->actiontype != ACT_STAND)
         {
             chrlvKneelingAnimationRelated(self);
@@ -5068,7 +5231,7 @@ bool chrGoToPad(ChrRecord *self, s32 padid, SPEED speed)
     coord3d region;
     StandTile *stan; //sp28 - wow, deliberate duplicate...
 
-    if ((padid >= 0) && chrIsNotDeadOrShot(self) && (g_SeenBondRecentlyGuardCount < 10))
+    if ((padid >= 0) && chrIsNotDeadOrShot(self) && (g_SeenBondRecentlyGuardCount < PORT_SEEN_BOND_CAP))
     {
         padid = chrResolvePadId(self, padid);
         if (isNotBoundPad(padid))
@@ -5616,6 +5779,11 @@ void chrlvTickArgh(ChrRecord *self)
 
     if (modelGetAnimFrame(model) >= modelGetAnimEndFrame(model))
     {
+#ifndef TARGET_N64
+        /* PORT: co-op bot: a guard just hit by a hostile chr engages it instead of Bond */
+        extern s32 portFactionRetaliate(ChrRecord *self);
+        if (!portFactionRetaliate(self))
+#endif
         chrlvSetTargetToPlayer(self);
 
         if ((s32)objecthandlerGetModelAnim(model) == (s32)&ptr_animation_table->data[PTR_ANIM_death_left_leg])
@@ -5668,6 +5836,11 @@ void chrlvTickSidestep(ChrRecord *self)
 
     if (modelGetAnimFrame(model) >= modelGetAnimEndFrame(model))
     {
+#ifndef TARGET_N64
+        /* PORT: co-op bot: a guard just hit by a hostile chr engages it instead of Bond */
+        extern s32 portFactionRetaliate(ChrRecord *self);
+        if (!portFactionRetaliate(self))
+#endif
         chrlvSetTargetToPlayer(self);
         chrlvIdleAnimationRelated7F023E14(self, 10.0f);
     }
@@ -5687,6 +5860,11 @@ void chrlvTickJumpout(ChrRecord *self)
 
     if (modelGetAnimFrame(model) >= modelGetAnimEndFrame(model))
     {
+#ifndef TARGET_N64
+        /* PORT: co-op bot: a guard just hit by a hostile chr engages it instead of Bond */
+        extern s32 portFactionRetaliate(ChrRecord *self);
+        if (!portFactionRetaliate(self))
+#endif
         chrlvSetTargetToPlayer(self);
         chrlvKneelingAnimationRelated7F023E48(self);
     }
@@ -6798,6 +6976,10 @@ void chrlvFireWeaponRelated(ChrRecord *self, s32 hand)
     s32 sp44;
     s32 unused;
     f32 sp4C;
+#ifndef TARGET_N64
+    ChrRecord *portMoveTarget; /* PORT: attack-walk/roll engaged chr, else NULL */
+    extern ChrRecord *portFactionMovingAttackTarget(ChrRecord *self);
+#endif
 
     self_prop = self->prop;
     weapon_prop = chrGetEquippedWeaponProp(self, hand);
@@ -6816,6 +6998,14 @@ void chrlvFireWeaponRelated(ChrRecord *self, s32 hand)
         }
 
         sp44 = phi_v1 & 1;
+#ifndef TARGET_N64
+        /* PORT: co-op bot: a walking or rolling guard engaged with a chr shoots at it, not Bond */
+        portMoveTarget = portFactionMovingAttackTarget(self);
+        if (portMoveTarget != NULL)
+        {
+            sp44 = 0;
+        }
+#endif
 
         if (
             (sp44 == 0)
@@ -6891,6 +7081,31 @@ void chrlvFireWeaponRelated(ChrRecord *self, s32 hand)
 
                     sp21C = chrlvAttackRelated7F0292A8(self, &sp240, sp238);
 
+#ifndef TARGET_N64
+                    if (portMoveTarget != NULL)
+                    { /* PORT: co-op bot: aim at the engaged chr's chest instead of the guard's facing */
+                        f32 tx = portMoveTarget->prop->pos.f[0] - sp240.f[0];
+                        f32 ty = (portMoveTarget->prop->pos.f[1] + 80.0f) - sp240.f[1];
+                        f32 tz = portMoveTarget->prop->pos.f[2] - sp240.f[2];
+
+                        subroty = atan2f(tx, tz);
+                        sp24C = atan2f(ty, sqrtf(tx * tx + tz * tz));
+                        static s32 movelog = -1;
+                        extern char *getenv(const char *);
+
+                        if (movelog < 0)
+                        {
+                            movelog = (getenv("GE_MOVEAIM_LOG") != NULL);
+                        }
+                        if (movelog)
+                        {
+                            extern int printf(const char *, ...);
+                            printf("ge: moveaim: chr %d act %d fires at chr %d (dist %d)\n", (int) self->chrnum,
+                                   (int) self->actiontype, (int) portMoveTarget->chrnum,
+                                   (int) sqrtf(tx * tx + tz * tz));
+                        }
+                    }
+#endif
                     sp220.f[0] = cosf(sp24C) * sinf(subroty);
                     sp220.f[1] = sinf(sp24C);
                     sp220.f[2] = cosf(sp24C) * cosf(subroty);
@@ -7092,9 +7307,17 @@ void chrlvFireWeaponRelated(ChrRecord *self, s32 hand)
                                      * damages it and plays a pain animation.
                                      * The AI still only targets Bond, so this
                                      * stray-shot case is the whole cheat. */
+#ifndef TARGET_N64
+                                    /* PORT: co-op bot: a shot at a hostile-faction chr damages it as if
+                                     * CHRFLAG_CAN_SHOOT_CHRS were set; a Bond-team victim also needs a
+                                     * hit-chance roll, and a miss skips the damage and the attack note */
+                                    extern s32 portFactionShotDamages(ChrRecord *shooter, ChrRecord *victim);
+                                    extern void portFactionNoteHit(ChrRecord *victim, PropRecord *attackerprop);
+#endif
                                     if ((self->chrflags & CHRFLAG_CAN_SHOOT_CHRS) != 0
 #ifndef TARGET_N64
                                         || cheatIsActive(CHEAT_PORT_ENEMY_FF)
+                                        || portFactionShotDamages(self, stanSavedColl_posData->chr)
 #endif
                                         )
                                     {
@@ -7122,6 +7345,7 @@ void chrlvFireWeaponRelated(ChrRecord *self, s32 hand)
                                                    (int) stanSavedColl_posData->chr->chrnum, (int) prop_selfchr->act_attack.attack_item, (int) ffpart,
                                                    g_PortStrayHitByModel ? "model" : "height");
                                         }
+                                        portFactionNoteHit(stanSavedColl_posData->chr, self->prop);   /* PORT: co-op bot */
                                         handles_shot_actors(stanSavedColl_posData->chr, ffpart, &sp220, prop_selfchr->act_attack.attack_item, 0);
 #else
                                         handles_shot_actors(stanSavedColl_posData->chr, 0xF, &sp220, prop_selfchr->act_attack.attack_item, 0);
@@ -7191,13 +7415,59 @@ void chrlvFireWeaponRelated(ChrRecord *self, s32 hand)
 }
 
 
+#ifndef TARGET_N64
+static void chrlvTriggerFireWeaponInner(ChrRecord *self);
+
+/* PORT: coop: chrTick fires the queued shot in whichever player's pass it runs, so the shot
+ * (hit roll, damage victim) is resolved against the nearest living Bond, like the action tick. */
+void chrlvTriggerFireWeapon(ChrRecord *self)
+{
+    extern int portCoopActive(void);
+    extern int portCoopNearestBond(const PropRecord *near);
+
+    if (portCoopActive())
+    {
+        s32 saved = get_cur_playernum();
+
+        set_cur_player(portCoopNearestBond(self->prop));
+        chrlvTriggerFireWeaponInner(self);
+        set_cur_player(saved);
+        return;
+    }
+    chrlvTriggerFireWeaponInner(self);
+}
+#endif
+
 /**
  * Address 0x7F02E26C.
 */
+#ifndef TARGET_N64
+static void chrlvTriggerFireWeaponInner(ChrRecord *self)
+#else
 void chrlvTriggerFireWeapon(ChrRecord *self)
+#endif
 {
     self->hidden &= ~CHRHIDDEN_FIRE_TRACER;
 
+#ifndef TARGET_N64
+    if (self->hidden & (CHRHIDDEN_FIRE_WEAPON_RIGHT | CHRHIDDEN_FIRE_WEAPON_LEFT))
+    {
+        portArenaNoteShot(self);   /* PORT: arena (drop A5): log the range of an enemy's first shot */
+    }
+    { /* PORT: modifier enemy_knives: sometimes this shot is a thrown knife instead (a no-op unless the modifier is on) */
+        extern int portModEnemyKnife(ChrRecord *self);
+
+        if (portModEnemyKnife(self))
+        {
+            self->hidden &= ~(CHRHIDDEN_FIRE_WEAPON_RIGHT | CHRHIDDEN_FIRE_WEAPON_LEFT);
+            return;
+        }
+    }
+    { /* PORT: event: the shooter for DAMAGE events raised inside the shot (cleared below) */
+        extern void portEventSetAttacker(int chrnum);
+        portEventSetAttacker(self->chrnum);
+    }
+#endif
     if (self->hidden & CHRHIDDEN_FIRE_WEAPON_RIGHT)
     {
         chrlvFireWeaponRelated(self, GUNRIGHT);
@@ -7211,6 +7481,12 @@ void chrlvTriggerFireWeapon(ChrRecord *self)
 
         self->hidden &= ~CHRHIDDEN_FIRE_WEAPON_LEFT;
     }
+#ifndef TARGET_N64
+    {
+        extern void portEventSetAttacker(int chrnum);
+        portEventSetAttacker(-1); /* PORT_CHR_NONE */
+    }
+#endif
 }
 
 
@@ -9456,6 +9732,26 @@ void chrlvTickGoPos(ChrRecord *self)
         plot_course_for_actor(self, &self->act_gopos.targetpos, self->act_gopos.target, (s32) self->act_gopos.unk59);
     }
 
+#ifndef TARGET_N64
+    if ((self->act_gopos.waydata.age % 45) == 17 && portArenaDirect(self))
+    { /* PORT: arena (drop A5): an arena enemy only ever runs to Bond, and the stock course keeps the position Bond had when it was
+       * plotted, so a chaser ran to where Bond WAS and only then turned (the "paths somewhere else first" feel). Follow Bond: when he has
+       * moved 250+ units from the course target, re-plot to his position (every 0.75 s at most; the plot keeps the chr's speed). */
+        PropRecord *bp = getCurrentPlayerProp();
+
+        if (bp != NULL && bp->stan != NULL)
+        {
+            f32 dx = bp->pos.x - self->act_gopos.targetpos.x;
+            f32 dz = bp->pos.z - self->act_gopos.targetpos.z;
+
+            if (dx * dx + dz * dz > 250.0f * 250.0f)
+            {
+                plot_course_for_actor(self, &bp->pos, bp->stan, (s32) self->act_gopos.unk59);
+            }
+        }
+    }
+#endif
+
     chrlvPlotCourseRelated(self);
 
     if ((self->act_gopos.waydata.mode != WAYMODE_MAGIC) && ((self->act_gopos.unk9c + CHRLV_DEFAULT_TIMER) < g_GlobalTimer))
@@ -9469,7 +9765,7 @@ void chrlvTickGoPos(ChrRecord *self)
         }
     }
 
-    if (g_SeenBondRecentlyGuardCount >= 0xA)
+    if (g_SeenBondRecentlyGuardCount >= PORT_SEEN_BOND_CAP)
     {
         chrlvKneelingAnimationRelated7F023E48(self);
 
@@ -9813,10 +10109,45 @@ static void portChrArriveStore(ChrRecord *self)
 }
 #endif
 
+#ifndef TARGET_N64
+static void chrlvActionTickInner(ChrRecord *self);
+
+/* PORT: coop: a guard acts against the nearest living Bond. Sight, hearing, lastknowntargetpos,
+ * IFBond* tests and shot-at-Bond damage all read the current player, so it is switched around the
+ * tick and restored. Co-op off: the vanilla call, nothing else. */
+void chrlvActionTick(ChrRecord *self)
+{
+    extern int portCoopActive(void);
+    extern int portCoopNearestBond(const PropRecord *near);
+
+    if (portCoopActive())
+    {
+        s32 saved = get_cur_playernum();
+
+        {
+            extern int portCoopActionBond(ChrRecord *self);   /* nearest living Bond; an escort NPC keeps its Bond until the other is clearly closer */
+            set_cur_player(portCoopActionBond(self));
+        }
+        chrlvActionTickInner(self);
+        set_cur_player(saved);
+        {
+            extern void portCoopEscortTrace(ChrRecord *self);   /* GE_ESCORTDBG=<chrnum> (test only) */
+            portCoopEscortTrace(self);
+        }
+        return;
+    }
+    chrlvActionTickInner(self);
+}
+#endif
+
 /**
  * Address 0x7F0326BC.
 */
+#ifndef TARGET_N64
+static void chrlvActionTickInner(ChrRecord *self)
+#else
 void chrlvActionTick(ChrRecord *self)
+#endif
 {
     if (g_ClockTimer > 0)
     {
@@ -9838,9 +10169,29 @@ void chrlvActionTick(ChrRecord *self)
         {
             self->sleep = 0;
 #ifndef TARGET_N64
-            if (!portAiGovDefer(self))
+            /* PORT: co-op bot: its brain replaces the AI list interpreter for the bot chr */
+            extern s32 portBotIsBot(ChrRecord *chr);
+            extern void portBotChrTick(ChrRecord *self);
+            /* PORT: mode hostages: same, their brain follows Bond (port_hostage.c) */
+            extern s32 portHostageIsHostage(ChrRecord *chr);
+            extern void portHostageChrTick(ChrRecord *self);
+            if (portBotIsBot(self))
+                portBotChrTick(self);
+            else if (portHostageIsHostage(self))
+                portHostageChrTick(self);
+            else if (!portAiGovDefer(self))
+#endif
+            {
+#ifndef TARGET_N64
+                extern s32 portAiDbg(void);
+                extern int printf(const char *, ...);
+                if (portAiDbg() && self->chrnum >= 5000 && self->chrnum < 5100)
+                {
+                    printf("ge: ai: tick of chr %d (a Bond's chr) as player %d, clock %d\n", (int) self->chrnum, (int) get_cur_playernum(), (int) g_ClockTimer);
+                }
 #endif
             ai(self, PROP_TYPE_CHR);
+            }
 
             switch (self->actiontype)
             {
@@ -10019,6 +10370,18 @@ void chrlvAllChrTick(void)
     s32 i;
     s32 max;
     ChrRecord *guard;
+
+#ifndef TARGET_N64
+    { /* PORT: co-op bot lifecycle (spawn, death, respawn) in the sim update;
+       * returns at once unless the bot is enabled in a solo, non-demo mission */
+        extern void portBotTick(void);
+        portBotTick();
+    }
+    { /* PORT: mode: building-block events and zones; no-op unless a mode is active */
+        extern void portBlocksTick(void);
+        portBlocksTick();
+    }
+#endif
 
     max = get_numguards();
 
@@ -10306,6 +10669,18 @@ s32 chrResolveId(ChrRecord *self, s32 id)
     }
     else if (id == (u8)CHR_BOND_CINEMA)
     {
+#ifndef TARGET_N64
+        /* PORT: coop (mission-end job): the cutscene Bond is the one that triggered the ending (port_coop.c portCoopSetCinemaFor), not
+         * whichever Bond happens to be the current player while this script chr runs */
+        extern int portCoopSharedEnd(void);
+        extern int portCoopCinemaBond(void);
+
+        if (portCoopSharedEnd() && g_playerPointers[portCoopCinemaBond()] != NULL && g_playerPointers[portCoopCinemaBond()]->prop != NULL
+            && g_playerPointers[portCoopCinemaBond()]->prop->chr != NULL)
+        {
+            return g_playerPointers[portCoopCinemaBond()]->prop->chr->chrnum;
+        }
+#endif
         if (g_CurrentPlayer->prop->chr)
         {
             id = g_CurrentPlayer->prop->chr->chrnum;
@@ -10606,7 +10981,7 @@ bool chrGoToBond(ChrRecord *self, SPEED speed)
 {
     PropRecord *bondprop;
 
-    if (chrIsNotDeadOrShot(self) && (g_SeenBondRecentlyGuardCount < 10))
+    if (chrIsNotDeadOrShot(self) && (g_SeenBondRecentlyGuardCount < PORT_SEEN_BOND_CAP))
     {
         bondprop = getCurrentPlayerProp();
 
@@ -10628,7 +11003,7 @@ bool chrGoToChr(ChrRecord *self, s32 chrid, SPEED speed)
     ChrRecord *chr;
     PropRecord *chrprop;
 
-    if (chrIsNotDeadOrShot(self) && (g_SeenBondRecentlyGuardCount < 10))
+    if (chrIsNotDeadOrShot(self) && (g_SeenBondRecentlyGuardCount < PORT_SEEN_BOND_CAP))
     {
         chr = chrFindById(self, chrid);
         if (chr && chr->model && chr->prop)
@@ -10645,6 +11020,19 @@ bool chrGoToChr(ChrRecord *self, s32 chrid, SPEED speed)
     return FALSE;
 }
 
+
+#ifndef TARGET_N64
+/* PORT: mode hostages: plot a course to a given prop (a Bond chosen by the caller, or another chr), whoever the current player is. Not stock:
+ * chrGoToBond follows the CURRENT player, which in co-op is the chr's nearest Bond. */
+bool portChrGoToProp(ChrRecord *self, PropRecord *target, SPEED speed)
+{
+    if (target != NULL && target->stan != NULL && chrIsNotDeadOrShot(self))
+    {
+        return plot_course_for_actor(self, &target->pos, target->stan, speed) ? TRUE : FALSE;
+    }
+    return FALSE;
+}
+#endif
 
 /**
  * Return number of hits.
@@ -11028,7 +11416,12 @@ bool sub_GAME_7F033B38(ChrRecord *self, f32 distance)
     {
         chr = &g_ChrSlots[i];
 
-        if ((chr != self) && chr->model && !chrIsDead(chr))
+        if ((chr != self) && chr->model && !chrIsDead(chr)
+#ifndef TARGET_N64
+            && !portCoopChrIsBondBody(chr)   /* PORT: coop: the Bonds' own chrs are in the slots (solo Bond has none): never a "guard within distance" */
+            && !portHostageNotAGuard(chr)    /* PORT: mode: nor a hostage (a guard's / escort's chr search must not take one for a guard) */
+#endif
+            )
         {
             coord3d *pos = &chr->prop->pos;
 

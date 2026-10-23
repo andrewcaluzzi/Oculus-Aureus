@@ -21,6 +21,18 @@
 #include "frametiming.h"
 #include "assets/obseg/text/LoptionE.h"
 #ifndef TARGET_N64
+/* PORT: coop / netplay: the watch is a per-player menu. In co-op it reads the pad (and Port actions) of the player whose
+ * watch it is, which is the current player, not always player 1's: each Bond's record then drives its own watch on every
+ * machine. Without co-op the current player is player 1, so nothing changes. */
+extern int portCoopActive(void);
+extern s32 portStageRunning(void); /* front.c: a stage is running (co-op stays "active" in the menus after the stage ends) */
+static s32 portWatchPlayer(void)
+{
+    return (portCoopActive() && portStageRunning()) ? get_cur_playernum() : 0;
+}
+#define PLAYER_1 portWatchPlayer()
+#endif
+#ifndef TARGET_N64
 #include "port_watchpages.h" /* the port watch pages */
 /* Defined further down, next to the vanilla page drawer they replace; the
  * watch MOUSE layer needs them a few thousand lines earlier. */
@@ -42,6 +54,7 @@ s32  portWatchValuesFitPublic(s32 page, s32 row, s32 count);
 s32  portWatchRowDropdown(s32 page, s32 row);
 extern s32 portVideoDeleteEdge(void);   /* the Delete key, edge-latched */
 extern s32 portReturnStartThisTick(void); /* video.c: START came from Return alone; weak 0 headless */
+extern s32 portSimReturnStart(void);      /* port_coop.c: the same for the sim: under netplay from the player's record, not this machine's keyboard */
 static void portWatchDropAnchor(s32 row);   /* park the list window at open */
 static s32  portWatchDropVisible(void);
 static void portWatchDropBox(s32 rowy, s32 *x0, s32 *y0, s32 *w, s32 *vis);
@@ -448,6 +461,12 @@ void init_watch_at_start_of_stage(void)
     D_800409CC = 0.0f;
     D_800409D0 = -1;
     D_800409D4 = 0.0f;
+#ifndef TARGET_N64
+    {
+        extern void portWatchUiStageInit(void);
+        portWatchUiStageInit();   /* job 3e: per-Bond watch UI state starts from these defaults */
+    }
+#endif
 
     if (j_text_trigger ? 1 : 0 && 1)
     {
@@ -603,7 +622,27 @@ static void portStyleSay(int type, const char *why)
 }
 #endif
 
+#ifndef TARGET_N64
+/** PORT netplay: Rare's player option `which` as the live table holds it (port_net.c reads the local value at boot). */
+s32 portPlayerOptLive(s32 which)
+{
+    return (which >= 0 && which < 6) ? (s32) game_options_entries[which].current_value : 0;
+}
+#endif
+
 int cur_player_get_control_type(void){
+#ifndef TARGET_N64
+    {   /* PORT netplay: each Bond plays the control style in ITS block (both machines simulate both Bonds), never this
+         * machine's own save, ini or pad. -1 = not netplay. port_net.h PORT_NETOPT_STYLE = 0. */
+        extern int portNetOpt(int player, int which);
+        const int net = portNetOpt(get_cur_playernum(), 0);
+
+        if (net >= 0)
+        {
+            return net;
+        }
+    }
+#endif
 #ifndef TARGET_N64
     /* Twin-stick auto: a 1.x style on a pad that has a Look stick plays as 2.2
      * Galore (true analog move/look, fire on RT) without changing the saved
@@ -732,6 +771,15 @@ s32 portPlayerLookAhead(s32 player)
 u32 get_cur_player_look_vertical_inverted(void)
 {
 #ifndef TARGET_N64
+    {   /* PORT netplay: this Bond's own Look up/down value (PORT_NETOPT_LOOK = 2) */
+        extern int portNetOpt(int player, int which);
+        const int net = portNetOpt(get_cur_playernum(), 2);
+
+        if (net >= 0)
+        {
+            return (u32) net;
+        }
+    }
     /* Rare kept one look setting for everyone; with two or more players each
      * now has their own. Not in a solo game, so multiplayer choices don't leak
      * into single player. */
@@ -750,6 +798,17 @@ void set_cur_player_look_vertical_inverted(u32 param_1)
 
 s32 cur_player_get_autoaim(void)
 {
+#ifndef TARGET_N64
+    {   /* PORT netplay: this Bond's own auto-aim (PORT_NETOPT_AUTOAIM = 3) */
+        extern int portNetOpt(int player, int which);
+        const int net = portNetOpt(get_cur_playernum(), 3);
+
+        if (net >= 0)
+        {
+            return net;
+        }
+    }
+#endif
     return game_options_entries[PLAYER_OPTION_AUTOAIM].current_value;
 }
 
@@ -761,6 +820,15 @@ void cur_player_set_autoaim(u32 param_1)
 u32 cur_player_get_lookahead(void)
 {
 #ifndef TARGET_N64
+    {   /* PORT netplay: this Bond's own look-ahead (PORT_NETOPT_LOOKAHEAD = 4) */
+        extern int portNetOpt(int player, int which);
+        const int net = portNetOpt(get_cur_playernum(), 4);
+
+        if (net >= 0)
+        {
+            return (u32) net;
+        }
+    }
     /* each player their own with two or more players, as look up/down above */
     if (getPlayerCount() >= 2)
     {
@@ -777,6 +845,17 @@ void cur_player_set_lookahead(u32 param_1)
 
 u32 cur_player_get_aim_control(void)
 {
+#ifndef TARGET_N64
+    {   /* PORT netplay: this Bond's own Aim control (PORT_NETOPT_AIMCTL = 5) */
+        extern int portNetOpt(int player, int which);
+        const int net = portNetOpt(get_cur_playernum(), 5);
+
+        if (net >= 0)
+        {
+            return (u32) net;
+        }
+    }
+#endif
     return game_options_entries[PLAYER_OPTION_AIM].current_value;
 }
 
@@ -868,11 +947,18 @@ static f32 portHudSlideEase(f32 t)
     return t * t * (3.0f - 2.0f * t);   /* smoothstep */
 }
 
+static unsigned int last;   /* the pump count of the last slide tick: real time, not sim state (rollback R2: not rewound) */
+__attribute__((constructor)) static void portHudSlideSnapLive(void)
+{
+    extern void portSnapLive(const char *name, const void *p, unsigned int n);
+
+    portSnapLive("options.hudslide.last", &last, sizeof(last));
+}
+
 void portHudSlideTick(void)
 {
     extern unsigned int g_PortFramesPumped;
     extern f32 portTickDelta;   /* frametiming.c: this tick's field delta */
-    static unsigned int last;
     const f32 step = portTickDelta / 30.0f;   /* half a second end to end */
     const f32 hud = hudWantsEdges() ? 1.0f : 0.0f;
     const f32 health = healthWantsEdges() ? 1.0f : 0.0f;
@@ -1314,6 +1400,17 @@ void portWatchMouseTick(void)
     s32 hittab;   /* tab under the crosshair INCLUDING the current one (g_portWatchHoverTab skips it) */
     f32 l, t, r, b;
 
+    {   /* netplay: the mouse pointer, clicks and wheel are this machine's alone, but both machines run every Bond's watch.
+         * Without the mouse layer the watch is driven by the record only (D-pad, buttons, the watch Port binds). */
+        extern int portCoopNetDriven(void);
+
+        if (portCoopNetDriven())
+        {
+            g_portWatchMouseOpen = 0;
+            g_portWatchHoverTab = -1;
+            return;
+        }
+    }
     if (!portMouseWatchPos(&mx, &my, &moved))
     {
         return;
@@ -2380,6 +2477,32 @@ s32 watch_stick_y_pressed_down(void)
 }
 
 
+#ifndef TARGET_N64
+/* PORT (soak fix, netplay): the watch's static / scan-line effect rolled the SIM random generator. The watch is drawn in every Bond's pass (the display
+ * list of a non-local Bond's pass is thrown away) and only while that Bond's watch is open, so in co-op the sim RNG sequence depended on which
+ * Bond was local and which watch was open: a render to sim leak. In co-op the effect rolls its own generator, which nothing in the sim reads.
+ * Solo, multiplayer and the demos keep the original draws (their RNG sequence is unchanged). NOTE: no soak / lockstep session traced a single draw from these
+ * three sites (the RNG trace names none), so this is a safeguard that no test exercises. */
+static u32 watchRandom(void)
+{
+    extern int portCoopActive(void);
+    static u32 s = 0x2545F491u;
+
+    if (!portCoopActive())
+    {
+        return randomGetNext();
+    }
+
+    s ^= s << 13;
+    s ^= s >> 17;
+    s ^= s << 5;
+    return s;
+}
+#else
+#define watchRandom randomGetNext
+#endif
+
+
 void sub_GAME_7F0A51D8(void)
 {
 #ifndef TARGET_N64
@@ -2404,7 +2527,7 @@ void sub_GAME_7F0A5210(void)
 {
     set_controlstick_lr_disabled();
     sndPlaySfx(g_musicSfxBufferPtr, CAMERA_BEEP1_SFX, NULL);
-    if ((D_80040B10 << 0x10) < randomGetNext()) {
+    if ((D_80040B10 << 0x10) < watchRandom()) {
         sub_GAME_7F0A51D8();
     }
     return;
@@ -3226,7 +3349,7 @@ void sub_GAME_7F0A6A80(void)
 
     if (joyGetButtonsPressedThisFrame(PLAYER_1, START_BUTTON)
 #ifndef TARGET_N64
-        && !portReturnStartThisTick() /* spec 6: Return confirms, it does not close the watch */
+        && !portSimReturnStart() /* spec 6: Return confirms, it does not close the watch */
         /* an open list, armed capture or "press a button" is closed first, as
          * Escape and watch_objectives do: closing over a key capture left the
          * keyboard and mouse blanked in play */
@@ -3354,14 +3477,14 @@ void sub_GAME_7F0A6A80(void)
     D_80040B14 = watchWrapAroundPI(D_80040B14);
 
     temp_1 = D_80040B0C << 0x10;
-    if (temp_1 < randomGetNext())
+    if (temp_1 < watchRandom())
     {
         sub_GAME_7F0A51D8();
     }
 
     if (g_WatchBackgroundGreen < 0xE0)
     {
-        random_value = randomGetNext();
+        random_value = watchRandom();
         g_WatchBackgroundGreen += (random_value >> 0x1E);
     }
 
@@ -7168,9 +7291,17 @@ extern void portInputAssignCancel(void);
 
 void portWatchAssignBegin(void)
 {
+    extern int portCoopNetDriven(void);
+    extern int portNetBlocked(const char *what);
+
     portWatchDropCloseNow();
     portWatchBindCaptureCancel();
     reset_watch_item_is_actively_selected();
+    if (portCoopNetDriven())
+    {   /* "press a button" waits for THIS machine's device while the other machine runs the same watch: the sims would part */
+        (void) portNetBlocked("assigning a device in the watch");
+        return;
+    }
     if (portInputAssignBegin(get_cur_playernum()))
     {
         sndPlaySfx(g_musicSfxBufferPtr, CAMERA_BEEP1_SFX, NULL);
@@ -7554,7 +7685,8 @@ void portWatchRowNavigate(void)
         /* spent EVERY tick, not behind `isbind &&`: a Delete pressed off a
          * bind row is thrown away here, never banked for the next bind row
          * the highlight reaches */
-        const s32 del = portVideoDeleteEdge();
+        extern int portCoopNetDriven(void);
+        const s32 del = portVideoDeleteEdge() && !portCoopNetDriven();   /* netplay: the Delete key is this machine's alone */
         /* while a capture is armed only ITS row may be unbound. Nothing moves
          * the highlight off it any more (the mouse layer yields), but refusing
          * beats wiping an action the player never armed */
@@ -8340,3 +8472,74 @@ Gfx *draw_watch_current_page(Gfx *gdl, Mtx *arg1, s32 watch_transitioning)
 
     return gdl;
 }
+
+#ifndef TARGET_N64
+/* PORT: netplay job 3e: the watch's UI state (page, cursors, scroll, static, spin, background) lives in globals shared by every Bond. With
+ * both Bonds' watches open each pass (and each Bond's tick) wrote into the same state, so the local watch glitched as if layered with the
+ * partner's. In a co-op stage the state is swapped whenever the current player changes (set_cur_player), so every Bond sees only its own. */
+typedef struct
+{
+    u32 screen, ctl_idx, game_idx;
+    s32 brief_idx, d9a4, sel, d9ac, text_y, text_ty, item_idx, text_settled, d9c4, d9d0, page, hover, invw;
+    f32 cursor, d9c8, d9cc, d9d4, pitch, spinang, spinspd;
+    u32 navready, navprev, scan_a;
+    s32 green, scan_y;
+} PortWatchUi;
+
+static PortWatchUi sWatchDef;
+static PortWatchUi sWatchSlot[4];
+static u8 sWatchValid[4];
+static s32 sWatchCur = -1;
+
+static void portWatchUiSave(PortWatchUi *w)
+{
+    w->screen = watch_screen_index; w->ctl_idx = controller_options_index; w->game_idx = game_options_index;
+    w->brief_idx = mission_brief_index; w->d9a4 = D_800409A4; w->sel = watch_item_is_actively_selected; w->d9ac = D_800409AC;
+    w->text_y = watch_inventory_text_y; w->text_ty = watch_inventory_text_target_y; w->item_idx = g_curWatchItemIndex;
+    w->text_settled = watch_inventory_text_is_settled; w->d9c4 = D_800409C4; w->d9d0 = D_800409D0; w->page = (s32) g_portWatchPage;
+    w->hover = g_portWatchHoverTab; w->invw = g_portWatchInvTextWidth;
+    w->cursor = watch_inventory_cursor_pos; w->d9c8 = D_800409C8; w->d9cc = D_800409CC; w->d9d4 = D_800409D4;
+    w->pitch = g_WatchControllerPitch; w->spinang = g_WatchControllerSpinAngle; w->spinspd = g_WatchControllerSpinSpeed;
+    w->navready = watch_stick_y_nav_ready; w->navprev = watch_stick_y_prev_active; w->scan_a = g_WatchStaticScanlineAlpha;
+    w->green = g_WatchBackgroundGreen; w->scan_y = g_WatchStaticScanlineY;
+}
+
+static void portWatchUiLoad(const PortWatchUi *w)
+{
+    watch_screen_index = w->screen; controller_options_index = w->ctl_idx; game_options_index = w->game_idx;
+    mission_brief_index = w->brief_idx; D_800409A4 = w->d9a4; watch_item_is_actively_selected = w->sel; D_800409AC = w->d9ac;
+    watch_inventory_text_y = w->text_y; watch_inventory_text_target_y = w->text_ty; g_curWatchItemIndex = w->item_idx;
+    watch_inventory_text_is_settled = w->text_settled; D_800409C4 = w->d9c4; D_800409D0 = w->d9d0; g_portWatchPage = w->page;
+    g_portWatchHoverTab = w->hover; g_portWatchInvTextWidth = w->invw;
+    watch_inventory_cursor_pos = w->cursor; D_800409C8 = w->d9c8; D_800409CC = w->d9cc; D_800409D4 = w->d9d4;
+    g_WatchControllerPitch = w->pitch; g_WatchControllerSpinAngle = w->spinang; g_WatchControllerSpinSpeed = w->spinspd;
+    watch_stick_y_nav_ready = w->navready; watch_stick_y_prev_active = w->navprev; g_WatchStaticScanlineAlpha = w->scan_a;
+    g_WatchBackgroundGreen = w->green; g_WatchStaticScanlineY = w->scan_y;
+}
+
+/* init_watch_at_start_of_stage ran: the defaults every Bond starts from */
+void portWatchUiStageInit(void)
+{
+    portWatchUiSave(&sWatchDef);
+    sWatchValid[0] = sWatchValid[1] = sWatchValid[2] = sWatchValid[3] = 0;
+    sWatchCur = -1;
+}
+
+/* set_cur_player: leave `from`'s state behind, bring `to`'s in (co-op stages only) */
+void portWatchUiSwitch(int from, int to)
+{
+    extern int portCoopActive(void);
+
+    if (!portCoopActive() || to < 0 || to > 3 || from == to)
+    {
+        return;
+    }
+    if (sWatchCur >= 0 && sWatchCur <= 3)
+    {
+        portWatchUiSave(&sWatchSlot[sWatchCur]);
+        sWatchValid[sWatchCur] = 1;
+    }
+    portWatchUiLoad(sWatchValid[to] ? &sWatchSlot[to] : &sWatchDef);
+    sWatchCur = to;
+}
+#endif

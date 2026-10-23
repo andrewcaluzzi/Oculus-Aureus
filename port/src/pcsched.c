@@ -186,6 +186,13 @@ void portAllocHighReserve(void)
     }
 }
 
+/* Extent of the used part of the high arena (rollback snapshot spike, port_snapshot.c). */
+void portHighArenaRange(u8 **base, u32 *used)
+{
+    *base = s_HighArena;
+    *used = s_HighArenaUsed;
+}
+
 void *portAllocHigh(u32 size)
 {
     u8 *arena;

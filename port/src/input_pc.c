@@ -31,6 +31,7 @@
 
 #include <SDL.h>
 #include "port_console.h" /* the tilde console: fixed keys feed it below */
+#include "port_coop.h"    /* portCoopPadSwap: co-op player index -> device slot */
 static const char *inputDevRecPath(const char *id);   /* per-device records, below */
 
 #define INPUT_MAX_PADS 4
@@ -1284,6 +1285,47 @@ static int inputDeviceIsWgiShadow(int jidx, int njoys)
     return 0;
 }
 
+/* Netplay job 4: GE_NET_PAD=<n> picks the one game controller this instance reads (0-based, SDL order among the real game-input
+ * devices; "none" = no pad at all), so two windows on one PC take one controller each. -2 = not set. Read once. */
+static int inputNetPadWanted(void)
+{
+    static int v = -3;
+
+    if (v == -3)
+    {
+        const char *e = getenv("GE_NET_PAD");
+
+        if (e == NULL || e[0] == '\0')
+        {
+            v = -2;
+        }
+        else if (SDL_strcasecmp(e, "none") == 0)
+        {
+            v = -1;
+        }
+        else
+        {
+            v = SDL_atoi(e);
+            if (v < 0)
+            {
+                v = -1;
+            }
+        }
+        if (v != -2)
+        {
+            if (v < 0)
+            {
+                portConLogf("ge: input: GE_NET_PAD=%s: this instance reads no game controller\n", e);
+            }
+            else
+            {
+                portConLogf("ge: input: GE_NET_PAD=%s: this instance reads game controller number %d only (0-based, SDL order; see the slot lines below)\n", e, v);
+            }
+        }
+    }
+    return v;
+}
+
 /* the slot inputAssignPin just pinned: its old occupant must NOT be kept */
 static int s_PinFreshSlot = -1;
 
@@ -1330,6 +1372,27 @@ static void inputAssignSlotsEx(int full)
                 portConLogf("ge: input: '%s' on player %d is the same pad seen twice (Windows.Gaming.Input beside another driver) - dropped\n",
                             SDL_JoystickNameForIndex(jidx) ? SDL_JoystickNameForIndex(jidx) : "?", slot + 1);
                 inputCloseController(slot);
+            }
+        }
+    }
+
+    {   /* GE_NET_PAD: every game controller but the wanted one is off the table for all the passes below */
+        const int want = inputNetPadWanted();
+
+        if (want != -2)
+        {
+            int nth = 0;
+
+            for (jidx = 0; jidx < njoys; jidx++)
+            {
+                if (inputDeviceIsWgiShadow(jidx, njoys) || (!inputDeviceIsGameInput(jidx) && !inputAllowAnyPad()))
+                {
+                    continue;
+                }
+                if (want < 0 || nth++ != want)
+                {
+                    claimed[jidx] = 1;
+                }
             }
         }
     }
@@ -2106,6 +2169,27 @@ void portInputInit(void)
     SDL_SetHint(SDL_HINT_MOUSE_RELATIVE_SYSTEM_SCALE, "0");
 #endif
 
+#ifdef SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS
+    {   /* Netplay job 4: two windows on one PC. Each instance keeps reading its own controller while the other window has the focus
+         * (the keyboard and the mouse stay with the focused window: SDL gives those to it alone). */
+        const char *net = getenv("GE_NET");
+        const char *pad = getenv("GE_NET_PAD");
+
+        /* job 3e: ONLY an instance told which pad is its own (GE_NET_PAD=<n>) reads it unfocused. Unset = pads only while this window
+         * has the focus (right for two PCs; with background events on, an instance without GE_NET_PAD read every pad and one
+         * controller drove both windows). "none" = no pad at all. */
+        if (net != NULL && net[0] != '\0' && pad != NULL && pad[0] >= '0' && pad[0] <= '9')
+        {
+            SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
+            portConLogf("ge: input: netplay: GE_NET_PAD=%s: controller %s events continue while the window is in the background\n", pad, pad);
+        }
+        else if (net != NULL && net[0] != '\0')
+        {
+            SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "0");
+            portConLogf("ge: input: netplay: pads are read only while this window has the focus (GE_NET_PAD=<n> reads pad n in the background, none = no pad)\n");
+        }
+    }
+#endif
     if (!SDL_WasInit(SDL_INIT_GAMECONTROLLER))
     {
         inputBackendHints();
@@ -3834,7 +3918,7 @@ s32 portInputSecondPadIndex(s32 playernum, s32 fam)
     {
         /* never a SEATED player's pad: in MP slots 0..count-1 drive their
          * own Bonds, and a marked one would drive two players at once */
-        if (slot >= count && slot != playernum && *inputStyleCell(slot) == PAD_STYLE_P2_FIRST + fam
+        if (slot >= (portCoopActive() ? portAllPlayerCount() : count) /* PORT: coop: count is 1 there, the seats are 2 */ && slot != playernum && *inputStyleCell(slot) == PAD_STYLE_P2_FIRST + fam
             && inputSlotBusy(slot))
         {
             if (k == rank)
@@ -7394,9 +7478,23 @@ static s8 s_PadDigMove[INPUT_MAX_PADS][2];
 s32 portInputDigitalMove(s32 slot, s32 *dx, s32 *dy)
 {
     extern void portVideoKbdDigitalMove(s32 *dx, s32 *dy);
+    extern int portCoopNetDigital(int slot, int *dx, int *dy);
     s32 x = 0;
     s32 y = 0;
 
+    slot = portCoopPadSwap(slot);   /* PORT: coop: player index -> device slot */
+
+    {   /* netplay lockstep: the scheduled record's digital move, for the local Bond (slot 0) and the partner (slot 1) */
+        int nx = 0;
+        int ny = 0;
+
+        if (portCoopNetDigital(slot, &nx, &ny))
+        {
+            *dx = nx;
+            *dy = ny;
+            return nx != 0 || ny != 0;
+        }
+    }
     if (slot >= 0 && slot < INPUT_MAX_PADS)
     {
         x = s_PadDigMove[slot][0];
@@ -7418,6 +7516,61 @@ s32 portInputDigitalMove(s32 slot, s32 *dx, s32 *dy)
     *dx = x;
     *dy = y;
     return x != 0 || y != 0;
+}
+
+/** netplay (port_coop.c): the local Bond's digital Move from the live devices (pad slot 0 and keyboard), sampled once
+ * per tick for the record that is scheduled ahead. portInputDigitalMove returns the scheduled record instead. */
+void portInputDigitalMoveLive(s32 *dx, s32 *dy)
+{
+    extern void portVideoKbdDigitalMove(s32 *dx, s32 *dy);
+    s32 x = s_PadDigMove[0][0];
+    s32 y = s_PadDigMove[0][1];
+    s32 kx = 0;
+    s32 ky = 0;
+
+    portVideoKbdDigitalMove(&kx, &ky);
+    *dx = (x != 0) ? x : kx;
+    *dy = (y != 0) ? y : ky;
+}
+
+/** Netplay job 4 (bondview2.c, the local Bond's tick): the local pad's Look (right) stick in N64 units, +-85, up positive, sampled
+ * for the record scheduled ahead (the record carries it as look degrees). 0 = no right stick on this pad. muteC keeps the stick
+ * from also firing C-button emulation while the game consumes it. GE_NET_TEST_RSTICK=<x>,<y> (test only) stands in for a pad. */
+s32 portInputNetRightStick(s8 *x, s8 *y, s32 muteC)
+{
+    static int test = -1;
+    static int tx, ty;
+
+    if (test < 0)
+    {
+        const char *e = getenv("GE_NET_TEST_RSTICK");
+
+        test = 0;
+        if (e != NULL && e[0] != '\0')
+        {
+            tx = SDL_atoi(e);
+            ty = SDL_strchr(e, ',') != NULL ? SDL_atoi(SDL_strchr(e, ',') + 1) : 0;
+            test = 1;
+            portConLogf("ge: input: GE_NET_TEST_RSTICK: a right stick held at (%d,%d)\n", tx, ty);
+        }
+    }
+    if (test > 0)
+    {
+        *x = (s8) tx;
+        *y = (s8) ty;
+        return 1;
+    }
+    if (!s_PadHasRight[0])
+    {
+        return 0;
+    }
+    *x = s_PadRightX[0];
+    *y = s_PadRightY[0];
+    if (muteC)
+    {
+        s_PadRightCMute[0] = SDL_GetTicks() + PORT_TWIN_LATCH_MS;
+    }
+    return 1;
 }
 
 /** front.c menus: player 1's PAD digital Move alone (-1 / 0 / +1, y up), no
@@ -7650,13 +7803,47 @@ void portInputPadMerge(s32 idx, OSContPad *pad)
                 pad->stick_y = (s8) g_PortGotoStickY;
             }
         }
+        if (idx == 0)
+        {   /* GE_PADB_AT="n[,m...]": raw N64 B held for 3 polls at those poll counts (hostage B-press test) */
+            static const char *spec = (const char *) 1;
+            static u32 bpoll;
+            if (spec == (const char *) 1)
+            {
+                spec = getenv("GE_PADB_AT");
+            }
+            bpoll++;
+            if (spec != NULL)
+            {
+                const char *p = spec;
+                while (*p != '\0')
+                {
+                    u32 n = (u32) strtoul(p, (char **) &p, 10);
+                    if (bpoll >= n && bpoll < n + 3u)
+                    {
+                        pad->button |= CONT_B;
+                    }
+                    if (*p == ',')
+                    {
+                        p++;
+                    }
+                    else if (*p != '\0')
+                    {
+                        break;
+                    }
+                }
+            }
+        }
         if (s_SkipIntro && idx == 0)
         {   /* GE_SKIPINTRO=1: tap A through the mission intro cameras
-             * (2-tick presses, one per ~2/3s, first 15s only - stops
-             * before it could cycle weapons in gameplay) */
+             * (2-tick presses, one per ~2/3s, first 15s only). The window
+             * counts polls, not time, so also stop once Bond is in the
+             * player's hands, or the taps cycle his weapons. */
+            extern s32 portStageRunning(void);
+            extern s32 portP1ControlsLive(void);
             static u32 sitick;
             u32 t = sitick++;
-            if (t > 60u && t < 900u && (t % 40u) < 2u)
+            if (t > 60u && t < 900u && (t % 40u) < 2u
+                && !(portStageRunning() && portP1ControlsLive()))
             {
                 pad->button |= CONT_A;
             }
@@ -8170,6 +8357,13 @@ void portInputPadGadgetChord(s32 idx, OSContPad *pad)
 /** 1 = pad idx has an analog right stick and twin_stick=1 (raphnet / absent pads: 0). */
 s32 portInputPadTwinStickCapable(s32 idx)
 {
+    extern int portCoopNetDriven(void);
+
+    if (portCoopNetDriven())
+    {
+        return 0;   /* netplay v1: a right stick is a live device read the record does not carry, and "capable" differs per machine */
+    }
+    idx = portCoopPadSwap(idx);   /* PORT: coop: player index -> device slot */
     if (idx < 0 || idx >= INPUT_MAX_PADS)
     {
         return 0;
@@ -8192,6 +8386,7 @@ s32 portInputPadTwinStick(s32 idx, s8 *x, s8 *y, s32 muteC, s32 lookOnPad1)
     {
         return 0;
     }
+    idx = portCoopPadSwap(idx);   /* PORT: coop: player index -> device slot (Capable swapped its own copy) */
     *x = s_PadRightX[idx];
     *y = s_PadRightY[idx];
     if (muteC)
@@ -8541,6 +8736,14 @@ void portInputMouseTickConsume(void)
         extern void portInputRecTick(void);
         portInputRecTick();
     }
+    { /* PORT: coop: advance the puppet pad once per sim tick */
+        extern void portCoopTick(void);
+        portCoopTick();
+    }
+    { /* PORT: netplay: keep the link serviced (a flag check when GE_NET is unset) */
+        extern void portNetTick(void);
+        portNetTick();
+    }
 }
 
 /**
@@ -8710,6 +8913,37 @@ void portInputMouseLookDeltaDeg(f32 *dxdeg, f32 *dydeg)
 s32 portInputMouseDirectMode(void)
 {
     return s_OptMouseMode != 0;
+}
+
+/**
+ * Netplay (port_net.c): "Waiting for partner..." in the window title while the handshake, the partner's stage
+ * load or the partner's input is outstanding. No tick runs then, so nothing is drawn; the title is the one place
+ * left to say it. Empty text puts the original title back.
+ */
+void portVideoSetWaitText(const char *text)
+{
+    extern SDL_Window *gfx_sdl_get_window(void);
+    static char orig[128];
+    static int have;
+    SDL_Window *w = gfx_sdl_get_window();
+    char t[256];
+
+    if (w == NULL)
+    {
+        return;
+    }
+    if (!have)
+    {
+        SDL_snprintf(orig, sizeof(orig), "%s", SDL_GetWindowTitle(w));
+        have = 1;
+    }
+    if (text == NULL || text[0] == '\0')
+    {
+        SDL_SetWindowTitle(w, orig);
+        return;
+    }
+    SDL_snprintf(t, sizeof(t), "%s - %s", orig, text);
+    SDL_SetWindowTitle(w, t);
 }
 
 /** midas.ini [input] mouse_sens_aim - crosshair speed multiplier in aim mode. */

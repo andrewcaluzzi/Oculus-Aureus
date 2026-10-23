@@ -52,8 +52,9 @@ static Gfx *portConvertModelGdl(Gfx *src, struct texpool *pool)
      * become G_DL targets, and a pointer below 0x10000000 would be misread as a
      * segment address. */
     {
-        extern void *portAllocHigh(u32 size);
-        dst = portAllocHigh((n * 4 + 96) * sizeof(Gfx));
+        /* rollback R2: the rollback-able high heap (port_simheap.c), so a restored + re-simulated spawn converts into the same buffer */
+        extern void *portAllocSimHigh(u32 size);
+        dst = portAllocSimHigh((n * 4 + 96) * sizeof(Gfx));
     }
     if (dst == NULL)
     {
@@ -71,13 +72,61 @@ static Gfx *portConvertModelGdl(Gfx *src, struct texpool *pool)
 static struct texpool s_ModelPool;
 static u8 *s_ModelArena;
 
+/* rollback R2: the used extents of the pool (data grows up from the start, the tex headers down from the end) are snapshot extents */
+static int portModelPoolRange(unsigned char **lo, unsigned int *len, int i)
+{
+    if (s_ModelArena == NULL)
+    {
+        return 0;
+    }
+    if (i == 0)
+    {
+        *lo = s_ModelArena;
+        *len = (unsigned int) (s_ModelPool.leftpos - s_ModelArena);
+        return *len != 0;
+    }
+    if (i == 1)
+    {
+        *lo = (unsigned char *) s_ModelPool.rightpos;
+        *len = (unsigned int) ((unsigned char *) s_ModelPool.end - (unsigned char *) s_ModelPool.rightpos);
+        return *len != 0;
+    }
+    return 0;
+}
+
+static int portModelPoolDyn(int i, unsigned char **lo, unsigned int *len)
+{
+    int k;
+
+    for (k = 0; k < 2; k++)       /* skip an empty first extent so the index stays dense */
+    {
+        unsigned char *l;
+        unsigned int n;
+
+        if (portModelPoolRange(&l, &n, k))
+        {
+            if (i == 0)
+            {
+                *lo = l;
+                *len = n;
+                return 1;
+            }
+            i--;
+        }
+    }
+    return 0;
+}
+
 struct texpool *portModelTexPool(void)
 {
     if (s_ModelArena == NULL)
     {
         extern void *portAllocHigh(u32 size);
+        extern void portSnapAddDyn(const char *name, int (*fn)(int, unsigned char **, unsigned int *));
+
         s_ModelArena = portAllocHigh(0x400000); /* pool pointers bake into DLs */
         texInitPool(&s_ModelPool, s_ModelArena, 0x400000);
+        portSnapAddDyn("modeltexpool", portModelPoolDyn);
     }
     return &s_ModelPool;
 }

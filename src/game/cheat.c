@@ -1017,7 +1017,11 @@ void cheatButtonHandleCheatsTurnedOn(CHEAT_ID cheat_id)
         }
         else
         {
+#ifndef TARGET_N64
+            g_CheatPlayerTextRelated[cheat_id] = (1 << portAllPlayerCount()) - 1; /* PORT: coop: every Bond, not just the mode count (1) */
+#else
             g_CheatPlayerTextRelated[cheat_id] = (1 << player_count) - 1;
+#endif
         }
     }
 
@@ -1706,7 +1710,7 @@ void cheatDisableAllCheats(void)
     s32 i;
     s32 j;
 
-    numplayers = getPlayerCount();
+    numplayers = portAllPlayerCount();
     starting_player_number = get_cur_playernum();
 
     for (i=0; i<numplayers; i++)

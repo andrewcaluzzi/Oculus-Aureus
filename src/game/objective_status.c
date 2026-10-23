@@ -7,6 +7,9 @@
 #include "PR/os.h"
 #include "str.h"
 #include "bondview.h"
+#ifndef TARGET_N64
+#include "port_event.h" /* PORT: event: OBJECTIVE_CHANGED */
+#endif
 
 //Public variables - move to header
 // bss
@@ -318,6 +321,21 @@ OBJECTIVESTATUS get_status_of_objective(s32 objectiveNum) //#MATCH
         } // if objheader
     }     //objnum < 10
 
+#ifndef TARGET_N64
+    {   /* GE_TEST_ALLOBJ=1 (test only, mission-end job): every objective reads as complete, so a level's success exit can be run without playing it */
+        extern char *getenv(const char *);
+        static int allobj = -1;
+
+        if (allobj < 0)
+        {
+            allobj = getenv("GE_TEST_ALLOBJ") != NULL;
+        }
+        if (allobj)
+        {
+            return OBJECTIVESTATUS_COMPLETE;
+        }
+    }
+#endif
     if (get_debug_all_obj_complete_flag())
     {
         status = OBJECTIVESTATUS_COMPLETE;
@@ -371,6 +389,11 @@ void display_objective_status_text_on_status_change(void)
         if (objectiveStatuses[i] != status) {
             objectiveStatuses[i] = status;
             if (get_difficulty_for_objective(i) <= lvlGetSelectedDifficulty()) {
+#ifndef TARGET_N64
+                { /* PORT: event: OBJECTIVE_CHANGED(index, status) */
+                    portEventEmit(PORT_EV_OBJECTIVE_CHANGED, i, (int) status, 0, 0);
+                }
+#endif
                 if (j_text_trigger != 0)
                 {
                     sprintf(&buffer, "%s \x80%c ", langGet(getStringID(LMISC, MISC_STR_2C_OBJECTIVE)), availableindex + 0x1A);
@@ -392,7 +415,7 @@ void display_objective_status_text_on_status_change(void)
                     strcat(&buffer, langGet(getStringID(LMISC, MISC_STR_2F_FAILED_LF)));
                 }
 #ifdef VERSION_US
-                hudmsgBottomShow(&buffer);
+                { extern void portHudMsgBottomShowAll(char *text); portHudMsgBottomShowAll(&buffer); } /* PORT: coop: every Bond */
 #else
                 jp_hudmsgBottomShow(&buffer);
 #endif

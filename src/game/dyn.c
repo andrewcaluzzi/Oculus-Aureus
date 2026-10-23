@@ -51,25 +51,33 @@ void dynInit(void) {
 
 void dynInitMemory(void) {
     if (tokenFind(1, "-mgfx")) {
-        g_GfxSizesByPlayerCount[getPlayerCount() - 1] = strtol(tokenFind(1, "-mgfx"), NULL, 0) * 1024;
+        s32 v = strtol(tokenFind(1, "-mgfx"), NULL, 0) * 1024;
+#ifndef TARGET_N64
+        { extern int portCoopActive(void); if (portCoopActive()) { v = (v * 2 > 0x18000) ? v * 2 : 0x18000; } } /* PORT: coop: both passes build lists; the token was authored for one */
+#endif
+        g_GfxSizesByPlayerCount[portAllPlayerCount() - 1] = v;
     }
     if (tokenFind(1, "-mvtx")) {
-        g_VtxSizesByPlayerCount[getPlayerCount() - 1] = strtol(tokenFind(1, "-mvtx"), NULL, 0) * 1024;
+        s32 v = strtol(tokenFind(1, "-mvtx"), NULL, 0) * 1024;
+#ifndef TARGET_N64
+        { extern int portCoopActive(void); if (portCoopActive()) { v = (v * 2 > 0x18000) ? v * 2 : 0x18000; } }
+#endif
+        g_VtxSizesByPlayerCount[portAllPlayerCount() - 1] = v;
     }
 
 #ifndef TARGET_N64
     // Double graphics buffers size on PC to avoid graphics corruption bugs
-    g_GfxSizesByPlayerCount[getPlayerCount() - 1] *= 2;
-    g_VtxSizesByPlayerCount[getPlayerCount() - 1] *= 2;
+    g_GfxSizesByPlayerCount[portAllPlayerCount() - 1] *= 2;
+    g_VtxSizesByPlayerCount[portAllPlayerCount() - 1] *= 2;
 #endif
 
-    g_GfxBuffers[0] = mempAllocBytesInBank(g_GfxSizesByPlayerCount[getPlayerCount() - 1] * 2, MEMPOOL_STAGE);
-    g_GfxBuffers[1] = (g_GfxBuffers[0] + g_GfxSizesByPlayerCount[getPlayerCount() - 1]);
-    g_GfxBuffers[2] = (g_GfxBuffers[1] + g_GfxSizesByPlayerCount[getPlayerCount() - 1]);
+    g_GfxBuffers[0] = mempAllocBytesInBank(g_GfxSizesByPlayerCount[portAllPlayerCount() - 1] * 2, MEMPOOL_STAGE);
+    g_GfxBuffers[1] = (g_GfxBuffers[0] + g_GfxSizesByPlayerCount[portAllPlayerCount() - 1]);
+    g_GfxBuffers[2] = (g_GfxBuffers[1] + g_GfxSizesByPlayerCount[portAllPlayerCount() - 1]);
 
-    g_VtxBuffers[0] = mempAllocBytesInBank(g_VtxSizesByPlayerCount[getPlayerCount() - 1] * 2, MEMPOOL_STAGE);
-    g_VtxBuffers[1] = (g_VtxBuffers[0] + g_VtxSizesByPlayerCount[getPlayerCount() - 1]);
-    g_VtxBuffers[2] = (g_VtxBuffers[1] + g_VtxSizesByPlayerCount[getPlayerCount() - 1]);
+    g_VtxBuffers[0] = mempAllocBytesInBank(g_VtxSizesByPlayerCount[portAllPlayerCount() - 1] * 2, MEMPOOL_STAGE);
+    g_VtxBuffers[1] = (g_VtxBuffers[0] + g_VtxSizesByPlayerCount[portAllPlayerCount() - 1]);
+    g_VtxBuffers[2] = (g_VtxBuffers[1] + g_VtxSizesByPlayerCount[portAllPlayerCount() - 1]);
 
     g_GfxActiveBufferIndex = 0;
     g_GfxRequestedDisplayList = FALSE;
@@ -81,9 +89,9 @@ void dynInitMemory(void) {
         extern s32 portRoomAuditEnabled(void);
         if (portRoomAuditEnabled()) {
             fprintf(stderr, "roomaudit: dyn init gfx=%dKB vtx=%dKB players=%d (mgfx tok %s, mvtx tok %s)\n",
-                    g_GfxSizesByPlayerCount[getPlayerCount() - 1] / 1024,
-                    g_VtxSizesByPlayerCount[getPlayerCount() - 1] / 1024,
-                    getPlayerCount(),
+                    g_GfxSizesByPlayerCount[portAllPlayerCount() - 1] / 1024,
+                    g_VtxSizesByPlayerCount[portAllPlayerCount() - 1] / 1024,
+                    portAllPlayerCount(),
                     tokenFind(1, "-mgfx") ? "found" : "MISSING",
                     tokenFind(1, "-mvtx") ? "found" : "MISSING");
             fflush(stderr);
@@ -199,9 +207,9 @@ void portDynAuditFrameEnd(Gfx *gdlEnd)
         return;
     }
 
-    cap   = g_GfxSizesByPlayerCount[getPlayerCount() - 1];
+    cap   = g_GfxSizesByPlayerCount[portAllPlayerCount() - 1];
     used  = (u8 *)gdlEnd - g_GfxBuffers[g_GfxActiveBufferIndex];
-    vcap  = g_VtxSizesByPlayerCount[getPlayerCount() - 1];
+    vcap  = g_VtxSizesByPlayerCount[portAllPlayerCount() - 1];
     vused = g_GfxMemPos - g_VtxBuffers[g_GfxActiveBufferIndex];
 
     frames++;

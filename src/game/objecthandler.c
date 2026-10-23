@@ -10,7 +10,9 @@
  * below, which the free-list init walks by adjacency. GCC doesn't keep bss
  * order (the init used to corrupt unrelated globals), so on PC the pool gets
  * its real size here and the stand-ins are N64-only. */
-char g_ModelHitEntries[600 * 0x14];
+/* PORT: 600 entries is the N64 pool; the arena's crowd (100+ on-screen chrs, ~20 entries each) exhausted it, and a chr
+ * that gets no entries is drawn as NOTHING (invisible) and crashes chrTestHit. Keep in step with initunk_005450.c. */
+char g_ModelHitEntries[8000 * 0x14];
 #else
 char g_ModelHitEntries[0xC];
 //CODE.bss:80076A5C
@@ -322,6 +324,15 @@ ModelHitEntry* sub_GAME_7F06B120(ModelHitEntry* head, Model* context) {
         }
     }
 
+#ifndef TARGET_N64
+    if (freeListCursor == NULL && sceneCursor != NULL) {
+        static s32 sWarned;
+        extern void portConLogf(const char *fmt, ...);
+        if (sWarned++ < 3) {
+            portConLogf("ge: WARNING: ModelHitEntry pool exhausted (a chr will draw partially or not at all)\n");
+        }
+    }
+#endif
     if (freeListCursor != g_ModelHitFreeList) {
         if (head != NULL) {
             ModelHitEntry *tail = head;

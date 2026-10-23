@@ -34,9 +34,19 @@ static u64 n64RandMix(u64 seed)
  * Iterates the current random seed and returns a 32 bit value.
  * (asm: 7000A450 in src/random.s)
  */
+u32 g_portSimRandDraws;     /* PORT: netplay: sim RNG draws since the stage reseed (in the state hash: "rng") */
+u32 g_portChrObjRandDraws;  /* PORT: netplay: chr/obj RNG draws since the stage reseed */
+s32 g_portRngTrace;         /* GE_NET_RNGTRACE: port_net.c logs every draw (tick, caller, value) */
+extern void portNetRngTraceDraw(int kind, void *ret, u32 value);
+
 u32 randomGetNext(void)
 {
     g_randomSeed = n64RandMix(g_randomSeed);
+    g_portSimRandDraws++;
+    if (g_portRngTrace)
+    {
+        portNetRngTraceDraw('S', __builtin_return_address(0), (u32) g_randomSeed);
+    }
     /* Demo-desync hunt instrumentation (ramromreplay.c GE_DEMODIAG):
      * per-tick draw counts diffed against the counts reconstructed from a
      * recording's per-block seed bytes; g_portRandTraceArmed additionally
@@ -104,6 +114,11 @@ u32 tlbRandomGetNext(void)
 u32 chrObjRandomGetNext(void)
 {
     g_chrObjRandomSeed = n64RandMix(g_chrObjRandomSeed);
+    g_portChrObjRandDraws++;
+    if (g_portRngTrace)
+    {
+        portNetRngTraceDraw('C', __builtin_return_address(0), (u32) g_chrObjRandomSeed);
+    }
     return (u32) g_chrObjRandomSeed;
 }
 

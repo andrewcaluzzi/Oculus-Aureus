@@ -326,7 +326,11 @@ static DWORD WINAPI portStallWatchdog(LPVOID param)
         unsigned int nowTasks;
         Sleep(2000);
         now = g_PortFramesPumped;
-        nowTasks = g_PortGfxTasksSubmitted;
+        {   /* a netplay wait (handshake, the partner's stage load or input) submits no tasks: it counts as progress */
+            extern unsigned int g_PortNetHoldBeat;
+
+            nowTasks = g_PortGfxTasksSubmitted + g_PortNetHoldBeat;
+        }
         if (nowTasks != lastTasks) {
             lastTasks = nowTasks;
             tasksFrozen = 0;
@@ -625,11 +629,65 @@ static void portInitRootDir(const char *argv0)
     portConLogf("ge: root: %s\n", sPortRootDir[0] != '\0' ? sPortRootDir : "(cwd)");
 }
 
+/* PORT: netplay: GE_PROFILE=<name> moves the files a run WRITES (midas.ini, Data/Saves, Data/Logs) to
+ * Data/Profiles/<name>/, so two copies in one folder do not clobber each other. Read-only data (the
+ * ROM, shaders, scripts, textures) and the player profiles stay shared. */
+static char sProfileDir[300];   /* "Data/Profiles/<name>/" or "" */
+
+static int portProfileMapped(const char *name)
+{
+    return strcmp(name, "midas.ini") == 0 || strncmp(name, "Data/Saves", 10) == 0 || strncmp(name, "Data/Logs", 9) == 0;
+}
+
 const char *portRootPath(const char *name)
 {
     static char path[1200];
+
+    if (sProfileDir[0] != '\0' && portProfileMapped(name)) {
+        /* midas.ini -> <profile>/midas.ini, Data/Saves/x -> <profile>/Saves/x, Data/Logs/x -> <profile>/Logs/x */
+        snprintf(path, sizeof(path), "%s%s%s", sPortRootDir, sProfileDir, strncmp(name, "Data/", 5) == 0 ? name + 5 : name);
+        return path;
+    }
     snprintf(path, sizeof(path), "%s%s", sPortRootDir, name);
     return path;
+}
+
+static void portInitProfile(void)
+{
+    const char *e = getenv("GE_PROFILE");
+    char clean[64];
+    char dir[1200];
+    int i;
+
+    if (e == NULL || e[0] == '\0') {
+        return;
+    }
+    for (i = 0; e[i] != '\0' && i < 63; i++) {
+        const char c = e[i];
+
+        clean[i] = ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-') ? c : '_';
+    }
+    clean[i] = '\0';
+    {
+        static const char *const parents[] = { "Data", "Data/Profiles" };
+        int k;
+
+        for (k = 0; k < 2; k++) {
+#ifdef _WIN32
+            _mkdir(portRootPath(parents[k]));
+#else
+            mkdir(portRootPath(parents[k]), 0755);
+#endif
+        }
+    }
+    snprintf(sProfileDir, sizeof(sProfileDir), "Data/Profiles/%s/", clean);
+    snprintf(dir, sizeof(dir), "%sData/Profiles/%s", sPortRootDir, clean);
+#ifdef _WIN32
+    _mkdir(dir);
+#else
+    mkdir(dir, 0755);
+#endif
+    portConLogf("ge: profile: %s (ini, saves and logs under %s%s)\n", clean, sPortRootDir, sProfileDir);
 }
 
 FILE *portRootFopen(const char *name, const char *mode)
@@ -652,7 +710,12 @@ const char *portLogPath(const char *name)
         mkdir(portRootPath(dirs[i]), 0755);
 #endif
     }
-    snprintf(path, sizeof(path), "%sData/Logs/%s", sPortRootDir, name);
+    {   /* job 3c: through the profile mapping, so two GE_PROFILE instances do not share crash.log / ge_direct.log */
+        char rel[300];
+
+        snprintf(rel, sizeof(rel), "Data/Logs/%s", name);
+        snprintf(path, sizeof(path), "%s", portRootPath(rel));
+    }
     return path;
 }
 
@@ -744,8 +807,16 @@ int main(int argc, char **argv)
         extern void portConInit(void);
         portConInit();
     }
+    {   /* netplay: GE_COOP / GE_FIXEDTICK / GE_TICKHZ / ... must be in the environment before the ini and the tick rate
+         * are read; a no-op when GE_NET is unset */
+        extern void portNetPreinit(void);
+        portNetPreinit();
+    }
     portInitRootDir(argv[0]);
-    portMigrateIni();
+    portInitProfile();
+    if (sProfileDir[0] == '\0') {
+        portMigrateIni();
+    }
 
 #ifdef GE_VIDEO
     /* GE_LISTPADS=1: GELauncher's controller probe - print SDL's device
@@ -854,6 +925,11 @@ int main(int argc, char **argv)
         videoInit();
     }
 #endif
+
+    {   /* PORT: netplay: GE_NET connects and runs the handshake; a no-op (no socket) when unset */
+        extern void portNetBoot(void);
+        portNetBoot();
+    }
 
     mainproc(NULL);
 

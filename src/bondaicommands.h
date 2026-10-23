@@ -450,7 +450,30 @@ typedef enum GAILISTID
       Remove Calling chr and set AI to nothing
       @return No Return - AI is dead
      */
-    GAILIST_REMOVE_CHR
+    GAILIST_REMOVE_CHR,
+
+    /**
+      PORT: co-op bot. Idle forever (label 0, yield, goto 0); the bot brain in
+      port/src/port_bot.c drives the chr's actions from C.
+      @return No Return
+     */
+    GAILIST_COOP_BOT,
+
+    /** PORT: arena chase (m_ArenaChase): the persistent chase without the see-Bond-from-afar stall. */
+    GAILIST_ARENA_CHASE,
+
+    /** PORT: arena marksman (m_ArenaSnipe): hold position, fire bursts while Bond is in sight, chase after 4 s without sight. */
+    GAILIST_ARENA_SNIPE,
+
+    /** PORT: arena engage lists (m_ArenaEngage*): fire from range while Bond is in sight and within the weapon's effective range
+        (LONG 60 m rifles, MID 35 m SMGs, SHORT 25 m pistols), advance between bursts. CHASE alternates burst and advance;
+        RUSH runs and guns (the stock attack-run). */
+    GAILIST_ARENA_ENGAGE_LONG_CHASE,
+    GAILIST_ARENA_ENGAGE_MID_CHASE,
+    GAILIST_ARENA_ENGAGE_SHORT_CHASE,
+    GAILIST_ARENA_ENGAGE_LONG_RUSH,
+    GAILIST_ARENA_ENGAGE_MID_RUSH,
+    GAILIST_ARENA_ENGAGE_SHORT_RUSH
 } GAILISTID;
 
 #ifdef AIPARSE
@@ -472,7 +495,16 @@ char *GAILIST_ToString[] = {
     "GAILIST_WAIT_ONE_SECOND",
     "GAILIST_END_LEVEL",
     "GAILIST_DRAW_TT33_AND_ATTCK_BOND",
-    "GAILIST_REMOVE_CHR"};
+    "GAILIST_REMOVE_CHR",
+    "GAILIST_COOP_BOT",
+    "GAILIST_ARENA_CHASE",
+    "GAILIST_ARENA_SNIPE",
+    "GAILIST_ARENA_ENGAGE_LONG_CHASE",
+    "GAILIST_ARENA_ENGAGE_MID_CHASE",
+    "GAILIST_ARENA_ENGAGE_SHORT_CHASE",
+    "GAILIST_ARENA_ENGAGE_LONG_RUSH",
+    "GAILIST_ARENA_ENGAGE_MID_RUSH",
+    "GAILIST_ARENA_ENGAGE_SHORT_RUSH"};
 
 #endif
 

@@ -169,7 +169,11 @@ void bondviewLoadSetupIntroSection(void)
     mission_timer = 0;
     watch_time_0 = 0;
     g_IntroAnimationIndex = 0;
+#ifndef TARGET_N64
+    { s32 pi; for (pi = 0; pi < 4; pi++) { g_portWatchTransTime[pi] = 0.9090909f; } }
+#else
     watch_transition_time = 0.9090909f;
+#endif
     starting_weapon[GUNLEFT] = ITEM_UNARMED;
     starting_weapon[GUNRIGHT] = ITEM_UNARMED;
 
@@ -656,6 +660,56 @@ void bondviewLoadSetupIntroSection(void)
         }
     }
 #endif
+#ifndef TARGET_N64
+    { /* PORT: coop: P2 starts beside P1 (80-100 units sideways, else behind or ahead), the tile found by
+       * walking the tile graph from P1's tile, so P2 is never off-mesh. P1 has been placed already. */
+        extern int portCoopIsGuest(int playernum);
+        PropRecord *p1prop = (g_playerPointers[0] != NULL) ? g_playerPointers[0]->prop : NULL;
+
+        if (portCoopIsGuest(get_cur_playernum()) && p1prop != NULL && p1prop->stan != NULL)
+        {
+            static const f32 cand[6][2] = { {90.0f, 0.0f}, {-90.0f, 0.0f}, {100.0f, -40.0f}, {-100.0f, -40.0f}, {0.0f, -80.0f}, {0.0f, 80.0f} };
+            const f32 fx = -sinf(start_look_angle);
+            const f32 fz = cosf(start_look_angle);
+            const f32 floor1 = bondviewYPositionRelated((StandTile *) p1prop->stan, p1prop->pos.f[0], p1prop->pos.f[2]);
+            s32 c;
+            s32 c0;
+
+            { extern char *getenv(const char *); const char *ce = getenv("GE_COOP_P2CAND"); c0 = (ce && ce[0] >= '0' && ce[0] <= '5') ? ce[0] - '0' : 0; } /* test hook: first candidate to try */
+            for (c = c0; c < 6; c++)
+            {
+                const f32 px = p1prop->pos.f[0] + fz * cand[c][0] + fx * cand[c][1];
+                const f32 pz = p1prop->pos.f[2] - fx * cand[c][0] + fz * cand[c][1];
+                StandTile *walk = (StandTile *) p1prop->stan;
+                f32 h;
+
+                walkTilesBetweenPoints_NoCallback(&walk, p1prop->pos.f[0], p1prop->pos.f[2], px, pz);
+                if (walk == NULL || !isPointInsideTriStandTileUnscaled_Maybe(walk, px, pz))
+                {
+                    continue;
+                }
+                h = bondviewYPositionRelated(walk, px, pz);
+                if (h - floor1 > 60.0f || floor1 - h > 60.0f)
+                {
+                    continue;
+                }
+                start_pos.f[0] = px;
+                start_pos.f[2] = pz;
+                start_stan = walk;
+                stan_height = h;
+                start_pos.f[1] = g_CurrentPlayer->eyeheight + stan_height;
+                g_CurrentPlayer->field_70 = stan_height;
+                fprintf(stderr, "ge: coop: P2 spawn beside P1 at (%.0f %.0f %.0f), candidate %d\n",
+                        start_pos.f[0], start_pos.f[1], start_pos.f[2], c);
+                break;
+            }
+            if (c == 6)
+            {
+                fprintf(stderr, "ge: coop: no free tile beside P1, P2 starts on P1's spot\n");
+            }
+        }
+    }
+#endif
     g_CurrentPlayer->vv_theta = (start_look_angle * 360.0f) / M_TAU_F;
     g_CurrentPlayer->stanHeight = stan_height;
     g_CurrentPlayer->field_6C = stan_height / FIELD_6C_FACTOR;
@@ -714,6 +768,14 @@ void bondviewLoadSetupIntroSection(void)
 
     if (getPlayerCount() == 1)
     {
+#ifndef TARGET_N64
+        extern int portCoopActive(void);
+        if (portCoopActive())
+        {
+            bondviewSetCameraMode(CAMERAMODE_FP); /* PORT: coop: no intro, straight to first person */
+        }
+        else
+#endif
         bondviewSetCameraMode(CAMERAMODE_INTRO);
     }
     else

@@ -69,6 +69,8 @@
 #include "game/gun.h"
 #include "game/player.h"
 #include "game/chrai.h"
+#include "port_coop.h"
+#include "port_net.h"   /* PORT_NETOPT_*: the per-Bond settings block (netplay job 3b) */
 
 /* port_console.c: same output as the fprintf(stderr, ...) this replaced,
  * plus a silent copy in the tilde console ring (spec section 7). */
@@ -174,6 +176,23 @@ static s32 sShootNextPrev = 1;
 static s32 sShootPrev[4];   /* shoot was down last tick */
 static s32 sShootTap[4];    /* shoot went down this tick */
 static s32 joyPortPad(void);
+
+/* Netplay job 3b: both machines simulate both Bonds, so these two ini options are the Bond's own (the settings block, port_net.c),
+ * never this machine's ini. -1 from portNetOpt = netplay off: the ini value. */
+extern int portNetOpt(int player, int which);
+static s32 joyPortShootNextPrev(void)
+{
+    const int v = portNetOpt(get_cur_playernum(), PORT_NETOPT_SHOOTNEXTPREV);
+
+    return v >= 0 ? v : sShootNextPrev;
+}
+
+static s32 joyPortDetonateUseReload(void)
+{
+    const int v = portNetOpt(get_cur_playernum(), PORT_NETOPT_DETONATEUR);
+
+    return v >= 0 ? v : sDetonateUseReload;
+}
 
 /* Per pad: the keyboard feeds pad 0 (video.c portJoyPortPoll) and a controller
  * with a launcher custom map feeds its own slot (input_pc.c
@@ -336,13 +355,13 @@ s32 portJoyPortShootChord(s32 held)
     sShootPrev[pad] = held;
     /* sPrevDown, not sHeld: next_weapon / next_inventory are one-shots, and
      * sHeld is only kept for held actions (portJoyPortPollCommit) */
-    return sShootNextPrev && (sPrevDown[pad][PORTACT_NEXT_WEAPON] || sPrevDown[pad][PORTACT_NEXT_INV]);
+    return joyPortShootNextPrev() && (sPrevDown[pad][PORTACT_NEXT_WEAPON] || sPrevDown[pad][PORTACT_NEXT_INV]);
 }
 
 /* the chord: a shoot tap while this next action is held = one step back */
 static s32 joyPortChordBack(s32 pad, s32 act)
 {
-    return sShootNextPrev && sShootTap[pad] && sPrevDown[pad][act];
+    return joyPortShootNextPrev() && sShootTap[pad] && sPrevDown[pad][act];
 }
 
 /** What is in force for one player: `which` 0 = always walk, 1 = use+reload
@@ -480,6 +499,119 @@ void portJoyPortPadDown(s32 pad, s32 act)
     }
 }
 
+extern int portCoopNetDriven(void);   /* port_coop.c: netplay lockstep drives pads 0 and 1 */
+extern unsigned int portCoopNetTick(void);   /* port_coop.c: sim ticks since the stage began */
+static u32 sNetWin;                    /* netplay: OR of pad 0's live action downs since the last tick */
+static u32 sNetTick;                   /* netplay: ticks applied, the staleness clock under lockstep */
+
+/* Rollback R2: this file is snapshotted (held / edge / latch / zoom state is sim state under lockstep), but the live accumulators are not:
+ * a restore must not drop a key pressed since the snapshot. */
+extern void portSnapLive(const char *name, const void *p, unsigned int n);   /* port_snap.c */
+__attribute__((constructor)) static void joyPortSnapLive(void)
+{
+    portSnapLive("joyport.pending", sPending, sizeof(sPending));
+    portSnapLive("joyport.netwin", &sNetWin, sizeof(sNetWin));
+}
+
+/** port_coop.c, once per tick under lockstep: the Port actions down on pad 0 since the last tick. */
+u32 portJoyPortNetTakeWindow(void)
+{
+    const u32 w = sNetWin;
+
+    sNetWin = 0;
+    return w;
+}
+
+/* Job 4: the analog zoom levels of pad 0 (the local Bond's) and pad 1 (the partner's) this tick, 0 = none, 1..15 = n/15. They ride in the
+ * record flags (PORT_NETF_ZIN / ZOUT) and replace the live portInputPadActionLevel read under lockstep. */
+static u8 sNetZoom[2][2];
+
+/** port_coop.c, once per tick under lockstep: the zoom levels of pad `pad` from its record. */
+void portJoyPortNetZoom(s32 pad, u32 zin, u32 zout)
+{
+    if (pad >= 0 && pad < 2) {
+        sNetZoom[pad][0] = (u8) (zin & 15u);
+        sNetZoom[pad][1] = (u8) (zout & 15u);
+    }
+}
+
+/** port_coop.c, once per tick under lockstep: the live analog zoom levels of the local pad, quantised to 0..15 for the record
+ * scheduled ahead (0 = no analog level: the action bit alone says "zooming", at the full rate, as a key does). */
+void portJoyPortNetZoomLive(u32 *zin, u32 *zout)
+{
+#ifdef GE_VIDEO
+    extern f32 portInputPadActionLevel(s32 slot, s32 act);
+    u32 v[2];
+    s32 k;
+
+    for (k = 0; k < 2; k++) {
+        const f32 l = portInputPadActionLevel(0, k == 0 ? PORTACT_ZOOM_IN : PORTACT_ZOOM_OUT);
+
+        v[k] = 0;
+        if (l > 0.0f) {
+            const s32 q = (s32) (l * 15.0f + 0.5f);
+
+            v[k] = (u32) (q < 1 ? 1 : (q > 15 ? 15 : q));
+        }
+    }
+    *zin = v[0];
+    *zout = v[1];
+#else
+    *zin = 0;
+    *zout = 0;
+#endif
+}
+
+/** port_coop.c, at lockstep GO: forget whatever the polls left on pads 0 and 1, so both machines start alike. */
+void portJoyPortNetReset(void)
+{
+    memset(sNetZoom, 0, sizeof(sNetZoom));
+    memset(sPrevDown[0], 0, sizeof(sPrevDown[0]));
+    memset(sPrevDown[1], 0, sizeof(sPrevDown[1]));
+    memset(sHeld[0], 0, sizeof(sHeld[0]));
+    memset(sHeld[1], 0, sizeof(sHeld[1]));
+    memset(sLatchPoll[0], 0, sizeof(sLatchPoll[0]));
+    memset(sLatchPoll[1], 0, sizeof(sLatchPoll[1]));
+    memset(sLatchN[0], 0, sizeof(sLatchN[0]));
+    memset(sLatchN[1], 0, sizeof(sLatchN[1]));
+    sNetWin = 0;
+}
+
+/** port_coop.c, once per tick under lockstep: pad `pad` (0 = the local Bond's, 1 = the partner's) has exactly the
+ * Port actions in `bits` down this tick. The same edge/latch/held bookkeeping as one poll commit. */
+void portJoyPortNetApply(s32 pad, u32 bits)
+{
+    s32 i;
+
+    if (pad < 0 || pad >= PORT_PADS) {
+        return;
+    }
+    if (pad == 0) {
+        sNetTick++;
+    }
+    sPollCount++;
+    for (i = 0; i < PORTACT_COUNT; i++) {
+        const u8 d = (u8) ((bits >> i) & 1u);
+
+        if (sPortActs[i].oneshot) {
+            if (d && !sPrevDown[pad][i]) {
+                sLatchPoll[pad][i] = sPollCount;
+                sLatchCount[pad][i] = (OSTime) sNetTick;
+                if (sLatchN[pad][i] < PORT_LATCH_MAX_PENDING) {
+                    sLatchN[pad][i]++;
+                }
+            }
+        } else {
+            sHeld[pad][i] = d;
+        }
+        sPrevDown[pad][i] = d;
+    }
+    if (sLatchPoll[pad][PORTACT_WALK_TOGGLE] != 0) {   /* retired, drained as in the poll commit */
+        sLatchPoll[pad][PORTACT_WALK_TOGGLE] = 0;
+        sLatchN[pad][PORTACT_WALK_TOGGLE] = 0;
+    }
+}
+
 /**
  * libultra_shim osContGetReadData, once per pad poll after every source
  * has merged: edge-latches the one-shots, tracks the held levels per pad,
@@ -489,6 +621,7 @@ void portJoyPortPadDown(s32 pad, s32 act)
 void portJoyPortPollCommit(void)
 {
     s32 pad, i;
+    s32 netNow;
 
     sPollCount++;
     if (sAutoCount < 0) {
@@ -506,7 +639,20 @@ void portJoyPortPollCommit(void)
         extern void portInputRecActions(u8 *down, s32 count);
         portInputRecActions(sPending[0], PORTACT_COUNT);
     }
-    for (pad = 0; pad < PORT_PADS; pad++) {
+    netNow = portCoopNetDriven();
+    if (netNow) {
+        /* netplay lockstep: pad 0's live downs are only SAMPLED (for the record scheduled ahead) and pads 0 and 1
+         * are fed at the tick boundary by portJoyPortNetApply, so the polls (which run free of the sim ticks) cannot
+         * change what the sim sees */
+        for (i = 0; i < PORTACT_COUNT; i++) {
+            if (sPending[0][i] && i != PORTACT_MOUSE_UNLOCK && i != PORTACT_CLASSIC_TOGGLE) {
+                sNetWin |= 1u << i;
+            }
+        }
+        memset(sPending[0], 0, sizeof(sPending[0]));
+        memset(sPending[1], 0, sizeof(sPending[1]));
+    }
+    for (pad = netNow ? 2 : 0; pad < PORT_PADS; pad++) {
         for (i = 0; i < PORTACT_COUNT; i++) {
             u8 d = sPending[pad][i];
             if (sPortActs[i].oneshot) {
@@ -544,7 +690,9 @@ static s32 portJoyPortTake(s32 pad, s32 act)
     /* REAL-TIME staleness (see sLatchCount): 0.25s at 46875 counts/ms.
      * 64-bit, so an old latch never wraps back to fresh. Judged
      * from the newest edge: a burst is either fresh or dropped whole. */
-    if (osGetTime() - sLatchCount[pad][act] > 250ull * 46875ull) {
+    if (portCoopNetDriven()
+            ? (sNetTick - (u32) sLatchCount[pad][act] > 15u)   /* lockstep: 15 ticks, not wall time (the machines differ) */
+            : (osGetTime() - sLatchCount[pad][act] > 250ull * 46875ull)) {
         sLatchPoll[pad][act] = 0;
         sLatchN[pad][act] = 0;
         return 0; /* stale: pressed while nobody could act on it */
@@ -575,7 +723,7 @@ extern s32 bondinvGetTextbyInvIndex(s32 index);
 /** The pad of the player whose tick this is (player N = pad N), -1 if none. */
 static s32 joyPortPad(void)
 {
-    s32 p = get_cur_playernum();
+    s32 p = portCoopPadSwap(get_cur_playernum());   /* PORT: coop: the keyboard's Port actions land in pad 0 */
     return (p >= 0 && p < PORT_PADS) ? p : -1;
 }
 
@@ -629,7 +777,22 @@ f32 portJoyPortLevel(s32 act)
     {
         return 0.0f;
     }
+    if (portCoopNetDriven() && (act == PORTACT_ZOOM_IN || act == PORTACT_ZOOM_OUT) && pad < 2)
+    {   /* lockstep (job 4): the analog level the record carries (the action bit alone is a full-rate zoom) */
+        const u32 code = sNetZoom[pad][act == PORTACT_ZOOM_OUT];
+        const f32 l = code != 0 ? (f32) code / 15.0f : (sHeld[pad][act] ? 1.0f : 0.0f);
+        static f32 sLast[2][2] = { { -1.0f, -1.0f }, { -1.0f, -1.0f } };
+        f32 *last = &sLast[pad][act == PORTACT_ZOOM_OUT];
+
+        if (*last != l) {   /* (a log line on change, so a test can see the level the sim read) */
+            *last = l;
+            portConLogf("ge: net: sim zoom level read: player %d pad %d %s %.3f at tick %u\n", (int) get_cur_playernum(), (int) pad,
+                        act == PORTACT_ZOOM_OUT ? "out" : "in", l, portCoopNetTick());
+        }
+        return l;
+    }
 #ifdef GE_VIDEO
+    if (!portCoopNetDriven())   /* lockstep: the analog level is a live device read; only the recorded action bits count */
     {
         extern f32 portInputPadActionLevel(s32 slot, s32 act);
         const f32 l = portInputPadActionLevel(pad, act);
@@ -652,6 +815,7 @@ s32 portJoyPortActClassicToggle(void) { return PORTACT_CLASSIC_TOGGLE; }
  * edge (portVideoClassicTogglePressed). */
 s32 portJoyPortClassicTogglePressed(s32 pad)
 {
+    pad = portCoopPadSwap(pad);   /* PORT: coop: player index -> keyboard-fed pad */
     if (pad < 0 || pad >= PORT_PADS) {
         return 0;
     }
@@ -724,6 +888,12 @@ s32 portJoyPortUseTap(void)
     if (!p) {
         return 0;
     }
+    {   /* game modes: a press near and facing a hostage toggles follow/wait and is consumed (no door, no btap) */
+        extern s32 portHostageUse(void);
+        if (portHostageUse()) {
+            return 0;
+        }
+    }
     sUseNoReload[pad] = 1;
     if (joyPortDbg()) {
         portConLogf("ge: joyport: pad %d use -> B tap (tank=%d)\n", pad, g_PlayerIsInTank);
@@ -760,7 +930,7 @@ s32 portJoyPortDetonate(s32 minesInHand)
     }
     /* a player's OWN value is a multiplayer pick: in solo the global row
      * rules, as for look_updown */
-    if (minesInHand && ((getPlayerCount() >= 2) ? portJoyPortPadOptGet(pad, 1) : sDetonateUseReload)) {
+    if (minesInHand && ((getPlayerCount() >= 2) ? portJoyPortPadOptGet(pad, 1) : joyPortDetonateUseReload())) {
         /* A chord, not either key alone: the second of use / reload is pressed
          * while the first is still down (sPrevDown is the level for a one-shot
          * action). The second press is taken so it does not also reload or use;
@@ -790,6 +960,7 @@ s32 portJoyPortDetonate(s32 minesInHand)
  */
 s32 portJoyPortUseMenuPressed(s32 pad)
 {
+    pad = portCoopPadSwap(pad);   /* PORT: coop: player index -> keyboard-fed pad */
     if (pad < 0 || pad >= PORT_PADS) {
         return 0;
     }
@@ -814,6 +985,7 @@ s32 portJoyPortUseMenuPressed(s32 pad)
  */
 s32 portJoyPortUseHeld(s32 pad)
 {
+    pad = portCoopPadSwap(pad);   /* PORT: coop: player index -> keyboard-fed pad */
     if (pad < 0 || pad >= PORT_PADS) {
         return 0;
     }
@@ -827,6 +999,7 @@ s32 portJoyPortUseHeld(s32 pad)
  */
 s32 portJoyPortBackMenuPressed(s32 pad)
 {
+    pad = portCoopPadSwap(pad);   /* PORT: coop: player index -> keyboard-fed pad */
     s32 a, b;
     if (pad < 0 || pad >= PORT_PADS) {
         return 0;
@@ -851,6 +1024,7 @@ s32 portJoyPortBackMenuPressed(s32 pad)
  */
 s32 portJoyPortMenuBackPressed(s32 pad)
 {
+    pad = portCoopPadSwap(pad);   /* PORT: coop: player index -> keyboard-fed pad */
     if (pad < 0 || pad >= PORT_PADS) {
         return 0;
     }
@@ -866,6 +1040,7 @@ s32 portJoyPortMenuBackPressed(s32 pad)
  */
 s32 portJoyPortSkipPressed(s32 pad)
 {
+    pad = portCoopPadSwap(pad);   /* PORT: coop: player index -> keyboard-fed pad */
     s32 hit = 0;
     s32 i;
     if (pad < 0 || pad >= PORT_PADS) {
@@ -891,6 +1066,7 @@ s32 portJoyPortSkipPressed(s32 pad)
  */
 s32 portJoyPortWatchObjectivesPressed(s32 pad)
 {
+    pad = portCoopPadSwap(pad);   /* PORT: coop: player index -> keyboard-fed pad */
     if (pad < 0 || pad >= PORT_PADS) {
         return 0;
     }
@@ -1031,7 +1207,7 @@ s32 portJoyPortCrouchStep(void)
          * reset. Keep holding him down while it is open. */
         extern s32 portConIsOpen(void);
 
-        if (active && portConIsOpen()) {
+        if (active && !portCoopNetDriven() && portConIsOpen()) {   /* netplay: this machine's console is not the Bond's state */
             return -1;
         }
         return 0;

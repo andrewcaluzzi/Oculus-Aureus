@@ -63,6 +63,14 @@ void modelmgrAllocateAnimModelSlots(s32 numanimated)
     s32 i;
 
     g_MaxAnimModelSlots = numanimated + ANIM_MODEL_SPARE_SLOTS;
+#ifndef TARGET_N64
+    {   /* PORT: arena: spare anim slots for spawned guards (0 when GE_ARENA is off). */
+        extern s32 portArenaExtraSlots(void);
+        extern s32 portFlatlandExtraSlots(void);
+        g_MaxAnimModelSlots += portArenaExtraSlots();
+        g_MaxAnimModelSlots += portFlatlandExtraSlots(); /* PORT: Flatland has no guards of its own */
+    }
+#endif
 
     // mips2c says: g_AnimModelSlots = mempAllocBytesInBank(temp_t6 * 0xC0, 4);
     // however, the pointer is incremented by 0xbc in the loop below.

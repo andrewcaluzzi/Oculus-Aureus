@@ -488,6 +488,16 @@ Gfx *chrpropsRenderPass(Gfx *gdl, s32 roomid, s32 renderpass)
     s32 unused3;
     s32 unused4;
 
+#ifndef TARGET_N64
+    {   /* netplay job 7: a room only this view's own render walk found (its margin) draws geometry only: the sim reads back what a prop's render built */
+        extern s32 bgRenderRoomGeomOnly(s32 room);
+
+        if (bgRenderRoomGeomOnly(roomid))
+        {
+            return gdl;
+        }
+    }
+#endif
     if (bossGetStageNum() == LEVELID_CUBA)
     {
         if (renderpass == 0)
@@ -1042,7 +1052,19 @@ void chraiDefaultWeaponFireHandler(s32 hand)
                 s32 ri;
                 f32 wscale = get_room_data_float2();
 
-                numdrawn = bgCopyDrawnRoomsToList(drawnrooms, MAXROOMCOUNT);
+                {   /* netplay job 5: a co-op shot reads the rooms the SHOOTING player's canonical view drew, never the last pass of this machine */
+                    extern int portCoopActive(void);
+                    extern s32 bgSimRoomsForPlayer(s32 pl, s32 *rooms, s32 max);
+
+                    if (portCoopActive())
+                    {
+                        numdrawn = bgSimRoomsForPlayer(get_cur_playernum(), drawnrooms, MAXROOMCOUNT);
+                    }
+                    else
+                    {
+                        numdrawn = bgCopyDrawnRoomsToList(drawnrooms, MAXROOMCOUNT);
+                    }
+                }
 
                 for (ri = 0; ri < numdrawn; ri++)
                 {
@@ -1756,6 +1778,18 @@ bool bond_interact_object(void)
 
     if (prop)
     {
+#ifndef TARGET_N64
+        { /* PORT: coop: log which Bond used what (the co-op input test reads this) */
+            extern int portCoopActive(void);
+            extern int printf(const char *, ...);
+            if (portCoopActive())
+            {
+                printf("ge: coop: player %d uses prop type %d at %.0f %.0f %.0f%s\n", (int) get_cur_playernum(),
+                       (int) prop->type, prop->pos.x, prop->pos.y, prop->pos.z,
+                       (prop->type == PROP_TYPE_DOOR && prop->door->keyflags != 0) ? " (keyed door)" : "");
+            }
+        }
+#endif
         switch (prop->type)
         {
             case PROP_TYPE_OBJ:
@@ -1793,12 +1827,13 @@ s32 chrpropIsFarFromPlayers(PropRecord* prop)
     s32 i;
     s32 player_count;
 
-    player_count = getPlayerCount();
+    player_count = portAllPlayerCount();
     rc = 1;
 
     for (i = 0; i < player_count; i++)
     {
         player_prop = g_playerPointers[i]->prop;
+        if (player_prop == NULL) { continue; } /* PORT: coop: P2's prop does not exist until its load iteration */
         pos_diff.x = player_prop->pos.x - prop->pos.x;
         pos_diff.y = player_prop->pos.y - prop->pos.y;
         pos_diff.z = player_prop->pos.z - prop->pos.z;
@@ -1987,7 +2022,7 @@ void chrpropTick(void)
                 // Update MP character bullet tracers.
                 if (prop->chr != NULL)
                 {
-                    if (getPlayerCount() >= 2)
+                    if (portAllPlayerCount() >= 2)
                     {
                         chr = prop->chr;
                         gunAdvanceBeamTimer(&chr->beams[0]);

@@ -53,6 +53,7 @@
 #include <stdio.h> /* stderr - port diagnostics */
 #include <stdlib.h> /* getenv - port diagnostics */
 extern f32 g_bondviewSceneWideFactor;
+extern f32 g_bondviewSceneWideFactorReal;
 extern s32 portAdzyMode(void); /* video.c: midas.ini [display] adzy - used twice in solo_char_load */
 extern s32 portReturnStartThisTick(void); /* video.c: START came from Return alone; weak 0 headless */
 
@@ -70,7 +71,10 @@ static s32 portAimLockActive(void)
      * user can want aim lock in MP but not in single player */
     /* never during demo playback - it rewrites what the recorded aim
      * stick means and where the recorded shots go, so the demo desyncs */
-    return ((getPlayerCount() >= 2) ? portMpAimLock() : portAimLock()) && g_PlayerIsInTank != 1
+    extern int portNetOpt(int player, int which);   /* netplay: this Bond's own aim_lock (PORT_NETOPT_AIMLOCK = 6), else -1 */
+    const int net = portNetOpt(get_cur_playernum(), 6);
+
+    return ((net >= 0) ? net : ((getPlayerCount() >= 2) ? portMpAimLock() : portAimLock())) && g_PlayerIsInTank != 1
         && get_is_ramrom_flag() == 0;
 }
 
@@ -352,6 +356,24 @@ f32 g_MpSwirlDistance;
 
 #define ALIGN64_V3(val) (((val) | 0x3f) ^ 0x3f)
 
+#ifndef TARGET_N64
+extern int portCoopKeepBody(int playernum); /* PORT: coop (port_coop.c): P2's body persists */
+extern int portCoopActive(void);
+extern int portCoopSharedEnd(void);
+extern int portCoopEnding(void);
+extern int portCoopLookLocal(int *yawMilli, int *pitchMilli);
+extern void portCoopLookSet(int p, int yawMilli, int pitchMilli);
+extern void portCoopLookTake(int p, int *yawMilli, int *pitchMilli);
+extern int portCoopNetDriven(void);                              /* netplay job 2: the scheduled records drive the sim input */
+extern void portCoopNetLookCapture(int yawMilli, int pitchMilli); /* the live look of this tick, to be scheduled */
+extern int portLocalPlayer(void); /* PORT: coop: the player this machine renders and controls (0 unless co-op moves it) */
+extern s32 portSimEscPressed(void);   /* netplay job 3b: Escape for the sim: under lockstep from the current player's record, not this machine's keyboard */
+extern s32 portSimReturnStart(void);  /* ...and "START came from the Return key alone", likewise */
+extern int portNetBlocked(const char *what);
+#else
+#define portLocalPlayer() 0
+#endif
+
 void solo_char_load(void)
 {
     f32                         yaw;
@@ -374,7 +396,16 @@ void solo_char_load(void)
     s32                         head;
     struct ItemModelFileRecord *unusedpitem;
     Model                      *model;
+    s32                         mpload; /* build the body the MP way (persistent files, not the weapon buffers) */
 
+    mpload = (getPlayerCount() != 1);
+#ifndef TARGET_N64
+    /* PORT: coop: P2 is picked like solo Bond (above) but loaded like an MP body, since it stays in play */
+    if (portCoopKeepBody(get_cur_playernum()))
+    {
+        mpload = TRUE;
+    }
+#endif
     yaw = bondviewGetPlayerYawRadians();
     if (g_CurrentPlayer->prop->chr == NULL)
     {
@@ -528,7 +559,7 @@ void solo_char_load(void)
             item = starting_weapon[GUNRIGHT];
         }
 
-        if (getPlayerCount() == 1)
+        if (!mpload)
         {
             remove_item_in_hand(GUNLEFT);
             remove_item_in_hand(GUNRIGHT);
@@ -623,7 +654,7 @@ void solo_char_load(void)
          * the other two getPropForHeldItem guards. */
         if ((s32) prop >= 0)
         {
-            if (getPlayerCount() == 1)
+            if (!mpload)
             {
                 helddst      = cursor;
                 helddst      = ((s32)weaponbuf0) + helddst;
@@ -667,7 +698,11 @@ void solo_char_load(void)
  */
 void bondviewRemovePlayerBody(void)
 {
-    if ((g_CurrentPlayer->prop->chr) && (getPlayerCount() == 1))
+    if ((g_CurrentPlayer->prop->chr) && (getPlayerCount() == 1)
+#ifndef TARGET_N64
+        && !portCoopKeepBody(get_cur_playernum()) /* PORT: coop: P2's body stays for the other Bond to see */
+#endif
+        )
     {
         chrpropCleanupForRemoval(g_CurrentPlayer->prop);
         g_CurrentPlayer->prop->chr = NULL;
@@ -925,7 +960,11 @@ void bondviewSetCameraMode(s32 arg0)
             currentPlayerSetFadeFrac(60.0f, 0.0f);
         }
 
-        if (getPlayerCount() >= 2)
+        if (getPlayerCount() >= 2
+#ifndef TARGET_N64
+            || portCoopActive() /* PORT: coop: skipped the intro swirl, which loads the fog */
+#endif
+            )
         {
             fogLoadLevelEnvironment(bossGetStageNum(), 0);
         }
@@ -1066,7 +1105,7 @@ void bondviewSetCameraMode(s32 arg0)
     {
         s32 var_s0;
 
-        for (var_s0 = 0; var_s0 < getPlayerCount(); var_s0++)
+        for (var_s0 = 0; var_s0 < portAllPlayerCount(); var_s0++)
         {
             set_cur_player(var_s0);
             currentPlayerSetFadeColour(0, 0, 0, 0.0f);
@@ -1285,7 +1324,7 @@ void bondviewFrozenCameraTick(u16 buttons, u16 oldbuttons, struct coord3d *pos, 
         extern s32 g_portCreditsSkipParade;
         extern s32 portInputAnyHeld(void);   /* input_pc.c: any pad / key / mouse button */
         static s32 anyheld = 0;
-        const s32 held = portInputAnyHeld();
+        const s32 held = portCoopNetDriven() ? 0 : portInputAnyHeld();   /* netplay: any key / pad / click on THIS machine is not in the record */
         const s32 fresh = (buttons & ~oldbuttons) != 0 || (held && !anyheld);
 
         anyheld = held;
@@ -1692,15 +1731,23 @@ void bondviewFrozenCameraTick(u16 buttons, u16 oldbuttons, struct coord3d *pos, 
     }
     else if (g_CameraMode == CAMERAMODE_POSEND)
     {
+        struct player *portCinP = g_CurrentPlayer;
+#ifndef TARGET_N64
+        {   /* PORT: coop (mission-end job): every view looks at the cutscene Bond (port_coop.c portCoopSetCinemaFor), not at its own */
+            extern int portCoopCinemaBond(void);
+            if (portCoopSharedEnd() && g_playerPointers[portCoopCinemaBond()] != NULL) { portCinP = g_playerPointers[portCoopCinemaBond()]; }
+        }
+#endif
+    {
         if (g_CameraLookAtBondPad != NULL)
         {
             pos->f[0] = g_CameraLookAtBondPad->pos.f[0];
             pos->f[1] = g_CameraLookAtBondPad->pos.f[1];
             pos->f[2] = g_CameraLookAtBondPad->pos.f[2];
 
-            pos2->f[0] = g_CurrentPlayer->field_3C4;
-            pos2->f[1] = g_CurrentPlayer->field_3C8;
-            pos2->f[2] = g_CurrentPlayer->field_3CC;
+            pos2->f[0] = portCinP->field_3C4;
+            pos2->f[1] = portCinP->field_3C8;
+            pos2->f[2] = portCinP->field_3CC;
 
             *stan = g_CameraLookAtBondPad->stan;
 
@@ -1735,9 +1782,9 @@ void bondviewFrozenCameraTick(u16 buttons, u16 oldbuttons, struct coord3d *pos, 
 
             if (dword_CODE_bss_80079A18 == CAMERAMODE_INTRO)
             {
-                pos2->f[0] = g_CurrentPlayer->field_3C4;
-                pos2->f[1] = g_CurrentPlayer->field_3C8;
-                pos2->f[2] = g_CurrentPlayer->field_3CC;
+                pos2->f[0] = portCinP->field_3C4;
+                pos2->f[1] = portCinP->field_3C8;
+                pos2->f[2] = portCinP->field_3CC;
             }
             else
             {
@@ -1784,6 +1831,7 @@ void bondviewFrozenCameraTick(u16 buttons, u16 oldbuttons, struct coord3d *pos, 
             flt_CODE_bss_80079A00 += M_TAU_F;
         }
     }
+    }
 }
 
 
@@ -1824,9 +1872,14 @@ bool currentPlayerGetYAutoAimEnabled(void)
 #ifndef TARGET_N64
     extern s32 portMouseBlocksAutoAim(s32 player);   /* video.c: no Auto-Aim on the mouse unless Port Options says so */
 
-    if (portMouseBlocksAutoAim(get_cur_playernum()))
-    {
-        return FALSE;
+    {   /* netplay: the block is this Bond's own (PORT_NETOPT_MOUSEAIMOFF = 7), not this machine's device state */
+        extern int portNetOpt(int player, int which);
+        const int net = portNetOpt(get_cur_playernum(), 7);
+
+        if (net >= 0 ? net : portMouseBlocksAutoAim(get_cur_playernum()))
+        {
+            return FALSE;
+        }
     }
 #endif
     if (getPlayerCount() == 1)
@@ -1896,9 +1949,14 @@ bool currentPlayerGetXAutoAimEnabled(void)
 #ifndef TARGET_N64
     extern s32 portMouseBlocksAutoAim(s32 player);   /* video.c */
 
-    if (portMouseBlocksAutoAim(get_cur_playernum()))
-    {
-        return FALSE;
+    {   /* netplay: the block is this Bond's own (PORT_NETOPT_MOUSEAIMOFF = 7), not this machine's device state */
+        extern int portNetOpt(int player, int which);
+        const int net = portNetOpt(get_cur_playernum(), 7);
+
+        if (net >= 0 ? net : portMouseBlocksAutoAim(get_cur_playernum()))
+        {
+            return FALSE;
+        }
     }
 #endif
     if (getPlayerCount() == 1)
@@ -4321,6 +4379,16 @@ static void portPauseBoxTick(void)
     f32 dt = g_GlobalTimerDelta;
     s32 opening;
     static s32 was_opening = 0;
+    s32 skipbox = 0;
+    {   /* PORT: netplay job 3c: the pause box (the view's bars, its height, the fov ease) is the LOCAL player's picture. Ticked for both
+         * Bonds it mixed the two watches into one value: Bond 1's open watch squeezed Bond 2's view (blacked-out world, "mostly skybox").
+         * Everything else here (the menu field the watch's sim reads, the HUD slide) still runs for every Bond as before. */
+        extern int portCoopActive(void);
+        extern int portLocalPlayer(void);
+        extern s32 portSimViewOff(void);   /* GE_NET_TEST_NOSIMVIEW=1: the old behaviour, for the before / after screenshots */
+
+        skipbox = portCoopActive() && !portSimViewOff() && get_cur_playernum() != portLocalPlayer();
+    }
 #ifdef GE_VIDEO
     if (st == WATCH_ANIMATION_0x0)
     {
@@ -4329,10 +4397,14 @@ static void portPauseBoxTick(void)
     }
 #endif
     opening = (st >= 1 && st <= 5) || st >= 9;
+    if (skipbox)
+    {
+        opening = was_opening;   /* leave the box as the local Bond's ticks set it */
+    }
     /* Direction flip mid-travel (e.g. pause spam): the two directions use
      * different curves, so remap raw through the new curve's inverse to keep
      * the drawn value continuous. */
-    if (opening != was_opening)
+    if (!skipbox && opening != was_opening)
     {
         f32 e = g_portPauseBoxEased;
         if (e < 0.0f) { e = 0.0f; }
@@ -4340,7 +4412,8 @@ static void portPauseBoxTick(void)
         p = opening ? (1.0f - powf(1.0f - e, 1.0f / PORT_PAUSEBOX_K)) : powf(e, 1.0f / PORT_PAUSEBOX_K);
         was_opening = opening;
     }
-    if (getPlayerCount() != 1)       { p = 0.0f; }
+    if (skipbox)                     { /* not this Bond's picture */ }
+    else if (getPlayerCount() != 1)  { p = 0.0f; }
     else if (st >= 1 && st <= 4)     { p += dt / 95.0f; }   /* press -> menu loaded */
     else if (st == 5 || st >= 9)     { p += 0.1f; }         /* open: settle to 1 (g_GlobalTimerDelta is 0 while the menu is up) */
     else if (st == 6)                { /* hold through the zoom-out from the face */ }
@@ -4775,19 +4848,27 @@ void bondviewWatchAnimationTick(void)
         bondviewUpdateWatchZoomIn();
     }
 
+#ifndef TARGET_N64
+    /* PORT: coop: the watch does not freeze the world (design decision 12); with two Bonds the lock would also
+     * depend on which Bond's tick ran last. */
+#define PORT_WATCH_LOCK(v) do { if (!portCoopActive()) { lvlSetControlsLockedFlag(v); } } while (0)
+#else
+#define PORT_WATCH_LOCK(v) lvlSetControlsLockedFlag(v)
+#endif
     if (g_CurrentPlayer->watch_animation_state == WATCH_ANIMATION_0x5)
     {
-        lvlSetControlsLockedFlag(TRUE);
+        PORT_WATCH_LOCK(TRUE);
         sub_GAME_7F0A6A80();
     }
     else if (g_CurrentPlayer->watch_animation_state == WATCH_ANIMATION_0xc)
     {
-        lvlSetControlsLockedFlag(TRUE);
+        PORT_WATCH_LOCK(TRUE);
     }
     else
     {
-        lvlSetControlsLockedFlag(FALSE);
+        PORT_WATCH_LOCK(FALSE);
     }
+#undef PORT_WATCH_LOCK
 
 #undef WATCH_VAR_LOWER
 #undef WATCH_VAR_UPPER
@@ -5923,11 +6004,35 @@ void bondviewApplyVertaTheta(void)
 /* MOUSE aim-mode crosshair offset (player 1): accumulated per tick while
  * precision-aiming, cleared on aim exit. See the KISSY handling at the foot
  * of bondviewProcessInput. */
-static f32 g_bondviewMouseSwivelX;
-static f32 g_bondviewMouseSwivelY;
-static s32 g_bondviewAimSeeded; /* the mouse offset was seeded from the gun's sway at this aim entry */
-static s32 g_bondviewAimMouseMoved; /* the mouse has moved the crosshair this
-                                     * aim session (pad aim stays vanilla) */
+/* PORT: coop / netplay: this crosshair state belongs to the BOND, not to "the mouse owner". Both machines simulate both
+ * Bonds, so a swivel kept only for the local Bond made the crosshair (and with it the shots) depend on which Bond a
+ * machine plays. In co-op every Bond keeps its own copy and its look channel moves it the way a mouse would; with co-op
+ * off there is one copy for the mouse owner, exactly as before. The g_bondview... names below index the arrays. */
+extern int portCoopActive(void);
+static s32 portSwivelIdx(void)
+{
+    return portCoopActive() ? (get_cur_playernum() & 3) : 0;
+}
+static s32 portSwivelOwner(void)
+{
+    return portCoopActive() ? 1 : (get_cur_playernum() == portLocalPlayer());
+}
+static f32 s_BondMouseSwivelX[4];
+static f32 s_BondMouseSwivelY[4];
+static s32 s_BondAimSeeded[4];      /* the mouse offset was seeded from the gun's sway at this aim entry */
+static s32 s_BondAimMouseMoved[4];  /* the mouse has moved the crosshair this aim session (pad aim stays vanilla) */
+static f32 s_BondAimSwivelPosX[4];
+static f32 s_BondAimSwivelPosY[4];
+static f32 s_BondGunSwayLpX[4];
+static f32 s_BondGunSwayLpY[4];
+#define g_bondviewMouseSwivelX s_BondMouseSwivelX[portSwivelIdx()]
+#define g_bondviewMouseSwivelY s_BondMouseSwivelY[portSwivelIdx()]
+#define g_bondviewAimSeeded s_BondAimSeeded[portSwivelIdx()]
+#define g_bondviewAimMouseMoved s_BondAimMouseMoved[portSwivelIdx()]
+#define g_bondviewAimSwivelPosX s_BondAimSwivelPosX[portSwivelIdx()]
+#define g_bondviewAimSwivelPosY s_BondAimSwivelPosY[portSwivelIdx()]
+#define g_bondviewGunSwayLpX s_BondGunSwayLpX[portSwivelIdx()]
+#define g_bondviewGunSwayLpY s_BondGunSwayLpY[portSwivelIdx()]
 
 #ifndef TARGET_N64
 /* DIRECT MOUSE, modelled on the 1964 GEPD mouse injector: the mouse delta
@@ -6027,6 +6132,10 @@ static s32 portMouseLookPermitted(void)
     }
     if (lvlGetControlsLockedFlag() != 0) return 0;
     if (g_CurrentPlayer->cameramode != 0) return 0;           /* swirl / death cam / cutscene (mode 0 = FP play) */
+    {   /* PORT: coop (job CO-OP-EXITS): a Bond held at the level exit does not look around either */
+        extern int portCoopBondHeld(int p);
+        if (portCoopBondHeld(get_cur_playernum())) return 0;
+    }
     { /* No mouse, Port binds or pointer capture during demo playback: the
        * demo replays a recorded pad, and live mouse input would steer and
        * desync it. Recording is untouched. */
@@ -6038,7 +6147,9 @@ static s32 portMouseLookPermitted(void)
        * this also stops the Port binds and releases the pointer under smart
        * lock. */
         extern s32 portConIsOpen(void); /* port_console.c - always linked */
-        if (portConIsOpen() != 0) return 0;
+        /* netplay: whether THIS machine's console is open is not the Bond's state (the partner's machine runs this same
+         * predicate for the same Bond); the console blanks the keyboard and mouse at their sources, so the sample is neutral */
+        if (!portCoopNetDriven() && portConIsOpen() != 0) return 0;
     }
     if (!gate) return 1;
     if (g_portBondFrozenTick != 0) return 0;                  /* bondviewFrozenMoveBond: stick forced 0,0 */
@@ -6066,7 +6177,7 @@ s32 portP1ControlsLive(void)
 {
     extern s32 portPlayerControlsLive(s32 p);
 
-    return portPlayerControlsLive(0);
+    return portPlayerControlsLive(portLocalPlayer());   /* PORT: coop: the keyboard and mouse belong to the local player */
 }
 
 /** The same for any player (input_pc.c: a port-mode pad's N64-only rows are
@@ -6078,7 +6189,7 @@ s32 portPlayerControlsLive(s32 p)
     s32 savedNum = player_num;
     s32 r;
 
-    if (p < 0 || p >= 4 || p >= getPlayerCount() || g_playerPointers[p] == NULL)
+    if (p < 0 || p >= 4 || p >= portAllPlayerCount() || g_playerPointers[p] == NULL)
     {
         return 0;
     }
@@ -6140,11 +6251,11 @@ s32 portSecondRumbleIndex(s32 pn)
     {
         return (second < MAXCONTROLLERS) ? second : -1;
     }
-    if (portJoyTwinStickCapable(pn) || pn + getPlayerCount() >= MAXCONTROLLERS)
+    if (portJoyTwinStickCapable(pn) || pn + portAllPlayerCount() >= MAXCONTROLLERS)
     {
         return -1;
     }
-    return pn + getPlayerCount();
+    return pn + portAllPlayerCount();
 }
 
 s32 portTankTurretWeaponHeld(void)
@@ -6214,7 +6325,12 @@ static f32 portAimIsoY(void)
 f32 portAimReachX(void)
 {
     extern f32 g_bondviewSceneWideFactor;
+    extern s32 portSimViewOn(void);
 
+    if (portSimViewOn())
+    {
+        return 1.0f;   /* PORT: netplay job 3c: the crosshair clamp is sim state; the 4:3 band for every window */
+    }
     /* The direct mouse reaches the window edge under either HUD Centering
      * setting; the scene wide factor is 1 in 3P/4P, the watch and 4:3 windows,
      * and the player-count gate below keeps 2P at the stick's reach. The sight
@@ -6230,15 +6346,11 @@ f32 portAimReachX(void)
 /* AIM edge-turn: the combined crosshair swivel position (stick + mouse,
  * clamped, stored by the KISSY block each aim tick), fed next tick through the
  * stick's own edge curve so a crosshair held at the box edge spins the camera
- * like a held stick. */
-static f32 g_bondviewAimSwivelPosX;
-static f32 g_bondviewAimSwivelPosY;
+ * like a held stick. (g_bondviewAimSwivelPosX/Y: per Bond, declared with the other swivel state above.) */
 
 /* MOUSE gun-sway low-pass (player 1): a one-pole filter on the clamped
  * hip-fire swivel feed, because tick-to-tick mouse jitter around the clamp made
- * the pinned gun vibrate during hard swings. */
-static f32 g_bondviewGunSwayLpX;
-static f32 g_bondviewGunSwayLpY;
+ * the pinned gun vibrate during hard swings. (g_bondviewGunSwayLpX/Y: per Bond, above.) */
 
 /* Per-60Hz-tick filter gain; tau ~= 1/gain ticks (0.3 -> ~55ms).
  * Raise toward 1 for snappier sway, lower for floatier. */
@@ -6370,16 +6482,21 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
     moveData.freeLookDx = 0.0f;
     moveData.freeLookDy = 0.0f;
 #ifdef GE_VIDEO
-    if (get_cur_playernum() == 0)
+    if (get_cur_playernum() == portLocalPlayer())
     {
         extern void portInputMouseLookDelta(f32 *dx, f32 *dy);
         extern void portInputMouseLookDeltaDeg(f32 *dxdeg, f32 *dydeg);
         extern s32 portInputMouseDirectMode(void);
         portInputMouseLookDelta(&moveData.freeLookDx, &moveData.freeLookDy);
         g_portMouseDirect = portInputMouseDirectMode();
+        if (portCoopNetDriven())
+        {   /* netplay job 4: the look always arrives as direct-mode degrees from the scheduled record, for BOTH Bonds, whatever this
+             * machine's mouse mode is (a pad player on one side and a mouse player on the other must not differ here) */
+            g_portMouseDirect = 1;
+        }
         g_portMouseYawDeg = 0.0f;
         g_portMousePitchDeg = 0.0f;
-        if (g_portMouseDirect)
+        if (g_portMouseDirect || portCoopNetDriven())   /* netplay always carries the look as direct-mode degrees */
         {
             portInputMouseLookDeltaDeg(&g_portMouseYawDeg, &g_portMousePitchDeg);
         }
@@ -6438,14 +6555,86 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
             moveData.freeLookDy = -moveData.freeLookDy;
             g_portMousePitchDeg = -g_portMousePitchDeg;
         }
+        if (portCoopActive())
+        { /* PORT: coop: the local look as exact milli-degrees in the per-player look channel (a test script may replace it) */
+            s32 ly = 0;
+            s32 lp = 0;
+
+            if (portCoopNetDriven())
+            { /* netplay: the live look is only SAMPLED here, for the record scheduled `delay` ticks ahead; the sim
+               * below consumes the scheduled record (portCoopLookLocal), never the live mouse */
+                f32 capYaw = g_portMouseYawDeg;
+                f32 capPitch = g_portMousePitchDeg;
+
+                {   /* job 4: the gamepad's right (Look) stick. The record has no stick field for it, so its deflection becomes look
+                     * degrees for this tick (the direct pad-look curve: dead band 8 of 85, squared, PORT_PADLOOK_*_DEG_PER_SEC) and
+                     * rides in the look channel with the mouse. Not for an N64-class pad (its right stick is the C buttons). */
+                    extern s32 portInputNetRightStick(s8 *x, s8 *y, s32 muteC);
+                    extern s32 portSimPadIsN64(s32 slot);
+                    s8 rx = 0;
+                    s8 ry = 0;
+
+                    if (!portSimPadIsN64(get_cur_playernum())
+                        && portInputNetRightStick(&rx, &ry, portMouseLookPermitted() != 0) && (rx != 0 || ry != 0))
+                    {
+                        const f32 dead = 8.0f;
+                        f32 fx = (f32) rx;
+                        f32 fy = (f32) ry;
+
+                        fx = (fx > dead) ? (fx - dead) : ((fx < -dead) ? (fx + dead) : 0.0f);
+                        fy = (fy > dead) ? (fy - dead) : ((fy < -dead) ? (fy + dead) : 0.0f);
+                        fx = (fx * ((fx < 0.0f) ? -fx : fx)) / ((85.0f - dead) * (85.0f - dead));
+                        fy = (fy * ((fy < 0.0f) ? -fy : fy)) / ((85.0f - dead) * (85.0f - dead));
+                        capYaw += fx * PORT_PADLOOK_YAW_DEG_PER_SEC * g_GlobalTimerDelta / 60.0f;
+                        /* the same pitch sign as the pad-look path: negated on UPRIGHT (invertPitch == 1), the mouse's own sign
+                         * having been applied above */
+                        capPitch += (moveData.invertPitch ? -fy : fy) * PORT_PADLOOK_PITCH_DEG_PER_SEC * g_GlobalTimerDelta / 60.0f;
+                    }
+                }
+                portCoopNetLookCapture((s32) (capYaw * 1000.0f + (capYaw < 0.0f ? -0.5f : 0.5f)),
+                                       (s32) (capPitch * 1000.0f + (capPitch < 0.0f ? -0.5f : 0.5f)));
+            }
+            if (portCoopLookLocal(&ly, &lp))
+            {
+                g_portMouseDirect = 1;
+                moveData.freeLookDx = 0.0f;
+                moveData.freeLookDy = 0.0f;
+                if (portMouseLookPermitted() == 0) { ly = 0; lp = 0; }
+            }
+            else if (g_portMouseDirect)
+            {
+                ly = (s32) (g_portMouseYawDeg * 1000.0f + (g_portMouseYawDeg < 0.0f ? -0.5f : 0.5f));
+                lp = (s32) (g_portMousePitchDeg * 1000.0f + (g_portMousePitchDeg < 0.0f ? -0.5f : 0.5f));
+            }
+            if (g_portMouseDirect)
+            {
+                g_portMouseYawDeg = (f32) ly / 1000.0f;
+                g_portMousePitchDeg = (f32) lp / 1000.0f;
+            }
+            portCoopLookSet(get_cur_playernum(), ly, lp);
+        }
     }
     else
     {
+        if (portCoopActive())
+        { /* PORT: coop: the non-local Bond turns from its look channel, consumed as direct-mode degrees like the mouse */
+            s32 ly = 0;
+            s32 lp = 0;
+
+            portCoopLookTake(get_cur_playernum(), &ly, &lp);
+            if (portMouseLookPermitted() == 0) { ly = 0; lp = 0; }
+            g_portMouseDirect = 1;
+            g_portMouseYawDeg = (f32) ly / 1000.0f;
+            g_portMousePitchDeg = (f32) lp / 1000.0f;
+        }
+        else
+        {
         /* MP: the direct-mouse deltas are written on player 1's tick but read
          * by every player's consumers, so zero them on the pad players' ticks
          * or P1's mouse turns players 2-4. */
         g_portMouseYawDeg = 0.0f;
         g_portMousePitchDeg = 0.0f;
+        }
     }
 #endif
 #endif
@@ -6516,7 +6705,7 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
         extern s32 get_is_ramrom_flag(void);
         extern void portRamromEscapeExit(const char *reason); /* ramromreplay.c */
 
-        if (get_cur_playernum() == 0 && portEscPressed())
+        if (portSimEscPressed())   /* the local player's Escape key, or under lockstep the current player's record */
         {
             if (get_is_ramrom_flag() != 0)
             {   /* demo playback: Escape is a PC key the replay's "any real
@@ -6565,7 +6754,7 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
             extern s32 portJoyPortClassicTogglePressed(s32 pad); /* joy_port.c: a pad's bound control */
             extern void portClassicToggle(void);            /* port_options.c */
             /* the keyboard's edge (player 1's), or this player's own pad bind */
-            const s32 kb = get_cur_playernum() == 0 && portVideoClassicTogglePressed();
+            const s32 kb = get_cur_playernum() == portLocalPlayer() && portVideoClassicTogglePressed();
             const s32 pad = portJoyPortClassicTogglePressed(get_cur_playernum());
 
             /* not with the watch up - the press is still taken above, so it
@@ -6573,7 +6762,13 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
             if ((kb || pad) && get_is_ramrom_flag() == 0
                 && g_CurrentPlayer->watch_animation_state == WATCH_ANIMATION_0x0)
             {
-                portClassicToggle();
+                /* netplay: the toggle rewrites this machine's option table and is not in the record, so it is BLOCKED (job 3b:
+                 * blocked rather than carried, because classic mode is a drawing mode and a per-Bond toggle has no meaning
+                 * in a shared sim); a log line says so */
+                if (!portNetBlocked("the Classic Mode toggle (Tab)"))
+                {
+                    portClassicToggle();
+                }
             }
         }
     }
@@ -6584,7 +6779,7 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
             (g_CurrentPlayer->watch_animation_state != WATCH_ANIMATION_0x5
                 && ((buttons & ~oldbuttons) & START_BUTTON)
 #ifndef TARGET_N64
-                && !portReturnStartThisTick() /* spec 6: Return confirms, it does not open the watch */
+                && !portSimReturnStart() /* spec 6: Return confirms, it does not open the watch */
 #endif
             )
             ||
@@ -6635,8 +6830,8 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
                  * only, because port-driven players already read the sticks the
                  * modern way and the swap would cross them. Port-driven players
                  * are folded to 1.x anyway; this gate is a safety net. */
-                extern s32 portInputPadIsN64(s32 slot);
-                s32 lookOnPad1 = portInputPadIsN64(get_cur_playernum())
+                extern s32 portSimPadIsN64(s32 slot);
+                s32 lookOnPad1 = portSimPadIsN64(get_cur_playernum())
                               && (cur_player_get_control_type() == CONTROLLER_CONFIG_GALORE
                                || cur_player_get_control_type() == CONTROLLER_CONFIG_GOODHEAD);
                 /* TWO REAL PADS: a slot marked "2.xp2" in Options > Control is
@@ -6667,7 +6862,7 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
                 {
                     if (second < 0)
                     {
-                        second = get_cur_playernum() + getPlayerCount();
+                        second = get_cur_playernum() + portAllPlayerCount();
                     }
                     if (second >= MAXCONTROLLERS)
                     {
@@ -7243,7 +7438,7 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
      * and the control style's own turn and step output is zeroed so nothing
      * counts twice. The mouse keeps its own path and is never touched here. */
     {
-        extern s32 portInputPadIsN64(s32 slot);
+        extern s32 portSimPadIsN64(s32 slot);
         extern s32 portJoyTwinStickRead(s32 pad, s8 *x, s8 *y, s32 muteC, s32 lookOnPad1);
         extern s32 portBondControlsLive(void);
         const s32 pl = get_cur_playernum();
@@ -7252,7 +7447,7 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
         g_portPadLookPitchDeg = 0.0f;
         g_portPadTankSteer = 0.0f;
         port_aim_look_on = FALSE;
-        if (!portInputPadIsN64(pl) && portBondControlsLive() && g_PlayerIsInTank == 1)
+        if (!portSimPadIsN64(pl) && portBondControlsLive() && g_PlayerIsInTank == 1)
         {   /* Tank: the move stick steers and drives the hull, the look stick
              * or mouse turns the turret and pitches the gun. Steer through the
              * tank filter's own input, never canNaturalTurn, because its
@@ -7268,7 +7463,7 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
                  * input. Keyboard Look keys stand in for a right stick. */
                 extern s32 portVideoLookDigital(s32 *x, s32 *y);
 
-                if (pl == 0 && portVideoLookDigital(&kx, &ky)) /* the keyboard is player 1's */
+                if (pl == 0 && !portCoopNetDriven() && portVideoLookDigital(&kx, &ky)) /* the keyboard is player 1's */
                 {
                     lx = (s8) kx;
                     ly = (s8) ky;
@@ -7361,7 +7556,7 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
                 }
             }
         }
-        else if (!portInputPadIsN64(pl) && portBondControlsLive()
+        else if (!portSimPadIsN64(pl) && portBondControlsLive()
             && g_CurrentPlayer->insightaimmode)
         {   /* AIM MODE keeps its own handling (crosshair, edge-turn, duck), and
              * the MOVE input leans while aiming, as C-left/C-right do on a
@@ -7402,7 +7597,7 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
                 s32 kx = 0;
                 s32 ky = 0;
 
-                if (pl == 0 && portVideoLookDigital(&kx, &ky)) /* the keyboard is player 1's */
+                if (pl == 0 && !portCoopNetDriven() && portVideoLookDigital(&kx, &ky)) /* the keyboard is player 1's */
                 {
                     ax = (s8) kx;
                     ay = (s8) ky;
@@ -7465,7 +7660,7 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
                 }
             }
         }
-        else if (!portInputPadIsN64(pl) && portBondControlsLive() && g_PlayerIsInTank != 1)
+        else if (!portSimPadIsN64(pl) && portBondControlsLive() && g_PlayerIsInTank != 1)
         {
             s8 lx = 0;
             s8 ly = 0;
@@ -7538,7 +7733,7 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
                 s32 kx = 0;
                 s32 ky = 0;
 
-                if (pl == 0 && portVideoLookDigital(&kx, &ky)) /* the keyboard is player 1's */
+                if (pl == 0 && !portCoopNetDriven() && portVideoLookDigital(&kx, &ky)) /* the keyboard is player 1's */
                 {
                     lx = (s8) kx;
                     ly = (s8) ky;
@@ -7601,7 +7796,7 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
                 }
             }
         }
-        else if (pl == 0 && portInputPadIsN64(0) && portBondControlsLive() && g_PlayerIsInTank != 1
+        else if (pl == 0 && !portCoopNetDriven() && portSimPadIsN64(0) && portBondControlsLive() && g_PlayerIsInTank != 1
             && !g_CurrentPlayer->insightaimmode)
         {   /* G081: the keyboard shares player 1's slot, and a raphnet there makes
              * the slot N64, so the branch above never runs for it. The Move keys
@@ -7626,7 +7821,7 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
                 moveData.digitalStepLeft = (kx < 0);
             }
         }
-        else if (!portInputPadIsN64(pl) && g_portBondFrozenTick != 0 && g_PlayerIsInTank != 1
+        else if (!portSimPadIsN64(pl) && g_portBondFrozenTick != 0 && g_PlayerIsInTank != 1
             && g_CurrentPlayer->watch_animation_state == WATCH_ANIMATION_0x0
             && g_CurrentPlayer->bonddead == FALSE
             && (getPlayerCount() == 1 || (g_stopPlayFlag == 0 && g_gameOverFlag == 0))
@@ -7693,6 +7888,13 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
         else if (portJoyPortUseTap())
         {
             moveData.btap = 1;
+        }
+        /* PORT: mode hostages: a raw B (or injected) tap near and facing a hostage toggles it and is consumed */
+        if (moveData.btap)
+        {
+            extern s32 portHostageUse(void);
+            if (portHostageUse())
+                moveData.btap = 0;
         }
     }
 #endif
@@ -7813,7 +8015,7 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
 
         /* the band belongs to the mouse; a nonzero offset no longer implies
          * mouse input since it is seeded at every aim entry */
-        if (get_cur_playernum() == 0 && g_bondviewAimMouseMoved && g_bondviewMouseSwivelX != 0.0f) /* MP: P1's mouse crosshair only */
+        if (portSwivelOwner() && g_bondviewAimMouseMoved && g_bondviewMouseSwivelX != 0.0f) /* MP: P1's mouse crosshair only */
         {
             /* swivel -> stick units; the wide-aim reach (portAimReachX)
              * counts as the full 80 so the band stays the outer 28% */
@@ -7834,7 +8036,7 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
             }
         }
 
-        if (get_cur_playernum() == 0 && g_bondviewAimMouseMoved && g_bondviewMouseSwivelY != 0.0f) /* MP: P1's mouse crosshair only, like X */
+        if (portSwivelOwner() && g_bondviewAimMouseMoved && g_bondviewMouseSwivelY != 0.0f) /* MP: P1's mouse crosshair only, like X */
         {
             equiv = g_bondviewAimSwivelPosY * (80.0f / 0.65f);
             push = (((equiv < 0.0f) ? -equiv : equiv) / 80.0f - AIMSCROLL_ONSET)
@@ -8163,10 +8365,10 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
                 && bondwalkItemCheckBitflags(getCurrentPlayerWeaponId(GUNRIGHT), WEAPONSTATBITFLAG_DISABLE_CROUCH) == 0)
             {   /* An N64 pad's own stand-up (aim + C-up / D-up) ends a crouch
                  * latched from the keyboard; the every-tick -1 hid it before. */
-                extern s32 portInputPadIsN64(s32 slot);
+                extern s32 portSimPadIsN64(s32 slot);
                 extern s32 portJoyPortCrouchRelease(void);
 
-                if (portInputPadIsN64(get_cur_playernum()) && portJoyPortCrouchRelease())
+                if (portSimPadIsN64(get_cur_playernum()) && portJoyPortCrouchRelease())
                 {
                     step = 1;
                 }
@@ -8765,7 +8967,7 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
      * but a mouse is relative, so accumulate its deltas into a persistent
      * offset clamped to the stick's reach and clear it when aim mode ends
      * (player 1 only). */
-    if (get_cur_playernum() != 0)
+    if (!portSwivelOwner())
     {
         /* MP: the swivel accumulators belong to player 1 (the mouse owner);
          * the pad players' ticks must not zero them through the reset arm
@@ -8818,7 +9020,9 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
              * look sensitivity, since dragging a crosshair and rotating a
              * camera want different speeds. */
             extern f32 portInputMouseAimScale(void);
-            f32 aimscale = AIM_CROSSHAIR_PER_DEG * portInputMouseAimScale();
+            extern int portNetOpt(int player, int which);   /* netplay: this Bond's own mouse_sens_aim (PORT_NETOPT_AIMSENS = 8), thousandths */
+            const int netsens = portNetOpt(get_cur_playernum(), 8);
+            f32 aimscale = AIM_CROSSHAIR_PER_DEG * ((netsens > 0) ? (f32) netsens / 1000.0f : portInputMouseAimScale());
 
             /* TANK WEAPON: mouse X belongs to the turret (g_TankTurretTurn)
              * in aim mode too, and only Y moves the aimer; any other gun held
@@ -8969,8 +9173,8 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
              * pinned gun. Manual feed only and never in demo playback (the lag
              * makes replayed shots trail); accumulators track the live value
              * while bypassed so handoffs don't snap. */
-            if (!g_portMouseDirect
-                && get_cur_playernum() == 0 && get_is_ramrom_flag() == 0)
+            if (!g_portMouseDirect && !portCoopNetDriven()   /* job 4: never under lockstep (machine-local state) */
+                && get_cur_playernum() == portLocalPlayer() && get_is_ramrom_flag() == 0)
             {
                 f32 k = GUN_SWAY_LP_GAIN * g_GlobalTimerDelta;
                 if (k > 1.0f)
@@ -9026,8 +9230,8 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
 #else
         { /* stick position + accumulated mouse offset, same clamp
            * (MP: the mouse offset is player 1's - pad players get 0) */
-            f32 mswx = (get_cur_playernum() == 0) ? g_bondviewMouseSwivelX : 0.0f;
-            f32 mswy = (get_cur_playernum() == 0) ? g_bondviewMouseSwivelY : 0.0f;
+            f32 mswx = (portSwivelOwner()) ? g_bondviewMouseSwivelX : 0.0f;
+            f32 mswy = (portSwivelOwner()) ? g_bondviewMouseSwivelY : 0.0f;
             f32 swx = (((f32) moveData.controlStickXRaw * 0.65f) / 80.0f) + mswx;
             f32 swy = (((f32) moveData.controlStickYRaw * 0.65f) / 80.0f) + mswy;
             f32 reachx = 0.65f * portAimReachX(); /* wide mouse aim: window-edge reach */
@@ -9038,7 +9242,7 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
             /* where the crosshair actually sits - drives the edge-turn
              * injection early next tick (player 1's crosshair only - the
              * edge-turn reader is gated the same way) */
-            if (get_cur_playernum() == 0)
+            if (portSwivelOwner())
             {
                 g_bondviewAimSwivelPosX = swx;
                 g_bondviewAimSwivelPosY = swy;
@@ -11216,7 +11420,13 @@ void bondviewMovePlayerUpdateViewport(s8 stick_x, s8 stick_y, u16 buttons)
             extern s32 portMpPinActive(void); /* video.c; weak 0 headless */
             s32 mp = getPlayerCount() >= 3 && !portMpPinActive();
             portSetSceneMp(mp);
-            g_bondviewSceneWideFactor = mp ? 1.0f : wf; /* aim pin/unpin helpers follow the real presentation */
+            g_bondviewSceneWideFactorReal = mp ? 1.0f : wf; /* the window's: the watch projection follows the real presentation */
+            {   /* PORT: netplay job 3c: the aim pin/unpin helpers are SIM maths (bullets, autoaim): in co-op they use the
+                 * canonical camera's factor (port_coop.c portSimViewAspect = 4:3 times 4/3), not this window's */
+                extern s32 portSimViewOn(void);
+
+                g_bondviewSceneWideFactor = portSimViewOn() ? (4.0f / 3.0f) : g_bondviewSceneWideFactorReal;
+            }
         }
     }
 #endif
@@ -11252,7 +11462,32 @@ void bondviewMovePlayerUpdateViewport(s8 stick_x, s8 stick_y, u16 buttons)
             mission_timer += g_ClockTimer;
         }
 
+#ifndef TARGET_N64
+        {   /* PORT: coop (job CO-OP-EXITS): a Bond held at the level exit cannot act (netplay already zeroed its record; this covers local co-op) */
+            extern int portCoopBondHeld(int p);
+
+            if (portCoopActive() && portCoopBondHeld(get_cur_playernum()))
+            {
+                stick_x = 0;
+                stick_y = 0;
+                buttons = 0;
+            }
+        }
+#endif
         MoveBond(stick_x, stick_y, buttons, (u16) g_CurrentPlayer->buttons_pressed);
+#ifndef TARGET_N64
+        {   /* PORT: coop: a Bond out of lives watches its partner: the camera follows the partner (the dead body stays where it fell) */
+            extern int portCoopSpectateCamera(int p, coord3d *pos, coord3d *pos2, coord3d *offset, StandTile **tile, coord3d *walkStart);
+            coord3d wpos, wpos2, woff, wstart;
+            StandTile *wtile = NULL;
+
+            if (portCoopActive() && portCoopSpectateCamera(get_cur_playernum(), &wpos, &wpos2, &woff, &wtile, &wstart))
+            {
+                currentPlayerSetCameraMode(1);
+                bondviewSetCurrentPlayerPosition(&wpos, &wpos2, &woff, wtile, &wstart);
+            }
+        }
+#endif
     }
     else
     {
@@ -11272,6 +11507,36 @@ void bondviewMovePlayerUpdateViewport(s8 stick_x, s8 stick_y, u16 buttons)
         {
             stop_time_flag = 2;
 
+#ifndef TARGET_N64
+            if (portCoopSharedEnd())
+            {   /* PORT: coop (mission-end job): any Bond's button (from the per-player input record, so both machines see it on the same tick) is the
+                 * "continue": every Bond's screen fades out, and the stage is left when the last one is black. */
+                s32 portSaved = get_cur_playernum();
+                s32 portK;
+
+                for (portK = 0; portK < portAllPlayerCount(); portK++)
+                {
+                    set_cur_player(portK);
+                    if (currentPlayerIsFadeComplete())
+                    {
+                        if (g_CurrentPlayer->colourscreenfrac == 0.0f)
+                        {
+                            currentPlayerSetFadeColour(0, 0, 0, 0.0f);
+                            currentPlayerSetFadeFrac(60.0f, 1.0f);
+                        }
+                    }
+                    else
+                    {
+                        if (g_CurrentPlayer->colourfadefracnew == 0.0f)
+                        {
+                            currentPlayerSetFadeFrac(g_CurrentPlayer->colourfadetime60, 1.0f);
+                        }
+                    }
+                }
+                set_cur_player(portSaved);
+            }
+            else
+#endif
             if (currentPlayerIsFadeComplete())
             {
                 if (g_CurrentPlayer->colourscreenfrac == 0.0f)
@@ -11289,6 +11554,19 @@ void bondviewMovePlayerUpdateViewport(s8 stick_x, s8 stick_y, u16 buttons)
             }
         }
 
+#ifndef TARGET_N64
+        if (portCoopSharedEnd())
+        {
+            extern int portCoopAllScreensBlack(void);
+            extern void portCoopMissionEnd(const char *why);
+
+            if ((stop_time_flag == 2) && portCoopAllScreensBlack())
+            {
+                portCoopMissionEnd("button");
+            }
+        }
+        else
+#endif
         if ((stop_time_flag == 2) && currentPlayerIsFadeComplete() && (g_CurrentPlayer->colourscreenfrac == 1.0f))
         {
             bossReturnTitleStage();
@@ -11727,9 +12005,18 @@ Gfx *bondviewRenderWatch(Gfx *gdl)
         /* WIDESCREEN: watch (pause) frames render wide like gameplay. Widening
          * the authored aspect keeps the watch the same size on screen, so the
          * pinned menu 2D still sits on the watch face. */
-        waspect *= g_bondviewSceneWideFactor;
+        waspect *= g_bondviewSceneWideFactorReal;   /* the WINDOW's factor (g_bondviewSceneWideFactor is the sim's in co-op) */
 #endif
-        guPerspective(perspmtx, &perspNorm, g_CurrentPlayer->zoominfovy, waspect, 10.0f, 300.0f, 1.0f);
+        {
+#ifndef TARGET_N64
+            extern s32 portSimViewOn(void);
+            extern f32 portSimDisplayFovY(f32 fovy, s32 realViewY);
+            const f32 wfov = portSimViewOn() ? portSimDisplayFovY(g_CurrentPlayer->zoominfovy, 0) : g_CurrentPlayer->zoominfovy;
+#else
+            const f32 wfov = g_CurrentPlayer->zoominfovy;
+#endif
+            guPerspective(perspmtx, &perspNorm, wfov, waspect, 10.0f, 300.0f, 1.0f);
+        }
     }
  
     gSPMatrix(gdl++, OS_PHYSICAL_TO_K0((u32) perspmtx), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
@@ -12057,7 +12344,19 @@ void mp_respawn_handler(void)
 
     intro_record = g_CurrentSetup.intro;
 
+#ifndef TARGET_N64
+    {   /* PORT: coop: init_player_BONDdata resets the control style to MP's default; a solo-stage Bond keeps its own */
+        const s32 ctl = g_CurrentPlayer->controldef;
+
+        init_player_BONDdata();
+        if (portCoopActive())
+        {
+            g_CurrentPlayer->controldef = ctl;
+        }
+    }
+#else
     init_player_BONDdata();
+#endif
     bondviewPlayerBeginLife();
 
     g_CurrentPlayer->bonddead = 0;
@@ -12095,7 +12394,85 @@ void mp_respawn_handler(void)
     start_pos.y = g_CurrentPlayer->eyeheight + stan_height;
     g_CurrentPlayer->field_70 = stan_height;
 
+#ifndef TARGET_N64
+    if (portCoopActive())
+    { /* PORT: coop: no RNG here (the facing is the partner's), so the sim stream is the same on both machines */
+        start_look_angle = 0.0f;
+    }
+    else
+#endif
     start_look_angle = randomGetNext() * 2.3283064e-10f * 6.2831855f;
+
+#ifndef TARGET_N64
+    { /* PORT: coop: respawn beside the living partner, facing the way it faces. The spot is the first of six
+       * (beside it, behind, ahead; portCoopRespawnSpot) whose tile the partner can walk to at about its floor
+       * height, else the partner's own spot. */
+        extern int portCoopRespawnPartnerOf(int self);
+        extern int portCoopRespawnSpot(int k, float px, float pz, float fx, float fz, float *ox, float *oz);
+        extern int portCoopRespawnStartSpot(int p, float *x, float *z, s32 *stan, float *angle);
+        const int partner = portCoopActive() ? portCoopRespawnPartnerOf(get_cur_playernum()) : -1;
+        float startX = 0.0f, startZ = 0.0f, startAngle = 0.0f;
+        s32 startTile = 0;
+
+        if (portCoopActive() && portCoopRespawnStartSpot(get_cur_playernum(), &startX, &startZ, &startTile, &startAngle))
+        {   /* job CO-OP-EXITS: coop_respawn=start (or the partner waits at the exit): back to where this Bond began the level */
+            start_pos.x = startX;
+            start_pos.z = startZ;
+            start_stan = startTile;
+            stan_height = bondviewYPositionRelated((StandTile *) startTile, startX, startZ);
+            start_pos.y = g_CurrentPlayer->eyeheight + stan_height;
+            g_CurrentPlayer->field_70 = stan_height;
+            start_look_angle = startAngle;
+        }
+        else if (partner >= 0 && g_playerPointers[partner]->prop != NULL && g_playerPointers[partner]->prop->stan != NULL)
+        {
+            PropRecord *pp = g_playerPointers[partner]->prop;
+            const f32 fx = -sinf(g_playerPointers[partner]->vv_theta * (6.2831855f / 360.0f));
+            const f32 fz = cosf(g_playerPointers[partner]->vv_theta * (6.2831855f / 360.0f));
+            const f32 floor1 = bondviewYPositionRelated((StandTile *) pp->stan, pp->pos.f[0], pp->pos.f[2]);
+            s32 c;
+
+            start_look_angle = g_playerPointers[partner]->vv_theta * (6.2831855f / 360.0f);
+            start_pos.x = pp->pos.f[0];
+            start_pos.z = pp->pos.f[2];
+            start_stan = (s32) pp->stan;
+            stan_height = floor1;
+            for (c = 0; c < 6; c++) /* PORT_COOP_RESPAWN_SPOTS */
+            {
+                f32 px;
+                f32 pz;
+                f32 h;
+                StandTile *walk = (StandTile *) pp->stan;
+
+                if (!portCoopRespawnSpot(c, pp->pos.f[0], pp->pos.f[2], fx, fz, &px, &pz))
+                {
+                    break;
+                }
+                walkTilesBetweenPoints_NoCallback(&walk, pp->pos.f[0], pp->pos.f[2], px, pz);
+                if (walk == NULL || !isPointInsideTriStandTileUnscaled_Maybe(walk, px, pz))
+                {
+                    continue;
+                }
+                h = bondviewYPositionRelated(walk, px, pz);
+                if (h - floor1 > 60.0f || floor1 - h > 60.0f)
+                {
+                    continue;
+                }
+                start_pos.x = px;
+                start_pos.z = pz;
+                start_stan = (s32) walk;
+                stan_height = h;
+                break;
+            }
+            start_pos.y = g_CurrentPlayer->eyeheight + stan_height;
+            g_CurrentPlayer->field_70 = stan_height;
+        }
+        else if (portCoopActive())
+        {
+            start_look_angle = g_CurrentPlayer->vv_theta * (6.2831855f / 360.0f);   /* no partner to join: keep the pad spot */
+        }
+    }
+#endif
 
     g_CurrentPlayer->vv_theta = (f32) ((start_look_angle * 360.0f) / 6.2831855f);
     g_CurrentPlayer->stanHeight = stan_height;
@@ -12213,6 +12590,14 @@ void mp_respawn_handler(void)
         {
             currentPlayerEquipWeaponWrapper(GUNRIGHT, item);
         }
+    }
+    if (portCoopActive())
+    {   /* PORT: coop (netplay job 3d): a fresh start, like a new player: the stage's full starting loadout and ammo
+         * (the intro list above misses what the stage script gave, e.g. Surface's PP7, and the slapper), no armour,
+         * the starting weapon in hand. Picked-up guns were dropped where the Bond died (port_coopdrop.c). */
+        extern void portCoopLoadoutRestore(int p);
+
+        portCoopLoadoutRestore(get_cur_playernum());
     }
 #endif
     currentPlayerStartChrFade(120.0f, 1.0f);
@@ -12550,6 +12935,85 @@ static Gfx *portPillarOverlayDraw(Gfx *gdl)
 }
 #endif
 
+#ifndef TARGET_N64
+/* PORT: coop: "Respawning in N" for a dead Bond whose partner lives, centred over the fade. The other Bond's pass
+ * draws into a discarded list, so only the dead Bond's own view ever shows it. */
+/* one line of HUD text in this Bond's view: xmode 0 centred, 1 at the left edge; yfrac is the line's height in 1/100 of the view */
+static Gfx *portCoopHudLine(Gfx *gdl, const char *text, s32 xmode, s32 yfrac)
+{
+    s32 tw = 0;
+    s32 th = 0;
+    s32 x;
+    s32 y;
+
+    textMeasure(&th, &tw, (char *) text, ptrFontZurichBoldChars, ptrFontZurichBold, 0);
+    x = xmode == 0 ? viGetViewLeft() + (viGetViewWidth() - tw) / 2 : viGetViewLeft() + 14;
+    y = viGetViewTop() + (viGetViewHeight() * yfrac) / 100 - th / 2;
+    gdl = microcode_constructor(gdl);
+    gdl = textRenderOutlined(gdl, &x, &y, (char *) text, ptrFontZurichBoldChars, ptrFontZurichBold, -1, 0x000000FFU, viGetX(), viGetY(), 0, 0);
+    gdl = combiner_bayer_lod_perspective(gdl);
+    return gdl;
+}
+
+/* PORT: coop: this Bond's status lines. "Respawning in N" (dead, partner lives), "Out of lives" (stays down; watching the partner), the lives
+ * left, and the level exit: "Waiting for your partner at the exit" for a Bond held there, "Get to the exit" with the way and the distance for the
+ * other one. Each Bond's pass draws into its own list, so a line only ever shows in its own Bond's view. */
+static Gfx *portCoopRespawnTextDraw(Gfx *gdl)
+{
+    extern int portCoopRespawnSecsFor(int p);
+    extern int portCoopIsOut(int p);
+    extern int portCoopWatching(int p);
+    extern int portCoopHudLives(int p);
+    extern int portCoopLivesPartyMode(void);
+    extern int portCoopHudExit(int p, int *m, int *dir);
+    static char text[64];
+    const int me = get_cur_playernum();
+    int secs;
+
+    if (!portCoopActive())
+    {
+        return gdl;
+    }
+    secs = portCoopRespawnSecsFor(me);
+    if (secs > 0 && g_CurrentPlayer->bonddead)
+    {
+        sprintf(text, "Respawning in %d", secs);
+        gdl = portCoopHudLine(gdl, text, 0, 50);
+    }
+    if (portCoopIsOut(me))
+    {
+        gdl = portCoopHudLine(gdl, portCoopWatching(me) >= 0 ? "Out of lives - watching your partner" : "Out of lives", 0, portCoopWatching(me) >= 0 ? 88 : 50);
+    }
+    {
+        const int lives = portCoopHudLives(me);
+
+        if (lives >= 0)
+        {
+            sprintf(text, portCoopLivesPartyMode() ? "Party lives: %d" : "Lives: %d", lives);
+            gdl = portCoopHudLine(gdl, text, 1, 8);
+        }
+    }
+    {
+        int meters = 0;
+        int dir = 0;
+        const int ex = portCoopHudExit(me, &meters, &dir);
+
+        if (ex == 1)
+        {
+            gdl = portCoopHudLine(gdl, "Waiting for your partner at the exit", 0, 14);
+        }
+        else if (ex == 2)
+        {
+            static const char *const way[4] = { "ahead", "to your right", "behind you", "to your left" };
+
+            sprintf(text, "Get to the exit - %s, %d m", way[dir & 3], meters);
+            gdl = portCoopHudLine(gdl, text, 0, 14);
+        }
+    }
+    return gdl;
+}
+#endif
+
 Gfx *maybe_mp_interface(Gfx *gdl)
 {
     s32 ulx;
@@ -12575,6 +13039,9 @@ Gfx *maybe_mp_interface(Gfx *gdl)
         gdl = portDrawFpsCounter(gdl);
 #endif
         gdl = currentPlayerDrawFade(gdl);
+#ifndef TARGET_N64
+        gdl = portCoopRespawnTextDraw(gdl);   /* (a Bond watching its partner draws its status lines in this camera mode) */
+#endif
         return bondviewRenderCredits(gdl);
     }
 
@@ -12635,7 +13102,11 @@ Gfx *maybe_mp_interface(Gfx *gdl)
         display_objective_status_text_on_status_change();
     }
 
-    if (g_CurrentPlayer->bonddead != 0)
+    if (g_CurrentPlayer->bonddead != 0
+#ifndef TARGET_N64
+        && !portCoopEnding()   /* PORT: coop (mission-end job): a Bond that died as the level ended shows no red death overlay under the ending */
+#endif
+        )
     {
         if (g_CurrentPlayer->deathanimfinished == 0)
         {
@@ -12650,6 +13121,14 @@ Gfx *maybe_mp_interface(Gfx *gdl)
                 die_blood_image_routine(0);
                 if (getPlayerCount() == 1)
                 {
+#ifndef TARGET_N64
+                    /* PORT: coop: the death music and mission state belong to the last Bond's death (once);
+                     * a Bond whose partner lives only bleeds out and respawns (portCoopDeathTick). */
+                    extern int portCoopAllDead(void);
+                    extern int portCoopFailOnce(void);
+                    if (!portCoopActive() || (portCoopAllDead() && portCoopFailOnce()))
+#endif
+                    {
                     // This unusual comma-expression syntax is required for a byte match.
                     set_missionstate((musicStopSlot(-1), 0));
                     musicTrack1ApplySeqpVol(sub_GAME_7F0C0BF0());
@@ -12657,6 +13136,7 @@ Gfx *maybe_mp_interface(Gfx *gdl)
                     musicTrack2ApplySeqpVol(0);
                     g_musicXTrack2Fade = 0;
                     musicTrack1Play(27);
+                    }
                 }
                 else
                 {
@@ -12722,6 +13202,11 @@ blood_frame_held:;
                 {
                     if (getPlayerCount() == 1)
                     {
+#ifndef TARGET_N64
+                        /* PORT: coop: the shared death camera starts from the sim tick once every Bond is down
+                         * (portCoopDeathTick), not from whichever pass sees its own fade finish first. */
+                        if (!portCoopActive())
+#endif
                         bondviewSetCameraMode(CAMERAMODE_DEATH_CAM_SP);
                     }
                     else
@@ -12784,7 +13269,12 @@ blood_frame_held:;
         gdl = portWatchMouseDraw(gdl);
     }
 #endif
+#ifndef TARGET_N64
+    gdl = currentPlayerDrawFade(gdl);
+    return portCoopRespawnTextDraw(gdl);   /* over the fade */
+#else
     return currentPlayerDrawFade(gdl);
+#endif
 }
 
 
@@ -12860,6 +13350,12 @@ PropRecord* getCurrentPlayerProp(void) {
  */
 void bondviewKillCurrentPlayer(void)
 {
+#ifndef TARGET_N64
+    { /* PORT: coop (mission-end job): no deaths during the ending */
+        extern int portCoopEnding(void);
+        if (portCoopEnding()) { return; }
+    }
+#endif
     if ((g_CurrentPlayer->cheatBondInvincible == 0) && (g_CurrentPlayer->bonddead == FALSE))
     {
         if (g_CurrentPlayer->watch_animation_state != WATCH_ANIMATION_0x0)
@@ -12867,8 +13363,24 @@ void bondviewKillCurrentPlayer(void)
             trigger_solo_watch_menu(1);
         }
 
-        g_isBondKIA = 1;
         g_CurrentPlayer->bonddead = 1;
+#ifndef TARGET_N64
+        { /* PORT: coop: killed in action only when every Bond is dead; one dead Bond respawns (portCoopDeathTick) */
+            extern int portCoopAllDead(void);
+            extern void portCoopNoteDeath(int p);
+
+            if (portCoopActive())
+            {
+                portCoopNoteDeath(get_cur_playernum());   /* charge a life first: whether anyone can still respawn decides "every Bond is dead" */
+            }
+            if (!portCoopActive() || portCoopAllDead())
+            {
+                g_isBondKIA = 1;
+            }
+        }
+#else
+        g_isBondKIA = 1;
+#endif
 
         g_CurrentPlayer->previous_collision_info = g_CurrentPlayer->field_488;
 
@@ -12916,14 +13428,32 @@ s32 sub_GAME_7F0898E8(void)
  * Address JP 7F089FF0.
  */
 void record_damage_kills(f32 damage_amount, f32 vectorx, f32 vectorz, s32 playerid, s32 affects_armor) {
+#ifndef TARGET_N64
+    { /* PORT: coop (mission-end job): the ending is not gameplay: no damage, no death once it has started (shared sim state) */
+        extern int portCoopEnding(void);
+        if (portCoopEnding()) { return; }
+    }
+#endif
     f32 damage_dealt = g_playerPerm->handicap * damage_amount;
     s32 cur_player_num;
     f32 angle;
     s32 padding;
     s32 sp2C;
     s32 sp28;
+#ifndef TARGET_N64
+    { /* PORT: modifier enemy_damage scales what Bond takes (1.0f at the default) */
+        extern f32 portModEnemyDamageScale(void);
+        damage_dealt *= portModEnemyDamageScale();
+    }
+#endif
 
 #ifndef TARGET_N64
+    { /* PORT: coop: a Bond's shot or blast on the other Bond does half damage (own blasts are full) */
+        if (portCoopActive() && playerid >= 0 && playerid < MAX_PLAYER_COUNT && playerid != get_cur_playernum())
+        {
+            damage_dealt *= 0.5f;
+        }
+    }
     /* FRIENDLY FIRE off (Gameplay Options): a shot or blast from a player of
      * the same colour does nothing, in any mode - the teams set on Game
      * Limits, or in Flag Tag and the Golden Gun the holder (blue) against the
@@ -12997,6 +13527,21 @@ void record_damage_kills(f32 damage_amount, f32 vectorx, f32 vectorz, s32 player
             {
                 g_CurrentPlayer->oldhealth = g_CurrentPlayer->bondhealth;
                 g_CurrentPlayer->oldarmour = g_CurrentPlayer->bondarmour;
+#ifndef TARGET_N64
+                { /* PORT: event: DAMAGE to Bond (attacker = the guard whose shot is resolving, else NONE) */
+                    extern void portEventEmitDamage(int victim, int attacker, float amount, int weapon);
+                    extern int portEventAttacker(void);
+                    /* PORT: coop: the victim says which Bond was hit: -2 (PORT_CHR_BOND) is player 0, -3 is player 1 */
+                    portEventEmitDamage(portCoopActive() ? -2 - (int) get_cur_playernum() : -2, portEventAttacker(), damage_dealt, -1);
+                    if (portCoopActive())
+                    {
+                        extern void portCoopFpLog(const char *fmt, ...);
+                        portCoopFpLog("ge: coop: damage t %d victim player %d attacker %d amount %.3f health %.3f\n", (int) g_GlobalTimer,
+                               (int) get_cur_playernum(), (int) (playerid >= 0 ? -10 - playerid : portEventAttacker()), damage_dealt,
+                               g_CurrentPlayer->bondhealth);
+                    }
+                }
+#endif
 
                 if (getPlayerCount() >= 2)
                 {
@@ -13461,7 +14006,7 @@ void hudmsgBottomShow(char *string, s32 font, s32 arg2)
 {
     s32 abs_index;
     s32 index;
-    if (getPlayerCount() == 1)
+    if (getPlayerCount() == 1 && !portCoopActive())
     {
         if (display_statusbar < 5)
         {
@@ -13514,7 +14059,7 @@ void hudmsgBottomShow(char *mess)
         return;
     }
 #endif
-    if (getPlayerCount() == 1)
+    if (getPlayerCount() == 1 && !portCoopActive())
     {
         if (display_statusbar < 5)
         {
@@ -13531,11 +14076,47 @@ void hudmsgBottomShow(char *mess)
         strncpy(stringbuffer_lowerleft[index], mess, MAXMESSAGELEN);
         stringbuffer_lowerleft[index][MAXMESSAGELEN] = 0;
         g_CurrentPlayer->bondmesscnt = 0x78;
+#ifndef TARGET_N64
+        {   /* GE_HUDLOG=1 (test): which Bond's queue a bottom-left message goes to (netplay job 3d) */
+            static int hudLog = -1;
+
+            if (hudLog < 0) { hudLog = getenv("GE_HUDLOG") != NULL; }
+            if (hudLog)
+            {
+                printf("ge: hud: player %d bottom message '%s' (field %d)\n", (int) index, mess, (int) g_GlobalTimer);
+            }
+        }
+#endif
     }
 }
 
 #endif
 
+#ifndef TARGET_N64
+/* PORT: coop (netplay job 3d): bottom-left HUD messages are per Bond in co-op
+ * (a pickup message goes to the picker only: hudmsgBottomShow queues for the
+ * current player). Mission-wide messages (script text, objective status) go
+ * to every Bond through this. Solo: the plain call. */
+void portHudMsgBottomShowAll(char *text)
+{
+    if (portCoopActive())
+    {
+        s32 saved = get_cur_playernum();
+        s32 k;
+
+        for (k = 0; k < portAllPlayerCount(); k++)
+        {
+            set_cur_player(k);
+            hudmsgBottomShow(text);
+        }
+        set_cur_player(saved);
+    }
+    else
+    {
+        hudmsgBottomShow(text);
+    }
+}
+#endif
 
 #if defined(BUGFIX_R1)
 void jp_hudmsgBottomShow(char *string)
@@ -13556,7 +14137,7 @@ void bondviewIntroCameraTextTick(void)
         {
             g_CurrentPlayer->bondmesscnt -= g_ClockTimer;
 
-            if (getPlayerCount() == 1)
+            if (getPlayerCount() == 1 && !portCoopActive())
             {
                 if (g_CurrentPlayer->bondmesscnt < 0)
                 {
@@ -13570,7 +14151,7 @@ void bondviewIntroCameraTextTick(void)
             }
         }
 
-        if ((getPlayerCount() == 1) && (g_CurrentPlayer->bondmesscnt < 0) && (display_statusbar > 0))
+        if ((getPlayerCount() == 1 && !portCoopActive()) && (g_CurrentPlayer->bondmesscnt < 0) && (display_statusbar > 0))
         {
             if (display_statusbar >= 2)
             {
@@ -13601,7 +14182,7 @@ Gfx* hudmsgBottomRender(Gfx* arg0)
     if ((g_CurrentPlayer->hudmessoff == FALSE) && (g_CurrentPlayer->bondmesscnt >= 0) && (g_CurrentPlayer->mpmenuon == FALSE))
     {
         var_v1 = 0;
-        if (getPlayerCount() == 1)
+        if (getPlayerCount() == 1 && !portCoopActive())
         {
             if ((u8) *stringbuffer_lowerleft[status_bar_text_buffer_index] != 0)
             {
@@ -13733,6 +14314,17 @@ void hudmsgTopShow(char* mess)
     #ifdef DEBUG
         assert(strlen(mess)<=MAXTALKMESSLEN);
     #endif
+#ifndef TARGET_N64
+    {   /* GE_HUDLOG=1 (test): the mission-wide top text (level scripts' text_print_top) */
+        static int hudTopLog = -1;
+
+        if (hudTopLog < 0) { hudTopLog = getenv("GE_HUDLOG") != NULL; }
+        if (hudTopLog)
+        {
+            printf("ge: hud: top message '%s' (field %d)\n", mess, (int) g_GlobalTimer);
+        }
+    }
+#endif
     if (display_upper_text_window >= 2) { return; }
 
     index = (upper_text_buffer_index + display_upper_text_window) % 2;
@@ -14030,7 +14622,29 @@ s32 playerTick(PropRecord *prop)
  
     index = getPlayerPointerIndex(prop);
     chr = prop->chr;
- 
+#ifndef TARGET_N64
+    {   /* PORT: coop (mission-end job): during the ending only the cutscene Bond is shown, in every view: the other Bond's body is not ticked or drawn */
+        extern int portCoopEnding(void);
+        extern int portCoopCinemaBond(void);
+
+        if (portCoopEnding() && index != portCoopCinemaBond())
+        {
+            goto clear_and_return;
+        }
+    }
+    {   /* GE_AIDBG=1: a Bond's chr passing through its tick (mission-end job: the exit cutscene's list runs on it) */
+        extern s32 portAiDbg(void);
+        extern int printf(const char *, ...);
+        static s32 lastp;
+
+        if (portAiDbg() && chr != NULL && (++lastp % 8) == 0)
+        {
+            printf("ge: ai: playerTick index %d chr %d flags %x hidden %x body %d cur %d camera %d\n", (int) index, (int) chr->chrnum, (unsigned) chr->chrflags,
+                   (unsigned) chr->hidden, g_playerPointers[index]->bodyModel != NULL, (int) get_cur_playernum(), (int) g_CameraMode);
+        }
+    }
+#endif
+
     if (chr != NULL)
     {
         if (get_player_position_in_shuffled(get_cur_playernum()) == 0)
@@ -14076,7 +14690,7 @@ s32 playerTick(PropRecord *prop)
         goto clear_and_return;
     }
 
-    if (getPlayerCount() < 2)
+    if (portAllPlayerCount() < 2)
     {
         goto clear_and_return;
     }

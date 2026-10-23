@@ -172,6 +172,28 @@ s32 g_RoomLoadBudget = 0;
 //D:800442FC
 u8 D_800442FC[PORTMAX] = {0};
 //D:800443C4
+#ifndef TARGET_N64
+u8 g_PortPortalView[4][PORTMAX];   /* PORT: netplay job 3c: per player, 0 = follow the shared bit, 1 = this player's pass disabled the portal, 2 = enabled it */
+u8 g_PortPortalEvent[PORTMAX];     /* PORT: netplay job 7: the last EVENT toggle of the portal (door, script), 0 = none yet: a fact of the world, the same for every view */
+s32 bgPortalDisabledForView(s32 portal);
+extern int portCoopActive(void);
+extern int portSimVisOld(void);      /* GE_NET_TEST_SIMVISOLD=1 (test, negative control): the sim reads the render walk's lists again */
+extern void bgSimRoomsReset(void);
+extern void bgPortalViewInit(s32 pl);
+extern s32 bgRealWalkWanted(void);
+extern void bgSimRoomsSnapshot(void);
+extern s32 g_PortRealWalk;
+s32 g_PortWalkStartRoom;
+static s32 simReadsSnapshot(void);
+static u8 s_RealRendered[4][MAXROOMCOUNT];   /* the render walk's room-rendered flags (the world draw's flags, with the canonical ones; the diagnostics compare them with what a sim read gets) */
+static s32 s_RealValid[4];
+u32 g_PortDiv[8];   /* GE_ROOMLOG diagnostics (port_roomvis.c): [0] isrendered calls [1] ... that differ from the live flag, [2] drawn-list copies [3] ... that differ, [4] box lookups [5] ... that differ */
+static s32 s_RenderN[4];
+static void bgRenderListSave(s32 pl);
+static void bgRenderListMerge(s32 pl);
+static s32 s_RenderSwapped;                 /* 1 while bgLevelRender draws this pass's own render walk (bgRenderListSwapIn .. SwapOut) */
+static u8 s_GeomOnlyNow[MAXROOMCOUNT];     /* while swapped: rooms only the view's own walk found (its margin): their geometry is drawn, their props are not */
+#endif
 u8 D_800443C4[PORTMAX] = {
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -210,7 +232,12 @@ struct levelentry levelinfotable[] = {
     {LEVELID_CAVERNS,  "bg/bg_cave_all_p.seg", "Tbg_cave_all_p_stanZ", 0.26824287,  1.0,        13.44086},
     {LEVELID_CITADEL,  "bg/bg_cat_all_p.seg",  "Tbg_cat_all_p_stanZ",  0.76852286,  1.0,        38.461536},
     {LEVELID_CRADLE,   "bg/bg_crad_all_p.seg", "Tbg_crad_all_p_stanZ", 0.23571429,  1.0,        43.103451},
+#ifdef TARGET_N64
     {LEVELID_SHO,      "bg/bg_sho_all_p.seg",  "Tbg_sho_all_p_stanZ",  0.528,       1.0,        21.18644},
+#else
+    /* PORT: this cut slot is Flatland (port/flatland, tools/gen_flatland.py); bg units = world units */
+    {LEVELID_SHO,      "bg/bg_sho_all_p.seg",  "Tbg_sho_all_p_stanZ",  1.0,         1.0,        21.18644},
+#endif
     {LEVELID_SURFACE2, "bg/bg_sevx_all_p.seg", "Tbg_sevx_all_p_stanZ", 0.45445713,  0.2,        22.603975},
     {LEVELID_ELD,      "bg/bg_eld_all_p.seg",  "Tbg_eld_all_p_stanZ",  0.94285715,  1.0,        10.123456},
     {LEVELID_BASEMENT, "bg/bg_ame_all_p.seg",  "Tbg_ame_all_p_stanZ",  0.65999997,  1.0,        37.878788},
@@ -219,7 +246,12 @@ struct levelentry levelinfotable[] = {
     {LEVELID_LIBRARY,  "bg/bg_ame_all_p.seg",  "Tbg_ame_all_p_stanZ",  0.65999997,  1.0,        37.878788},
     {LEVELID_RIT,      "bg/bg_rit_all_p.seg",  "Tbg_rit_all_p_stanZ",  0.94285715,  1.0,        10.123456},
     {LEVELID_CAVES,    "bg/bg_oat_all_p.seg",  "Tbg_oat_all_p_stanZ",  0.14142857,  1.0,        10.123456},
+#ifdef TARGET_N64
     {LEVELID_EAR,      "bg/bg_ear_all_p.seg",  "Tbg_ear_all_p_stanZ",  0.94285715,  1.0,        10.123456},
+#else
+    /* PORT: this cut slot is the Colosseum arena (port/colosseum, tools/gen_colosseum.py); bg units = world units */
+    {LEVELID_EAR,      "bg/bg_ear_all_p.seg",  "Tbg_ear_all_p_stanZ",  1.0,         1.0,        10.123456},
+#endif
     {LEVELID_LEE,      "bg/bg_lee_all_p.seg",  "Tbg_lee_all_p_stanZ",  0.94285715,  1.0,        10.123456},
     {LEVELID_LIP,      "bg/bg_lip_all_p.seg",  "Tbg_lip_all_p_stanZ",  0.94285715,  1.0,        10.123456},
     {LEVELID_CUBA,     "bg/bg_len_all_p.seg",  "Tbg_len_all_p_stanZ",  0.094662853, 1.0,        6.6844921},
@@ -566,6 +598,22 @@ void bgResetPortalVisitCounts(void)
 s32 bgGet2dBboxByRoomId(s32 room_id, struct bbox2d *result)
 {
     s32 i;
+#ifndef TARGET_N64
+    {   /* PORT: netplay job 7: the acting player's canonical drawn boxes (a sim read: chrIsPosOffScreen, object visibility) */
+        extern s32 bgSimBboxByRoomId(s32 room_id, struct bbox2d *result);
+
+        if (simReadsSnapshot()) {
+            if (bgSimBboxByRoomId(room_id, result)) {
+                return 1;
+            }
+            result->f[0][0] = 0.0f;
+            result->f[0][1] = 0.0f;
+            result->f[1][0] = 0.0f;
+            result->f[1][1] = 0.0f;
+            return 0;
+        }
+    }
+#endif
     for (i=0; i<g_BgNumberOfRoomsDrawn; i++)
     {
         if (room_id == dword_CODE_bss_8007FFA0[i].roomid)
@@ -1075,6 +1123,20 @@ void load_bg_file(LEVEL_INDEX levelid)
     }
 #endif
  
+#ifndef TARGET_N64
+    if (levelid == LEVELID_SHO)
+    {   /* PORT: Flatland. The stan is compiled in and fetched by symbol (the cut
+         * slot has no file-table entry for it). */
+        extern u8 Tbg_flatland_all_p_stanZ[];
+        gptr_stan = (s32) Tbg_flatland_all_p_stanZ;
+    }
+    else if (levelid == LEVELID_EAR)
+    {   /* PORT: Colosseum (port/colosseum), same arrangement */
+        extern u8 Tbg_colosseum_all_p_stanZ[];
+        gptr_stan = (s32) Tbg_colosseum_all_p_stanZ;
+    }
+    else
+#endif
     gptr_stan = (s32) _fileNameLoadToBank(levelinfotable[levelentry_index].bg_stan_filename, 2, 0, 4);
 
 #ifndef TARGET_N64
@@ -1082,7 +1144,8 @@ void load_bg_file(LEVEL_INDEX levelid)
        * cart (already packed, real pointers) or is the compiled-in file */
         extern s32 g_portStanFromRom;
         extern s32 romdataFileServed(s32 index);
-        g_portStanFromRom = romdataFileServed(fileGetIndex((u8 *) levelinfotable[levelentry_index].bg_stan_filename));
+        g_portStanFromRom = (levelid == LEVELID_SHO || levelid == LEVELID_EAR) ? 0
+            : romdataFileServed(fileGetIndex((u8 *) levelinfotable[levelentry_index].bg_stan_filename));
     }
     { /* bring-up (sanitizer sweep): a stage whose stan asset is missing
        * hands stanDetermineEOF garbage - identify the stage FIRST */
@@ -1290,7 +1353,13 @@ void load_bg_file(LEVEL_INDEX levelid)
         {
             g_BgPortals[i].controlbytes1 &= 0xfe;
         }
- 
+#ifndef TARGET_N64
+        memset(g_PortPortalView, 0, sizeof(g_PortPortalView));   /* netplay job 3c: no per-view overrides yet */
+        memset(g_PortPortalEvent, 0, sizeof(g_PortPortalEvent));
+        bgSimRoomsReset();                                       /* netplay job 7: no walk has run yet, so no sim room list either */
+        { extern void portRoomVisReset(void); portRoomVisReset(); }
+#endif
+
         sub_GAME_7F0B37EC();
     }
  
@@ -1336,7 +1405,60 @@ f32 bgGetLevelVisibilityScale(void) {
 // defined later in the same file
 extern void bgRoomsTickUnload(void);
 
+#ifndef TARGET_N64
+static void bgRoomVisibilityWalk(s32 realview, s32 unload);
+
+/* PORT: netplay job 7: a pass runs up to two walks. The SIM walk (canonical camera) is the one everything the sim reads comes from. When this
+ * window's real camera differs from the canonical one, the view's own RENDER walk (real camera) runs first and its drawn list is kept for the
+ * world draw only (bgRenderListSwapIn in bgLevelRender); the sim walk follows, so the live state below it is the sim's. With
+ * GE_NET_TEST_SIMVISOLD=1 the order is reversed (the render walk last, the sim reading the live lists: the old coupling, a test). */
 void bgRoomVisibilityRelated(void)
+{
+    extern void viSimCameraToReal(void *save);
+    extern void viSimCameraRestore(const void *save);
+    s32 pl = get_cur_playernum();
+    u8 save[256];
+
+    if (pl >= 0 && pl < 4) {
+        s_RenderN[pl] = -1;
+        s_RealValid[pl] = 0;
+    }
+    if (bgRealWalkWanted()) {
+        s32 old = portSimVisOld();
+
+        if (old) {   /* the sim walk, then the render walk last: its state is what the sim reads (the old behaviour) */
+            bgRoomVisibilityWalk(0, 1);
+            bgSimRoomsSnapshot();
+        }
+        viSimCameraToReal(save);
+        g_PortRealWalk = 1;
+        bgRoomVisibilityWalk(1, !old);
+        g_PortRealWalk = 0;
+        viSimCameraRestore(save);
+        if (!old) {
+            s32 i;
+
+            for (i = 0; i < MAXROOMCOUNT && pl >= 0 && pl < 4; i++) {
+                s_RealRendered[pl][i] = g_BgRoomInfo[i].room_rendered;
+            }
+            if (pl >= 0 && pl < 4) {
+                s_RealValid[pl] = 1;
+            }
+            bgRenderListSave(pl);
+            bgRoomVisibilityWalk(0, 0);
+            bgSimRoomsSnapshot();
+            bgRenderListMerge(pl);
+        }
+    } else {
+        bgRoomVisibilityWalk(0, 1);
+        bgSimRoomsSnapshot();
+    }
+}
+
+static void bgRoomVisibilityWalk(s32 realview, s32 unload)
+#else
+void bgRoomVisibilityRelated(void)
+#endif
 {
     bg_portal_data_entry *portal;
     bg_portal_entry *next;
@@ -1355,9 +1477,15 @@ void bgRoomVisibilityRelated(void)
 
     num_visible_rooms_in_cur_global_vis_packet = 0;
 
+#ifndef TARGET_N64
+    if (unload && get_player_position_in_shuffled(get_cur_playernum()) == 0) {   /* once per pass: the second walk of a pass must not age the rooms twice */
+        bgRoomsTickUnload();
+    }
+#else
     if (get_player_position_in_shuffled(get_cur_playernum()) == 0) {
         bgRoomsTickUnload();
     }
+#endif
 
     cammode = bondviewGetCameraMode();
 
@@ -1420,9 +1548,9 @@ void bgRoomVisibilityRelated(void)
 
     g_BgCurrentRoom = room;
     bgDetermineVisibleRooms();
-
 #ifndef TARGET_N64
-    { /* GE_ROOM_AUDIT debug: watch each player's visibility result (is the seed
+    g_PortWalkStartRoom = room;   /* netplay job 7: what the walk of this pass started from (the room log compares it with the Bond's own floor tile) */
+    if (!realview) { /* GE_ROOM_AUDIT debug: watch each player's visibility result (is the seed
        * room in the draw list, script-blocked, loaded, and consistent with the
        * player's tracked room). */
         extern s32 portRoomAuditEnabled(void);
@@ -1801,6 +1929,18 @@ Gfx *bgLevelRender(Gfx *arg0)
     gSPLookAt(arg0++, sub_GAME_7F078474());
     gSPSegment(arg0++, SPSEGMENT_BG_DL, ptr_bg_data);
 
+#ifndef TARGET_N64
+    {   /* PORT: netplay job 7: the world is drawn from THIS view's own render walk (real camera), not from the canonical sim walk */
+        extern s32 bgRenderListSwapIn(void);
+        extern s32 bgRenderRoomsNow(s32 *rooms, s32 max);
+        extern void portRoomVisDrawLog(s32 pl, s32 startroom, s32 *draw, s32 ndraw);
+        extern s32 g_PortWalkStartRoom;
+        s32 drawn[256];
+
+        bgRenderListSwapIn();
+        portRoomVisDrawLog(get_cur_playernum(), g_PortWalkStartRoom, drawn, bgRenderRoomsNow(drawn, 256));
+    }
+#endif
     if (dword_CODE_bss_8007FF88 == 1)
     {
         gSPDisplayList(arg0++, dword_CODE_bss_8007BF98);
@@ -1809,6 +1949,13 @@ Gfx *bgLevelRender(Gfx *arg0)
     {
         arg0 = fogRenderClearFogMode(bgScissorCurrentPlayerViewDefault(sub_GAME_7F0B8D78(fogSetRenderFogColor(arg0, 0))));
     }
+#ifndef TARGET_N64
+    {
+        extern void bgRenderListSwapOut(void);
+
+        bgRenderListSwapOut();
+    }
+#endif
 
     gSPMatrix(arg0++, g_viProjectionMatrix, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
 
@@ -1858,6 +2005,18 @@ Gfx* bgScissorCurrentPlayerViewF(Gfx* arg0, f32 arg1, f32 arg2, f32 arg3, f32 ar
         static int noscis = -1;
         if (noscis < 0) noscis = getenv("GE_NOROOMSCISSOR") != NULL;
         if (noscis) {
+            return bgScissorCurrentPlayerViewDefault(arg0);
+        }
+    }
+#endif
+#ifndef TARGET_N64
+    {   /* PORT: netplay job 3c: the room boxes come from the canonical camera model (fr.c); when this window draws another view
+         * (aspect, FOV, screen size) they would clip the picture wrongly, so the room keeps the whole view (the z-buffer still
+         * hides what is behind walls) */
+        extern s32 viSimViewMatchesDraw(void);
+
+        if (!viSimViewMatchesDraw())
+        {
             return bgScissorCurrentPlayerViewDefault(arg0);
         }
     }
@@ -2899,6 +3058,25 @@ s32 getMaxNumRooms(void)
  */
 u8 getROOMID_isRendered(s32 roomID)
 {
+#ifndef TARGET_N64
+    {   /* PORT: netplay job 7: the sim's per-player flag of the acting (current) player, never the live flag of the last walk on this machine */
+        extern s32 bgSimRoomIsRendered(s32 room);
+
+        if (simReadsSnapshot()) {
+            u8 snap = (u8) bgSimRoomIsRendered(roomID);
+
+            s32 cp = get_cur_playernum();
+
+            if (cp >= 0 && cp < 4 && s_RealValid[cp] && roomID >= 0 && roomID < MAXROOMCOUNT) {
+                g_PortDiv[0]++;
+                if (snap != s_RealRendered[cp][roomID]) {
+                    g_PortDiv[1]++;
+                }
+            }
+            return snap;
+        }
+    }
+#endif
     return g_BgRoomInfo[roomID].room_rendered;
 }
 
@@ -4783,8 +4961,22 @@ bool bgTestBulletHitBackground(coord3d *from, coord3d *to, s32 roomnum, struct H
     point = g_BgRoomInfo[roomnum].vtx_batch_bounds;
     point = g_BgRoomInfo[roomnum].vtx_batch_bounds;
 
+#ifndef TARGET_N64
+    if (point == NULL && roomnum > 0 && roomnum < g_MaxNumRooms && g_BgRoomInfo[roomnum].model_bin_loaded == 0 && simReadsSnapshot())
+    {
+        /* PORT: netplay job 7: whether a room's geometry is loaded is a RENDER state (what this machine's walks drew in the last frames, the unload
+         * ageing, the load budget), but the hit test below answers "no hit" for a room without bounds. A shot must not depend on it: load the room
+         * on demand (the loaded data is the same on every machine). Co-op only; solo and the demos keep the vanilla behaviour. */
+        bgLoadRoomModelData(roomnum);
+        point = g_BgRoomInfo[roomnum].vtx_batch_bounds;
+        { extern void portRoomVisNote(const char *fmt, ...); portRoomVisNote("hit test loaded room %d on demand (p%d): bounds %s\n", (int) roomnum, (int) get_cur_playernum(), point != NULL ? "yes" : "STILL NONE"); }
+    }
+#endif
     if (point == NULL)
     {
+#ifndef TARGET_N64
+        { extern void portRoomVisNote(const char *fmt, ...); portRoomVisNote("hit test: room %d has no bounds (p%d, loaded %d)\n", (int) roomnum, (int) get_cur_playernum(), (int) g_BgRoomInfo[roomnum].model_bin_loaded); }
+#endif
         return FALSE;
     }
 
@@ -5081,7 +5273,11 @@ void sub_GAME_7F0B7F84(s32 roomnum, s32 portalnum /*canonically p*/, s32 depth, 
 #define PORTALDBG_LOG(reason) do { } while (0)
 #endif
 
+#ifndef TARGET_N64
+    if (bgPortalDisabledForView(portalnum))   /* PORT: netplay job 3c: this player's own portal states (bgToggleDataPortalsContrlBytes1Bit1) */
+#else
     if (g_BgPortals[portalnum].controlbytes1 & PORTALFLAG_DISABLED)
+#endif
     {
 #ifndef TARGET_N64
         otherroom = -1;
@@ -5260,7 +5456,11 @@ s32 sub_GAME_7F0B7F84(s32 value, s32 roomnum, s32 portalnum /*canonically p*/, s
     do { if (s_PortalDbg) printf("portaldbg: p=%d room=%d other=%d depth=%d %s\n", portalnum, roomnum, (s32) otherroom, depth, reason); } while (0)
 #endif
 
+#ifndef TARGET_N64
+    if (bgPortalDisabledForView(portalnum))   /* PORT: netplay job 3c: this player's own portal states (bgToggleDataPortalsContrlBytes1Bit1) */
+#else
     if (g_BgPortals[portalnum].controlbytes1 & PORTALFLAG_DISABLED)
+#endif
     {
 #ifndef TARGET_N64
         otherroom = -1;
@@ -6076,6 +6276,16 @@ s32 bgCopyVisibleRoomsToList(s32 *rooms, s32 max)
 {
     s32 i;
 
+#ifndef TARGET_N64
+    {   /* PORT: netplay job 7: a co-op shot / projectile reads the acting player's SIM list (canonical walk, that player's own portal state),
+         * never the list the last render walk of this machine left behind */
+        extern s32 bgSimVisibleRoomsForPlayer(s32 pl, s32 *rooms, s32 max);
+
+        if (simReadsSnapshot()) {
+            return bgSimVisibleRoomsForPlayer(get_cur_playernum(), rooms, max);
+        }
+    }
+#endif
     for (i = 0; (i < num_visible_rooms_in_cur_global_vis_packet) && (i < max); i++) {
         rooms[i] = list_visible_rooms_in_cur_global_vis_packet[i];
     }
@@ -6094,11 +6304,288 @@ s32 bgCopyVisibleRoomsToList(s32 *rooms, s32 max)
  * through-portal fix so the hitscan can test every room on screen, not
  * just the stan-tile-walk room and the shooter's own room.
  */
+#ifndef TARGET_N64
+/**
+ * PORT (netplay job 5): the drawn-room list per player, taken right after that player's own room walk (bgRoomVisibilityRelated).
+ * The walk uses the player's canonical sim view and per-player portal state, so the list is a function of sim state only. The shoot-
+ * through fix (chrprop.c) reads the shooting player's list instead of whatever the LAST render pass of this machine left in
+ * dword_CODE_bss_8007FFA0, which depended on the pass order, held ticks and the local window's pass.
+ */
+/**
+ * PORT (netplay job 7): THE TWO ROOM-VISIBILITY WORLDS. Two things were called "the visible rooms" and they must never mix.
+ *   SIM visibility: per player, from that player's CANONICAL sim view (320x240, 16:9, vanilla FOV: fr.c) and its own portal state. It is
+ *     snapshotted right after the player's walk (below) and EVERY sim read takes the acting player's snapshot: the global-vis list
+ *     (bgCopyVisibleRoomsToList), the drawn list (bgCopyDrawnRoomsToList, bgSimRoomsForPlayer), the room-rendered flags
+ *     (getROOMID_isRendered: AI "my room is on screen", chr spawn / despawn gates, ...) and the room boxes (bgGet2dBboxByRoomId). Identical on both machines.
+ *   RENDER visibility: per view, from the drawing Bond's REAL camera and window (the display fov, aspect, view rectangle). When the real view is not
+ *     the canonical one, the pass runs a second, separate walk with the real camera model BEFORE the sim walk; its drawn list is kept per player
+ *     (s_RenderList) and swapped in only for the world draw (bgLevelRender). Nothing the sim reads is ever filled by it.
+ * GE_NET_TEST_SIMVISOLD=1 restores the old coupling (the render walk runs last and the sim reads the live lists): the negative control of net_lockstep phase 22.
+ */
+static s32 s_SimRooms[4][MAXROOMCOUNT];
+static s32 s_SimRoomsN[4];
+#define SIMVIS_MAX 160
+static s32 s_SimVis[4][SIMVIS_MAX];
+static s32 s_SimVisN[4];
+static u8 s_SimRendered[4][MAXROOMCOUNT];
+static struct bbox2d s_SimBox[4][MAXROOMCOUNT];   /* the drawn rooms' 2D boxes, in s_SimRooms order */
+
+void bgSimRoomsReset(void)
+{
+    memset(s_SimRooms, 0, sizeof(s_SimRooms));
+    memset(s_SimRoomsN, 0, sizeof(s_SimRoomsN));
+    memset(s_SimVis, 0, sizeof(s_SimVis));
+    memset(s_SimVisN, 0, sizeof(s_SimVisN));
+    memset(s_SimRendered, 0, sizeof(s_SimRendered));
+    memset(s_SimBox, 0, sizeof(s_SimBox));
+}
+
+static s32 simReadsSnapshot(void)
+{
+    return portCoopActive() && !portSimVisOld();
+}
+
+void bgSimRoomsSnapshot(void)
+{
+    s32 pl = get_cur_playernum();
+    s32 i, n = g_BgNumberOfRoomsDrawn;
+
+    if (pl < 0 || pl > 3) {
+        return;
+    }
+    if (n > MAXROOMCOUNT) {
+        n = MAXROOMCOUNT;
+    }
+    for (i = 0; i < n; i++) {
+        s_SimRooms[pl][i] = dword_CODE_bss_8007FFA0[i].roomid;
+        s_SimBox[pl][i] = dword_CODE_bss_8007FFA0[i].bbox;
+    }
+    s_SimRoomsN[pl] = n;
+    n = num_visible_rooms_in_cur_global_vis_packet;
+    if (n > SIMVIS_MAX) {
+        n = SIMVIS_MAX;
+    }
+    for (i = 0; i < n; i++) {
+        s_SimVis[pl][i] = list_visible_rooms_in_cur_global_vis_packet[i];
+    }
+    s_SimVisN[pl] = n;
+    for (i = 0; i < MAXROOMCOUNT; i++) {
+        s_SimRendered[pl][i] = g_BgRoomInfo[i].room_rendered;
+    }
+}
+
+s32 bgSimRoomsForPlayer(s32 pl, s32 *rooms, s32 max)
+{
+    s32 i, n = (pl >= 0 && pl < 4) ? s_SimRoomsN[pl] : 0;
+
+    if (n > max) {
+        n = max;
+    }
+    for (i = 0; i < n; i++) {
+        rooms[i] = s_SimRooms[pl][i];
+    }
+    return n;
+}
+
+s32 bgSimVisibleRoomsForPlayer(s32 pl, s32 *rooms, s32 max)
+{
+    s32 i, n = (pl >= 0 && pl < 4) ? s_SimVisN[pl] : 0;
+
+    if (n > max) {
+        n = max;
+    }
+    for (i = 0; i < n; i++) {
+        rooms[i] = s_SimVis[pl][i];
+    }
+    return n;
+}
+
+/* the sim's room-rendered flag of one player's canonical walk */
+s32 bgSimRoomIsRenderedFor(s32 pl, s32 room)
+{
+    if (pl < 0 || pl > 3 || room < 0 || room >= MAXROOMCOUNT) {
+        return 0;
+    }
+    return s_SimRendered[pl][room];
+}
+
+/* ... for the current player (the acting player of a pass) */
+s32 bgSimRoomIsRendered(s32 room)
+{
+    return bgSimRoomIsRenderedFor(get_cur_playernum(), room);
+}
+
+s32 bgSimBboxByRoomId(s32 room_id, struct bbox2d *result)
+{
+    s32 pl = get_cur_playernum();
+    s32 i, n;
+
+    if (pl >= 0 && pl < 4) {
+        n = s_SimRoomsN[pl];
+        for (i = 0; i < n; i++) {
+            if (s_SimRooms[pl][i] == room_id) {
+                *result = s_SimBox[pl][i];
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
+/* ---- the render walk (real camera) ------------------------------------------------------------------------------------------------------- */
+static s_bound_info s_RenderList[4][204];   /* per player: the rooms its real view draws, from its own real-camera walk */
+static s32 s_RenderN[4] = { -1, -1, -1, -1 };   /* -1 = this pass has no render walk of its own (the real view is the canonical one): draw the live list */
+static s_bound_info s_LiveSave[204];
+static s32 s_LiveSaveN;
+static u8 s_GeomOnlyPl[4][MAXROOMCOUNT];
+s32 g_PortRealWalk;   /* 1 while the real-camera walk runs (bgUpdateCurrentPlayerScreenMinMax uses the window's rectangle) */
+
+s32 bgRealWalkWanted(void)
+{
+    extern s32 viSimViewMatchesDraw(void);
+    extern int portRenderWalkAlways(void);   /* GE_NET_RENDERWALK=1 (test): the render walk also runs when the window is the canonical view */
+
+    return portCoopActive() && (!viSimViewMatchesDraw() || portRenderWalkAlways());
+}
+
+static void bgRenderListSave(s32 pl)
+{
+    s32 n = g_BgNumberOfRoomsDrawn;
+
+    if (n > 204) {
+        n = 204;
+    }
+    memcpy(s_RenderList[pl], dword_CODE_bss_8007FFA0, (size_t) n * sizeof(s_bound_info));
+    s_RenderN[pl] = n;
+}
+
+/* The world draw of a view with its own render walk = EXACTLY the canonical draw (the sim walk's rooms, with their props, in the order the sim's own
+ * passes always had) plus the margin: the rooms only the view's own walk found, GEOMETRY ONLY. Props are never drawn for a margin room: chrpropRender
+ * builds a model's matrices and bones, and the sim reads them back (a shot's object test reads model->render_pos), so which props a machine rendered, and
+ * in what order they took their matrix memory, must not depend on its window (it did, and a door hit by P0's shot was missed on one machine only: the
+ * playtest 7 desync class, reproduced here). Props outside the canonical view are never marked onscreen anyway. */
+static void bgRenderListMerge(s32 pl)
+{
+    s_bound_info real[204];
+    s32 realn, i, k, n;
+
+    if (pl < 0 || pl > 3 || s_RenderN[pl] < 0) {
+        return;
+    }
+    realn = s_RenderN[pl];
+    memcpy(real, s_RenderList[pl], (size_t) realn * sizeof(s_bound_info));
+    memset(s_GeomOnlyPl[pl], 0, sizeof(s_GeomOnlyPl[pl]));
+    n = g_BgNumberOfRoomsDrawn;   /* the canonical (sim) walk just ran: the live list is its list */
+    if (n > 204) {
+        n = 204;
+    }
+    memcpy(s_RenderList[pl], dword_CODE_bss_8007FFA0, (size_t) n * sizeof(s_bound_info));
+    s_RenderN[pl] = n;
+    for (i = 0; i < realn && s_RenderN[pl] < 204; i++) {
+        s32 room = real[i].roomid;
+
+        for (k = 0; k < n && s_RenderList[pl][k].roomid != room; k++) {
+        }
+        if (k == n && room >= 0 && room < MAXROOMCOUNT) {
+            s_RenderList[pl][s_RenderN[pl]++] = real[i];
+            s_GeomOnlyPl[pl][room] = 1;
+        }
+    }
+}
+
+s32 bgRenderRoomGeomOnly(s32 room)
+{
+    return s_RenderSwapped && room >= 0 && room < MAXROOMCOUNT && s_GeomOnlyNow[room];
+}
+
+/* bgLevelRender: draw this pass's own render walk instead of the live (sim) list */
+s32 bgRenderListSwapIn(void)
+{
+    s32 pl = get_cur_playernum();
+    s32 n = g_BgNumberOfRoomsDrawn;
+
+    s_RenderSwapped = 0;
+    if (pl < 0 || pl > 3 || s_RenderN[pl] < 0) {
+        return 0;
+    }
+    if (n > 204) {
+        n = 204;
+    }
+    memcpy(s_LiveSave, dword_CODE_bss_8007FFA0, (size_t) n * sizeof(s_bound_info));
+    s_LiveSaveN = n;
+    memcpy(dword_CODE_bss_8007FFA0, s_RenderList[pl], (size_t) s_RenderN[pl] * sizeof(s_bound_info));
+    g_BgNumberOfRoomsDrawn = s_RenderN[pl];
+    {
+        s32 i;
+
+        for (i = 0; i < MAXROOMCOUNT; i++) {
+            s_GeomOnlyNow[i] = s_GeomOnlyPl[pl][i];
+        }
+    }
+    s_RenderSwapped = 1;
+    return 1;
+}
+
+void bgRenderListSwapOut(void)
+{
+    if (s_RenderSwapped) {
+        memcpy(dword_CODE_bss_8007FFA0, s_LiveSave, (size_t) s_LiveSaveN * sizeof(s_bound_info));
+        g_BgNumberOfRoomsDrawn = s_LiveSaveN;
+        s_RenderSwapped = 0;
+    }
+}
+
+/* the rooms the world draw of this pass will use (for the room log) */
+s32 bgRenderRoomsNow(s32 *rooms, s32 max)
+{
+    s32 i, n = 0;
+
+    for (i = 0; i < g_BgNumberOfRoomsDrawn && n < max; i++) {
+        rooms[n++] = dword_CODE_bss_8007FFA0[i].roomid;
+    }
+    return n;
+}
+
+/* spawn / respawn: a Bond's own portal view starts from the world's facts (the last door / script toggle of each portal, open when none),
+ * not from whatever the shared bit, the Bond's previous place or another Bond's glass left; the glass and window toggles of its own passes
+ * then refine it (bgToggleDataPortalsForView) */
+void bgPortalViewInit(s32 pl)
+{
+    s32 p;
+
+    if (pl < 0 || pl > 3) {
+        return;
+    }
+    for (p = 0; p < PORTMAX; p++) {
+        g_PortPortalView[pl][p] = (g_PortPortalEvent[p] == 1) ? 1 : 2;
+    }
+}
+#endif
+
 s32 bgCopyDrawnRoomsToList(s32 *rooms, s32 max)
 {
     s32 i;
     s32 n = g_BgNumberOfRoomsDrawn;
 
+#ifndef TARGET_N64
+    if (simReadsSnapshot()) {
+        s32 cp = get_cur_playernum();
+
+        g_PortDiv[4]++;
+        if (cp >= 0 && cp < 4 && s_RenderN[cp] >= 0) {   /* diagnostic: would the render walk's list have been another set? */
+            s32 i, k, differ = (s_RenderN[cp] != s_SimRoomsN[cp]);
+
+            for (i = 0; i < s_SimRoomsN[cp] && !differ; i++) {
+                for (k = 0; k < s_RenderN[cp] && s_RenderList[cp][k].roomid != s_SimRooms[cp][i]; k++) {
+                }
+                differ = (k == s_RenderN[cp]);
+            }
+            g_PortDiv[2]++;
+            g_PortDiv[3] += differ;
+        }
+        return bgSimRoomsForPlayer(get_cur_playernum(), rooms, max);
+    }
+#endif
     if (n > max) {
         n = max;
     }
@@ -6245,7 +6732,26 @@ void bgUpdateCurrentPlayerScreenMinMax(void)
     }
 #endif
 
-    g_CurrentPlayer->screensize.min.x = (f32) viGetViewLeft();
+    s32 vl = viGetViewLeft();
+    s32 vt = viGetViewTop();
+    s32 vw = viGetViewWidth();
+    s32 vh = viGetViewHeight();
+#ifndef TARGET_N64
+    {   /* PORT: netplay job 3c: the rooms this player's walk can see (and the boxes the sim's onscreen tests use) come from the canonical
+         * screen rectangle in a co-op stage, not from the window's, the screen-size option's or the pause box's */
+        extern s32 portSimViewOn(void);
+
+        if (portSimViewOn() && !g_PortRealWalk)   /* the render walk of a view with its own camera uses the window's rectangle */
+        {
+            vl = 0;
+            vt = 0;
+            vw = 320;
+            vh = 240;
+        }
+    }
+#endif
+
+    g_CurrentPlayer->screensize.min.x = (f32) vl;
 
     if (g_CurrentPlayer->screensize.min.x < fx)
     {
@@ -6257,7 +6763,7 @@ void bgUpdateCurrentPlayerScreenMinMax(void)
         g_CurrentPlayer->screensize.min.x = fwidth;
     }
 
-    g_CurrentPlayer->screensize.min.y = (f32) viGetViewTop();
+    g_CurrentPlayer->screensize.min.y = (f32) vt;
 
     if (g_CurrentPlayer->screensize.min.y < fy)
     {
@@ -6269,7 +6775,7 @@ void bgUpdateCurrentPlayerScreenMinMax(void)
         g_CurrentPlayer->screensize.min.y = fheight;
     }
 
-    g_CurrentPlayer->screensize.max.x = (f32) (viGetViewLeft() + viGetViewWidth());
+    g_CurrentPlayer->screensize.max.x = (f32) (vl + vw);
 
     if (g_CurrentPlayer->screensize.max.x < fx)
     {
@@ -6281,7 +6787,7 @@ void bgUpdateCurrentPlayerScreenMinMax(void)
         g_CurrentPlayer->screensize.max.x = fwidth;
     }
 
-    g_CurrentPlayer->screensize.max.y = (f32) (viGetViewTop() + viGetViewHeight());
+    g_CurrentPlayer->screensize.max.y = (f32) (vt + vh);
 
     if (g_CurrentPlayer->screensize.max.y < fy)
     {
@@ -6775,7 +7281,59 @@ void bgToggleDataPortalsContrlBytes1Bit1(s32 portal, s32 toggle)
     assert(portal<PORTMAX);
     #endif
     g_BgPortals[portal].controlbytes1 = (g_BgPortals[portal].controlbytes1 | 1) ^ (toggle != 0);
+#ifndef TARGET_N64
+    /* PORT: netplay jobs 3c / 5. An EVENT toggle (a door opens or closes, a script, glass freed) is a fact of the world, but it runs in whichever
+     * player's pass owns the sim part of that tick (the shuffled order), so writing only that pass's player's view left the OTHER player's room
+     * walk on the old state for good: a door opened in P1's pass stayed "closed" for P2's walk (playtest 7: the guard behind the door was not
+     * drawn in one window, the shutter and the tunnel behind it showed as a blue box). An event now updates every player's view. */
+    if (portal >= 0 && portal < PORTMAX)
+    {
+        s32 pn;
+
+        for (pn = 0; pn < 4; pn++)
+        {
+            g_PortPortalView[pn][portal] = (toggle == 0) ? 1 : 2;
+        }
+        g_PortPortalEvent[portal] = (toggle == 0) ? 1 : 2;   /* netplay job 7: what a view starts from at spawn / respawn (bgPortalViewInit) */
+    }
+#endif
 }
+
+#ifndef TARGET_N64
+/* The viewer-dependent toggle (a window or glass opening by the distance of the pass's own player): only that player's view changes. */
+void bgToggleDataPortalsForView(s32 portal, s32 toggle)
+{
+    g_BgPortals[portal].controlbytes1 = (g_BgPortals[portal].controlbytes1 | 1) ^ (toggle != 0);
+    if (portal >= 0 && portal < PORTMAX)
+    {
+        s32 pn = get_cur_playernum();
+
+        if (pn >= 0 && pn < 4)
+        {
+            g_PortPortalView[pn][portal] = (toggle == 0) ? 1 : 2;
+        }
+    }
+}
+#endif
+
+#ifndef TARGET_N64
+/* the portal's disabled flag as the current player's room walk sees it: this player's own last toggle, else the shared bit */
+s32 bgPortalDisabledForView(s32 portal)
+{
+    extern s32 portSimViewOn(void);
+
+    if (portSimViewOn() && portal >= 0 && portal < PORTMAX)
+    {
+        s32 pn = get_cur_playernum();
+
+        if (pn >= 0 && pn < 4 && g_PortPortalView[pn][portal] != 0)
+        {
+            return g_PortPortalView[pn][portal] == 1;
+        }
+    }
+    return (g_BgPortals[portal].controlbytes1 & PORTALFLAG_DISABLED) != 0;
+}
+#endif
 
 
 

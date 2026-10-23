@@ -111,6 +111,14 @@ s32 getPlayerCount(void)
             count++;
         }
     }
+#ifndef TARGET_N64
+    { /* PORT: coop: two Bonds in a solo stage report the MODE count (1); portAllPlayerCount() is the real one */
+        extern int portCoopActive(void);
+        if (count > 1 && portCoopActive()) {
+            return 1;
+        }
+    }
+#endif
     return count;
 }
 
@@ -399,6 +407,9 @@ void initBONDdataforPlayer(s32 player_num)
     g_playerPointers[player_num]->sniper_zoom = GE_DEFAULT_FOV;
     g_playerPointers[player_num]->camera_zoom = GE_DEFAULT_FOV;
     g_playerPointers[player_num]->curRoomIndex = -1;
+#ifndef TARGET_N64
+    { extern void bgPortalViewInit(s32 pl); bgPortalViewInit(player_num); }   /* netplay job 7: a new Bond's room view starts from the world's facts */
+#endif
     g_playerPointers[player_num]->c_screenwidth = 320.0f;
     g_playerPointers[player_num]->c_screenheight = DEFAULT_C_SCREENHEIGHT;
     g_playerPointers[player_num]->c_screenleft = 0.0f;
@@ -493,6 +504,12 @@ void set_cur_player(s32 playernum)
     assert(players[num]!=NULL); //player.c
 #endif
 
+#ifndef TARGET_N64
+    {   /* PORT: netplay job 3e: each Bond has its own watch UI state (options.c portWatchUiSwitch; co-op stages only) */
+        extern void portWatchUiSwitch(int from, int to);
+        portWatchUiSwitch(player_num, playernum);
+    }
+#endif
     player_num = playernum;
     g_CurrentPlayer = g_playerPointers[playernum];
     g_playerPerm = &g_playerPlayerData[playernum];
@@ -507,7 +524,7 @@ s32 getPlayerPointerIndex(PropRecord* prop)
 {
     s32 i;
 
-    for(i = 0; i < getPlayerCount(); i++) {
+    for(i = 0; i < portAllPlayerCount(); i++) { /* PORT: coop: every player struct */
         if (g_playerPointers[i]->prop == prop) {
            return i;
         }

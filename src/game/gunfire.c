@@ -1242,7 +1242,7 @@ void gunCreateBeamForHand(enum GUNHAND hand)
 
     CapBeamLengthAndDecideIfRendered(weapon_beam, getCurrentPlayerWeaponId(hand), &hand_ptr->field_B58, &hand_ptr->item_related);
 
-    if ((g_CurrentPlayer->prop->chr == NULL) || (getPlayerCount() < 2))
+    if ((g_CurrentPlayer->prop->chr == NULL) || (portAllPlayerCount() < 2))
     {
         return;
     }
@@ -3808,7 +3808,7 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
             g_CurrentPlayer->ammoheldarr[get_ammo_type_for_weapon(var_s1)] += handptr->weapon_ammo_in_magazine;
             handptr->weapon_ammo_in_magazine = 0;
 
-            if (getPlayerCount() >= 2)
+            if (portAllPlayerCount() >= 2) /* PORT: coop: body weapon follows the switch for every Bond */
             {
                 sub_GAME_7F09B368(hand);
             }
@@ -3902,7 +3902,7 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
 
         if (handptr->field_88C == 0)
         {
-            if (getPlayerCount() >= 2)
+            if (portAllPlayerCount() >= 2) /* PORT: coop */
             {
                 sub_GAME_7F09B398(hand);
             }
@@ -4243,7 +4243,7 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
     {
         if ((handptr->field_88C == 0) && (var_s1 < 0x21))
         {
-            if (getPlayerCount() >= 2)
+            if (portAllPlayerCount() >= 2) /* PORT: coop */
             {
                 sub_GAME_7F09B398(hand);
             }

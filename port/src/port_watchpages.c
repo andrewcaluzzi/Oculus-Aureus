@@ -130,6 +130,7 @@ static const struct PortWatchRowDef sPortOpts[] = {
     { PWROW_OPT,       "watch_static",       NULL, 0, 0 },   /* watch static */
     { PWROW_OPT,       "mouse_auto_aim",     NULL, 0, 0 },   /* the folder's row too */
     { PWROW_OPT,       "high_lod", "High Detail Models\n", 0, 0 },   /* from Graphics */
+    { PWROW_OPT,       "coop_bot",           NULL, 0, 0 },   /* the co-op bot, default off */
     { PWROW_BACK,      NULL, "Back\n", 0, 0 },
 };
 
@@ -1553,9 +1554,16 @@ s32 portWatchBindCaptureBegin(s32 page, s32 row)
 {
     const struct PortWatchRowDef *d = rowDef(page, row);
     const struct PortBindDef *b;
+    extern int portCoopNetDriven(void);
+    extern int portNetBlocked(const char *what);
 
     if (d == NULL || d->kind != PWROW_BIND || d->arg < 0 || d->arg >= PORTBIND_COUNT)
     {
+        return 0;
+    }
+    if (portCoopNetDriven())
+    {   /* a key capture listens to this machine's keyboard while the other machine runs the same watch */
+        (void) portNetBlocked("rebinding a key in the watch");
         return 0;
     }
     b = &sBinds[d->arg];

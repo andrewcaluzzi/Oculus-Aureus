@@ -9,7 +9,7 @@ void cleanupplayersoundrelated(void)
     int i;
     int j;
 
-    for (i = 0; i < getPlayerCount(); i++)
+    for (i = 0; i < portAllPlayerCount(); i++)
     {
         for (j = 0; j < 2; j++)
         {

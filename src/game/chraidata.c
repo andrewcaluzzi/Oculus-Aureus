@@ -797,6 +797,316 @@ u8 m_RemoveSelf[] = {
     EndList()
 };
 
+#ifndef TARGET_N64
+/**
+    PORT: co-op bot. Idle forever, so the vanilla interpreter never fights the
+    bot brain (port/src/port_bot.c), which drives the chr's actions from C.
+    @return No Return
+ */
+u8 m_CoopBot[] = {
+    Label(lblZero)
+    Yield()
+    GotoFirst(lblZero)
+    EndList()
+};
+
+/**
+    PORT: arena chase. A copy of m_RunToBondPersistent with one change: the "running" loop ends when Bond is within 9 m
+    (was: as soon as the chr COULD SEE Bond, at any range). In the open Colosseum a chr sees Bond from the gate, so the stock
+    list stopped it, then re-issued the run every tick while Bond was over 20 m away (the known "shuffles uselessly" bug):
+    the walk animation restarted each tick and the chr stood and spun until Bond came close.
+    @return No Return
+ */
+u8 m_ArenaChase[] = {
+
+    Label(lblRun)
+        TRYRunToBond(lblRunning)
+        AI_PRINT,'n','o',' ','g','o','!','\n','\0',
+
+        DO(lblRunning)
+            IFMyDistanceToBondLessThanMeter(9, lblNearMiss)
+            IFImOnPatrolOrStopped(lblDone)
+        LOOP(lblRunning)
+
+        Label(lblNearMiss)                  /* within 9 m: stop the run once Bond is in sight (or the walk is over) */
+            IFICouldSeeBond(lblStoppedMoving)
+            IFImOnPatrolOrStopped(lblDone)
+            Yield()
+            GotoFirst(lblRunning)
+
+        DO(lblLoop)
+            IFMyNumArghsLessThan(6, lblCheckDistance2)
+            IFMychrflagsHas(CHRFLAG_INVINCIBLE, lblInvincibleCheck)
+
+            Label(lblCheckDistance2)
+            IFImOnPatrolOrStopped(lblStoppedMoving)
+            IFMyDistanceToBondGreaterThanMeter(12, lblNext)
+        LOOP(lblLoop)
+
+        Label(lblNext)
+            CONTINUE(lblRun)
+
+        Label(lblStoppedMoving)
+            IFICouldSeeBond(lblNext)
+            GotoNext(lblDone)
+
+        Label(lblCheckDistance)
+            Yield()
+            IFMyDistanceToBondLessThanMeter(5, lblNext)
+            IFImOnPatrolOrStopped(lblNext)
+    LOOP(lblRun)
+
+    Label(lblNext)
+        IFMychrflagsHas(CHRFLAG_INVINCIBLE, lblInvincibleCheck)
+
+    Label(lblMaybeThrowGrenade)
+        SWITCH(SetNewRandom(),
+            IFRandomGreaterThan,200,
+                TRYFireAtBondKneeling,
+            IFRandomGreaterThan, 150,
+                TRYFireAtBond,
+            IFRandomGreaterThan, 100,
+                TRYFiringRun,
+            IFRandomGreaterThan,80,
+                TRYFiringWalk,
+            IFRandomGreaterThan,60,
+                TRYFiringRoll,
+            IFRandomGreaterThan,50,
+                TRYFiringRoll,
+            IFRandomGreaterThan,10,
+                TRYSidestepping,
+            /*DEFAULT*/,,
+                TRYThrowingGrenade,
+            ,,,,,,,,,, ,,,,,,,,,, ,,,
+        )
+            IFICouldSeeBond(lblNext)
+            GotoNext(lblRunning)
+
+        Label(lblRunning)
+            Yield()
+            IFNewRandomGreaterThan(160, lblNext)
+            GotoNext(lblResetAndRunAgain)
+
+        Label(lblNext)
+            Yield()
+            GotoFirst(lblLoop)
+
+        Label(lblResetAndRunAgain)
+            MyTimerStart()
+            TRYRunToBond(lblAbleToRun)
+
+        DO(lblAbleToRun)
+            IFImOnPatrolOrStopped(lblNext)
+            IFMyTimerGreaterThanSeconds(1, lblNext)
+        LOOP(lblAbleToRun)
+
+        Label(lblNext)
+            Stop()
+            UnsetMyFlags2(FLAGS2_04)
+            IFNewRandomGreaterThan(160, lblNext)
+            SetMyFlags2(FLAGS2_04)
+
+        Label(lblNext)
+            MyTimerStart()
+
+        DO(lblSitRep)
+            IFICouldSeeBond(lblNext)
+            IFBondMissedMe(lblNext)
+            Yield()
+            IFMyTimerLessThanSeconds(10, lblWaiting)
+            IFMyFlags2Has(FLAGS2_04, lblAlarmActivated)
+            GotoFirst(lblRun)
+
+            Label(lblAlarmActivated)
+                GotoFirst(lblResetAndRunAgain)
+
+            Label(lblWaiting)
+        LOOP(lblSitRep)
+
+        Label(lblNext)
+            GotoFirst(lblLoop)
+
+        Label(lblInvincibleCheck)
+            IFMyNumArghsLessThan(6, lblNext)
+            UnsetMychrflags(CHRFLAG_INVINCIBLE)
+
+        Label(lblNext)
+    LOOP(lblMaybeThrowGrenade)
+    EndList()
+};
+
+/**
+    PORT: arena engage lists (drop A5). The chr fires as soon as Bond is in line of sight (IFICouldSeeBond: a stan ray, no range
+    limit, exactly what the Dam bunker guards use, see ai_11 in UsetupdamZ.c) AND within the weapon's effective range (LONG 60 m,
+    MID 35 m, SHORT 25 m), instead of running to 9 m first. Bursts alternate with advancing: the stock attack-run/attack-walk
+    actions (fire while walking straight at Bond) or, for chase soldiers, a plain run between bursts. Nothing re-issues a move
+    every tick: runs are re-plotted at most every 3 s (and the position target follows Bond in C, port_arenamode.c).
+    @return No Return
+ */
+/* Labels of the arena engage lists (the ids must be unique within a list; jumps go FORWARD to the next label, GotoFirst back to the first). */
+static enum aelbl
+{
+    aeTop = 60, aeSee, aeAdv, aeGoing, aeW0, aeW0done, aeW1, aeChk, aeBack, aeClose, aeFight, aeRunWait, aeW3, aeW3done, aeW4,
+    aeRunDone, aePush, aePushing, aeW2, aePushed, aeF1, aeF2, aeF3, aeC1, aeC2, aeC3, aeC4
+};
+
+/* The stock close-combat mix (< 12 m): sidestep, roll, walk-and-fire, kneel, stand and fire. Success jumps to aeFight. */
+#define ARENA_CLOSE_BLOCK \
+    Label(aeClose) \
+        SetNewRandom() \
+        IFRandomGreaterThan(40, aeC1) \
+        TRYSidestepping(aeFight) \
+    Label(aeC1) \
+        IFRandomGreaterThan(80, aeC2) \
+        TRYFiringRoll(aeFight) \
+    Label(aeC2) \
+        IFRandomGreaterThan(120, aeC3) \
+        TRYFiringWalk(aeRunWait) \
+    Label(aeC3) \
+        IFRandomGreaterThan(190, aeC4) \
+        TRYFireAtBondKneeling(aeFight) \
+    Label(aeC4) \
+        TRYFireAtBond(aeFight)
+
+/* Far burst, chase soldiers: run-and-gun, walk-and-gun, kneel or stand and fire, by a roll. The attack-run/walk actions
+ * (aeRunWait) advance toward Bond in a straight line while firing; they need 10 m+ and 3 s since the last walk, else the roll falls through. */
+#define ARENA_FAR_CHASE \
+        SetNewRandom() \
+        IFRandomGreaterThan(90, aeF1) \
+        TRYFiringRun(aeRunWait) \
+    Label(aeF1) \
+        IFRandomGreaterThan(150, aeF2) \
+        TRYFiringWalk(aeRunWait) \
+    Label(aeF2) \
+        IFRandomGreaterThan(200, aeF3) \
+        TRYFireAtBondKneeling(aeFight) \
+    Label(aeF3) \
+        TRYFireAtBond(aeFight)
+
+/* Far burst, rushers: always run and gun; stand and fire only while the run is not allowed yet. */
+#define ARENA_FAR_RUSH \
+        TRYFiringRun(aeRunWait) \
+        TRYFireAtBond(aeFight)
+
+/* PUSH_ROLL: chase soldiers advance (aePush) after a burst with this chance (a roll above it); rushers never do (255). */
+#define ARENA_ENGAGE(RANGE_M, FARBLOCK, PUSH_ROLL) \
+    MyTimerStart() \
+    Label(aeTop) \
+        Yield() \
+        IFICouldSeeBond(aeSee) \
+        GotoNext(aeAdv) \
+    Label(aeSee) \
+        IFMyDistanceToBondGreaterThanMeter(RANGE_M, aeAdv) \
+        IFMyDistanceToBondLessThanMeter(12, aeClose) \
+        FARBLOCK \
+        GotoNext(aeFight) \
+    ARENA_CLOSE_BLOCK \
+    Label(aeFight)                  /* a standing burst is on: let it run 2 s (the stock lists never wait for the attack to end) */ \
+        MyTimerStart() \
+        DO(aeW0) \
+            IFMyTimerGreaterThanSeconds(2, aeW0done) \
+        LOOP(aeW0) \
+    Label(aeW0done) \
+        IFNewRandomGreaterThan(PUSH_ROLL, aePush) \
+        GotoFirst(aeTop) \
+    Label(aeRunWait)                /* an attack-run/walk is on: wait for it to end (it walks to Bond on its own), at most 9 s */ \
+        MyTimerStart() \
+        DO(aeW4) \
+            IFImOnPatrolOrStopped(aeRunDone) \
+            IFMyTimerGreaterThanSeconds(9, aeRunDone) \
+        LOOP(aeW4) \
+    Label(aeRunDone) \
+        GotoFirst(aeTop) \
+    Label(aeAdv)                    /* Bond not in sight, or beyond the effective range: path toward him */ \
+        TRYRunToBond(aeGoing) \
+        MyTimerStart()              /* no route: try again in a second, never every tick */ \
+        DO(aeW3) \
+            IFMyTimerGreaterThanSeconds(1, aeW3done) \
+        LOOP(aeW3) \
+    Label(aeW3done) \
+        GotoFirst(aeTop) \
+    Label(aeGoing)                  /* running: stop as soon as Bond is in range AND in sight; re-plot at most every 3 s */ \
+        MyTimerStart() \
+        DO(aeW1) \
+            IFImOnPatrolOrStopped(aeBack) \
+            IFMyTimerGreaterThanSeconds(3, aeBack) \
+            IFMyDistanceToBondLessThanMeter(RANGE_M, aeChk) \
+        LOOP(aeW1) \
+    Label(aeChk) \
+        IFICouldSeeBond(aeBack) \
+        GotoFirst(aeW1) \
+    Label(aeBack) \
+        GotoFirst(aeTop) \
+    Label(aePush)                   /* advance for up to 3 s (until 15 m) between bursts: never stand still forever */ \
+        TRYRunToBond(aePushing) \
+        GotoFirst(aeTop) \
+    Label(aePushing) \
+        MyTimerStart() \
+        DO(aeW2) \
+            IFMyDistanceToBondLessThanMeter(15, aePushed) \
+            IFImOnPatrolOrStopped(aePushed) \
+            IFMyTimerGreaterThanSeconds(3, aePushed) \
+        LOOP(aeW2) \
+    Label(aePushed) \
+        GotoFirst(aeTop) \
+    EndList()
+
+u8 m_ArenaEngageLongChase[]  = { ARENA_ENGAGE(60, ARENA_FAR_CHASE, 150) };
+u8 m_ArenaEngageMidChase[]   = { ARENA_ENGAGE(35, ARENA_FAR_CHASE, 150) };
+u8 m_ArenaEngageShortChase[] = { ARENA_ENGAGE(25, ARENA_FAR_CHASE, 150) };
+u8 m_ArenaEngageLongRush[]   = { ARENA_ENGAGE(60, ARENA_FAR_RUSH, 255) };
+u8 m_ArenaEngageMidRush[]    = { ARENA_ENGAGE(35, ARENA_FAR_RUSH, 255) };
+u8 m_ArenaEngageShortRush[]  = { ARENA_ENGAGE(25, ARENA_FAR_RUSH, 255) };
+
+/**
+    PORT: arena marksman. Holds position and, while Bond is in line of sight (at any range: IFICouldSeeBond ignores
+    visionrange), fires bursts with TRYFireAtBond (the stock standing "fire at Bond" command m_StandardGuard / m_AttackBond
+    use). If Bond has not been in sight for 4 s, the marksman runs toward Bond until he is in sight (or the run ends),
+    then resumes holding and firing, so it is never stuck. (The stock GAILIST_AIM_AT_BOND is aim-only, so snipers tracked
+    Bond but never shot.)
+    @return No Return
+ */
+u8 m_ArenaSnipe[] = {
+    SetMyAccuracyRating(50)                     /* far-range hit chance falls off as 300/dist; the rating compensates (as m_DrawPistolAndAttackBond) */
+    MyTimerStart()                              /* timer = time since Bond was last in sight */
+
+    DO(lblLoop)
+        IFICouldSeeBond(lblStoppedMoving)
+        IFMyTimerGreaterThanSeconds(4, lblDone)
+    LOOP(lblLoop)
+
+    Label(lblStoppedMoving)                     /* Bond in sight: (re)start a firing action, let it run 2 s */
+        TRYFireAtBond(lblRunning)               /* fails only if the chr has no weapon */
+        GotoFirst(lblLoop)
+
+    Label(lblRunning)
+        MyTimerStart()
+        DO(lblNext)                             /* the stock lists never wait for the attack to end either: re-issue it on a timer */
+            IFMyTimerGreaterThanSeconds(2, lblNearMiss)
+        LOOP(lblNext)
+
+    Label(lblNearMiss)
+        MyTimerStart()                          /* sight timer restarts after each burst */
+        GotoFirst(lblLoop)
+
+    Label(lblDone)                              /* Bond lost for 4 s: relocate toward him until he is in sight */
+        TRYRunToBond(lblRunning)
+        MyTimerStart()                          /* no route: wait another 4 s */
+        GotoFirst(lblLoop)
+
+    Label(lblRunning)
+        DO(lblNext)
+            IFICouldSeeBond(lblWaiting)
+            IFImOnPatrolOrStopped(lblWaiting)
+        LOOP(lblNext)
+
+    Label(lblWaiting)
+        MyTimerStart()
+        GotoFirst(lblLoop)
+    EndList()
+};
+#endif
+
 #pragma endregion Private Members
 
 /*D:8003744C */
@@ -820,6 +1130,17 @@ AIListRecord g_GlobalAILists[] = {
     {m_EndLevel                , GAILIST_END_LEVEL},
     {m_DrawPistolAndAttackBond , GAILIST_DRAW_TT33_AND_ATTCK_BOND},
     {m_RemoveSelf              , GAILIST_REMOVE_CHR},
+#ifndef TARGET_N64
+    {m_CoopBot                 , GAILIST_COOP_BOT}, /* PORT: co-op bot idle list */
+    {m_ArenaChase              , GAILIST_ARENA_CHASE},
+    {m_ArenaSnipe              , GAILIST_ARENA_SNIPE},
+    {m_ArenaEngageLongChase    , GAILIST_ARENA_ENGAGE_LONG_CHASE},
+    {m_ArenaEngageMidChase     , GAILIST_ARENA_ENGAGE_MID_CHASE},
+    {m_ArenaEngageShortChase   , GAILIST_ARENA_ENGAGE_SHORT_CHASE},
+    {m_ArenaEngageLongRush     , GAILIST_ARENA_ENGAGE_LONG_RUSH},
+    {m_ArenaEngageMidRush      , GAILIST_ARENA_ENGAGE_MID_RUSH},
+    {m_ArenaEngageShortRush    , GAILIST_ARENA_ENGAGE_SHORT_RUSH},
+#endif
     {NULL, 0}
 };
 

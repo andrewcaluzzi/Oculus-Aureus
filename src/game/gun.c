@@ -1352,7 +1352,7 @@ void currentPlayerUnEquipWeaponWrapper(enum GUNHAND hand, enum ITEM_IDS weapid)
         g_CurrentPlayer->hands[hand].previous_weapon = weapon_num;
     }
 
-    if (getPlayerCount() >= 2)
+    if (portAllPlayerCount() >= 2) /* PORT: coop: the body weapon follows the switch for every Bond */
     {
         sub_GAME_7F09B368(hand);
     }

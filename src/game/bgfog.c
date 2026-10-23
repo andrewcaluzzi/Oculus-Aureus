@@ -524,6 +524,41 @@ void fogLoadLevelEnvironment(s32 level_id, s32 arg1)
 
     sp1C = NULL;
 
+#ifndef TARGET_N64
+    if (level_id == LEVELID_SHO)
+    {
+        level_id = LEVELID_SURFACE; /* PORT: Flatland (port/flatland) takes Surface's sky and fog */
+    }
+#endif
+
+#ifndef TARGET_N64
+    if (level_id == LEVELID_EAR)
+    {   /* PORT: the Colosseum arena (port/colosseum): no fog, its own bright sky. A static
+         * record built here, because adding a fog_tables2 row would shift the ROM-served table. */
+        static EnvironmentFoglessRecord colosseum_env;
+
+        colosseum_env.Id = LEVELID_EAR;
+        colosseum_env.Red = 0x48;
+        colosseum_env.Green = 0x98;
+        colosseum_env.Blue = 0xE8;
+        colosseum_env.Clouds = 1;
+        colosseum_env.CloudRepeat = 6000.0f;
+        colosseum_env.SkyImageId = 0;
+        colosseum_env.CloudRed = 255.0f;
+        colosseum_env.CloudGreen = 255.0f;
+        colosseum_env.CloudBlue = 255.0f;
+        colosseum_env.IsWater = 0;
+
+        g_ScaledFarFogIntensity = FLT_MAX;
+        g_ScaledDifferenceFromFarFogIntensity = 0.0f;
+        viSetZRange(15.0f, 16000.0f);
+        g_FogSkyIsEnabled = 0;
+        fogLoadFoglessCurrentEnvironment(&colosseum_env);
+        g_EnvironmentFoundp = NULL;
+        return;
+    }
+#endif
+
     num_players = getPlayerCount();
 
     if (num_players == 1)

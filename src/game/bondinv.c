@@ -722,10 +722,10 @@ void bondinvCycleBackward(s32 *nextright, s32 *nextleft, s32 requireammo)
     *nextleft  = weapon2;
 }
 
-bool bondinvCheckHasKeyFlags(u32 wantkeyflags)
+static bool bondinvKeyFlagsOf(struct player *pl, u32 wantkeyflags, u32 *held)
 {
-    u32      heldkeyflags = 0;
-    InvItem *item         = g_CurrentPlayer->ptr_inventory_first_in_cycle;
+    u32      heldkeyflags = *held;
+    InvItem *item         = pl->ptr_inventory_first_in_cycle;
 
     while (item)
     {
@@ -745,6 +745,7 @@ bool bondinvCheckHasKeyFlags(u32 wantkeyflags)
 
                     if ((wantkeyflags & heldkeyflags) == wantkeyflags)
                     {
+                        *held = heldkeyflags;
                         return TRUE;
                     }
                 }
@@ -753,22 +754,47 @@ bool bondinvCheckHasKeyFlags(u32 wantkeyflags)
 
         item = item->next;
 
-        if (item == g_CurrentPlayer->ptr_inventory_first_in_cycle)
+        if (item == pl->ptr_inventory_first_in_cycle)
         {
             break;
         }
     }
 
+    *held = heldkeyflags;
     return FALSE;
 }
 
-bool bondinvHasGEKey(void)
+/* PORT: coop: keys are shared, so the flags held by every Bond count together (co-op off: the current player only) */
+bool bondinvCheckHasKeyFlags(u32 wantkeyflags)
+{
+    u32 held = 0;
+#ifndef TARGET_N64
+    extern int portCoopActive(void);
+
+    if (portCoopActive())
+    {
+        s32 i;
+
+        for (i = 0; i < portAllPlayerCount(); i++)
+        {
+            if (g_playerPointers[i] != NULL && bondinvKeyFlagsOf(g_playerPointers[i], wantkeyflags, &held))
+            {
+                return TRUE;
+            }
+        }
+        return FALSE;
+    }
+#endif
+    return bondinvKeyFlagsOf(g_CurrentPlayer, wantkeyflags, &held);
+}
+
+static bool bondinvHasGEKeyOf(struct player *pl)
 {
     InvItem      *item;
     PropRecord   *prop;
     ObjectRecord *obj;
 
-    item = g_CurrentPlayer->ptr_inventory_first_in_cycle;
+    item = pl->ptr_inventory_first_in_cycle;
 
     while (item)
     {
@@ -789,13 +815,35 @@ bool bondinvHasGEKey(void)
 
         item = item->next;
 
-        if (item == g_CurrentPlayer->ptr_inventory_first_in_cycle)
+        if (item == pl->ptr_inventory_first_in_cycle)
         {
             break;
         }
     }
 
     return FALSE;
+}
+
+bool bondinvHasGEKey(void)
+{
+#ifndef TARGET_N64
+    extern int portCoopActive(void);
+
+    if (portCoopActive()) /* PORT: coop: shared item */
+    {
+        s32 i;
+
+        for (i = 0; i < portAllPlayerCount(); i++)
+        {
+            if (g_playerPointers[i] != NULL && bondinvHasGEKeyOf(g_playerPointers[i]))
+            {
+                return TRUE;
+            }
+        }
+        return FALSE;
+    }
+#endif
+    return bondinvHasGEKeyOf(g_CurrentPlayer);
 }
 
 /**
@@ -821,9 +869,9 @@ bool bondinvHasGoldenGun(void)
     return bondinvHasInvItem(ITEM_GOLDENGUN);
 }
 
-bool bondinvHasPropInInv(PropRecord *prop)
+static bool bondinvHasPropOf(struct player *pl, PropRecord *prop)
 {
-    InvItem *item = g_CurrentPlayer->ptr_inventory_first_in_cycle;
+    InvItem *item = pl->ptr_inventory_first_in_cycle;
 
     while (item)
     {
@@ -834,13 +882,35 @@ bool bondinvHasPropInInv(PropRecord *prop)
 
         item = item->next;
 
-        if (item == g_CurrentPlayer->ptr_inventory_first_in_cycle)
+        if (item == pl->ptr_inventory_first_in_cycle)
         {
             break;
         }
     }
 
     return FALSE;
+}
+
+bool bondinvHasPropInInv(PropRecord *prop)
+{
+#ifndef TARGET_N64
+    extern int portCoopActive(void);
+
+    if (portCoopActive()) /* PORT: coop: COLLECT/DEPOSIT objectives and IFBondCollectedObject count any Bond's items */
+    {
+        s32 i;
+
+        for (i = 0; i < portAllPlayerCount(); i++)
+        {
+            if (g_playerPointers[i] != NULL && bondinvHasPropOf(g_playerPointers[i], prop))
+            {
+                return TRUE;
+            }
+        }
+        return FALSE;
+    }
+#endif
+    return bondinvHasPropOf(g_CurrentPlayer, prop);
 }
 
 s32 bondinvCountTotalItemsInInv(void)

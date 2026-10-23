@@ -2395,8 +2395,39 @@ void chrUpdateAnim(ChrRecord *chr, chranimticks_t tickamount)
  */
 #ifndef TARGET_N64
 u32 g_PortHwChrsTicked; /* GE HW pacing: characters simulated this tick (frametiming.c snapshots it) */
-#endif
+
+static s32 chrTickInner(PropRecord *prop);
+
+/* PORT: coop: chrTick runs once per player pass, but a chr must advance once per frame. The first pass in the
+ * shuffled order (the same on both machines) is the simulation pass; the others run with the frame clocks at
+ * zero, so animation, aim easing, falls and flinch timers add nothing and the pass only redraws. */
 s32 chrTick(PropRecord *prop)
+{
+    extern int portCoopSimPass(void);
+    s32 ret;
+
+    if (portCoopSimPass())
+    {
+        return chrTickInner(prop);
+    }
+    {
+        __typeof__(g_ClockTimer) savedClock = g_ClockTimer;
+        __typeof__(g_GlobalTimerDelta) savedDelta = g_GlobalTimerDelta;
+
+        g_ClockTimer = 0;
+        g_GlobalTimerDelta = 0;
+        ret = chrTickInner(prop);
+        g_ClockTimer = savedClock;
+        g_GlobalTimerDelta = savedDelta;
+    }
+    return ret;
+}
+#endif
+#ifndef TARGET_N64
+static s32 chrTickInner(PropRecord *prop)
+#else
+s32 chrTick(PropRecord *prop)
+#endif
 {
     ModelRenderData renderdata;
 #ifndef TARGET_N64
@@ -2417,6 +2448,17 @@ s32 chrTick(PropRecord *prop)
 #else
     tickamount = g_ClockTimer;
 #endif
+#ifndef TARGET_N64
+    /* PORT: coop: chrTick runs once per player pass. Only one pass per frame (the first in the shuffled
+     * order, the same on both machines) advances the simulation; the other pass only redraws. */
+    extern int portCoopSimPass(void);
+    s32 portSimPass = portCoopSimPass();
+
+    if (!portSimPass)
+    {
+        tickamount = 0;
+    }
+#endif
 
     if ((!(chr->chrflags & CHRFLAG_HIDDEN)) || (chr->chrflags & CHRFLAG_00040000))
     {
@@ -2432,6 +2474,9 @@ s32 chrTick(PropRecord *prop)
         }
         else
         {
+#ifndef TARGET_N64
+            if (portSimPass)
+#endif
             chrlvActionTick(chr);
 
             if (chr->model == NULL)
@@ -2582,6 +2627,9 @@ after_position_update:
         chr->hidden |= CHRHIDDEN_BACKGROUND_AI;
     }
 
+#ifndef TARGET_N64
+    if (portSimPass) /* PORT: coop: eases the aim by the clock; once per frame, not once per player pass */
+#endif
     chrUpdateAimProperties(chr);
 
     if (chr->field_20 != NULL)
@@ -2626,6 +2674,9 @@ after_position_update:
 
         if (g_CurModelChr->flinchcnt >= 0)
         {
+#ifndef TARGET_N64
+            if (portSimPass)
+#endif
             g_CurModelChr->flinchcnt += g_ClockTimer;
 
 #ifdef VERSION_EU
@@ -3518,6 +3569,13 @@ void chrTestHit(PropRecord *prop, ShotData *shotdata)
         return;
     }
 
+#ifndef TARGET_N64
+    /* PORT: a chr with no model or no hit entries (the entry pool ran dry this frame) cannot be hit-tested. */
+    if (chr->model == NULL || chr->field_20 == NULL)
+    {
+        return;
+    }
+#endif
     model = chr->model;
     modelsize = getinstsize(model);
 

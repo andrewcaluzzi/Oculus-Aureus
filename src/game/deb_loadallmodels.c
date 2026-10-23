@@ -49,6 +49,13 @@ void alloc_false_GUARDdata_to_exec_global_action(void)
 
     if (!g_CurrentSetup.ailists) { return; }
 
+#ifndef TARGET_N64
+    { /* PORT: mode: level reset runs no level/background AI scripts */
+        extern int portModeActive(void);
+        if (portModeActive()) { return; }
+    }
+#endif
+
     count = 0;
 
     // Count the number of background AI lists

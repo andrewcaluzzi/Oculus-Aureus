@@ -871,10 +871,78 @@ s16 viGetY(void)
     return g_ViBackData->y;
 }
 
+#ifndef TARGET_N64
+/* PORT: netplay job 3c: in a co-op stage the player's CAMERA MODEL (the c_* fields: screen rectangle, perspective, frustum
+ * planes, room visibility, onscreen tests, autoaim, the aim-to-ray maths) is a canonical, fixed view, so the simulation
+ * does not depend on the window, the aspect or the FOV setting of the machine. The back data (g_ViBackData) keeps the
+ * REAL view: the display list's viewport and projection (viSetupCurrentPlayerView) and the HUD layout. */
+extern s32 portSimViewOn(void);          /* port_coop.c: a co-op stage is running */
+extern f32 portSimViewAspect(void);      /* port_coop.c: the canonical aspect (16:9) */
+extern f32 portSimModelFovY(f32 fovy);   /* port_coop.c: the zoom-chain fov as the canonical camera widens it (the 240-line view) */
+extern f32 portSimDisplayFovY(f32 fovy, s32 realViewY);   /* port_coop.c: canonical fov -> the fov the window draws */
+static f32 sViSimFov[4] = { 60.0f, 60.0f, 60.0f, 60.0f };   /* the zoom-chain fov per player (what the sim reads as viGetFovY) */
+
+static void viApplyCameraModel(void)
+{
+    f32 fovy = g_ViBackData->fovy;
+    f32 aspect = g_ViBackData->aspect;
+
+    if (portSimViewOn() && g_CurrentPlayer != NULL)
+    {
+        fovy = g_CurrentPlayer->c_perspfovy;   /* the model's own, set by viSetFovY */
+        aspect = portSimViewAspect();
+    }
+    currentPlayerSetPerspective(g_ViBackData->znear, fovy, aspect);
+    currentPlayerSetCameraScale();
+}
+
+/* the real view equals the canonical one (320x240 at 0,0, 16:9, the same fov): per-room scissors, computed in the canonical
+ * camera's screen space, are then exact. Also the default PC window (full height, 16:9). */
+s32 viSimViewMatchesDraw(void)
+{
+    return !portSimViewOn()
+        || (g_ViBackData->viewx == 320 && g_ViBackData->viewy == 240 && g_ViBackData->viewleft == 0 && g_ViBackData->viewtop == 0
+            && g_CurrentPlayer != NULL && g_ViBackData->fovy == g_CurrentPlayer->c_perspfovy
+            && g_ViBackData->aspect > portSimViewAspect() - 0.001f && g_ViBackData->aspect < portSimViewAspect() + 0.001f);
+}
+
+/* PORT: netplay job 7: the RENDER walk (bg.c bgRoomVisibilityRelated) runs the portal walk with the view's REAL camera model, the one a solo game
+ * would have: the window's view rectangle, display fov and aspect. These two swap the current player's c_* block (screen rectangle, perspective,
+ * scales, frustum normals: bondview.h c_screenwidth .. c_cameraleftnorm) to the real values and back, so the canonical model the sim reads is
+ * untouched outside the render walk. */
+#include <string.h>
+#include <stddef.h>
+#define PORT_CAMBLOCK_BYTES ((int) (offsetof(struct player, c_cameraleftnorm) + sizeof(coord3d) - offsetof(struct player, c_screenwidth)))
+
+_Static_assert(PORT_CAMBLOCK_BYTES <= 256, "bgRoomVisibilityRelated saves the camera block in a 256-byte buffer");
+
+void viSimCameraToReal(void *save)
+{
+    memcpy(save, &g_CurrentPlayer->c_screenwidth, PORT_CAMBLOCK_BYTES);
+    currentPlayerSetScreenSize(g_ViBackData->viewx, g_ViBackData->viewy);
+    currentPlayerSetScreenPosition(g_ViBackData->viewleft, g_ViBackData->viewtop);
+    currentPlayerSetPerspective(g_ViBackData->znear, g_ViBackData->fovy, g_ViBackData->aspect);
+    currentPlayerSetCameraScale();
+}
+
+void viSimCameraRestore(const void *save)
+{
+    memcpy(&g_CurrentPlayer->c_screenwidth, save, PORT_CAMBLOCK_BYTES);
+}
+#endif
+
 void viSetViewSize(s16 x, s16 y)
 {
     g_ViBackData->viewx = x;
     g_ViBackData->viewy = y;
+#ifndef TARGET_N64
+    if (portSimViewOn())
+    {
+        currentPlayerSetScreenSize(320, 240);   /* the canonical rectangle: the PC default (full height) */
+        currentPlayerSetCameraScale();
+        return;
+    }
+#endif
     currentPlayerSetScreenSize(g_ViBackData->viewx, g_ViBackData->viewy);
     currentPlayerSetCameraScale();
 }
@@ -893,6 +961,13 @@ void viSetViewPosition(s16 left, s16 top)
 {
     g_ViBackData->viewleft = left;
     g_ViBackData->viewtop = top;
+#ifndef TARGET_N64
+    if (portSimViewOn())
+    {
+        currentPlayerSetScreenPosition(0, 0);   /* canonical */
+        return;
+    }
+#endif
     currentPlayerSetScreenPosition(g_ViBackData->viewleft, g_ViBackData->viewtop);
 }
 
@@ -913,6 +988,18 @@ void viSetUseZBuf(s32 usezbuf)
 
 void viSetFovY(f32 fovy)
 {
+#ifndef TARGET_N64
+    if (portSimViewOn() && g_CurrentPlayer != NULL)
+    {   /* fovy is the canonical zoom-chain value: the camera model widens it for the 240-line view, the window draws its display fov */
+        const s32 pn = get_cur_playernum();
+
+        sViSimFov[(pn >= 0 && pn < 4) ? pn : 0] = fovy;
+        g_CurrentPlayer->c_perspfovy = portSimModelFovY(fovy);
+        g_ViBackData->fovy = portSimDisplayFovY(fovy, g_ViBackData->viewy);
+        viApplyCameraModel();
+        return;
+    }
+#endif
     g_ViBackData->fovy = fovy;
     currentPlayerSetPerspective(g_ViBackData->znear, g_ViBackData->fovy, g_ViBackData->aspect);
     currentPlayerSetCameraScale();
@@ -921,12 +1008,27 @@ void viSetFovY(f32 fovy)
 void viSetAspect(f32 aspect)
 {
     g_ViBackData->aspect = aspect;
+#ifndef TARGET_N64
+    if (portSimViewOn())
+    {
+        viApplyCameraModel();
+        return;
+    }
+#endif
     currentPlayerSetPerspective(g_ViBackData->znear, g_ViBackData->fovy, g_ViBackData->aspect);
     currentPlayerSetCameraScale();
 }
 
 f32 viGetFovY(void)
 {
+#ifndef TARGET_N64
+    if (portSimViewOn() && g_CurrentPlayer != NULL)
+    {
+        const s32 pn = get_cur_playernum();
+
+        return sViSimFov[(pn >= 0 && pn < 4) ? pn : 0];   /* the zoom-chain fov, whatever the window draws */
+    }
+#endif
     return g_ViBackData->fovy;
 }
 
@@ -942,6 +1044,13 @@ void viSetZRange(f32 near, f32 far)
 {
     g_ViBackData->znear = near;
     g_ViBackData->zfar = far;
+#ifndef TARGET_N64
+    if (portSimViewOn())
+    {
+        viApplyCameraModel();
+        return;
+    }
+#endif
     currentPlayerSetPerspective(g_ViBackData->znear, g_ViBackData->fovy, g_ViBackData->aspect);
     currentPlayerSetCameraScale();
 }

@@ -248,7 +248,15 @@ Gfx *sub_GAME_7F01C1A4(Gfx *gdl) {
 s32 portBloodFrameDue(u32 *stamp)
 {
     extern s32 portPaceDue(u32 *stamp, u32 counts); /* frametiming.c */
+    extern int portCoopNetDriven(void);
+    extern unsigned int portCoopNetTick(void);
 
+    /* netplay: wall-clock pacing would make the blood animation (and with it the dead Bond's gun and death states, which are
+     * in the state hash) depend on this machine's speed. Every second sim tick instead: 30 fps of the 60 Hz sim. */
+    if (portCoopNetDriven())
+    {
+        return (portCoopNetTick() & 1u) == 0;
+    }
     return portPaceDue(stamp, BLOOD_FRAME_COUNTS);
 }
 #endif

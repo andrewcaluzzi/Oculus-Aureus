@@ -44,6 +44,9 @@ extern ItemModelFileRecord PitemZ_entries[341];
 // forward declarations
 
 s32 load_proptype(PROPDEF_TYPE type);
+#ifndef TARGET_N64
+extern int portModeActive(void); /* PORT: mode: port_mode.c */
+#endif
 void sub_GAME_7F001BD4(struct BoundPadRecord *pad, struct coord3d *arg1);
 void domakedefaultobj(s32 arg0, ObjectRecord *arg1, s32 cmdindex);
 void weaponAssignToHome(s32 arg0, WeaponObjRecord* weapon, s32 cmdindex);
@@ -328,6 +331,18 @@ void domakedefaultobj(s32 arg0, ObjectRecord *arg1, s32 cmdindex)
             {
                 sp60 = objInitWithAutoModel(arg1);
             }
+
+#ifndef TARGET_N64
+            /* PORT: objInit returns NULL (and leaves obj->model unset) when no prop or model slot is free; the code below
+             * then reads arg1->model->scale off NULL. Stock stages never run out here, but an object spawned at runtime
+             * (the arena's centre ammo box with 25+ dropped guns on the floor) can. Skip the object; the caller sees prop == NULL. */
+            if (sp60 == NULL || arg1->model == NULL)
+            {
+                extern int printf(const char *, ...);
+                printf("ge: domakedefaultobj: obj %d (model %d): no free prop/model slot - object skipped\n", cmdindex + 1, spF0);
+                return;
+            }
+#endif
 
             if (var_s0 != NULL)
             {
@@ -1944,12 +1959,25 @@ void proplvreset2(enum LEVELID stageId)
         strcat(strResource, setup_text_pointers[stageId] + 1); // Add remaining text back U[mp_] +
                                                                // setupxxxZ
 
+#ifndef TARGET_N64
+        if (stageId == LEVELID_SHO)
+        {   /* PORT: Flatland (port/flatland): compiled in, fetched by symbol, for any player count */
+            extern stagesetup UsetupflatlandZ;
+            g_ptrStageSetupFile = &UsetupflatlandZ;
+        }
+        else if (stageId == LEVELID_EAR)
+        {   /* PORT: Colosseum (port/colosseum), same arrangement */
+            extern stagesetup UsetupcolosseumZ;
+            g_ptrStageSetupFile = &UsetupcolosseumZ;
+        }
+        else
+#endif
         g_ptrStageSetupFile = _fileNameLoadToBank(strResource, FILELOADMETHOD_DEFAULT, 256, MEMPOOL_STAGE);
 
 #ifndef TARGET_N64
         {
             extern s32 romdataFileServed(s32 index);
-            g_portSetupFromRom = romdataFileServed(fileGetIndex((u8 *) strResource));
+            g_portSetupFromRom = (stageId == LEVELID_SHO || stageId == LEVELID_EAR) ? 0 : romdataFileServed(fileGetIndex((u8 *) strResource));
         }
 #endif
         local_stage = g_ptrStageSetupFile;
@@ -2258,7 +2286,7 @@ void proplvreset2(enum LEVELID stageId)
         modelmgrAllocateModelSlots(numObjects);
         modelmgrAllocateAnimModelSlots(numAnimatedObjects);
 
-        for (i8 = 0; i8 < getPlayerCount(); i8++)
+        for (i8 = 0; i8 < portAllPlayerCount(); i8++)
         {
             set_cur_player(i8);
             alloc_additional_item_slots(load_proptype(PROPDEF_LINK));
@@ -2319,7 +2347,12 @@ void proplvreset2(enum LEVELID stageId)
                         break;
                     }
                     case PROPDEF_GUARD:
+#ifndef TARGET_N64
+                        /* PORT: mode: level reset spawns no guards */
+                        if (withchrs && !portModeActive())
+#else
                         if (withchrs)
+#endif
                         {
                             expand_09_characters(stageId, (struct GuardRecord *) phead, pdefIndex);
                         }
@@ -2619,6 +2652,12 @@ void proplvreset2(enum LEVELID stageId)
                         break;
                     }
                     case PROPDEF_OBJECTIVE_START:
+#ifndef TARGET_N64
+                        if (portModeActive()) /* PORT: mode: level reset has no objectives */
+                        {
+                            break;
+                        }
+#endif
                         add_ptr_to_objective((struct objective_entry *) phead);
                         break;
                     case PROPDEF_OBJECTIVE_ENTER_ROOM:

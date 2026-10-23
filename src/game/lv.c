@@ -247,6 +247,32 @@ Gfx * lvlPortalDebug7F0BDF10(Gfx * arg0);
 
 // end forward declarations
 
+#ifndef TARGET_N64
+/* PORT: netplay job 3e: the "draw the world" gate is per Bond. The watch menu (options.c draw_watch_current_page) closes it while
+ * ITS Bond's watch is open; one shared flag also blacked out the partner's world (the partner's pass reads whatever the
+ * opener's pass left), and the unrendered world is what the partner's hit tests and onscreen flags are built on. */
+static s32 s_portWorldGate[4] = { 1, 1, 1, 1 };
+
+s32 sub_GAME_7F0BD8F0(void)
+{
+    return D_800483C0 && s_portWorldGate[get_cur_playernum() & 3];
+}
+
+void sub_GAME_7F0BD8FC(s32 arg0)
+{
+    static s32 shared = -1;   /* GE_WATCH_SHAREDGATE=1 (test only): the old behaviour, one gate for every Bond (the negative control) */
+    extern char *getenv(const char *);
+
+    if (shared < 0) { shared = getenv("GE_WATCH_SHAREDGATE") != NULL; }
+    if (shared)
+    {
+        s32 gi;
+        for (gi = 0; gi < 4; gi++) { s_portWorldGate[gi] = arg0; }
+        return;
+    }
+    s_portWorldGate[get_cur_playernum() & 3] = arg0;
+}
+#else
 s32 sub_GAME_7F0BD8F0(void)
 {
     return D_800483C0;
@@ -256,6 +282,7 @@ void sub_GAME_7F0BD8FC(s32 arg0)
 {
     D_800483C0 = arg0;
 }
+#endif
 
 void lvInit(void)
 {
@@ -353,10 +380,32 @@ static s32 portStrHas(const char *hay, const char *needle)
     return 0;
 }
 
+/* Cheat bits are per player. In co-op the session-wide switches (GE_CHEATS, arena) go on for every
+ * Bond; with co-op off this is the single call on the current player. */
+static void portCheatOnAll(CHEAT_ID cheat_id)
+{
+    extern void cheatButtonHandleCheatsTurnedOn(CHEAT_ID cheat_id);
+    extern int portCoopActive(void);
+
+    if (portCoopActive())
+    {
+        s32 saved = get_cur_playernum();
+        s32 k;
+
+        for (k = 0; k < portAllPlayerCount(); k++)
+        {
+            set_cur_player(k);
+            cheatButtonHandleCheatsTurnedOn(cheat_id);
+        }
+        set_cur_player(saved);
+        return;
+    }
+    cheatButtonHandleCheatsTurnedOn(cheat_id);
+}
+
 static void portCheatTick(void)
 {
     extern char *getenv(const char *);
-    extern void cheatButtonHandleCheatsTurnedOn(CHEAT_ID cheat_id);
     const char *e;
 
     if (g_PortCheatCountdown < 0)
@@ -370,6 +419,23 @@ static void portCheatTick(void)
     }
     g_PortCheatCountdown = -1;
 
+    {   /* PORT: modifiers: the cheat-backed ones go on now that the player is live */
+        extern void portModifierStageLive(void);
+        portModifierStageLive();
+    }
+    {   /* PORT: arena: invincible Bond with infinite ammo (GE_ARENA=1) */
+        extern s32 portArenaEnabled(void);
+
+        if (portArenaEnabled())
+        {
+            portCheatOnAll(CHEAT_INVINCIBILITY);
+            portCheatOnAll(CHEAT_INFINITE_AMMO);
+        }
+    }
+    { /* PORT: mode: reset stage force-unlocks doors, reports the chr count */
+        extern void portModeOneSecond(void);
+        portModeOneSecond();
+    }
     e = getenv("GE_CHEATS");
     if (e == NULL || e[0] == '\0')
     {
@@ -377,36 +443,36 @@ static void portCheatTick(void)
     }
     if (portStrHas(e, "invuln"))
     {
-        cheatButtonHandleCheatsTurnedOn(CHEAT_INVINCIBILITY);
+        portCheatOnAll(CHEAT_INVINCIBILITY);
     }
     if (portStrHas(e, "invis"))
     {
-        cheatButtonHandleCheatsTurnedOn(CHEAT_INVISIBILITY);
+        portCheatOnAll(CHEAT_INVISIBILITY);
     }
     if (portStrHas(e, "guns"))
     {
-        cheatButtonHandleCheatsTurnedOn(CHEAT_ALLGUNS);
-        cheatButtonHandleCheatsTurnedOn(CHEAT_INFINITE_AMMO);
+        portCheatOnAll(CHEAT_ALLGUNS);
+        portCheatOnAll(CHEAT_INFINITE_AMMO);
     }
     if (portStrHas(e, "turbo"))
     {
-        cheatButtonHandleCheatsTurnedOn(CHEAT_TURBO_MODE);
+        portCheatOnAll(CHEAT_TURBO_MODE);
     }
     if (portStrHas(e, "rockets"))
     {
-        cheatButtonHandleCheatsTurnedOn(CHEAT_ENEMY_ROCKETS);
+        portCheatOnAll(CHEAT_ENEMY_ROCKETS);
     }
     if (portStrHas(e, "linemode"))
     {
-        cheatButtonHandleCheatsTurnedOn(CHEAT_LINEMODE);
+        portCheatOnAll(CHEAT_LINEMODE);
     }
     if (portStrHas(e, "enemyff"))
     {
-        cheatButtonHandleCheatsTurnedOn(CHEAT_PORT_ENEMY_FF);
+        portCheatOnAll(CHEAT_PORT_ENEMY_FF);
     }
     if (portStrHas(e, "doors"))
     {
-        cheatButtonHandleCheatsTurnedOn(CHEAT_PORT_UNLOCK_DOORS);
+        portCheatOnAll(CHEAT_PORT_UNLOCK_DOORS);
     }
     if (portStrHas(e, "dualzmg"))
     {
@@ -739,6 +805,23 @@ void lvlStageLoad(s32 stage)
 #ifndef TARGET_N64
     g_PortCheatCountdown = 60; /* apply GE_CHEATS ~1s into the mission */
     g_PortSpawnWepCountdown = 120; /* GE_SPAWNWEAPON drops ~2s in */
+    { /* PORT: co-op bot: forget last stage's bot/spawn state, re-arm the auto-spawn */
+        extern void portBotReset(void);
+        portBotReset();
+    }
+    { /* PORT: mode: GE_MODE level reset, decided before proplvreset2 (solo only, never in demos) */
+        extern void portModeStageStart(int stage);
+        portModeStageStart(stage);
+    }
+    { /* PORT: modifiers: last stage's Lua overrides end, GE_MODS re-applies, load-time Enemy Rockets and the cheat-run
+       * flag; before the scripts load so a script's top-level mods.set sticks */
+        extern void portModifierStageStart(void);
+        portModifierStageStart();
+    }
+    { /* PORT: lua: stock weapons, then Data/Scripts/*.lua (solo only, never in demos) */
+        extern void portLuaStageStart(void);
+        portLuaStageStart();
+    }
     portDebugPosApply();
     portCheatApplyLoadTimeSafe(); /* GE_CHEATS=rockets must be live before
                                    * proplvreset2/weaponAssignToHome below */
@@ -754,6 +837,9 @@ void lvlStageLoad(s32 stage)
     }
 
     D_800483C0 = 1;
+#ifndef TARGET_N64
+    { s32 gi; for (gi = 0; gi < 4; gi++) { s_portWorldGate[gi] = 1; } }
+#endif
     g_ControlsLockedFlag = 0;
     g_ClockTimer = 1;
 
@@ -930,6 +1016,12 @@ void lvlStageLoad(s32 stage)
     init_guards();
     bodiesReset(stage);
     proplvreset2(stage);
+#ifndef TARGET_N64
+    { /* PORT: mode: chr count after the reset filter */
+        extern void portModeReport(const char *when);
+        portModeReport("loaded");
+    }
+#endif
     alloc_explosion_smoke_casing_scorch_impact_buffers();
     alloc_shattered_window_pieces();
     sub_GAME_7F007290();
@@ -946,7 +1038,7 @@ void lvlStageLoad(s32 stage)
         init_path_table_links();
         init_ejected_cartridges();
 
-        for (s0 = 0; s0 < getPlayerCount(); s0++)
+        for (s0 = 0; s0 < portAllPlayerCount(); s0++)
         {
             set_cur_player(s0);
             reinit_gunheld_totaltime();
@@ -1127,6 +1219,15 @@ Gfx *lvlPortalDebug7F0BDF10(Gfx *gdl)
  * Address 0x7F0BE30C (VERSION_US).
  */
 
+#ifndef TARGET_N64
+/* rollback R1 (port_simonly.c): a sim-only tick (GE_SIMONLY_TEST) runs this function for the sim items of each player's pass only */
+extern int g_PortSimOnly;
+extern void portSimOnlySect(int id);   /* GE_SIMONLY_STATS: where the time of a sim-only tick goes */
+#define PSECT(n) do { if (g_PortSimOnly) portSimOnlySect(n); } while (0)
+#else
+#define PSECT(n) do { } while (0)
+#endif
+
 Gfx* lvlRender(Gfx* DL)
 {
     gSPSegment(DL++, SPSEGMENT_PHYSICAL, NULL);
@@ -1147,12 +1248,16 @@ Gfx* lvlRender(Gfx* DL)
         s32 i;
         s32 pcount;
 
-        pcount = getPlayerCount();
+        pcount = portAllPlayerCount();
 
         gSPClipRatio(DL++, FRUSTRATIO_2);
 
         for(i = 0; i < pcount; i++)
         {
+#ifndef TARGET_N64
+            Gfx *portPassStart = DL; /* PORT: coop: where this player's pass began (rewound below if not local) */
+#endif
+            PSECT(0);
             set_cur_player(get_nth_player_from_shuffled(i));
 
             viSetViewSize(g_CurrentPlayer->viewx, g_CurrentPlayer->viewy);
@@ -1160,7 +1265,9 @@ Gfx* lvlRender(Gfx* DL)
 #ifndef TARGET_N64
             /* the vanilla height of this view: 220 solo, 109 in a split (whose
              * views are 119 under full height - same compensation, same reason) */
-            if (g_CurrentPlayer->viewy > ((getPlayerCount() == 1) ? VIEWPORT_HEIGHT_DEFAULT : VIEWPORT_HEIGHT_4P))
+            extern s32 portSimViewOn(void);   /* PORT: netplay: in co-op viSetFovY widens the DISPLAY fov for the full-height view itself (fr.c) */
+
+            if (!portSimViewOn() && g_CurrentPlayer->viewy > ((getPlayerCount() == 1) ? VIEWPORT_HEIGHT_DEFAULT : VIEWPORT_HEIGHT_4P))
             {
                 const f32 vanillah = (f32) ((getPlayerCount() == 1) ? VIEWPORT_HEIGHT_DEFAULT : VIEWPORT_HEIGHT_4P);
                 /* Full height (bondview2.c portFullHeightActive) makes the view
@@ -1199,6 +1306,7 @@ Gfx* lvlRender(Gfx* DL)
 
             DL = viSetupScreensForNumPlayers(DL);
             DL = skyRender(DL);
+            PSECT(1);
             bgRoomVisibilityRelated();
 #ifndef TARGET_N64
             { /* Random Spawns (bondview.c, safest-spawn picker): record which start
@@ -1207,11 +1315,22 @@ Gfx* lvlRender(Gfx* DL)
                 portStartpadVisibilityUpdate();
             }
 #endif
+#ifndef TARGET_N64
+            { extern void portNetPassDebug(const char *where); portNetPassDebug("before-props"); }
+#endif
+            PSECT(2);
             propsTick();
             chraiUpdateOnscreenPropCount();
             chrpropUpdateAutoaimTarget();
             chraiCheckUseHeldItems();
+#ifndef TARGET_N64
+            { /* GE_NET_PASSDBG=<from>-<to> (diagnostic): what each player's pass saw of the world, to find a render-derived difference */
+                extern void portNetPassDebug(const char *where);
+                portNetPassDebug("after-props");
+            }
+#endif
 
+            PSECT(3);
             if (bond_pressed_reload_activate() && bond_interact_object())
             {
 #ifndef TARGET_N64
@@ -1231,7 +1350,12 @@ Gfx* lvlRender(Gfx* DL)
 #endif
 
             propsTickPlayer();
+#ifndef TARGET_N64
+            { extern void portNetPassDebug(const char *where); portNetPassDebug("after-playerprops"); }
+#endif
+            PSECT(4);
             DL = bgLevelRender(DL);
+            PSECT(5);
 
             if (get_debug_portal_flag())
             {
@@ -1296,6 +1420,7 @@ Gfx* lvlRender(Gfx* DL)
             DL = glassRenderShards(DL);
             DL = explosionRenderFlyingParticles(DL);
 
+            PSECT(6);
 #ifndef TARGET_N64
             portCheatTick(); /* GE_CHEATS one-shot, player context live here */
             portDualZmgTick();
@@ -1329,6 +1454,7 @@ Gfx* lvlRender(Gfx* DL)
             DL->words.w1 = 0;
             DL++;
 #endif
+            PSECT(7);
             if (get_debug_render_raster() == DEB_BOND_VIEW)
             {
                 DL = maybe_mp_interface(DL);
@@ -1339,7 +1465,30 @@ Gfx* lvlRender(Gfx* DL)
             }
 
             DL = mp_watch_menu_display(DL);
+#ifndef TARGET_N64
+            { /* PORT: coop: the pass ran for its simulation (pickups, use, autoaim, sim owner);
+               * a non-local player's pass draws nothing, so its display list is rewound. The vertex and matrix
+               * memory is NOT rewound: reusing it changed what the simulation read (guard shot direction
+               * differed between the two views), so the discarded pass keeps its allocations. */
+                extern int portCoopActive(void);
+                extern int portLocalPlayer(void);
+                extern void portNetPassDebug(const char *where);
+                extern int g_PortSimOnly;   /* port_simonly.c */
+                portNetPassDebug("end-of-pass");
+                if ((portCoopActive() && get_cur_playernum() != portLocalPlayer()) || g_PortSimOnly)   /* R1: a sim-only tick draws nothing */
+                {
+                    DL = portPassStart;
+                }
+            }
+#endif
         }
+#ifndef TARGET_N64
+        { /* PORT: coop: leave the local player current (the shuffle ends on a random one) */
+            extern int portCoopActive(void);
+            extern int portLocalPlayer(void);
+            if (portCoopActive()) { set_cur_player(portLocalPlayer()); }
+        }
+#endif
     }
 
     gDPSetScissor(DL++, G_SC_NON_INTERLACE, 0, 0, viGetX(), viGetY());
@@ -2287,6 +2436,12 @@ void lvlUnloadStageTextData(void)
         set_favorite_weapon_for_every_player();
     }
 
+#ifndef TARGET_N64
+    { /* PORT: modifiers: the cheats clear below, so a modifier set from here on only stores its value */
+        extern void portModifierStageEnd(void);
+        portModifierStageEnd();
+    }
+#endif
     cheatDisableAllCheats();
     cleanupGuardData();
     cleanupObjectSounds();

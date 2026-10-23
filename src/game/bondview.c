@@ -368,7 +368,11 @@ struct struct_4 stage_intro_anim_table[] = {
 };
 
 //D:800365A8
+#ifndef TARGET_N64
+f32 g_portWatchTransTime[4] = { 0.90909088f, 0.90909088f, 0.90909088f, 0.90909088f };
+#else
 f32 watch_transition_time = 0.90909088;
+#endif
 
 //D:800365AC
 WeaponObjRecord dummy_08_pp7_obj[] = {
@@ -737,18 +741,29 @@ void transform3Dto2DCoords(coord3d *in, coord2d *out)
  * current player's viewport centre, use g_bondviewSceneWideFactor from this
  * frame's projection, and are the identity at 4:3. */
 f32 g_bondviewSceneWideFactor = 1.0f;
+f32 g_bondviewSceneWideFactorReal = 1.0f;   /* netplay job 3c: this window's factor; the line above is the sim's (canonical in co-op) */
+
+/* PORT: netplay job 3c: the centre these pivot on is the canonical camera's in co-op (the sim's, not the Screen Size option's) */
+static f32 bondviewAimPivotX(void)
+{
+    extern s32 portSimViewOn(void);
+
+    if (portSimViewOn())
+    {
+        return 0.5f * (f32) getWidth320or440();
+    }
+    return (f32) get_curplayer_viewport_ulx() + 0.5f * (f32) bondviewGetCurrentPlayerViewportWidth();
+}
 
 f32 bondviewAimUnpinX(f32 x) /* pinned 2D coord -> same window pixel in perspective coords */
 {
-    f32 cx = (f32) get_curplayer_viewport_ulx()
-        + 0.5f * (f32) bondviewGetCurrentPlayerViewportWidth();
+    f32 cx = bondviewAimPivotX();
     return cx + (x - cx) / g_bondviewSceneWideFactor;
 }
 
 f32 bondviewAimPinX(f32 x) /* perspective coord -> same window pixel in pinned 2D coords */
 {
-    f32 cx = (f32) get_curplayer_viewport_ulx()
-        + 0.5f * (f32) bondviewGetCurrentPlayerViewportWidth();
+    f32 cx = bondviewAimPivotX();
     return cx + (x - cx) * g_bondviewSceneWideFactor;
 }
 #endif
@@ -1328,7 +1343,7 @@ static struct player *portSpawnOther(s32 i, s32 me)
 /** AX's getSafestSpawn, for player `me`. */
 static s32 portMpSafestSpawn(s32 me)
 {
-    const s32 count = getPlayerCount();
+    const s32 count = portAllPlayerCount();
     const u8 random = (u8) randomGetNext();
     s32 just_started = FALSE;
     f32 distance = 10000.0f;
@@ -1424,7 +1439,7 @@ s32 bondviewGetRandomSpawnPadIndex(void)
 
     // set up initial values
     player_num = get_cur_playernum();
-    player_count = getPlayerCount();
+    player_count = portAllPlayerCount();
     enemy_nearby = TRUE;
 #ifdef DEBUG
     osSyncPrintf("choosing a start pad for player %d\n", player_num);
@@ -1720,6 +1735,19 @@ void bondviewPlayerBeginLife(void)
             solo_char_load();
         }
     }
+#ifndef TARGET_N64
+    else
+    { /* PORT: coop: P2 gets a visible body now (solo Bond's is built later by the intro camera) */
+        extern int portCoopKeepBody(int playernum);
+        if (portCoopKeepBody(get_cur_playernum()) && g_CurrentPlayer->bodyModel == NULL)
+        {
+            /* hold the starting weapon, as MP shows it on the body */
+            currentPlayerEquipWeaponWrapper(GUNLEFT, starting_weapon[GUNLEFT]);
+            currentPlayerEquipWeaponWrapper(GUNRIGHT, starting_weapon[GUNRIGHT]);
+            solo_char_load();
+        }
+    }
+#endif
 }
 
 

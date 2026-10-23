@@ -95,6 +95,13 @@ void shuffle_player_ids(void);
 s32 get_nth_player_from_shuffled(PLAYER_ID id);
 void set_cur_player(s32 playernum);
 s32 getPlayerCount(void);
+#ifndef TARGET_N64
+/* PORT: coop: the real number of player structs. getPlayerCount() is the MODE count (1 in co-op);
+ * use this only where the code iterates or sizes per player. */
+extern int portAllPlayerCount(void);
+#else
+#define portAllPlayerCount() getPlayerCount()
+#endif
 void set_cur_player_screen_size(u32 width, u32 height);
 void set_cur_player_viewport_size(u32 ulx, u32 uly);
 

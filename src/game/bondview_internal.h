@@ -114,7 +114,14 @@ extern s32 g_bondviewBondDeathAnimationsCount;
 extern enum CAMERAMODE camera_mode;
 extern s32 g_IntroAnimationIndex;
 extern struct struct_4 stage_intro_anim_table[];
+#ifndef TARGET_N64
+/* PORT: netplay job 3e: the watch's speed-up factor is per Bond (a shared one let one Bond's pause presses change the other's zoom speed) */
+extern f32 g_portWatchTransTime[4];
+extern s32 get_cur_playernum(void);
+#define watch_transition_time (g_portWatchTransTime[get_cur_playernum() & 3])
+#else
 extern f32 watch_transition_time;
+#endif
 extern WeaponObjRecord dummy_08_pp7_obj[];
 extern struct DamageType g_DamageTypes[];
 extern struct HealthDisplayDuration g_HealthDisplayDurations[8];

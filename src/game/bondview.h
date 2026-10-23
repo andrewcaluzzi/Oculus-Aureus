@@ -2705,7 +2705,14 @@ extern f32 watch_time_0;
 extern s32 watch_time_0;
 #endif
 
+#ifndef TARGET_N64
+/* PORT: netplay job 3e: the watch's speed-up factor is per Bond (a shared one let one Bond's pause presses change the other's zoom speed) */
+extern f32 g_portWatchTransTime[4];
+extern s32 get_cur_playernum(void);
+#define watch_transition_time (g_portWatchTransTime[get_cur_playernum() & 3])
+#else
 extern f32 watch_transition_time;
+#endif
 // ITEM_IDS
 extern ITEM_IDS starting_weapon[2];
 extern PadRecord *g_Startpad[];

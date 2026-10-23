@@ -54,7 +54,7 @@ void initializeRoomData(void)
 {
     int i;
 
-    for (i=0; i<getPlayerCount(); i++)
+    for (i=0; i<portAllPlayerCount(); i++)
     {
         g_playerPointers[i]->curRoomIndex = -1;
     }

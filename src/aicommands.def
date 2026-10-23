@@ -9305,7 +9305,7 @@ _AI_CMD(
     {
         AIRecord * ai = AiListp + Offset;
         char *text = langGet(CharArrayTo16(ai->val,0));
-        hudmsgBottomShow(text);
+        { extern void portHudMsgBottomShowAll(char *text); portHudMsgBottomShowAll(text); } /* PORT: coop: every Bond */
         Offset += CAT(CAT(AI_, CMDNAME), _LENGTH);
         break;
     })

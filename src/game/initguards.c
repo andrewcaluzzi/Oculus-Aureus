@@ -28,6 +28,14 @@ void alloc_init_GUARDdata_entries(s32 count)
     s32 i;
     
     g_NumChrSlots = count + 10; //special guards?
+#ifndef TARGET_N64
+    {   /* PORT: arena: spare chr slots for spawned guards (0 when GE_ARENA is off). */
+        extern s32 portArenaExtraSlots(void);
+        extern s32 portFlatlandExtraSlots(void);
+        g_NumChrSlots += portArenaExtraSlots();
+        g_NumChrSlots += portFlatlandExtraSlots(); /* PORT: Flatland has no guards of its own */
+    }
+#endif
 
     g_ChrSlots = mempAllocBytesInBank(align_addr_zero(g_NumChrSlots * sizeof(ChrRecord)), MEMPOOL_STAGE);
     for(i = 0; g_NumChrSlots > i; i++)

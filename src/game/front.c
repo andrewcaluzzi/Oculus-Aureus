@@ -3946,7 +3946,10 @@ enum { PORT_SHEET_GAMEPLAY, PORT_SHEET_CONTROL, PORT_SHEET_DISPLAY, PORT_SHEET_C
         * it back there. The settings multiplayer keeps apart from solo. */
        PORT_SHEET_MPOPTS,
        /* CLASSIC: which parts Classic Mode applies, opened from VIDEO's middle tab */
-       PORT_SHEET_CLASSIC, PORT_SHEET_COUNT };
+       PORT_SHEET_CLASSIC,
+       /* MODS: the game mode picker, the modifier registry and Lua menu items (port_modmenu.c);
+        * the last page of the GAMEPLAY hub */
+       PORT_SHEET_MODS, PORT_SHEET_COUNT };
 /* The Options folder's rows, top to bottom, at the Files menu's own row
  * coordinates (y 0xDC, pitch 0x20). Each is a submenu:
  *
@@ -3956,7 +3959,7 @@ enum { PORT_SHEET_GAMEPLAY, PORT_SHEET_CONTROL, PORT_SHEET_DISPLAY, PORT_SHEET_C
  *               device is), GENERAL CONTROL OPTIONS
  */
 #define PORT_OPTIONS_ROWS 3
-#define PORT_OPTIONS_ROW_Y0    0xDC
+#define PORT_OPTIONS_ROW_Y0    portOptionsRowY0()
 #define PORT_OPTIONS_ROW_PITCH 0x20
 static const s32 port_options_row_kind[PORT_OPTIONS_ROWS] = {
     PORT_SHEET_GAMEPLAY, PORT_SHEET_CONTROL, PORT_SHEET_DISPLAY,
@@ -3967,7 +3970,7 @@ static const char *const port_sheet_title[PORT_SHEET_COUNT] = { "GAMEPLAY\n", "C
         "CREDITS\n", "PLAYER\n", "REBIND\n", "VIDEO\n", "AUDIO\n", "GRAPHICS\n",
         "GENERAL SETTINGS\n", "HUD\n",
         "MOUSE AND KEYBOARD\n", "CONTROLLER\n", "GENERAL CONTROL OPTIONS\n", "PORT OPTIONS\n",
-        "GAMEPLAY OPTIONS\n", "CLASSIC\n" };   /* GAMEPLAY OPTIONS is not drawn: the two-column sheet has no heading */
+        "GAMEPLAY OPTIONS\n", "CLASSIC\n", "MODS\n" };   /* GAMEPLAY OPTIONS is not drawn: the two-column sheet has no heading */
 static s32 port_options_row_highlighted = -1; /* row under the cursor, -1 = on a tab */
 /* The folder's hubs: GAMEPLAY and AUDIO VISUAL reuse this folder screen to list
  * their pages, numbered; -1 means the folder's own three rows. A page's
@@ -3979,6 +3982,7 @@ static const s32 port_sheet_gameplay_pages[];
 static const s32 port_sheet_display_pages[];
 static s32 portOptionsRowCount(void);
 static s32 portOptionsRowKind(s32 r);
+static s32 portOptionsRowY0(void);
 static s32 port_sheet_kind = PORT_SHEET_CREDITS; /* which placeholder sheet menu1C shows / was asked for */
 /* Where Back goes: a sheet opened from another sheet returns to it, and one
  * opened from the Options folder returns to the folder. The tree is only two
@@ -4002,6 +4006,7 @@ s32 portMenuHarnessSheet(char first, char second)
     else if (first == 'd') port_sheet_kind = PORT_SHEET_DISPLAY;
     else if (first == 'a') port_sheet_kind = PORT_SHEET_AUDIO;   /* the aiming page was removed */
     else if (first == 'v') port_sheet_kind = PORT_SHEET_VIDEO;
+    else if (first == 'm' && second == 'D') port_sheet_kind = PORT_SHEET_MODS;   /* GE_MENU=mods */
     else if (first == 'm') port_sheet_kind = PORT_SHEET_MOUSEKB;
     else if (first == 'c' && second == 'g') port_sheet_kind = PORT_SHEET_CTLGENERAL;   /* GE_MENU=cgeneral */
     else if (first == 'c' && second == 'l') port_sheet_kind = PORT_SHEET_CLASSIC;      /* GE_MENU=classic */
@@ -4381,13 +4386,15 @@ extern s32 portMouseWheelSteps(void);
 #define portMouseWheelSteps() 0
 #endif
 
+#include "port_modmenu.h"
 enum { SHROW_OPT, SHROW_RES, SHROW_XHAIR, SHROW_LAYOUT, SHROW_SAVELAYOUT, SHROW_DELLAYOUT,
        SHROW_MANAGELAYOUT, /* save / delete / cancel popup */
        SHROW_BINDDEV, SHROW_BINDMODE, SHROW_CTRLSTYLE, SHROW_BIND, SHROW_PLAYERPICK,
        SHROW_GOBINDS, SHROW_GOSHEET,
        SHROW_DEVNAME, /* the device's name, on the line under Input Device - text, takes no input */
        SHROW_RESETBINDS, /* the rebind page's Reset to Default */
-       SHROW_COLBREAK /* two-column sheets: the rows after it start the right column (no row of its own) */ };
+       SHROW_MOD, /* the Mods page: port_sheet_row_opt[] is the item index in port_modmenu.c (0 = Game mode) */
+    SHROW_COLBREAK /* two-column sheets: the rows after it start the right column (no row of its own) */ };
 
 /* Rebinding from the Options menu, so a player can fix their bindings before
  * starting a mission (the watch was the only bind screen). Everything
@@ -4535,6 +4542,7 @@ static const struct PortSheetRow port_sheet_rows_portopts[] = {
     { SHROW_OPT, "watch_static" },           /* the watch's fuzz, default ON (vanilla) */
     { SHROW_OPT, "mouse_auto_aim" },         /* off: no Auto-Aim on the mouse, above every other Auto-Aim setting */
     { SHROW_OPT, "high_lod", "High Detail Models\n" },   /* moved from GRAPHICS */
+    { SHROW_OPT, "coop_bot" },               /* the co-op bot (port_bot.c), default off */
 };
 static const struct PortSheetRow port_sheet_rows_hud[] = {
     { SHROW_OPT, "sight_on_screen" }, { SHROW_OPT, "always_crosshair" },
@@ -4620,7 +4628,7 @@ static const struct PortSheetRow port_sheet_rows_ctlgeneral[] = {
  * Mouse and Keyboard or Controller page. */
 /* THE TWO PICKERS: each folder row that is a submenu, and its pages top to
  * bottom. A SHROW_GOSHEET row carries the page it opens in port_sheet_row_bind. */
-static const s32 port_sheet_gameplay_pages[] = { PORT_SHEET_GENERAL, PORT_SHEET_HUD, PORT_SHEET_PORTOPTS };
+static const s32 port_sheet_gameplay_pages[] = { PORT_SHEET_GENERAL, PORT_SHEET_HUD, PORT_SHEET_PORTOPTS, PORT_SHEET_MODS };
 static const s32 port_sheet_display_pages[] = { PORT_SHEET_VIDEO, PORT_SHEET_AUDIO };   /* GRAPHICS is empty */
 
 /** The Options folder screen's rows: its own three, or a hub's pages. */
@@ -4635,6 +4643,15 @@ static s32 portOptionsRowCount(void)
         return (s32) (sizeof(port_sheet_display_pages) / sizeof(port_sheet_display_pages[0]));
     }
     return PORT_OPTIONS_ROWS;
+}
+
+/** The first row's y: the Files menu's first row (0xDC), raised a pitch per
+ *  row beyond three so longer lists end where three rows do (the cursor's floor). */
+static s32 portOptionsRowY0(void)
+{
+    const s32 extra = portOptionsRowCount() - PORT_OPTIONS_ROWS;
+
+    return 0xDC - (extra > 0 ? extra * PORT_OPTIONS_ROW_PITCH : 0);
 }
 
 static s32 portOptionsRowKind(s32 r)
@@ -4658,6 +4675,7 @@ static const char *portSheetPageLabel(s32 kind)
         case PORT_SHEET_GENERAL:  return "General Settings\n";
         case PORT_SHEET_HUD:      return "HUD\n";
         case PORT_SHEET_PORTOPTS: return "Port Options\n";
+        case PORT_SHEET_MODS:     return "Mods\n";
         case PORT_SHEET_VIDEO:    return "Video\n";
         case PORT_SHEET_AUDIO:    return "Audio\n";
         case PORT_SHEET_GRAPHICS: return "Graphics\n";
@@ -5051,6 +5069,20 @@ static void portSheetBuild(s32 kind)
             }
         }
     }
+    if (kind == PORT_SHEET_MODS)
+    {   /* Game mode, every modifier, then the Lua items; rebuilt on each open, as the lists can change */
+        s32 k;
+
+        portModMenuRescan();
+        for (k = 0; k < portModMenuCount() && port_sheet_rows < PORT_SHEET_ROWS_MAX; k++)
+        {
+            port_sheet_row_kind[port_sheet_rows] = SHROW_MOD;
+            port_sheet_row_opt[port_sheet_rows] = k;
+            port_sheet_row_label[port_sheet_rows] = NULL;
+            port_sheet_row_bind[port_sheet_rows] = -1;
+            port_sheet_rows++;
+        }
+    }
     if (kind == PORT_SHEET_DISPLAY || kind == PORT_SHEET_GAMEPLAY)
     {   /* a picker: just its pages */
         const s32 *pages = (kind == PORT_SHEET_DISPLAY) ? port_sheet_display_pages : port_sheet_gameplay_pages;
@@ -5220,6 +5252,11 @@ static s32 portSheetListCount(s32 row)
     {
         return 0;   /* A arms a capture / steps the device / opens a page */
     }
+    if (port_sheet_row_kind[row] == SHROW_MOD)
+    {   /* only the Game mode row lists (3 or more entries); the rest step */
+        n = portModMenuListCount(port_sheet_row_opt[row]);
+        return (n > 2 && n <= PORT_SHEET_LIST_MAX) ? n : 0;
+    }
     if (port_sheet_row_kind[row] == SHROW_LAYOUT)
     {   /* a layout is only ever PICKED from the list (portSheetStep
          * never steps one), so any count lists - 1, 2 or past the cap */
@@ -5261,6 +5298,10 @@ static const char *portSheetResText(s32 i)
 
 static const char *portSheetListTextAt(s32 row, s32 i)
 {
+    if (port_sheet_row_kind[row] == SHROW_MOD)
+    {
+        return portModMenuListText(port_sheet_row_opt[row], i);
+    }
     if (port_sheet_row_kind[row] == SHROW_LAYOUT)
     {
         static char text[72];
@@ -5282,6 +5323,10 @@ static const char *portSheetListTextAt(s32 row, s32 i)
 /** The entry in use (the applied one, not a pending pick); -1 = off-list. */
 static s32 portSheetListLive(s32 row)
 {
+    if (port_sheet_row_kind[row] == SHROW_MOD)
+    {
+        return portModMenuListLive(port_sheet_row_opt[row]);
+    }
     if (port_sheet_row_kind[row] == SHROW_LAYOUT)
     {
         const char *active = portInputLayoutActive(PORT_SHEET_LAYOUT_DEV);
@@ -5547,6 +5592,11 @@ static void portSheetClassicSnapshot(void)
 /** Take entry idx for the row: a deferred row only remembers it, any other applies it now. */
 static void portSheetPick(s32 row, s32 idx)
 {
+    if (port_sheet_row_kind[row] == SHROW_MOD)
+    {
+        portModMenuListPick(port_sheet_row_opt[row], idx);
+        return;
+    }
     if (port_sheet_row_kind[row] == SHROW_LAYOUT)
     {
         portInputLayoutApply(PORT_SHEET_LAYOUT_DEV, idx);
@@ -5616,6 +5666,11 @@ static void portSheetPick(s32 row, s32 idx)
 /** Left / right on a row: a deferred row moves its pick, any other steps live. */
 static void portSheetStep(s32 row, s32 dir)
 {
+    if (port_sheet_row_kind[row] == SHROW_MOD)
+    {
+        portModMenuStep(port_sheet_row_opt[row], dir);
+        return;
+    }
     if (port_sheet_row_kind[row] == SHROW_LAYOUT || port_sheet_row_kind[row] == SHROW_SAVELAYOUT
         || port_sheet_row_kind[row] == SHROW_DELLAYOUT || port_sheet_row_kind[row] == SHROW_BIND
         || port_sheet_row_kind[row] == SHROW_PLAYERPICK || port_sheet_row_kind[row] == SHROW_GOBINDS
@@ -6016,6 +6071,10 @@ static s32 portSheetRowDisabled(s32 row)
         return 0;
     }
     kind = port_sheet_row_kind[row];
+    if (kind == SHROW_MOD)
+    {
+        return portModMenuDisabled(port_sheet_row_opt[row]);   /* a Lua item whose script errored */
+    }
     if (kind == SHROW_CTRLSTYLE && !portBindModeIsN64(port_sheet_bind_dev))
     {
         return 1;
@@ -6066,6 +6125,10 @@ static const char *portSheetValueText(s32 row, s32 *colour)
     {
         *colour = PORT_SHEET_COL_PENDING;
         return portSheetListTextAt(row, pend);
+    }
+    if (port_sheet_row_kind[row] == SHROW_MOD)
+    {
+        return portModMenuValueText(port_sheet_row_opt[row]);
     }
     if (port_sheet_row_kind[row] == SHROW_SAVELAYOUT)
     {
@@ -6164,6 +6227,7 @@ static const char *portSheetValueText(s32 row, s32 *colour)
 
 static const char *portSheetLabel(s32 row)
 {
+    if (port_sheet_row_kind[row] == SHROW_MOD) return portModMenuLabel(port_sheet_row_opt[row]);
     if (port_sheet_row_kind[row] == SHROW_LAYOUT) return "Bind Config\n";
     if (port_sheet_row_kind[row] == SHROW_SAVELAYOUT) return "Save This Layout\n";
     if (port_sheet_row_kind[row] == SHROW_DELLAYOUT) return "Delete This Layout\n";
@@ -7308,6 +7372,10 @@ void interface_menu1C_portsheet(void)
     set_item_visibility_in_objinstance(walletinst[0], SW_CLASSIFIED, 1);
 
     portSheetListAnimTick();
+    if (port_sheet_kind == PORT_SHEET_MODS)
+    {
+        portModMenuTick();   /* Lua getters are polled here, never from the draw */
+    }
     press = joyGetButtonsPressedThisFrame(PLAYER_1, START_BUTTON|Z_TRIG|A_BUTTON);
     wheel = portMouseWheelSteps();
     portSheetDpadStep(&dpx, &dpy);   /* every tick, before any early return: it tracks the press edge */
@@ -8332,9 +8400,12 @@ Gfx *constructor_menu1C_portsheet(Gfx *DL)
             {
                 lcolour = PORT_SHEET_COL_DIM;
             }
-            else if (port_sheet_row_kind[row] == SHROW_OPT
-                     && portOptIsToggle(port_sheet_row_opt[row])
-                     && portOptGet(port_sheet_row_opt[row]) != 0)
+            else if ((port_sheet_row_kind[row] == SHROW_MOD
+                      && portModMenuIsToggle(port_sheet_row_opt[row])
+                      && portModMenuIsOn(port_sheet_row_opt[row]))
+                     || (port_sheet_row_kind[row] == SHROW_OPT
+                         && portOptIsToggle(port_sheet_row_opt[row])
+                         && portOptGet(port_sheet_row_opt[row]) != 0))
             {   /* A toggle that is on draws its value (not the label) in red,
                  * the same 0xA00000FF the cheats page uses for active cheats.
                  * Only toggles: on the deferred display rows (never toggles)
@@ -8558,6 +8629,10 @@ void update_menu07_missionsel(void)
 
 
 // Address 0x7F00DEB8 NTSC
+#ifndef TARGET_N64
+s32 portNetMissionLocked(void);   /* port_net.c: netplay guest (job 4): the host chooses the mission */
+#endif
+
 void interface_menu07_missionsel(void)
 {
     s32 var_s4;
@@ -8706,7 +8781,11 @@ void interface_menu07_missionsel(void)
 
             sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, DOOR_METAL_CLOSE2_SFX, NULL);
         }
-        else if (mission_difficulty_highlighted >= 0)
+        else if (mission_difficulty_highlighted >= 0
+#ifndef TARGET_N64
+                 && !portNetMissionLocked()   /* netplay job 4: the guest does not choose, the host does */
+#endif
+                 )
         {
             briefingpage = pull_and_display_text_for_folder_a0(mission_difficulty_highlighted);
             selected_stage = mission_folder_setup_entries[briefingpage].stage_id;
@@ -8841,6 +8920,14 @@ Gfx *constructor_menu07_missionsel(Gfx *DL)
     }
 
     DL = frontAddPreviousTabText(DL);
+#ifndef TARGET_N64
+    if (portNetMissionLocked())
+    {   /* netplay job 4: the guest's mission select is read-only */
+        s32 lockx = 0x37;
+        s32 locky = 0x22;
+        DL = frontPrintText(DL, &lockx, &locky, "Host chooses the mission\n",ptrFontZurichBoldChars, ptrFontZurichBold, 0xff, viGetX(), viGetY(), 0, 0);
+    }
+#endif
     DL = frontDrawCursor(DL);
 
     return DL;
@@ -8968,6 +9055,22 @@ Gfx * print_current_solo_briefing_stage_name(Gfx *DL, char *text)
         DL = frontPrintText(DL, &x, &y, text, ptrFontZurichBoldChars, ptrFontZurichBold, 0xff, viGetX(), viGetY(), 0, 0);
     }
 
+#ifndef TARGET_N64
+    {   /* PORT: the Colosseum borrows Surface's level slot (text bank); name it properly on the briefing, debrief and failed screens */
+        if (selected_stage == LEVELID_EAR)   /* set by the direct launch / stage pick, reset only by the mission-select menu */
+        {
+            strcpy(text, "Colosseum\n");
+            x = 0x37;
+            y = 0x67;
+            DL = frontPrintText(DL, &x, &y, text, ptrFontZurichBoldChars, ptrFontZurichBold, 0xff, viGetX(), viGetY(), 0, 0);
+            strcpy(text, "Arena\n");
+            x = 0x37;
+            y = 0x77;
+            DL = frontPrintText(DL, &x, &y, text, ptrFontZurichBoldChars, ptrFontZurichBold, 0xff, viGetX(), viGetY(), 0, 0);
+            return DL;
+        }
+    }
+#endif
     chapter = get_chapter_briefing_entry(briefingpage);
     if (chapter >=0 )
     {
@@ -9681,6 +9784,19 @@ static const u8 port_mp_char_order[PORT_MP_CHAR_COUNT] = {
 s32 portMpCharAt(s32 pos)
 {
     return (pos >= 0 && pos < PORT_MP_CHAR_COUNT) ? port_mp_char_order[pos] : pos;
+}
+
+/** PORT: co-op bot skins (port_bot.c): the roster entry's body, head and pov scale. FALSE if out of range. */
+s32 portMpCharBodyHead(s32 c, s32 *body, s32 *head, f32 *pov)
+{
+    if (c < 0 || c >= PORT_MP_CHAR_COUNT)
+    {
+        return FALSE;
+    }
+    *body = mp_chr_setup[c].body;
+    *head = mp_chr_setup[c].head;
+    *pov = mp_chr_setup[c].pov;
+    return TRUE;
 }
 
 /** The picker position of character `c`. */
@@ -16234,7 +16350,31 @@ void load_briefing_text_for_stage(void)
      * NULL-filename crash in the fail/complete menus). */
     if (briefingpage < 0)
     {
-        briefingpage = 0;
+        /* Entry 0 is a chapter HEADER row with no briefing file (a NULL
+         * filename: fileGetIndex -> strcmp(NULL) segfault). The first
+         * entry that has one is the fallback; Flatland (LEVELID_SHO, which
+         * borrows Surface's text bank) lands on the Surface row. */
+        s32 fb = -1;
+        s32 k;
+
+        for (k = 0; mission_folder_setup_entries[k].folder_text_preset != 0; k++)
+        {
+            if (mission_folder_setup_entries[k].briefing_name_ptr == NULL)
+            {
+                continue;
+            }
+            if (fb < 0)
+            {
+                fb = k;
+            }
+            if (mission_folder_setup_entries[k].stage_id == LEVELID_SURFACE)
+            {
+                fb = k;
+                break;
+            }
+        }
+
+        briefingpage = (fb >= 0) ? fb : 0;
     }
 #endif
 
@@ -16397,6 +16537,12 @@ Gfx *print_objectives_and_status_to_menu(Gfx *DL, s32 arg1, u8 *arg2, s32 arg3)
     i = 0;
     v1 = 0;
 
+#ifndef TARGET_N64
+    if (selected_stage == LEVELID_EAR)
+    {
+        return DL;   /* PORT: the Colosseum borrows Surface's briefing: no "power down the dish" objectives */
+    }
+#endif
     for (i = 0; i < OBJECTIVES_MAX; i++)
     {
         if (ptrbriefingdata->objective[i].textid != 0 && selected_difficulty >= ptrbriefingdata->objective[i].enabled_difficulty)
@@ -16579,6 +16725,16 @@ void init_menu0B_runstage(void)
 //********************************************************************************************************
 void init_menu0C_missionfailed(void)
 {
+#ifndef TARGET_N64
+  { /* PORT: mode: proof that a mode's mission.win/fail reached the stock report screen */
+    extern int portModeEndResult(void);
+    extern int printf(const char *, ...);
+    if (portModeEndResult() != 0)
+    {
+      printf("ge: mode: end screen: Mission Failed/Report menu, result=%s\n", portModeEndResult() == 1 ? "win" : "fail");
+    }
+  }
+#endif
   tab_next_selected = FALSE;
   tab_prev_selected = FALSE;
   load_walletbond();
@@ -16677,6 +16833,15 @@ s32 frontCompleteAllObjectivesAliveSuccess(void)
 {
     s32 i;
 
+#ifndef TARGET_N64
+    { /* PORT: mode: a mode's own win/fail decides the report (objectives are wiped in a mode) */
+        extern int portModeEndResult(void);
+        if (portModeEndResult() != 0)
+        {
+            return portModeEndResult() == 1 && !mission_failed_or_aborted && !g_isBondKIA;
+        }
+    }
+#endif
     if (mission_failed_or_aborted || g_isBondKIA)
     {
         return 0;
@@ -18366,8 +18531,30 @@ Gfx * constructor_menu19_spectrum(Gfx * DL)
 #endif
 
 
+#ifndef TARGET_N64
+s32 g_PortLaunchOk = 0;   /* 1 only inside portDirectLaunchTick */
+#endif
+
 void frontChangeMenu(MENU menu, s32 reload)
 {
+#ifndef TARGET_N64
+    if (menu == MENU_RUN_STAGE && !g_PortLaunchOk && portNetMissionLocked())
+    {   /* netplay: the guest never starts a stage from a menu (mission select, retry, next mission, ...): the host chooses, the guest follows its NEXTSTAGE */
+        extern int printf(const char *, ...);
+        extern u32 g_PortTicksAdmitted;
+        static u32 lastMsgFrame;
+
+        if (lastMsgFrame == 0 || g_PortTicksAdmitted - lastMsgFrame > 120)
+        {
+            extern void portNetGuestRefusedNote(void);
+
+            lastMsgFrame = g_PortTicksAdmitted | 1;
+            portNetGuestRefusedNote();
+            printf("ge: net: guest refused to start a stage from a menu: the host chooses the mission\n");
+        }
+        return;
+    }
+#endif
     if ((menu == MENU_RUN_STAGE) || (menu == MENU_SPECTRUM_EMU))
     {
         is_emulating_spectrum = TRUE;
@@ -18401,15 +18588,25 @@ s32 portStageRunning(void)
 
 
 #ifndef TARGET_N64
+/* PORT: co-op bot GE_BOT_RESTART_AT sets this after aborting the mission, so the
+ * GE_STAGE launch below fires again once the frontend has settled (port_bot.c). */
+s32 g_PortDirectLaunchRearm = 0;
+
+/* Netplay job 4 (port_net.c): the guest's launch of the host's next mission. -1 = none. */
+s32 g_PortNetLaunchStage = -1;
+s32 g_PortNetLaunchDiff = 0;
+
+/** The difficulty picked in the menus for the stage that is about to load (port_coop.c, the host's NEXTSTAGE message). */
+s32 portSelectedDifficulty(void)
+{
+    return (s32) selected_difficulty;
+}
+
 /* GE_STAGE=<name|LEVELID> [GE_DIFF=0..3]: debug launch straight into a solo
  * mission, skipping every menu (e.g. GE_STAGE=frigate). Uses the ramrom demo
  * launch recipe (folder + difficulty + briefing + jump to MENU_RUN_STAGE),
- * fired once after the first menus settle. */
-static void portDirectLaunchTick(void)
-{
-    extern char *getenv(const char *);
-    extern int printf(const char *, ...);
-    static const struct { const char *name; s32 id; } stages[] = {
+ * fired once after the first menus settle; again after g_PortDirectLaunchRearm. */
+static const struct { const char *name; s32 id; } stages[] = {
         { "dam", LEVELID_DAM },           { "facility", LEVELID_FACILITY },
         { "runway", LEVELID_RUNWAY },     { "surface", LEVELID_SURFACE },
         { "bunker1", LEVELID_BUNKER1 },   { "silo", LEVELID_SILO },
@@ -18422,12 +18619,110 @@ static void portDirectLaunchTick(void)
         { "aztec", LEVELID_AZTEC },       { "egypt", LEVELID_EGYPT },
         { "citadel", LEVELID_CITADEL },   { "complex", LEVELID_COMPLEX },
         { "temple", LEVELID_TEMPLE },     { "cuba", LEVELID_CUBA },
-    };
+        { "flatland", LEVELID_SHO },      { "sho", LEVELID_SHO },  /* generated test level (port/flatland) */
+        { "colosseum", LEVELID_EAR },     { "ear", LEVELID_EAR },  /* generated arena (port/colosseum) */
+};
+
+/** 1 when `id` is a level the direct launch knows (the solo missions and Flatland's slot). Netplay validates network-supplied ids with it. */
+s32 portNetStageValid(s32 id)
+{
+    s32 k;
+
+    for (k = 0; k < (s32) (sizeof(stages) / sizeof(stages[0])); k++)
+    {
+        if (stages[k].id == id)
+        {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/** Test only (GE_NET_TEST_GUESTPICK): start a stage the way a menu does, not through the direct launch. The netplay guest must be refused. */
+void portNetTestMenuLaunch(s32 id)
+{
+    selected_folder_num = FOLDER1;
+    set_selected_difficulty(DIFFICULTY_AGENT);
+    set_solo_and_ptr_briefing(id);
+    frontChangeMenu(MENU_RUN_STAGE, TRUE);
+}
+
+/** The largest level id in the table (for the pure id parser). */
+s32 portNetStageMaxId(void)
+{
+    s32 k;
+    s32 m = 0;
+
+    for (k = 0; k < (s32) (sizeof(stages) / sizeof(stages[0])); k++)
+    {
+        if (stages[k].id > m)
+        {
+            m = stages[k].id;
+        }
+    }
+    return m;
+}
+
+static void portDirectLaunchTick(void)
+{
+    extern char *getenv(const char *);
+    extern int printf(const char *, ...);
     static s32 state; /* 0 = unparsed, 1 = armed, 2 = done/disabled */
     static s32 stage;
     static s32 calls;
+    static s32 launched;
     s32 i;
 
+    if (g_PortNetLaunchStage >= 0)
+    {   /* netplay job 4: the host chose the next mission of the session; launch it now, from whatever menu this is */
+        const s32 st = g_PortNetLaunchStage;
+        s32 df = g_PortNetLaunchDiff;
+        static s32 lag = -1;   /* GE_NET_TEST_LAUNCHLAG=<n> (test, guest): n more front-end ticks before the launch, to prove the menus' tick count does not matter */
+        static s32 lagged;
+
+        if (lag < 0)
+        {
+            const char *e = getenv("GE_NET_TEST_LAUNCHLAG");
+
+            lag = 0;
+            for (i = 0; e != NULL && e[i] >= '0' && e[i] <= '9'; i++)
+            {
+                lag = lag * 10 + (e[i] - '0');
+            }
+        }
+        if (lagged < lag)
+        {
+            lagged++;
+            return;
+        }
+        lagged = 0;
+        g_PortNetLaunchStage = -1;
+        if (!portNetStageValid(st))
+        {
+            printf("ge: net: ignored a launch of invalid stage %d\n", st);
+            return;
+        }
+        if (df < DIFFICULTY_AGENT || df >= DIFFICULTY_MAX)
+        {
+            df = DIFFICULTY_AGENT;
+        }
+        selected_folder_num = FOLDER1;
+        set_selected_difficulty(df);
+        set_solo_and_ptr_briefing(st);
+        frontChangeMenu(MENU_RUN_STAGE, TRUE);
+        printf("ge: net: launching the host's next mission: levelid=%d diff=%d\n", st, df);
+        launched = 1;
+        return;
+    }
+    if (state == 2 && g_PortDirectLaunchRearm)
+    {
+        g_PortDirectLaunchRearm = 0;
+        if (launched)
+        {
+            state = 0;   /* netplay job 4: parse GE_STAGE again (a test sets another stage before it rearms; the bot's is unchanged) */
+            calls = 0;
+        }
+    }
     if (state == 2)
     {
         return;
@@ -18442,11 +18737,11 @@ static void portDirectLaunchTick(void)
             if (e[0] >= '0' && e[0] <= '9')
             {
                 stage = 0;
-                for (i = 0; e[i] >= '0' && e[i] <= '9'; i++)
+                for (i = 0; e[i] >= '0' && e[i] <= '9' && i < 9; i++)
                 {
                     stage = stage * 10 + (e[i] - '0');
                 }
-                state = 1;
+                state = (e[i] == '\0' && portNetStageValid(stage)) ? 1 : 2;   /* (a stage id the table does not know would index the level lists out of bounds) */
             }
             else
             {
@@ -18519,6 +18814,7 @@ static void portDirectLaunchTick(void)
         printf("ge: GE_STAGE direct launch: levelid=%d diff=%d\n", stage, diff);
     }
     state = 2;
+    launched = 1;
 }
 
 /* GE_MENU=files|select|options|gameplay|control|display|credits[,after]: frontend
@@ -18659,6 +18955,10 @@ static void portMenuHarnessTick(void)
                 const char *z = e;
                 char sec = e[1];
 
+                if (e[0] == 'm' && e[1] == 'o' && e[2] == 'd' && e[3] == 's')
+                {
+                    sec = 'D';   /* GE_MENU=mods: the Mods page ('mouse' shares the first two letters) */
+                }
                 while (*z != '\0' && *z != ',') z++;   /* to the terminator or the ',N' tick
                                                         * suffix */
                 if (z > e + 1 && z[-1] >= '1' && z[-1] <= '4')
@@ -18998,7 +19298,9 @@ void menu_init(void)
             portPlayerOptsApplyOnce();
         }
     }
+    g_PortLaunchOk = 1;   /* the netplay guest's stage start is the host's NEXTSTAGE (or the first stage's direct launch), nothing else */
     portDirectLaunchTick();
+    g_PortLaunchOk = 0;
     portDirectLaunchMpTick();
     portDirectLaunchDemoTick();
     portMenuHarnessTick();

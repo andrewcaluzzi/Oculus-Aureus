@@ -57,6 +57,7 @@
 #ifndef TARGET_N64
 #include "frametiming.h"   /* portAnimTicks / portLagStep: sub-field smoothing */
 #include "cheat.h"         /* cheatIsActive(CHEAT_PORT_UNLOCK_DOORS) - propdoorInteract */
+#include "port_event.h"    /* PORT: event: ITEM_PICKUP */
 extern s32 g_PortFadeDbg;  /* the fade diagnostic (cl_fadedbg), defined beside posIsOnScreen */
 static void portFadeNote(PropRecord *prop, s32 state, s32 alpha, f32 foga);
 #endif
@@ -1135,6 +1136,23 @@ bool projectileTestPropBoundingSphere(coord3d *zeropos, coord3d *pos, coord3d *v
 }
 
 
+#ifndef TARGET_N64
+/* PORT (soak fix, netplay): a monitor screen's collision node (ModelRw...CollisionRecord) holds the DL and vertices of whichever pass last RENDERED it
+ * (process_monitor_animation_microcode: rwdata->gdl lives in the frame's display-list buffer). A co-op shot walks that DL in propobjFindHit, so its result
+ * depended on memory the renderer owns: a non-local Bond's pass rewinds its display list, and the local Bond's watch (the world is not drawn while it is open,
+ * so the monitor is not rendered again) is then drawn over it. While this flag is set (a shot or projectile test of a monitor object, co-op only),
+ * propobjFindHit tests the static model data instead: the same quad (the animation only moves texture coordinates and colours), the same in every view. */
+static s32 sPortStaticMonitorCol;
+
+static s32 portObjStaticMonitorCol(ObjectRecord *obj)
+{
+    extern int portCoopActive(void);
+    extern int portMonitorColOld(void);   /* GE_NET_TEST_MONITORCOLOLD=1 (test, negative control): the pre-fix behaviour */
+
+    return (obj->type == PROPDEF_MONITOR || obj->type == PROPDEF_MULTI_MONITOR) && portCoopActive() && !portMonitorColOld();
+}
+#endif
+
 /**
  * Address: 7F041160
  */
@@ -1153,8 +1171,12 @@ bool projectileLineTestModel(ObjectRecord *obj, coord3d *modelRayOrigin, coord3d
     node = NULL;
     hitnode = NULL;
 
+#ifndef TARGET_N64
+    sPortStaticMonitorCol = portObjStaticMonitorCol(obj);
+#endif
+
     // Fast path: test door bounding box.
-    if (obj->type == PROPDEF_DOOR) 
+    if (obj->type == PROPDEF_DOOR)
     {
         found = modelTestRayIntersectsTransformedBBox(&((DoorRecord *)obj)->bbox, &model->render_pos[0].pos, modelRayOrigin, modelRayDir);
         node = model->obj->RootNode;
@@ -1184,7 +1206,11 @@ bool projectileLineTestModel(ObjectRecord *obj, coord3d *modelRayOrigin, coord3d
         } while (found > 0);
     }
 
-    if (found > 0) 
+#ifndef TARGET_N64
+    sPortStaticMonitorCol = 0;
+#endif
+
+    if (found > 0)
     {
         mtx = &model->render_pos[mtxindex].pos;
 
@@ -1475,6 +1501,14 @@ bool sub_GAME_7F041BB8(ChrRecord *chr, coord3d *arg1, coord3d *arg2, f32 arg3, c
     Mtxf *mtx;
     PropRecord *prop;
 
+#ifndef TARGET_N64
+    /* PORT: a chr prop whose model or hit-entry data is gone (a renamed bot corpse, a chr being
+     * freed) must not be hit-tested: sub_GAME_7F06C010 reads the entry list unguarded. */
+    if (chr == NULL || chr->model == NULL || chr->field_20 == NULL || chr->prop == NULL)
+    {
+        return 0;
+    }
+#endif
     prop = chr->prop;
     instSize = getinstsize(chr->model);
     dx = prop->pos.x - arg1->x;
@@ -4513,6 +4547,12 @@ s32 objTick(struct PropRecord *prop)
 
 	previousOpenPosition = 0.0f;
 	playerCount = getPlayerCount();
+#ifndef TARGET_N64
+	/* PORT: coop: the window/portal toggles below run in BOTH passes on purpose. They decide room
+	 * visibility, which feeds PROPFLAG_ONSCREEN, which AI and objectives read, so they must not depend
+	 * on which Bond a machine renders (the netcode machines differ only in portLocalPlayer()).
+	 * The cost is slightly wrong glass in the local view; the pass order is RNG-shuffled, not local-dependent. */
+#endif
 	applyFogCull = TRUE;
 
 	if (obj->runtime_bitflags & RUNTIMEBITFLAG_REMOVE)
@@ -4531,7 +4571,7 @@ s32 objTick(struct PropRecord *prop)
 		return 3;
 	}
 
-	if (playerCount == 1)
+	if (portAllPlayerCount() == 1)
 	{
 		isSimOwner = TRUE;
 	}
@@ -4544,7 +4584,11 @@ s32 objTick(struct PropRecord *prop)
 			projectile = obj->projectile;
 
 			if (projectile->ownerprop != NULL
-#if defined(VERSION_JP) || defined(VERSION_EU)
+#if defined(VERSION_JP) || defined(VERSION_EU) || !defined(TARGET_N64)
+				/* PORT: coop: the EU / JP rule on every version. A gun a dying guard drops is a projectile owned by the GUARD's
+				 * prop; with the US rule neither Bond's pass is that owner, so no pass ever ran its physics and the gun hung in
+				 * the air where the guard stood (netplay playtest 1). Only a player's prop owns by pass; anything else
+				 * falls to the first pass in the shuffled order. */
 				&& getPlayerPointerIndex(projectile->ownerprop) >= 0
 #endif
 			)
@@ -4759,13 +4803,33 @@ s32 objTick(struct PropRecord *prop)
 
 						if (temp_v1_10->weaponnum == ITEM_THROWKNIFE)
 						{
-							if ((playerProp2->type == PROP_TYPE_CHR) || (((playerProp2->type == PROP_TYPE_VIEWER) && (playerProp2->obj != NULL)) && (getPlayerPointerIndex(playerProp2) != get_cur_playernum())))
+#ifndef TARGET_N64
+							/* PORT: co-op bot: a Bond-team chr's knife can also hit Bond, who has no chr in solo first
+							 * person, and its hits are not Bond's (port_chrthrow.c portChrKnifeHit). */
+							extern s32 portFactionActive(void);
+							extern s32 portFactionPropIsBondTeam(PropRecord *p);
+							extern s32 portChrKnifeHit(PropRecord *victim, s32 hitpart, coord3d *dir, s32 weaponnum, PropRecord *ownerprop);
+							extern int portModEnemyKnifeOwner(PropRecord *ownerprop);
+							const s32 botknife = (portFactionActive() && portFactionPropIsBondTeam(Rocket->ownerprop))
+								|| portModEnemyKnifeOwner(Rocket->ownerprop);   /* modifier enemy_knives: an enemy's knife can hit Bond too */
+#endif
+							if ((playerProp2->type == PROP_TYPE_CHR) || (((playerProp2->type == PROP_TYPE_VIEWER) && (playerProp2->obj != NULL)) && (getPlayerPointerIndex(playerProp2) != get_cur_playernum()))
+#ifndef TARGET_N64
+								|| (botknife && (playerProp2->type == PROP_TYPE_VIEWER))
+#endif
+								)
 							{
 								playerProp2 = D_80030B0C;
 								temp_v0_40 = obj->projectile;
 								temp_s0_13 = (struct coord3d *) playerProp2->chr;
 
+#ifndef TARGET_N64
+								if ((((temp_v0_40->flags & PROJECTILEFLAG_AIRBORNE) && (((s32) temp_v0_40->unk90) <= 0)) && (obj->runtime_bitflags & RUNTIMEBITFLAG_THROWING_KNIFE_RELATED))
+									&& (botknife ? portChrKnifeHit(playerProp2, bodypartshot, &flt_CODE_bss_80075B78, ((struct WeaponObjRecord *) obj)->weaponnum, Rocket->ownerprop)
+									             : (handles_shot_actors((struct ChrRecord *) temp_s0_13, bodypartshot, &flt_CODE_bss_80075B78, ((struct WeaponObjRecord *) obj)->weaponnum, 1) != 0)))
+#else
 								if ((((temp_v0_40->flags & PROJECTILEFLAG_AIRBORNE) && (((s32) temp_v0_40->unk90) <= 0)) && (obj->runtime_bitflags & RUNTIMEBITFLAG_THROWING_KNIFE_RELATED)) && (handles_shot_actors((struct ChrRecord *) temp_s0_13, bodypartshot, &flt_CODE_bss_80075B78, ((struct WeaponObjRecord *) obj)->weaponnum, 1) != 0))
+#endif
 								{
 									projectileStopped = 1;
 
@@ -4786,7 +4850,11 @@ s32 objTick(struct PropRecord *prop)
 									Rocket->unk90 += 1;
 									recall_joy2_hits_edit_detail_edit_flag(((struct WeaponObjRecord *) obj)->weaponnum, D_80030B0C, -1);
 
-									if (((D_80030B0C->flags & PROPFLAG_ONSCREEN) && (bodypartshot != HIT_GUN)) && (bodypartshot != HIT_HAT))
+									if (((D_80030B0C->flags & PROPFLAG_ONSCREEN) && (bodypartshot != HIT_GUN)) && (bodypartshot != HIT_HAT)
+#ifndef TARGET_N64
+										&& (!botknife || (g_CurrentProjectileModel != NULL))   /* PORT: co-op bot: Bond's hit box has no model */
+#endif
+										)
 									{
 										playerProp2 = (struct PropRecord *) modelFindNodeMtx(g_CurrentProjectileModel, dword_CODE_bss_80075B74, 0);
 
@@ -5960,6 +6028,12 @@ s32 objTick(struct PropRecord *prop)
 		pad268->calculatedopacity = glassCalculateOpacity(&obj->runtime_pos, pad268->TintDist, pad268->CullDist, pad268->unk90);
 		if ((pad268->portalnum >= 0) && (playerCount == 1))
 		{
+#ifndef TARGET_N64
+			{   /* netplay job 5: viewer-dependent: only the pass's own player's view changes */
+				extern void bgToggleDataPortalsForView(s32 portal, s32 toggle);
+				bgToggleDataPortalsForView(pad268->portalnum, pad268->calculatedopacity == 0xFF ? 0 : 1);
+			}
+#else
 			if (pad268->calculatedopacity == 0xFF)
 			{
 				bgToggleDataPortalsContrlBytes1Bit1(pad268->portalnum, 0);
@@ -5968,6 +6042,7 @@ s32 objTick(struct PropRecord *prop)
 			{
 				bgToggleDataPortalsContrlBytes1Bit1(pad268->portalnum, 1);
 			}
+#endif
 		}
 
 		applyFogCull = FALSE;
@@ -5995,6 +6070,13 @@ s32 objTick(struct PropRecord *prop)
 				var_s2_6 = 0;
 			}
 
+#ifndef TARGET_N64
+			if (pad36C->portalNumber >= 0)
+			{   /* netplay job 5: viewer-dependent (the window door by this pass's distance): only this player's view changes */
+				extern void bgToggleDataPortalsForView(s32 portal, s32 toggle);
+				bgToggleDataPortalsForView(pad36C->portalNumber, var_s2_6 != 0 ? 0 : 1);
+			}
+#else
 			if (var_s2_6 != 0)
 			{
 				doorDeactivatePortal(pad36C);
@@ -6003,6 +6085,7 @@ s32 objTick(struct PropRecord *prop)
 			{
 				doorActivatePortal(pad36C);
 			}
+#endif
 		}
 	}
 
@@ -9149,6 +9232,14 @@ bool propobjFindHit(Model *model, ModelNode *startNode, coord3d *rayPos, coord3d
     done = FALSE;
     node = startNode;
     vertices = NULL;
+#ifndef TARGET_N64
+    /* PORT (netplay job 7): spec / spd4 / spe0 are only set when a node has a render matrix; a collision node tested before any matrix produced a ray read the
+     * stack (undefined on the N64 too, and different from process to process here). A fixed starting value (a degenerate ray) makes that case the same
+     * everywhere. */
+    spec.x = spec.y = spec.z = 0.0f;
+    spe0 = spec;
+    spd4 = spec;
+#endif
 
     while (node && !done)
     {
@@ -9163,6 +9254,15 @@ bool propobjFindHit(Model *model, ModelNode *startNode, coord3d *rayPos, coord3d
                     ModelRoData_DisplayList_CollisionRecord *rodata = &node->Data->DisplayListCollisions;
                     ModelRwData_DisplayList_CollisionRecord *rwdata = modelGetNodeRwData(model, node);
 
+#ifndef TARGET_N64
+                    if (sPortStaticMonitorCol)
+                    {   /* see sPortStaticMonitorCol: the static quad, not the last renderer's display list */
+                        s3 = rodata->Primary;
+                        s5 = rodata->Secondary;
+                        vertices = rodata->Vertices;
+                    }
+                    else
+#endif
                     if (rwdata->gdl != NULL)
                     {
 #ifdef TARGET_N64
@@ -9904,6 +10004,9 @@ dummy_label_995911:
         }
         else
         {
+#ifndef TARGET_N64
+            sPortStaticMonitorCol = portObjStaticMonitorCol(obj);
+#endif
             do
             {
                 hitpart = modelFindNextProjectileHitCandidate(model, &hitinfo->viewOrigin, &hitinfo->viewDir, &node);
@@ -9917,6 +10020,9 @@ dummy_label_995911:
                 }
             }
             while (hitpart > HIT_NULL_PART);
+#ifndef TARGET_N64
+            sPortStaticMonitorCol = 0;
+#endif
         }
 
         if (hitpart > HIT_NULL_PART)
@@ -10307,6 +10413,17 @@ TICKOP propobjInteract(PropRecord *prop)
     }
 
     obj->runtime_bitflags |= RUNTIMEBITFLAG_ACTIVATED;
+#ifndef TARGET_N64
+    {   /* PORT: coop: which Bond used it (the level exit gate: Runway's plane is "used", not walked into) */
+        extern void portCoopNoteActivator(int player);
+        extern int portCoopActive(void);
+
+        if (portCoopActive())
+        {
+            portCoopNoteActivator(get_cur_playernum());
+        }
+    }
+#endif
     sub_GAME_7F03E6A0(prop);
 
     return op;
@@ -10779,6 +10896,27 @@ s32 ammo_collected_from_weapon(WeaponObjRecord *weapon)
         return 0;
     }
 
+#ifndef TARGET_N64
+    {   /* PORT: arena (drop A6): a centre pickup gives the rounds the script asked for */
+        extern s32 portArenaItemAmmo(const WeaponObjRecord *w);
+        s32 arenaqty = portArenaItemAmmo(weapon);
+
+        if (arenaqty >= 0)
+        {
+            return arenaqty;
+        }
+    }
+    {   /* PORT: coop (netplay job 3d): a gun a dying Bond dropped holds the rounds of its magazine */
+        extern s32 portCoopDropAmmoTake(ObjectRecord *obj);
+        s32 dropped = portCoopDropAmmoTake((ObjectRecord *) weapon);
+
+        if (dropped >= 0)
+        {
+            return dropped;
+        }
+    }
+#endif
+
     switch (ammotype)
     {
         case AMMO_9MM:          qty = 10; break;
@@ -10995,6 +11133,9 @@ TICKOP propPickupByPlayer(PropRecord *prop, bool showstring)
 {
     ObjectRecord *obj;
     TICKOP op;
+#ifndef TARGET_N64
+    s32 evType, evId = -1, evQty = 1; /* PORT: event: ITEM_PICKUP args, taken before the object can be freed */
+#endif
 
     op = TICKOP_NONE;
     obj = prop->obj;
@@ -11003,6 +11144,9 @@ TICKOP propPickupByPlayer(PropRecord *prop, bool showstring)
     {
         return TICKOP_NONE;
     }
+#ifndef TARGET_N64
+    evType = obj->type;
+#endif
 
     switch (obj->type)
     {
@@ -11040,6 +11184,10 @@ TICKOP propPickupByPlayer(PropRecord *prop, bool showstring)
 
             amount = get_ammo_in_magazine(crate);
             add_ammo_to_inventory(crate->ammoType, amount, 1, showstring);
+#ifndef TARGET_N64
+            evId = crate->ammoType;
+            evQty = amount;
+#endif
 
             op = TICKOP_FREE;
 
@@ -11072,6 +11220,12 @@ TICKOP propPickupByPlayer(PropRecord *prop, bool showstring)
                 }
 
                 add_ammo_to_inventory(ammotype, ammoquantity, 0, showstring);
+#ifndef TARGET_N64
+                if (ammoquantity > 0) /* PORT: event: one ITEM_PICKUP per ammo type in the crate */
+                {
+                    portEventEmit(PORT_EV_ITEM_PICKUP, evType, ammotype, ammoquantity, 0);
+                }
+#endif
             }
 
             sndPlaySfx((struct ALBankAlt_s *)g_musicSfxBufferPtr, PICKUP_AMMO_SFX, 0);
@@ -11089,6 +11243,9 @@ TICKOP propPickupByPlayer(PropRecord *prop, bool showstring)
 
             collected = 0;
             wep = (WeaponObjRecord *)prop->obj;
+#ifndef TARGET_N64
+            evId = wep->weaponnum;
+#endif
 
             set_sound_effect_for_weapontype_collection(wep->weaponnum);
 
@@ -11187,6 +11344,9 @@ TICKOP propPickupByPlayer(PropRecord *prop, bool showstring)
 
         case PROPDEF_ARMOUR: // Body armor
         {
+#ifndef TARGET_N64
+            evQty = (s32) ((struct BodyArmourRecord *)prop->obj)->amount;
+#endif
             bondviewAddCurrentPlayerArmor(((struct BodyArmourRecord *)prop->obj)->amount);
             sndPlaySfx((struct ALBankAlt_s *)g_musicSfxBufferPtr, ARMOUR_COLLECT_SFX, 0);
 
@@ -11284,6 +11444,12 @@ TICKOP propPickupByPlayer(PropRecord *prop, bool showstring)
         }
     }
 
+#ifndef TARGET_N64
+    if (op != TICKOP_NONE && evType != PROPDEF_AMMO) /* PORT: event: ITEM_PICKUP (crates emitted per ammo type above) */
+    {
+        portEventEmit(PORT_EV_ITEM_PICKUP, evType, evId, evQty, 0);
+    }
+#endif
     if ((op == TICKOP_FREE) && ((obj->runtime_bitflags & RUNTIMEBITFLAG_TAGGED) == 0))
     {
         objFree(obj, 0, (obj->state & RUNTIMEBITFLAG_REMOVE));
@@ -11326,7 +11492,7 @@ TICKOP objTickPlayer(struct PropRecord* prop)
         {
             return TICKOP_NONE;
         }
-    } 
+    }
     else 
     {
         if (!(obj->flags & PROPFLAG_00040000))
@@ -11794,6 +11960,10 @@ PropRecord *hatCreateForChr(ChrRecord *chr, s32 modelnum, u32 flags)
 }
 
 
+#ifndef TARGET_N64
+extern s32 portArenaWeaponNearBond(const WeaponObjRecord *w);   /* port_arenamode.c: false outside a game mode */
+#endif
+
 // PD: weaponCreate
 WeaponObjRecord* weaponCreate(bool musthaveprop, bool musthavemodel, ModelFileHeader *modeldef)
 {
@@ -11822,7 +11992,13 @@ WeaponObjRecord* weaponCreate(bool musthaveprop, bool musthavemodel, ModelFileHe
                     || (((slot->weaponnum == ITEM_REMOTEMINE) || (slot->weaponnum == ITEM_PROXIMITYMINE) || (slot->weaponnum == ITEM_TIMEDMINE))
                             && ((slot->prop->parent == NULL) || (slot->prop->parent->type == PROP_TYPE_OBJ) || (slot->prop->parent->type == PROP_TYPE_DOOR) || (slot->prop->parent->type == PROP_TYPE_WEAPON))))
             {
-                if (!musthavemodel || modelmgrCanSlotFitRwdata(slot->model, modeldef))
+                if ((!musthavemodel || modelmgrCanSlotFitRwdata(slot->model, modeldef))
+#ifndef TARGET_N64
+                    /* PORT: arena (drop A5): never recycle a loose weapon a Bond is standing next to (the one he is about to pick up).
+                     * (A6: parenthesised above; before, the test was skipped whenever no model slot was needed.) */
+                    && !portArenaWeaponNearBond(slot)
+#endif
+                    )
                 {
                     if ((slot->prop->flags & PROPFLAG_ONSCREEN) == 0 && sp40 < 0)
                     {
@@ -12116,9 +12292,45 @@ KeyRecord *weaponFindThrown(s32 KeyID) //MATCH
 
     for (prop = chrpropGetActiveTail(); prop; prop = prop->prev)
     {
+#ifndef TARGET_N64
+        /* PORT: coop. In co-op each Bond has a body chr, and the weapon it HOLDS is a weapon prop on that body (child of the chr prop,
+         * created by sub_GAME_7F09B398 every time the Bond switches weapon). check_if_entry_is_collectable searches children, so a Bond who
+         * merely cycled to the timed mine (Surface 2's bomb, item 29) was "a mine lying stationary in the level" and the level's checker
+         * printed "Bomb incorrectly placed - inactive!" (and failed the bomb objective). A weapon in a Bond's hand is not a thrown item. */
+        {
+            extern int portCoopPropIsBond(PropRecord *prop);
+            extern char *getenv(const char *);
+            static int oldBehaviour = -1;   /* GE_TEST_BOMBOLD=1 (test only, negative control): the unfixed search */
+
+            if (oldBehaviour < 0) { oldBehaviour = getenv("GE_TEST_BOMBOLD") != NULL; }
+            if (!oldBehaviour && portCoopPropIsBond(prop))
+            {
+                continue;
+            }
+        }
+#endif
         obj = check_if_entry_is_collectable(KeyID, prop);
         if (obj && (!(obj->runtime_bitflags & RUNTIMEBITFLAG_HASPROJECTILE)))
         {
+#ifndef TARGET_N64
+            {   /* GE_HUDLOG=1 (test): what the thrown-item search found (once per item) */
+                extern char *getenv(const char *);
+                extern int printf(const char *, ...);
+                static int found[64];
+                static int dbg = -1;
+
+                if (dbg < 0) { dbg = getenv("GE_HUDLOG") != NULL; }
+                if (dbg && KeyID >= 0 && KeyID < 64 && !found[KeyID])
+                {
+                    found[KeyID] = 1;
+                    printf("ge: hud: thrown-item search for item %d found a prop under a type-%d prop (chr %d) %s: the prop is %p, its parent %p, runtime %08x flags %08x flags2 %08x propflags %02x pos %.0f %.0f %.0f field %d\n", (int) KeyID,
+                           (int) prop->type, prop->type == PROP_TYPE_CHR && prop->chr != NULL ? (int) prop->chr->chrnum : -1,
+                           prop->type == PROP_TYPE_WEAPON ? "(the item itself, loose in the level)" : "(held / attached)",
+                           (void *) prop, (void *) (prop->parent), (unsigned) obj->runtime_bitflags, (unsigned) obj->flags, (unsigned) obj->flags2,
+                           (unsigned) prop->flags, prop->pos.x, prop->pos.y, prop->pos.z, (int) g_GlobalTimer);
+                }
+            }
+#endif
             return obj;
         }
     }
@@ -13181,6 +13393,26 @@ PropRecord* doorInit(DoorRecord* door, coord3d* pos, Mtxf* mtx, StandTile* stan,
 
     doorUpdateBbox(door);
     doorBuildClippedVertices(door);
+#ifndef TARGET_N64
+    extern int portDoorVtxOld(void);   /* GE_NET_TEST_DOORVTXOLD=1 (test, negative control): the late copy from the per-frame pool, as before */
+    if (door->doorFlags & DOORFLAG_CLIP_TO_BBOX && door->unkcc != NULL && !portDoorVtxOld())
+    {   /* PORT (netplay job 7): keep the clipped shape NOW. doorBuildClippedVertices put it in the per-frame vertex pool (dynAllocateVertices), and the
+         * first propsTick of the stage copied it into door->unkcc (the loop in the door tick, "Vertices != unkcc") from that pool, frames later. By then the
+         * pool had been reused, and what the copy found depended on what this process had drawn in between: the Dam start gate's vertices were garbage on one
+         * machine of two (a shot at the gate hit it on one only: the playtest-7 desync, found with the RNG trace). */
+        extern void portPartCacheVerticesFreed(const void *vtx);
+        struct ModelRoData_DisplayList_CollisionRecord *crod = (struct ModelRoData_DisplayList_CollisionRecord *) door->model->obj->RootNode->Child->Child->Data;
+        struct ModelRwData_DisplayList_CollisionRecord *crw = (struct ModelRwData_DisplayList_CollisionRecord *) modelGetNodeRwData(door->model, door->model->obj->RootNode->Child->Child);
+        s32 vi;
+
+        for (vi = 0; vi < crod->numVertices; vi++)
+        {
+            door->unkcc[vi] = crw->Vertices[vi];
+        }
+        crw->Vertices = door->unkcc;
+        portPartCacheVerticesFreed(door->unkcc);
+    }
+#endif
     sub_GAME_7F0402B4(door->prop, &door->nextcol);
 
     door->shadecol.r = door->nextcol.r;
@@ -13217,7 +13449,14 @@ s32 sub_GAME_7F0537B8(f32 distance, f32 min, f32 max)
 }
 
 
-s32 sub_GAME_7F053894(coord3d *pos, f32 low, f32 high)
+/* PORT: coop (netplay job 3d): the volume a sound gets is measured from a
+ * single listener. allPlayers=0 (audio only): the LOCAL Bond in co-op, so each
+ * window plays the partner's distant gunfire at the right level. allPlayers=1:
+ * the nearest of all Bonds, the value the SIM may read (AI sfx slot volume,
+ * IFSfxChannelVolumeLessThan). Solo: identical either way. */
+extern int portCoopActive(void);
+extern int portLocalPlayer(void);
+s32 portSndVolumeForPos(coord3d *pos, f32 low, f32 high, s32 allPlayers)
 {
     PropRecord *prop;
     s32 index;
@@ -13227,13 +13466,20 @@ s32 sub_GAME_7F053894(coord3d *pos, f32 low, f32 high)
     f32 diffz;
     f32 distance;
     s32 count;
+    s32 first = 0;
 
     shortest_distance = high;
-    count = getPlayerCount();
+    count = portAllPlayerCount();
+    if (!allPlayers && portCoopActive())
+    {
+        first = portLocalPlayer();
+        count = first + 1;
+    }
 
-    for (index = 0; index < count; index++)
+    for (index = first; index < count; index++)
     {
         prop  = g_playerPointers[index]->prop;
+        if (prop == NULL) { continue; } /* PORT: coop: P2's prop may not exist yet */
         diffx = prop->pos.x - pos->x;
         diffy = prop->pos.y - pos->y;
         diffz = prop->pos.z - pos->z;
@@ -13245,6 +13491,28 @@ s32 sub_GAME_7F053894(coord3d *pos, f32 low, f32 high)
         }
     }
     return sub_GAME_7F0537B8(shortest_distance, low, high);
+}
+
+s32 sub_GAME_7F053894(coord3d *pos, f32 low, f32 high)
+{
+    return portSndVolumeForPos(pos, low, high, 0);
+}
+
+/* test log only (GE_SNDLOG): the volume Bond `player` alone would hear */
+s32 portSndVolumeForPlayer(coord3d *pos, f32 low, f32 high, s32 player)
+{
+    PropRecord *prop = (player >= 0 && player < 4 && g_playerPointers[player] != NULL) ? g_playerPointers[player]->prop : NULL;
+    f32 dx, dy, dz, d;
+
+    if (prop == NULL)
+    {
+        return -1;
+    }
+    dx = prop->pos.x - pos->x;
+    dy = prop->pos.y - pos->y;
+    dz = prop->pos.z - pos->z;
+    d = sqrtf(dx * dx + dy * dy + dz * dz);
+    return sub_GAME_7F0537B8(d < high ? d : high, low, high);
 }
 
 
@@ -13312,6 +13580,14 @@ void portSndSetListener(Mtxf *viewToWorld)
     {
         s_SndListenerValid = 0;
         return;
+    }
+    { /* PORT: coop: only the local player's view is the listener; the other pass keeps it */
+        extern int portCoopActive(void);
+        extern int portLocalPlayer(void);
+        if (portCoopActive() && get_cur_playernum() != portLocalPlayer())
+        {
+            return;
+        }
     }
 
     s_SndListenerRight.x = viewToWorld->m[0][0];
@@ -13534,8 +13810,19 @@ s32 portProjectileBelowWorld(ObjectRecord *obj)
 
 void chrobjSndCreatePostEvent(ALSoundState *state, coord3d *pos, f32 low, f32 high)
 {
-    sndCreatePostEvent(state, 8, sub_GAME_7F053894(pos, low, high));
+    s32 portVol = sub_GAME_7F053894(pos, low, high);
+    sndCreatePostEvent(state, 8, portVol);
 #ifndef TARGET_N64
+    {   /* GE_SNDLOG=1: the volume this machine's listener gets (netplay job 3d test hook) */
+        static int sndLog = -1;
+        if (sndLog < 0) { sndLog = getenv("GE_SNDLOG") != NULL; }
+        if (sndLog)
+        {
+            printf("ge: snd: pos %.0f,%.0f,%.0f vol %d local player %d coop %d | p0 alone %d p1 alone %d nearest-of-all %d\n", pos->x, pos->y, pos->z, (int) portVol,
+                   portCoopActive() ? portLocalPlayer() : 0, portCoopActive(), (int) portSndVolumeForPlayer(pos, low, high, 0),
+                   (int) portSndVolumeForPlayer(pos, low, high, 1), (int) portSndVolumeForPos(pos, low, high, 1));
+        }
+    }
     /* the choke point nearly every positional sfx already goes through for
      * its distance volume - doors, chrs, guns, explosions, glass, mines,
      * autoguns - so panning them is one call here */
@@ -13553,6 +13840,13 @@ s32 sub_GAME_7F0539B8(f32 vol)
 s32 sub_GAME_7F0539E4(coord3d *pos)
 {
     return sub_GAME_7F053894(pos, 5000.0f, 6000.0f);
+}
+
+/* the same volume measured from the nearest of ALL Bonds: for the AI sfx slots,
+ * whose Volume2 the script command IFSfxChannelVolumeLessThan reads (sim) */
+s32 portSndVolumeSimForPos(coord3d *pos)
+{
+    return portSndVolumeForPos(pos, 5000.0f, 6000.0f, 1);
 }
 
 

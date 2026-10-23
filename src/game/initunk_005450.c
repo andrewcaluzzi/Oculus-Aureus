@@ -2,7 +2,11 @@
 #include "bondtypes.h"
 #include "initunk_005450.h"
 
+#ifdef TARGET_N64
 #define MODELHITENTRIES_LEN 600
+#else
+#define MODELHITENTRIES_LEN 8000   /* PORT: matches g_ModelHitEntries in objecthandler.c (the arena crowd needs thousands) */
+#endif
 
 extern struct ModelHitEntry *g_ModelHitFreeList; // canonically freedist
 

@@ -245,7 +245,8 @@ static int s_CfgTrueEnemyRockets = 1; /* 0 = restore the vanilla Enemy Rockets
                                        * the guard with their original
                                        * weapon right after giving them the
                                        * rocket launcher) */
-static int s_CfgShowFps = 0;          /* 1 = in-game FPS/TPS overlay strip */
+static int s_CfgNetGraph = 0;         /* [display] net_graph 0..3: the network/frame-time overlay (port_netstats.c; GE_NET_GRAPH and the console override) */
+static int s_CfgShowFps = 0;        /* 1 = in-game FPS/TPS overlay strip */
 /* what midas.ini literally contained, so the derived value can be written back
  * only when the file disagrees */
 static int s_CfgTickSeenInIni = 0;
@@ -321,6 +322,17 @@ static int videoPlayerOptIndex(const char *key)
  * libultra_shim.c.
  */
 f32 portFovDefault(void)
+{
+    extern int portCoopActive(void);
+    extern int portSimViewOff(void);
+
+    /* job 3c: a co-op stage runs the zoom chain on the vanilla 60 for everybody; the window's own FOV is applied where the
+     * display list is built (port_coop.c portSimDisplayFovY), so it never reaches the simulation */
+    return (portCoopActive() && !portSimViewOff()) ? 60.0f : s_CfgFov;
+}
+
+/** the [display] fov as configured, whatever the mode */
+f32 portFovCfg(void)
 {
     return s_CfgFov;
 }
@@ -580,6 +592,12 @@ s32 portVideoShowFps(void)
         return 0;
     }
     return s_CfgShowFps;
+}
+
+/** midas.ini [display] net_graph (0..3); port_netstats.c reads it once, GE_NET_GRAPH wins */
+s32 portVideoNetGraphCfg(void)
+{
+    return s_CfgNetGraph;
 }
 
 f32 portWideFactor(void); /* defined below */
@@ -1073,6 +1091,7 @@ static int videoSetDisplayOption(const char *key, const char *value)
     if (SDL_strcasecmp(key, "distance_fading") == 0) { s_CfgDistanceFading = SDL_atoi(value); return 1; }
     if (SDL_strcasecmp(key, "true_enemy_rockets") == 0) { s_CfgTrueEnemyRockets = SDL_atoi(value); return 1; }
     if (SDL_strcasecmp(key, "show_fps") == 0)      { s_CfgShowFps = SDL_atoi(value); return 1; }
+    if (SDL_strcasecmp(key, "net_graph") == 0)     { s_CfgNetGraph = SDL_atoi(value); return 1; }
     if (SDL_strcasecmp(key, "classic_saved") == 0)
     {
         int f[CLASSIC_SAVED_MAX];
@@ -1390,8 +1409,12 @@ int portVideoXboxMode(void)
 }
 #endif
 
+extern s32 portBotSetOption(const char *key, const char *value);   /* port_bot.c: the coop_bot* keys */
+extern s32 portBotOptionGet(const char *key, s32 *out);
+
 s32 portVideoOptionGet(const char *key, s32 *out)
 {
+    if (SDL_strncasecmp(key, "coop_bot", 8) == 0)  { return portBotOptionGet(key, out); }
     if (SDL_strcasecmp(key, "fullscreen") == 0)    { *out = s_CfgFullscreen;   return 1; }
     if (SDL_strcasecmp(key, "widescreen") == 0)    { *out = s_CfgWidescreen;   return 1; }
     if (SDL_strcasecmp(key, "vsync") == 0)         { *out = s_CfgVsync;        return 1; }
@@ -1521,6 +1544,10 @@ s32 portVideoOptionSet(const char *key, s32 value)
     else
     {
         SDL_snprintf(buf, sizeof(buf), "%d", (int) value);
+    }
+    if (SDL_strncasecmp(key, "coop_bot", 8) == 0)
+    {
+        return portBotSetOption(key, buf);   /* no video consequences */
     }
     if (!videoSetDisplayOption(key, buf))
     {
@@ -3123,8 +3150,11 @@ static void videoLoadConfig(void)
             extern s32 portInputSetOption(const char *key, const char *value);
             char *val = iniTrim(eq + 1);
 
+            extern s32 portBotSetOption(const char *key, const char *value);
+            extern int portModifierSetOption(const char *key, const char *value);   /* port_modifier.c: mods= */
+
             if (!videoSetDisplayOption(key, val) && !portInputSetOption(key, val) && !portJoyPortSetOption(key, val)
-                && !romdataIsIniKey(key) /* [data] rom=: romdata.c reads it itself, section-aware */)
+                && !portBotSetOption(key, val) && !portModifierSetOption(key, val) &&!romdataIsIniKey(key) /* [data] rom=: romdata.c reads it itself, section-aware */)
             {
                 portConLogf("ge: midas.ini: unknown control \"%s\"\n", key);
             }
@@ -3954,7 +3984,7 @@ s32 portVideoIniSetKey(const char *key, const char *value)
 notoggle:
     SDL_strlcpy(work, value, sizeof(work));
 
-    if (videoSetDisplayOption(key, work))
+    if (videoSetDisplayOption(key, work) || portBotSetOption(key, work))
     {
         SDL_strlcpy(section, "[display]", sizeof(section));
     }

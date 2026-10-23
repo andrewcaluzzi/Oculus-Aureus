@@ -116,6 +116,13 @@ s32 g_PortStatTps = 0;
 /* Counts of real time credited to the field accumulator but not yet worth a
  * whole field. THE carry - see waitForNextFrame. */
 static u32 portTickFieldAccum = 0;
+/* rollback R2: wall-clock bookkeeping is not sim state; a snapshot restore must not rewind it (port_snap.c) */
+__attribute__((constructor)) static void portTickSnapLive(void)
+{
+    extern void portSnapLive(const char *name, const void *p, unsigned int n);
+
+    portSnapLive("ft.fieldaccum", &portTickFieldAccum, sizeof(portTickFieldAccum));
+}
 static s32 portTickCfgHz = -1;      /* midas.ini [display] tickhz; -1 = unset.
                                      * Not 0, because tickhz=0 is a real value meaning uncapped. */
 static s32 portTickHzCache = -1;

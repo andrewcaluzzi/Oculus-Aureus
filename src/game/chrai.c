@@ -52,6 +52,72 @@ s32 portAiDbg(void)
     }
     return on;
 }
+
+/* PORT: coop (port_coop.c): level scripts see "any Bond" for tests and "all Bonds" for effects. */
+extern int portCoopActive(void);
+extern int portCoopAllDead(void);
+extern int portCoopYLessAny(f32 y);
+extern int portCoopPadRoomAny(ChrRecord *self, s32 pad);
+extern f32 portCoopPadDist(ChrRecord *self, s32 pad, int wantMax);
+/* runs stmt once per Bond (each as the current player), then restores the current player */
+#define PORT_ALL_BONDS(stmt)                                                \
+    do                                                                      \
+    {                                                                       \
+        if (portCoopActive())                                               \
+        {                                                                   \
+            s32 portSavedPlayer = get_cur_playernum();                      \
+            s32 portK;                                                      \
+            for (portK = 0; portK < portAllPlayerCount(); portK++)          \
+            {                                                               \
+                set_cur_player(portK);                                      \
+                stmt;                                                       \
+            }                                                               \
+            set_cur_player(portSavedPlayer);                                \
+        }                                                                   \
+        else                                                                \
+        {                                                                   \
+            stmt;                                                           \
+        }                                                                   \
+    } while (0)
+/* the mission-end commands (fades, cameras, exit): every Bond in co-op, unless GE_NET_TEST_OLDEND=1 (negative control: the pre-fix single-Bond behaviour) */
+extern int portCoopSharedEnd(void);
+#define PORT_END_BONDS(stmt)                                                \
+    do                                                                      \
+    {                                                                       \
+        if (portCoopSharedEnd())                                            \
+        {                                                                   \
+            s32 portSavedPlayer = get_cur_playernum();                      \
+            s32 portK;                                                      \
+            for (portK = 0; portK < portAllPlayerCount(); portK++)          \
+            {                                                               \
+                set_cur_player(portK);                                      \
+                stmt;                                                       \
+            }                                                               \
+            set_cur_player(portSavedPlayer);                                \
+        }                                                                   \
+        else                                                                \
+        {                                                                   \
+            stmt;                                                           \
+        }                                                                   \
+    } while (0)
+/* Job CO-OP-EXITS: the first Bond-lock command of an ending that leads to an exit waits (the script yields on it and tries again next tick)
+ * until every living Bond has reached the exit (coop_exits=both). Used inside ai(): ChrEntityp, AiListp, Offset. */
+extern int portCoopExitGateActive(void);
+extern int portCoopExitGate(ChrRecord *self);
+extern s32 portAiExitAhead(AIRecord *list, s32 offset);
+#define PORT_EXIT_GATE()                                                                                                    \
+    do                                                                                                                      \
+    {                                                                                                                       \
+        if (ChrEntityp != NULL && portCoopExitGateActive() && portAiExitAhead(AiListp, Offset) && portCoopExitGate(ChrEntityp)) \
+        {                                                                                                                   \
+            ChrEntityp->ailist   = AiListp;                                                                                 \
+            ChrEntityp->aioffset = Offset;                                                                                  \
+            return;                                                                                                         \
+        }                                                                                                                   \
+    } while (0)
+#else
+#define PORT_ALL_BONDS(stmt) stmt
+#define PORT_END_BONDS(stmt) stmt
 #endif
 
 // bss
@@ -60,6 +126,20 @@ s32 portAiDbg(void)
  */
 sfxRecord  sfx_related[SFX_RELATED_LEN];
 
+/* PORT: coop (netplay job 3d): the volume last posted to the sound engine per slot (audio only) */
+static s32 s_portAudVol2[SFX_RELATED_LEN];
+extern s32 portSndVolumeSimForPos(coord3d *pos);
+extern int portLocalPlayer(void);
+extern char *getenv(const char *);
+extern int printf(const char *, ...);
+/* GE_SNDLOG=1 prints each AI-slot volume post (a test hook) */
+static int portSndLogOn(void)
+{
+    static int on = -1;
+    if (on < 0) { on = getenv("GE_SNDLOG") != NULL; }
+    return on;
+}
+
 /**
  * Play Audio in slot X from Prop or Pad
  * @param slot: Where audio is loaded
@@ -67,23 +147,33 @@ sfxRecord  sfx_related[SFX_RELATED_LEN];
 void       audioPlayFromProp2(s32 slot)
 {
     int        tempvol;
+    int        audvol;   /* PORT: the volume this machine's listener hears */
+    int        audtemp;
     sfxRecord *sfx = &sfx_related[slot]; // always added to stack anyway, cleaner to use
     int        clock_timer;
 
     if ((sfx->state) && (sndGetPlayingState(sfx->state)))
     {
+        /* PORT: coop (netplay job 3d). The sim-visible Volume/Volume2 (read by
+         * IFSfxChannelVolumeLessThan) are measured from the nearest of ALL Bonds,
+         * identical on both machines; the volume actually POSTED to the sound
+         * engine is measured from the local Bond only (s_portAudVol2 is the
+         * posted value). Solo: the two are always equal. */
         if (sfx->pos)
         {
-            sfx->Volume = sub_GAME_7F0539E4(sfx->pos);
+            sfx->Volume = portSndVolumeSimForPos(sfx->pos);
+            audvol      = sub_GAME_7F0539E4(sfx->pos);
 #ifndef TARGET_N64
             portSndApplyPan(sfx->state, sfx->pos);
 #endif
         }
         else
         {
+            audvol = sfx->Volume;
             if (sfx->Obj && sfx->Obj->prop)
             {
-                sfx->Volume = sub_GAME_7F0539E4(&sfx->Obj->runtime_pos);
+                sfx->Volume = portSndVolumeSimForPos(&sfx->Obj->runtime_pos);
+                audvol      = sub_GAME_7F0539E4(&sfx->Obj->runtime_pos);
 #ifndef TARGET_N64
                 portSndApplyPan(sfx->state, &sfx->Obj->runtime_pos);
 #endif
@@ -91,28 +181,36 @@ void       audioPlayFromProp2(s32 slot)
         }
 
         tempvol = sfx->Volume;
+        audtemp = audvol;
         if (sfx->sfxID >= 0)
         {
             clock_timer = g_ClockTimer;
             if (clock_timer < sfx->sfxID)
             {
                 tempvol = (((sfx->Volume - sfx->Volume2) * clock_timer) / sfx->sfxID) + sfx->Volume2;
+                audtemp = (((audvol - s_portAudVol2[slot]) * clock_timer) / sfx->sfxID) + s_portAudVol2[slot];
             }
             sfx->sfxID = sfx->sfxID - clock_timer;
         }
         if (lvlGetControlsLockedFlag() != 0)
         {
             tempvol = 0;
+            audtemp = 0;
         }
-        if (tempvol != sfx->Volume2)
+        sfx->Volume2 = tempvol;
+        if (audtemp != s_portAudVol2[slot])
         {
-            sndCreatePostEvent(sfx->state, 8, tempvol);
-            sfx->Volume2 = tempvol;
-            return;
+            if (portSndLogOn())
+            {
+                printf("ge: snd: slot %d vol %d (sim %d) local player %d\n", (int) slot, audtemp, tempvol, portLocalPlayer());
+            }
+            sndCreatePostEvent(sfx->state, 8, audtemp);
+            s_portAudVol2[slot] = audtemp;
         }
         return;
     }
     sfx->Volume2 = 0;
+    s_portAudVol2[slot] = 0;
 }
 
 /**
@@ -144,6 +242,7 @@ void audioPlayFromProp(s32 slot, s16 soundIndex)
 
             sfx->Volume  = SHRT_MAX;
             sfx->Volume2 = SHRT_MAX;
+            s_portAudVol2[slot] = SHRT_MAX;
             sfx->sfxID   = -1;
             sfx->pos     = NULL;
             sfx->Obj     = NULL;
@@ -792,6 +891,62 @@ s32 chraiGoToLabel(AIRecord *AIList, s32 Offset, u8 LabelNum)
         Offset += chraiitemsize(AIList, Offset);
     }
 }
+
+#ifndef TARGET_N64
+/* PORT: coop (job CO-OP-EXITS). Does the code from `offset` on (the command about to run included) lead to a level exit: an exit_level or a
+ * "fade and exit on button press" command later in this same list? The endings of every level start with a Bond-lock command (bond_disable_damage_
+ * and_pickups / hud_hide_and_lock_controls...) a few commands after the script saw a Bond reach its trigger, and have the exit command further
+ * down the same list; a mid-level cutscene's lock is followed by no exit. Straight scan to the end of the list (the forward labels are all later in
+ * the list, so a linear scan covers every forward path). Cached per list and position; the cache is dropped at every stage start. */
+extern int g_portCoopEpoch;   /* port_coop.c: counts stage starts */
+
+s32 portAiExitAhead(AIRecord *list, s32 offset)
+{
+    static struct { AIRecord *list; s32 offset; s32 res; int epoch; } cache[48];
+    static int n;
+    static int cacheEpoch = -1;
+    s32 off;
+    s32 res = 0;
+    int guard = 0;
+    int i;
+
+    if (cacheEpoch != g_portCoopEpoch)
+    {
+        cacheEpoch = g_portCoopEpoch;
+        n = 0;
+    }
+    for (i = 0; i < n; i++)
+    {
+        if (cache[i].list == list && cache[i].offset == offset)
+        {
+            return cache[i].res;
+        }
+    }
+    for (off = offset; guard < 8000; guard++)
+    {
+        const u8 cmd = list[off].cmd;
+
+        if (cmd == AI_EndLevel || cmd == AI_TriggerFadeAndExitLevelOnButtonPress)
+        {
+            res = 1;
+            break;
+        }
+        if (cmd == AI_EndList)
+        {
+            break;
+        }
+        off += chraiitemsize((u8 *) list, off);
+    }
+    if (n < 48)
+    {
+        cache[n].list = list;
+        cache[n].offset = offset;
+        cache[n].res = res;
+        n++;
+    }
+    return res;
+}
+#endif
 
 AIRecord *ailistFindById(s32 ID)
 {
@@ -2103,8 +2258,19 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     AiIFBondDistanceToPadLessThanDecimeterRecord *ai    = AiListp + Offset;
                     u16                                           pad   = ntohs(ai->PAD);
                     f32                                           value = ntohs(ai->DISTANCE) * 10.0f;
+#ifndef TARGET_N64
+                    if (value > (portCoopActive() ? portCoopPadDist(ChrEntityp, pad, 0) : chrGetDistanceFromBondToPad(ChrEntityp, pad)))
+#else
                     if (value > chrGetDistanceFromBondToPad(ChrEntityp, pad))
+#endif
                     {
+#ifndef TARGET_N64
+                        if (portCoopActive())
+                        {   /* PORT: coop: which Bond reached the pad (the exit gate's trigger note) */
+                            extern void portCoopNoteDistHit(ChrRecord *self, s32 pad, f32 thr);
+                            portCoopNoteDistHit(ChrEntityp, pad, value);
+                        }
+#endif
                         Offset = chraiGoToLabel(AiListp, Offset, ai->GOTOLABEL);
                     }
                     else
@@ -2118,7 +2284,11 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     AiIFBondDistanceToPadGreaterThanDecimeterRecord *ai    = AiListp + Offset;
                     u16                                              pad   = ntohs(ai->PAD);
                     f32                                              value = ntohs(ai->DISTANCE) * 10.0f;
+#ifndef TARGET_N64
+                    if (value < (portCoopActive() ? portCoopPadDist(ChrEntityp, pad, 1) : chrGetDistanceFromBondToPad(ChrEntityp, pad)))
+#else
                     if (value < chrGetDistanceFromBondToPad(ChrEntityp, pad))
+#endif
                     {
                         Offset = chraiGoToLabel(AiListp, Offset, ai->GOTOLABEL);
                     }
@@ -2146,7 +2316,11 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                 {
                     AiIFBondInRoomWithPadRecord *ai     = AiListp + Offset;
                     u16                          pad_id = ntohs(ai->PAD);
+#ifndef TARGET_N64
+                    if (portCoopActive() ? portCoopPadRoomAny(ChrEntityp, pad_id) : check_if_actor_is_at_preset(ChrEntityp, pad_id))
+#else
                     if (check_if_actor_is_at_preset(ChrEntityp, pad_id))
+#endif
                     {
     #ifdef ENABLE_LOG
                         osSyncPrintf("BOND IN ROOM\n");
@@ -2269,6 +2443,13 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     if (obj && obj->prop && (obj->runtime_bitflags & RUNTIMEBITFLAG_ACTIVATED))
                     {
                         obj->runtime_bitflags &= ~RUNTIMEBITFLAG_ACTIVATED;
+#ifndef TARGET_N64
+                        if (portCoopActive())
+                        {   /* PORT: coop: which Bond used it (Runway's plane): the exit gate's trigger note */
+                            extern void portCoopNoteActivation(ChrRecord *self);
+                            portCoopNoteActivation(ChrEntityp);
+                        }
+#endif
                         Offset = chraiGoToLabel(AiListp, Offset, ai->GOTOLABEL);
                     }
                     else
@@ -3749,7 +3930,7 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
     #ifdef BUGFIX_R1
                     jp_hudmsgBottomShow(text);
     #else
-                    hudmsgBottomShow(text);
+                    { extern void portHudMsgBottomShowAll(char *text); portHudMsgBottomShowAll(text); } /* PORT: coop: every Bond */
     #endif
                     Offset += sizeof(AiTextPrintBottomRecord);
                     break;
@@ -4025,6 +4206,14 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     }
                     else
                     {
+#ifndef TARGET_N64
+                        if (portCoopSharedEnd())
+                        {   /* PORT: coop (mission-end job): the shared exit, logged with its sim tick */
+                            extern void portCoopMissionEnd(const char *why);
+                            portCoopMissionEnd("exit_level");
+                        }
+                        else
+#endif
                         bossReturnTitleStage();
                     }
                     Offset += sizeof(AiEndLevelRecord);
@@ -4032,7 +4221,7 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                 }
                 case AI_CameraReturnToBond:
                 {
-                    bondviewSetCameraMode(CAMERAMODE_FP_NOINPUT);
+                    PORT_END_BONDS(bondviewSetCameraMode(CAMERAMODE_FP_NOINPUT)); /* PORT: coop: every Bond's body and camera state */
                     Offset += sizeof(AiCameraReturnToBondRecord);
                     break;
                 }
@@ -4048,7 +4237,7 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     {
                         g_CameraLookAtBondPad = (PadRecord *)&g_CurrentSetup.boundpads[getBoundPadNum(padnum)];
                     }
-                    bondviewSetCameraMode(CAMERAMODE_POSEND);
+                    PORT_END_BONDS(bondviewSetCameraMode(CAMERAMODE_POSEND));
                     Offset += sizeof(AiCameraLookAtBondFromPadRecord);
                     break;
                 }
@@ -4071,7 +4260,7 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                             gBondViewCutscene       = cdef;
                             dword_CODE_bss_80079A18 = ntohs(ai->LOOK_AT_BOND_FLAG);
                             dword_CODE_bss_80079A1C = ntohs(ai->UNUSED_FLAG);
-                            bondviewSetCameraMode(CAMERAMODE_POSEND);
+                            PORT_END_BONDS(bondviewSetCameraMode(CAMERAMODE_POSEND)); /* PORT: coop: every Bond's view switches */
                         }
                     }
                     Offset += AI_CameraSwitch_LENGTH;
@@ -4081,7 +4270,11 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                 {
                     AiIFBondYPosLessThanRecord *ai      = AiListp + Offset;
                     f32                         bondpos = (s16)ntohs(ai->Y_POS);
+#ifndef TARGET_N64
+                    if (portCoopActive() ? portCoopYLessAny(bondpos) : (getCurrentPlayerProp()->pos.y < bondpos))
+#else
                     if (getCurrentPlayerProp()->pos.y < bondpos)
+#endif
                     {
                         Offset = chraiGoToLabel(AiListp, Offset, ai->GOTOLABEL);
                     }
@@ -4094,19 +4287,27 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                 case AI_BondDisableControl:
                 {
                     AiBondDisableControlRecord *ai = AiListp + Offset;
-                    gunSetSightVisible(GUNSIGHTREASON_NOCONTROL, FALSE);
-                    gunSetGunAmmoVisible(GUNAMMOREASON_NOCONTROL, FALSE);
+#ifndef TARGET_N64
+                    PORT_EXIT_GATE();
+                    if (portCoopSharedEnd())
+                    {   /* PORT: coop (mission-end job): the Bond this script saw reach its trigger is the cutscene Bond */
+                        extern void portCoopSetCinemaFor(ChrRecord *self);
+                        portCoopSetCinemaFor(ChrEntityp);
+                    }
+#endif
+                    PORT_ALL_BONDS(gunSetSightVisible(GUNSIGHTREASON_NOCONTROL, FALSE)); /* PORT: coop: every Bond */
+                    PORT_ALL_BONDS(gunSetGunAmmoVisible(GUNAMMOREASON_NOCONTROL, FALSE));
                     if (!(PLAYERFLAG_NOCONTROL & ai->val))
                     {
-                        hudmsgsSetOff(PLAYERFLAG_NOCONTROL);
+                        PORT_ALL_BONDS(hudmsgsSetOff(PLAYERFLAG_NOCONTROL));
                     }
                     if (!(ai->val & PLAYERFLAG_LOCKCONTROLS))
                     {
-                        bondviewSetUpperTextDisplayFlag(PLAYERFLAG_NOCONTROL);
+                        PORT_ALL_BONDS(bondviewSetUpperTextDisplayFlag(PLAYERFLAG_NOCONTROL));
                     }
                     if (!(ai->val & PLAYERFLAG_NOTIMER))
                     {
-                        countdownTimerSetVisible(16, FALSE);
+                        PORT_ALL_BONDS(countdownTimerSetVisible(16, FALSE));
                     }
                     is_timer_active = FALSE;
                     Offset += sizeof(AiBondDisableControlRecord);
@@ -4117,11 +4318,11 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
     #ifdef ENABLE_LOG
                     osSyncPrintf("AI_BONDENABLECONTROL\n");
     #endif
-                    gunSetSightVisible(GUNSIGHTREASON_NOCONTROL, TRUE);
-                    gunSetGunAmmoVisible(GUNAMMOREASON_NOCONTROL, TRUE);
-                    hudmsgsSetOn(PLAYERFLAG_NOCONTROL);
-                    bondviewClearUpperTextDisplayFlag(2);
-                    countdownTimerSetVisible(16, TRUE);
+                    PORT_ALL_BONDS(gunSetSightVisible(GUNSIGHTREASON_NOCONTROL, TRUE)); /* PORT: coop: every Bond */
+                    PORT_ALL_BONDS(gunSetGunAmmoVisible(GUNAMMOREASON_NOCONTROL, TRUE));
+                    PORT_ALL_BONDS(hudmsgsSetOn(PLAYERFLAG_NOCONTROL));
+                    PORT_ALL_BONDS(bondviewClearUpperTextDisplayFlag(2));
+                    PORT_ALL_BONDS(countdownTimerSetVisible(16, TRUE));
                     is_timer_active = TRUE;
                     Offset += sizeof(AiBondEnableControlRecord);
                     break;
@@ -4196,9 +4397,8 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                 case AI_ScreenFadeToBlack:
                 {
                     if (stop_time_flag != 2)
-                    {
-                        currentPlayerSetFadeColour(0, 0, 0, 0);
-                        currentPlayerSetFadeFrac(CHRAI_TICKRATE_F, 1);
+                    {   /* PORT: coop (mission-end job): every Bond's screen fades, not the one whose pass runs the script this tick */
+                        PORT_END_BONDS((currentPlayerSetFadeColour(0, 0, 0, 0), currentPlayerSetFadeFrac(CHRAI_TICKRATE_F, 1)));
                     }
                     Offset += sizeof(AiScreenFadeToBlackRecord);
                     break;
@@ -4207,8 +4407,7 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                 {
                     if (stop_time_flag != 2)
                     {
-                        currentPlayerSetFadeColour(0, 0, 0, 1);
-                        currentPlayerSetFadeFrac(CHRAI_TICKRATE_F, 0);
+                        PORT_END_BONDS((currentPlayerSetFadeColour(0, 0, 0, 1), currentPlayerSetFadeFrac(CHRAI_TICKRATE_F, 0)));
                     }
                     Offset += sizeof(AiScreenFadeFromBlackRecord);
                     break;
@@ -4216,7 +4415,12 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                 case AI_IFScreenFadeCompleted:
                 {
                     AiIFScreenFadeCompletedRecord *ai = AiListp + Offset;
+#ifndef TARGET_N64
+                    extern int portCoopAllFadesComplete(void);
+                    if (portCoopSharedEnd() ? portCoopAllFadesComplete() : (g_CurrentPlayer->colourfadetimemax60 < 0))   /* PORT: coop: every Bond's fade */
+#else
                     if (g_CurrentPlayer->colourfadetimemax60 < 0)
+#endif
                     {
                         Offset = chraiGoToLabel(AiListp, Offset, ai->GOTOLABEL);
                     }
@@ -4233,6 +4437,16 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     {
                         if (g_ChrSlots[num].model != NULL)
                         {
+#ifndef TARGET_N64
+                            /* PORT: coop (mission-end job): the Bonds' own chrs are in these slots (solo builds the cutscene body after this
+                             * command); the cutscene Bond must stay visible and ticking, or its list (CHR_BOND_CINEMA) never runs */
+                            extern int portCoopCinemaBond(void);
+                            if (portCoopSharedEnd() && g_playerPointers[portCoopCinemaBond()] != NULL && g_playerPointers[portCoopCinemaBond()]->prop != NULL
+                                && g_playerPointers[portCoopCinemaBond()]->prop->chr == &g_ChrSlots[num])
+                            {
+                                continue;
+                            }
+#endif
                             g_ChrSlots[num].chrflags |= CHRFLAG_HIDDEN;
                         }
                     }
@@ -4308,16 +4522,16 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                 case AI_BondEquipItem:
                 {
                     AiBondEquipItemRecord *ai = AiListp + Offset;
-                    currentPlayerEquipWeaponWrapper(GUNRIGHT, ai->ITEM_NUM);
-                    currentPlayerEquipWeaponWrapper(GUNLEFT, 0);
+                    PORT_ALL_BONDS(currentPlayerEquipWeaponWrapper(GUNRIGHT, ai->ITEM_NUM));
+                    PORT_ALL_BONDS(currentPlayerEquipWeaponWrapper(GUNLEFT, 0));
                     Offset += sizeof(AiBondEquipItemRecord);
                     break;
                 }
                 case AI_BondEquipItemCinema:
                 {
                     AiBondEquipItemCinemaRecord *ai = AiListp + Offset;
-                    currentPlayerUnEquipWeaponWrapper(GUNRIGHT, ai->ITEM_NUM);
-                    currentPlayerUnEquipWeaponWrapper(GUNLEFT, 0);
+                    PORT_ALL_BONDS(currentPlayerUnEquipWeaponWrapper(GUNRIGHT, ai->ITEM_NUM));
+                    PORT_ALL_BONDS(currentPlayerUnEquipWeaponWrapper(GUNLEFT, 0));
                     Offset += sizeof(AiBondEquipItemCinemaRecord);
                     break;
                 }
@@ -4379,7 +4593,12 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                 case AI_IFBondIsDead:
                 {
                     AiIFBondIsDeadRecord *ai = AiListp + Offset;
+#ifndef TARGET_N64
+                    /* PORT: coop: "Bond is dead" means every Bond is dead */
+                    if (portCoopActive() ? portCoopAllDead() : g_CurrentPlayer->bonddead)
+#else
                     if (g_CurrentPlayer->bonddead)
+#endif
                     {
                         Offset = chraiGoToLabel(AiListp, Offset, ai->GOTOLABEL);
                     }
@@ -4391,6 +4610,9 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                 }
                 case AI_BondDisableDamageAndPickups:
                 {
+#ifndef TARGET_N64
+                    PORT_EXIT_GATE();
+#endif
                     g_PlayerInvincible = TRUE;
                     Offset += sizeof(AiBondDisableDamageAndPickupsRecord);
                     break;
@@ -4398,8 +4620,8 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                 case AI_BondHideWeapons:
                 {
                     /*"remove guntype %d\n" */
-                    remove_item_in_hand(GUNRIGHT);
-                    remove_item_in_hand(GUNLEFT);
+                    PORT_ALL_BONDS(remove_item_in_hand(GUNRIGHT));
+                    PORT_ALL_BONDS(remove_item_in_hand(GUNLEFT));
                     Offset += sizeof(AiBondHideWeaponsRecord);
                     break;
                 }
@@ -4426,7 +4648,7 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     flt_CODE_bss_80079A0C   = camHeight;
                     flt_CODE_bss_80079A10   = targetHeight;
                     dword_CODE_bss_80079A14 = padnum;
-                    bondviewSetCameraMode(CAMERAMODE_POSEND);
+                    PORT_END_BONDS(bondviewSetCameraMode(CAMERAMODE_POSEND));
                     Offset += sizeof(AiCameraOrbitPadRecord);
                     break;
                 }
@@ -4545,6 +4767,10 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                 }
                 case AI_BondKilledInAction:
                 {
+#ifndef TARGET_N64
+                    /* PORT: coop: killed in action means every Bond is dead (a living partner keeps the mission going) */
+                    if (!portCoopActive() || portCoopAllDead())
+#endif
                     g_isBondKIA = TRUE;
                     Offset += sizeof(AiBondKilledInActionRecord);
                     break;

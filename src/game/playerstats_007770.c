@@ -7,7 +7,7 @@ void set_favorite_weapon_for_every_player(void) {
     int current_player;
     int player;
 
-    player_count = getPlayerCount();
+    player_count = portAllPlayerCount();
     current_player = get_cur_playernum();
 
     for (player = 0; player < player_count; player++) {

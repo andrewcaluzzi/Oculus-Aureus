@@ -46,7 +46,15 @@
 
 #ifndef TARGET_N64
 s32 portGunbarrelClampPhase(void); /* title.c: barrel-intro 30Hz-from-barrel-texture gate */
-u32 g_PortTicksAdmitted;           /* count of admitted sim ticks (title.c steps
+/* rollback R1 (port_simonly.c): the sim-only tick (GE_SIMONLY_TEST, test only) */
+extern int portSimOnlyNext(int inStage);
+extern int portSimOnlyBegin(void);
+extern void portSimOnlyEnd(void);
+extern void portSimOnlySect(int id);
+/* rollback R2 (port_snap.c) */
+extern int portSnapNeedIdle(void);
+extern void portSnapTickBegin(void);
+u32 g_PortTicksAdmitted;          /* count of admitted sim ticks (title.c steps
                                     * its sequence on it) */
 
 /**
@@ -67,6 +75,112 @@ static s32 portTickClampTo60(void)
     }
 
     return 0;
+}
+#endif
+
+/**
+ * The SIM step of a tick: the game logic, deaths, every player's move tick, the sim room lists. Shared by the normal tick (bossMainloop)
+ * and by rollback's re-simulation (portBossResim), so both run the same code in the same order. `portSimOnly` is 1 for a tick that has
+ * no render step (rollback R1/R2); it only selects the stats marks.
+ */
+extern s32 g_StageNum;   /* (defined below) */
+
+static void bossSimStep(s32 portSimOnly)
+{
+    s32 i;
+    struct player *localPlayer;
+
+#ifndef TARGET_N64
+    { /* PORT: coop: the sim tick runs as player 0, not as whoever the last render pass or this machine's
+       * local view left current, so both machines simulate identically */
+        extern int portCoopActive(void);
+        if (portCoopActive() && g_StageNum != LEVELID_TITLE) { set_cur_player(0); }
+    }
+    if (portSimOnly) { portSimOnlySect(8); }
+#endif
+    // Primary game tick function.
+    lvlTick();
+#ifndef TARGET_N64
+    { /* PORT: coop: deaths are noticed and respawns happen here, in the sim tick, as player 0 */
+        extern int portCoopActive(void);
+        extern void portCoopDeathTick(void);
+        if (portCoopActive() && g_StageNum != LEVELID_TITLE) { portCoopDeathTick(); }
+    }
+    if (portSimOnly) { portSimOnlySect(9); }
+#endif
+    shuffle_player_ids();
+
+    if (g_StageNum != LEVELID_TITLE)
+    {
+        for (i = 0; i < portAllPlayerCount(); i++) /* PORT: coop: every player's move tick */
+        {
+            set_cur_player(get_nth_player_from_shuffled(i));
+
+            localPlayer = g_CurrentPlayer;
+            viSetViewSize(localPlayer->viewx, localPlayer->viewy);
+
+            localPlayer = g_CurrentPlayer;
+            viSetViewPosition(localPlayer->viewleft, localPlayer->viewtop);
+
+            lvlViewMoveTick();
+        }
+#ifndef TARGET_N64
+        { /* PORT: coop: solo-style code after the loop sees the local player, not the last shuffled one */
+            extern int portCoopActive(void);
+            extern int portLocalPlayer(void);
+            if (portCoopActive()) { set_cur_player(portLocalPlayer()); }
+        }
+        { extern void portRoomVisSimTick(void); portRoomVisSimTick(); }   /* netplay job 7: room visibility test hooks (env, off by default) */
+#endif
+    }
+}
+
+#ifndef TARGET_N64
+/**
+ * Rollback R2: re-simulate `n` ticks sim-only, from the state a restore just put back (port_snap.c). Each tick is what the normal tick
+ * does minus the render step: the frame counters advance one field (a fixed sim step; no wall clock), the pad samples and the co-op /
+ * netplay inputs of that tick are consumed (portCoopTick, from the records of that tick), the sim step runs, the render passes run
+ * into a rewound scratch display list (g_PortSimOnly), the mema defrag pass, the per-frame pool swap. The controller is polled after
+ * each tick as the pump does once per retrace, so the next tick consumes the sample of this tick's pads, and the last poll leaves the
+ * pad ring exactly where it stood when the tick that follows the re-simulation was admitted. (The number of polls between two ticks is
+ * whatever the pump made; port_snap.c recorded it per tick, so the re-simulation makes the same number and the ring, the poll
+ * counters and the latch clocks come out bit-identical.)
+ * No gfx task may be in flight (boss.c holds the restoring tick until pendingGfx == 0).
+ */
+extern int g_PortSimOnly;
+extern int g_PortResim;
+extern s32 g_ContQueuesCreated;
+extern void joyPoll(void);
+extern unsigned int g_PortNetHoldBeat;
+extern int portSnapPollsBefore(unsigned int tick);   /* port_snap.c: how many controller polls the pump made before this tick was admitted */
+
+void portBossResim(int n, unsigned int fromTick)
+{
+    int k;
+
+    for (k = 0; k < n; k++)
+    {
+        Gfx *gdl;
+        int polls, p;
+
+        g_PortResim = 1;
+        g_PortSimOnly = 1;
+        updateFrameCounters(1);
+        joyConsumeSamplesWrapper();
+        gdl = dynGetMasterDisplayList();
+        bossSimStep(1);
+        gdl = lvlRender(gdl);
+        memaSingleDefragPass();
+        dynSwapBuffers();
+        g_PortSimOnly = 0;
+        g_PortNetHoldBeat++;     /* the Windows stall watchdog counts it as progress */
+        polls = portSnapPollsBefore(fromTick + (unsigned int) k + 1u);   /* as many polls as the pump made before the next tick the first time */
+        for (p = 0; p < polls && g_ContQueuesCreated; p++)
+        {
+            joyPoll();
+        }
+        g_PortResim = 0;
+    }
 }
 #endif
 
@@ -356,6 +470,7 @@ void bossMainloop(void)
     GFXMsg *localGfxFrameMsg; // sp 468
 #ifndef TARGET_N64
     u32 portStageLoadStart; /* when the stage load began (tickhz=hw load-time emulation) */
+    s32 portSimOnly = 0;    /* rollback R1: this tick runs the sim step only (port_simonly.c, GE_SIMONLY_TEST) */
 #endif
     OSScMsg localGfxDoneMsg; // sp 436
     s32 stringIndex;
@@ -498,6 +613,12 @@ void bossMainloop(void)
             ge_dbg_vec("BC boss:pre-viewports stage", &v, 1);
         }
 #endif
+#ifndef TARGET_N64
+        { /* PORT: coop: GE_COOP=1 allocates two players in a solo stage (port_coop.c) */
+            extern int portCoopStageBegin(int stage, int players);
+            localSelectedNumPlayers = portCoopStageBegin(g_StageNum, localSelectedNumPlayers);
+        }
+#endif
         init_player_data_ptrs_construct_viewports(localSelectedNumPlayers);
         dynInitMemory();
         joyCheckStatusThreadSafe();
@@ -515,6 +636,7 @@ void bossMainloop(void)
 #endif
         lvlStageLoad(g_StageNum);
 #ifndef TARGET_N64
+        { extern void portSimOnlyStageBegin(void); portSimOnlyStageBegin(); } /* rollback R1: GE_SIMONLY_TEST counts ticks from 1 per stage */
         {
             extern void ge_dbg_vec(const char *tag, const f32 *v, s32 n);
             extern void portDbgCheckWp(const char *tag);
@@ -580,10 +702,38 @@ void bossMainloop(void)
 
                     mainTickElapsed = (u32) (osGetCount() - copy_of_osgetcount_value_1);
 #ifndef TARGET_N64
+                    /* PORT: netplay: services the link and holds the tick while the handshake, the
+                     * partner's stage load or the partner's input for the next tick is outstanding.
+                     * The retrace messages keep coming, so the window keeps pumping events. Always
+                     * 0 (a flag check) when GE_NET is unset. */
+                    extern int portNetHold(void);
+                    extern const char *portNetWaitText(void);
+                    extern Gfx *portConNotice(Gfx *gdl, const char *text);
+                    if (portNetHold())
+                    {
+                        /* waiting for the partner: no sim tick, but a line of text on black while the wait is
+                         * long, so the window keeps drawing (and the stall watchdog keeps seeing gfx tasks) */
+                        const char *waitText = portNetWaitText();
+
+                        if (waitText != NULL && g_MainStageNum < 0 && pendingGfx < 2U)
+                        {
+                            gdl = firstGdl = dynGetMasterDisplayList();
+                            gdl = portConNotice(gdl, waitText);
+                            gDPFullSync(gdl++);
+                            gSPEndDisplayList(gdl++);
+                            freeGfx = dynGetFreeGfx2(gdl);
+                            dynSwapBuffers();
+                            video_related_8();
+                            rspReplyMsg = (s32)(&localGfxDoneMsg);
+                            rspGfxTaskStart(firstGdl, gdl, 0, (s32*)rspReplyMsg);
+                            pendingGfx++;
+                            toggleFlag ^= 1;
+                        }
+                    }
                     /* Demo playback pacing: hold each tick until the vsync count
                      * recorded with its input block has elapsed, otherwise the
                      * replay fast-forwards at the PC's 60Hz tick rate. */
-                    if (get_is_ramrom_flag() != 0 &&
+                    else if (get_is_ramrom_flag() != 0 &&
                         mainTickElapsed < (u32) portRamromPendingSpeedframes() * (CYCLES_PER_FRAME - 6450U) - (INTERVAL_INTER_MATH - 3225U))
                     {
                         // wait for a later retrace.
@@ -682,8 +832,23 @@ void bossMainloop(void)
                             }
                         }
 #endif
-                        if (g_MainStageNum < 0 && pendingGfx < 2U)
+                        if (g_MainStageNum < 0 && pendingGfx <
+#ifndef TARGET_N64
+                            /* rollback R1: a sim-only tick swaps the display buffers without a gfx task, so no task of the previous
+                             * frame may be in flight when it starts */
+                            /* rollback R2: the same when the next tick restores a snapshot (it rewrites memory a task reads) */
+                            ((portSimOnlyNext(g_StageNum != LEVELID_TITLE) || (g_StageNum != LEVELID_TITLE && portSnapNeedIdle())) ? 1U : 2U)
+#else
+                            2U
+#endif
+                            )
                         {
+#ifndef TARGET_N64
+                            if (g_StageNum != LEVELID_TITLE && !get_is_ramrom_flag())
+                            {
+                                portSnapTickBegin();   /* rollback R2 (port_snap.c): save this tick's start state / restore and re-simulate (test drivers, env) */
+                            }
+#endif
                             if (get_is_ramrom_flag())
                             {
                                 iterate_ramrom_entries_handle_camera_out();
@@ -723,27 +888,38 @@ void bossMainloop(void)
 			                	g_BossIsDebugMenuOpen = debug_menu_processor(joyStickXPos, joyStickYPos, joyButtons, joyGetButtonsPressedThisFrame(0, ANY_BUTTON));
 			                }
 
-                            // Primary game tick function.
-                            lvlTick();
-
-                            shuffle_player_ids();
-
-                            if (g_StageNum != LEVELID_TITLE)
+#ifndef TARGET_N64
+                            { extern void portSnapSimMark(s32 begin); portSnapSimMark(1); } /* GE_SNAPTEST timing */
+#endif
+#ifndef TARGET_N64
+                            { extern void portNetStatsMark(int what); portNetStatsMark(0); } /* net_graph: sim ms (render only) */
+                            /* rollback R1: count the tick; a sim-only tick (GE_SIMONLY_TEST) ends after the sim step (lvlRender only
+                             * runs the per-player sim passes, below) */
+                            portSimOnly = (g_StageNum != LEVELID_TITLE) ? portSimOnlyBegin() : 0;
+#endif
+#ifndef TARGET_N64
+                            bossSimStep(portSimOnly);   /* the sim step (also run by rollback's re-simulation, portBossResim) */
+#else
+                            bossSimStep(0);
+#endif
+#ifndef TARGET_N64
+                            { extern void portSnapSimMark(s32 begin); portSnapSimMark(0); }
+                            if (!portSimOnly) { extern void portNetStatsMark(int what); portNetStatsMark(1); }
+                            if (portSimOnly)
                             {
-                                for (i = 0; i < getPlayerCount(); i++)
-                                {
-                                    set_cur_player(get_nth_player_from_shuffled(i));
-
-                                    localPlayer = g_CurrentPlayer;
-                                    viSetViewSize(localPlayer->viewx, localPlayer->viewy);
-
-                                    localPlayer = g_CurrentPlayer;
-                                    viSetViewPosition(localPlayer->viewleft, localPlayer->viewtop);
-
-                                    lvlViewMoveTick();
-                                }
+                                /* rollback R1: the SIM step only. lvlRender runs each player's pass (the sim items in it) into a
+                                 * rewound scratch list and skips the draw-only calls; there is no gfx task, no console, no VI
+                                 * mode. The defrag pass is sim state (the mema heap layout), the buffer swap keeps the per-frame
+                                 * pools alternating as in a normal tick (a tick reads the previous tick's matrices). */
+                                gdl = lvlRender(gdl);
+                                portSimOnlySect(10);
+                                memaSingleDefragPass();
+                                dynSwapBuffers();
+                                portSimOnlyEnd();
                             }
-
+                            else
+#endif
+                            {
                             // Primary game rendering function.
                             gdl = lvlRender(gdl);
 
@@ -794,6 +970,8 @@ void bossMainloop(void)
                                * last so it covers every screen, and a no-op
                                * until opened or while fonts are unloaded. */
                                 extern Gfx *portConRender(Gfx *gdl);
+                                extern void portNetStatsMark(int what);
+                                portNetStatsMark(2); /* net_graph: the frame is built; pushes this frame's sample */
                                 gdl = portConRender(gdl);
                             }
 #endif
@@ -859,6 +1037,7 @@ void bossMainloop(void)
                             toggleFlag ^= 1;
 
                             speedgraphMarkerHandler(0x10000);
+                            }  /* end of the render step (not run by a sim-only tick) */
                             if(1);
                         }
                     }
@@ -914,6 +1093,17 @@ void bossRunTitleStage(void) {
  *     0x63
  */
 void bossSetLoadedStage(LEVELID stage){
+#ifndef TARGET_N64
+    {   /* PORT: coop (mission-end job): the sim tick a stage change was requested on, for the mission-end tests (every end path ends here) */
+        extern int portCoopActive(void);
+        extern void portCoopStageChangeNote(int stage);
+
+        if (portCoopActive())
+        {
+            portCoopStageChangeNote((int) stage);
+        }
+    }
+#endif
     g_MainStageNum = stage;
 }
 
@@ -935,6 +1125,14 @@ void bossReturnTitleStage(void) {
     objectivestatusDisableStatusDisplay();
 #endif
 #ifndef TARGET_N64
+    { /* PORT: mode: level reset has no stock mission-complete (the mode owns win/lose) */
+        extern int portModeActive(void);
+        if (portModeActive())
+        {
+            printf("ge: mode: stock mission end suppressed\n");
+            return;
+        }
+    }
     { /* mission-end diagnostic (file.c portMissionEndLog): logs which gate
        * stopped a completed stage from being recorded */
         extern void portMissionEndLog(s32 stage, s32 allcomplete);
