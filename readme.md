@@ -1,6 +1,6 @@
 ![Project Midas](port/include/presskit/PM%20thin%201%20-%20full.png)
 
-> **This is an experimental fork** of Project Midas that adds Lua modding, a Colosseum wave-survival arena, and experimental co-op/netplay. See [README-FORK.md](README-FORK.md). The rest of this README is upstream's.
+> **This is an experimental fork** of Project Midas that adds Lua modding, a Colosseum wave-survival arena, and experimental co-op/netplay. It is a fork rather than a pull request because official Lua support is already coming upstream; when it lands, the arena will be rewritten against it and submitted here properly. See [README-FORK.md](README-FORK.md) for why, and for setup. The rest of this README is upstream's.
 
 # Project Midas
 
