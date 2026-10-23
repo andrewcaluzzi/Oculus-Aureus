@@ -353,6 +353,39 @@ extern "C" void portRoomCacheClear(void) {
     }
 }
 
+/* Rollback R2 (gfx_invalidate_ranges): a snapshot restore rewrote these ranges of game memory. Every room list and model part whose
+ * display list or vertex base lies in one is void. (A room whose VERTICES changed under an unchanged list is the game's own
+ * portRoomCacheRoomFreed case; the restore puts the room records back too, so that state is consistent again.) */
+static int roc_forget_ranges(const GfxRanges& rs) {
+    int dropped = 0;
+    for (int i = 0; i < ROC_MAX_ROOMS; i++) {
+        RocRoom& r = roc_rooms[i];
+        if (r.state != 0 && r.dl != nullptr && gfx_range_hit(rs, (uintptr_t)r.dl, (uintptr_t)r.dl + 8u)) {
+            if (roc_capturing == &r) roc_capture_bad = true;
+            roc_by_dl.erase(r.dl);
+            roc_release_data(r);
+            r.dl = nullptr;
+            r.state = 0;
+            dropped++;
+        }
+    }
+    for (int i = 0; i < ROC_MAX_PARTS; i++) {
+        RocRoom& r = roc_parts[i];
+        if (r.state != 0 && ((r.dl != nullptr && gfx_range_hit(rs, (uintptr_t)r.dl, (uintptr_t)r.dl + 8u)) ||
+                             (r.vtx != nullptr && gfx_range_hit(rs, (uintptr_t)r.vtx, (uintptr_t)r.vtx + 16u)))) {
+            if (roc_capturing == &r) roc_capture_bad = true;
+            if (roc_walk == &r) roc_walk = nullptr;
+            roc_part_by_key.erase(r.key);
+            roc_release_data(r);
+            r.dl = nullptr;
+            r.vtx = nullptr;
+            r.state = 0;
+            dropped++;
+        }
+    }
+    return dropped;
+}
+
 static uint32_t roc_stat_foreign_slots;
 static uint32_t roc_stat_rebinds; /* draw textures re-bound after an LRU round trip (no recapture) */
 static void roc_capture_begin(RocRoom& r) {

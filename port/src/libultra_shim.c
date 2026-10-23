@@ -794,6 +794,11 @@ __attribute__((weak)) f32 portFovDefault(void)
     return 60.0f;
 }
 
+__attribute__((weak)) f32 portFovCfg(void)
+{
+    return 60.0f;
+}
+
 /* ==== time =============================================================== */
 
 /*
@@ -1387,6 +1392,10 @@ void osContGetReadData(OSContPad *data)
         { /* GE_INPUTREC / GE_INPUTPLAY (inputrec.c): pad 0 as the game reads it */
             extern void portInputRecPad(OSContPad *pad);
             portInputRecPad(&data[0]);
+        }
+        { /* PORT: coop: the local pad moves to the local player's slot, the puppet fills the other */
+            extern void portCoopPadRoute(void *data);
+            portCoopPadRoute(data);
         }
     }
 #endif

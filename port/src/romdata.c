@@ -116,6 +116,15 @@ static s32 sFileCount;
 static s32 sLoaded;
 static int sDebug;          /* GE_ROMDBG */
 
+/* Rollback snapshot spike (port_snapshot.c): where the immutable ROM-served data lives. */
+void romdataSnapRanges(u8 **rom, u32 *romsz, u8 **cdata, u32 *cdatasz)
+{
+    *rom = sRom;
+    *romsz = sRomSize;
+    *cdata = sCdata;
+    *cdatasz = sCdataSize;
+}
+
 /* midas.ini [data] */
 static char sIniRom[1024];
 static int sArgLangJp;      /* --lang jp (romdataLanguageJp) */

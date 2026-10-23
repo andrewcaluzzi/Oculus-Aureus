@@ -1748,6 +1748,14 @@ static std::atomic<int> gfx_async_pending_aa{-1};     /* (msaa level << 1) | n64
 static void gfx_texture_cache_delete_now(const uint8_t* orig_addr);
 static void gfx_set_texture_filter_now(enum FilteringMode mode);
 
+/* Rollback R2: a snapshot restore changed these address ranges of game memory (port_snap.c). Everything the renderer cached about
+ * data at those addresses is void: textures (keyed by address), retained room / part lists (keyed by their display list and vertex
+ * addresses). Everything else stays: a restore that rewinds only object state drops no cache. */
+typedef std::vector<std::pair<uintptr_t, uintptr_t>> GfxRanges;
+static GfxRanges gfx_async_pending_ranges;
+static bool gfx_async_pending_ranges_all = false;
+static void gfx_invalidate_ranges_now(const GfxRanges& rs, bool all);
+
 /* ---- GE port: room / part cache hooks from the sim thread ----
  * The game registers and voids cached lists (bg.c, model.c) on the sim thread,
  * but the cache tables (gfx_roomcache.inl) belong to the render thread.
@@ -1792,6 +1800,15 @@ extern "C" void gfx_poll_events(void) {
     }
 }
 
+/* sim/main thread (netplay, port_net.c portNetHold): handle the window's events while a tick is held and no frame
+ * is being rendered. In sync mode gfx_start_frame does it, so without a frame nothing would; in async mode the main
+ * thread's pump already does (gfx_poll_events) and this thread is not the window's. */
+extern "C" void gfx_hold_poll_events(void) {
+    if (!gfx_async_mode) {
+        gfx_wapi->handle_events();
+    }
+}
+
 /* render thread, at frame start, before gfx_run */
 extern "C" void gfx_async_apply_pending(void) {
     int si = gfx_async_pending_swapint.exchange(-1);
@@ -1814,6 +1831,19 @@ extern "C" void gfx_async_apply_pending(void) {
             for (const uint8_t* p : dels) {
                 gfx_texture_cache_delete_now(p);
             }
+        }
+    }
+    { /* rollback R2: ranges of game memory a snapshot restore changed (gfx_invalidate_ranges) */
+        GfxRanges rs;
+        bool all;
+        {
+            std::lock_guard<std::mutex> lk(gfx_async_inval_mtx);
+            rs.swap(gfx_async_pending_ranges);
+            all = gfx_async_pending_ranges_all;
+            gfx_async_pending_ranges_all = false;
+        }
+        if (all || !rs.empty()) {
+            gfx_invalidate_ranges_now(rs, all);
         }
     }
     { /* the sim thread's texture filter change (gfx_set_texture_filter) */
@@ -1871,6 +1901,71 @@ extern "C" void gfx_texture_cache_clear_c(void) {
     }
     ge_state_serial++;
     gfx_texture_cache_clear();
+}
+
+/* rollback R2, sim thread: `n` ranges [r[i][0], r[i][1]) of game memory were rewritten by a snapshot restore; n < 0 = too many to list */
+extern "C" void gfx_invalidate_ranges(const unsigned int (*r)[2], int n) {
+    GfxRanges rs;
+    if (n > 0) {
+        for (int i = 0; i < n; i++) {
+            rs.push_back(std::make_pair((uintptr_t)r[i][0], (uintptr_t)r[i][1]));
+        }
+    }
+    if (gfx_async_mode) {
+        std::lock_guard<std::mutex> lk(gfx_async_inval_mtx);
+        if (n < 0) {
+            gfx_async_pending_ranges_all = true;
+        } else {
+            gfx_async_pending_ranges.insert(gfx_async_pending_ranges.end(), rs.begin(), rs.end());
+        }
+        return;
+    }
+    gfx_invalidate_ranges_now(rs, n < 0);
+}
+
+static bool gfx_range_hit(const GfxRanges& rs, uintptr_t lo, uintptr_t hi) {
+    for (const auto& r : rs) {
+        if (lo < r.second && hi > r.first) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static int roc_forget_ranges(const GfxRanges& rs); /* gfx_roomcache.inl: how many room / part lists it dropped */
+
+static void gfx_invalidate_ranges_now(const GfxRanges& rs, bool all) {
+    if (all) {
+        ge_state_serial++;
+        gfx_texture_cache_clear(); /* (also drops the room / part caches) */
+        return;
+    }
+    std::vector<const uint8_t*> dels;
+    for (const auto& e : gfx_texture_cache.map) {
+        const uintptr_t a = (uintptr_t)e.first.texture_addr;
+        bool hit = gfx_range_hit(rs, a, a + (e.first.size_bytes ? e.first.size_bytes : 1u));
+        for (int p = 0; p < 2 && !hit; p++) {
+            if (e.first.palette_addrs[p] != nullptr) {
+                const uintptr_t pa = (uintptr_t)e.first.palette_addrs[p];
+                hit = gfx_range_hit(rs, pa, pa + 512u);
+            }
+        }
+        if (hit) {
+            dels.push_back(e.first.texture_addr);
+        }
+    }
+    for (const uint8_t* p : dels) {
+        gfx_texture_cache_delete_now(p);
+    }
+    const int lists = roc_forget_ranges(rs);
+    static int dbg = -1;
+    if (dbg < 0) {
+        dbg = getenv("GE_SNAPDBG") != nullptr;
+    }
+    if (dbg) {
+        fprintf(stderr, "ge: snap: renderer caches: %u changed ranges -> %u textures and %d room / part lists dropped\n", (unsigned)rs.size(),
+                (unsigned)dels.size(), lists);
+    }
 }
 
 /* slow-upload line (import_texture): this miss evicted a node / reused a freed id */
