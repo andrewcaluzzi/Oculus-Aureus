@@ -1299,17 +1299,31 @@ StandTile *sub_GAME_7F01F614(ChrRecord *guard, StandTile *stan, coord3d *src, co
     f32 tmp;
     s32 hasprojection;
     coord3d newpos;
+#ifndef TARGET_N64
+    /* PORT: arena: the crowd and kept bodies collide with the level only; a prop test walks every prop in the room */
+    extern s32 portArenaChrDormant(const ChrRecord *chr);
+    s32 cdtypes = portArenaChrDormant(guard) ? 0 : 0x1f;
+#define CHRMOVE_CDTYPES cdtypes
+#else
+#define CHRMOVE_CDTYPES 0x1f
+#endif
 
     ret = NULL;
     tile = stan;
+#ifndef TARGET_N64
+    if (cdtypes == 0 && src->x == dst->x && src->z == dst->z && stan != NULL)
+    {   /* still: nothing to test */
+        return stan;
+    }
+#endif
 
     chrGetChrWidthHeight(guard->prop, &width, &height, &always_20);
     chrSetMoving(guard, 0);
     stanResetHits();
 
-    if (stanTestLineUnobstructed(&tile, src->x, src->z, dst->x, dst->z, 0x1f, height, always_20, 0.0f, 1.0f))
+    if (stanTestLineUnobstructed(&tile, src->x, src->z, dst->x, dst->z, CHRMOVE_CDTYPES, height, always_20, 0.0f, 1.0f))
     {
-        if (stanTestVolume(&tile, dst->x, dst->z, width, 0x1f, height, always_20) < 0)
+        if (stanTestVolume(&tile, dst->x, dst->z, width, CHRMOVE_CDTYPES, height, always_20) < 0)
         {
             if (updateLastMoveOk)
             {
@@ -1354,9 +1368,9 @@ StandTile *sub_GAME_7F01F614(ChrRecord *guard, StandTile *stan, coord3d *src, co
 
         if (hasprojection)
         {
-            if (stanTestLineUnobstructed(&tile, src->x, src->z, newpos.x, newpos.z, 0x1f, height, always_20, 0.0f, 1.0f))
+            if (stanTestLineUnobstructed(&tile, src->x, src->z, newpos.x, newpos.z, CHRMOVE_CDTYPES, height, always_20, 0.0f, 1.0f))
             {
-                if (stanTestVolume(&tile, newpos.x, newpos.z, width, 0x1f, height, always_20) < 0)
+                if (stanTestVolume(&tile, newpos.x, newpos.z, width, CHRMOVE_CDTYPES, height, always_20) < 0)
                 {
                     dst->x = newpos.x;
                     dst->z = newpos.z;
@@ -1394,9 +1408,9 @@ StandTile *sub_GAME_7F01F614(ChrRecord *guard, StandTile *stan, coord3d *src, co
 
             tile = stan;
 
-            if (stanTestLineUnobstructed(&tile, src->x, src->z, newpos.x, newpos.z, 0x1f, height, always_20, 0.0f, 1.0f))
+            if (stanTestLineUnobstructed(&tile, src->x, src->z, newpos.x, newpos.z, CHRMOVE_CDTYPES, height, always_20, 0.0f, 1.0f))
             {
-                if (stanTestVolume(&tile, newpos.x, newpos.z, width, 0x1f, height, always_20) < 0)
+                if (stanTestVolume(&tile, newpos.x, newpos.z, width, CHRMOVE_CDTYPES, height, always_20) < 0)
                 {
                     dst->x = newpos.x;
                     dst->z = newpos.z;
@@ -1433,9 +1447,9 @@ StandTile *sub_GAME_7F01F614(ChrRecord *guard, StandTile *stan, coord3d *src, co
 
                 tile = stan;
 
-                if (stanTestLineUnobstructed(&tile, src->x, src->z, newpos.x, newpos.z, 0x1f, height, always_20, 0.0f, 1.0f))
+                if (stanTestLineUnobstructed(&tile, src->x, src->z, newpos.x, newpos.z, CHRMOVE_CDTYPES, height, always_20, 0.0f, 1.0f))
                 {
-                    if (stanTestVolume(&tile, newpos.x, newpos.z, width, 0x1f, height, always_20) < 0)
+                    if (stanTestVolume(&tile, newpos.x, newpos.z, width, CHRMOVE_CDTYPES, height, always_20) < 0)
                     {
                         dst->x = newpos.x;
                         dst->z = newpos.z;
@@ -1457,6 +1471,7 @@ done:
 
     return ret;
 }
+#undef CHRMOVE_CDTYPES
 
 
 s32 sub_GAME_7F01FC10(Model *model, coord3d *src, coord3d *dst, f32 *ground_y)

@@ -49,7 +49,7 @@ extern s32 get_max_ammo_for_type(s32 type);
 #define SIGHT_DEFAULT           15000.0f  /* A5: chr->visionrange in world units (the Colosseum is 9000 across) */
 
 /* per arena chr: its knife numbers and whether it has fired yet (first-shot range log) */
-typedef struct { s32 chrnum; u8 enemy, knifer, fired; f32 knifeRange, knifeCooldown, engage; } ArenaInfo;
+typedef struct { s32 chrnum; u8 enemy, knifer, fired, spectator; f32 knifeRange, knifeCooldown, engage; } ArenaInfo;
 static ArenaInfo sInfo[INFO_N];
 
 static ArenaInfo *infoGet(s32 chrnum)
@@ -224,6 +224,19 @@ s32 portArenaChrIsEnemy(const ChrRecord *chr)
     ArenaInfo *a = (chr != NULL) ? infoGet((s32)chr->chrnum) : NULL;
 
     return a != NULL && a->enemy;
+}
+
+/* a spectator, or an arena enemy that is dead (its body lies still): the engine skips its prop collision (chr.c) */
+s32 portArenaChrDormant(const ChrRecord *chr)
+{
+    ArenaInfo *a;
+
+    if (chr == NULL || chr->chrnum < ARENA_CHRNUM0 || !portModeActive())
+    {
+        return FALSE;
+    }
+    a = infoGet((s32)chr->chrnum);
+    return a != NULL && (a->spectator || (a->enemy && chr->actiontype == ACT_DEAD));
 }
 
 /* GE_ARENA_OLDAI=1: the drop A4 enemy AI (run to 9 m, then fight; waypoint routes only), for before/after measurements on the same binary */
@@ -452,8 +465,9 @@ int portLuaGameSpawnChr(int pad, const PortLuaChrSpec *s)
     chr->aireturnlist = (s16)GAILIST_ARENA_CHASE;
     if (s->behaviour == PORTLUA_BEH_SPECTATOR)
     {   /* the crowd: decoration only. Invincible (stray fire and knives do nothing), not auto-aimed, no shadow (cheaper),
-         * and in the hostage faction, which nobody targets. */
-        chr->chrflags |= CHRFLAG_INVINCIBLE | CHRFLAG_NO_AUTOAIM | CHRFLAG_NO_SHADOW;
+         * no collision box (CHRFLAG_00010000: every other chr's move test walks the whole crowd; nobody reaches the
+         * stands), and in the hostage faction, which nobody targets. */
+        chr->chrflags |= CHRFLAG_INVINCIBLE | CHRFLAG_NO_AUTOAIM | CHRFLAG_NO_SHADOW | CHRFLAG_00010000;
         portFactionSetChr(chr, PORT_FACTION_HOSTAGE);
     }
     if (s->accuracy >= 0)
@@ -474,6 +488,7 @@ int portLuaGameSpawnChr(int pad, const PortLuaChrSpec *s)
         memset(a, 0, sizeof(*a));
         a->chrnum = (s32)chr->chrnum;
         a->enemy = (s->behaviour != PORTLUA_BEH_SPECTATOR);
+        a->spectator = !a->enemy;
         a->knifer = s->knives ? 1 : 0;
         a->knifeRange = s->knifeRange > 0.0f ? s->knifeRange : KNIFE_RANGE_DEFAULT;
         a->knifeCooldown = s->knifeCooldown > 0.0f ? s->knifeCooldown : KNIFE_COOLDOWN_DEFAULT;

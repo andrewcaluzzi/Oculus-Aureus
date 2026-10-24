@@ -3120,6 +3120,12 @@ void roomGetProps(s32 *rooms)
     s32 room;
     s32 i;
     s32 j;
+#ifndef TARGET_N64
+    /* PORT: the "already in the list" scan was quadratic in the props in the rooms (the Colosseum crowd puts 1000+
+     * in one room, and every chr move tests twice). A mark per propnum gives the same list in the same order; the
+     * marks are cleared again below, so no state outlives the call. */
+    static u8 sSeen[MAX_PROPS];
+#endif
 
     room = *rooms;
 
@@ -3137,6 +3143,18 @@ void roomGetProps(s32 *rooms)
             {
                 s32 propnum = RoomPropListBlocks[chunkindex].propnums[i];
 
+#ifndef TARGET_N64
+                if (propnum >= 0 && propnum < MAX_PROPS)
+                {
+                    if (!sSeen[propnum])
+                    {
+                        sSeen[propnum] = 1;
+                        *writeptr = propnum;
+                        writeptr++;
+                    }
+                }
+                else
+#endif
                 if (propnum >= 0)
                 {
                     // Check if it's in the list already
@@ -3164,6 +3182,19 @@ void roomGetProps(s32 *rooms)
         room = *rooms;
     }
 
+#ifndef TARGET_N64
+    {
+        s16 *ptr;
+
+        for (ptr = ptr_list_object_lookup_indices; ptr < writeptr; ptr++)
+        {
+            if (*ptr < MAX_PROPS)
+            {
+                sSeen[*ptr] = 0;
+            }
+        }
+    }
+#endif
     *writeptr = -1;
     writeptr++;
     num_obj_position_data_entries = writeptr - ptr_list_object_lookup_indices;

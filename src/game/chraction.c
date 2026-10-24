@@ -10185,10 +10185,14 @@ void chrlvActionTick(ChrRecord *self)
             /* PORT: mode hostages: same, their brain follows Bond (port_hostage.c) */
             extern s32 portHostageIsHostage(ChrRecord *chr);
             extern void portHostageChrTick(ChrRecord *self);
+            /* PORT: arena: a kept body runs no AI list (a guard list looks for Bond every tick, forever) */
+            extern s32 portArenaChrDormant(const ChrRecord *chr);
             if (portBotIsBot(self))
                 portBotChrTick(self);
             else if (portHostageIsHostage(self))
                 portHostageChrTick(self);
+            else if (self->actiontype == ACT_DEAD && portArenaChrDormant(self))
+                ;
             else if (!portAiGovDefer(self))
 #endif
             {
