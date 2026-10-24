@@ -3077,7 +3077,11 @@ int portCoopStateHash(PortNetHashMsg *m, char *dump, int cap)
         h = hashU(h, (unsigned) alarm_timer);
         {
             extern unsigned portHeistStateHash(void);   /* port_heist.c: per-player keys, CCTV overrides and switch-offs, the countdown */
-            h = hashU(h, portHeistStateHash());
+            extern const char *portHeistModeStateText(void);   /* the mode script's mode.state text (phase, crack, vault, loot, waves) */
+            unsigned hh = portHeistStateHash();
+
+            h = hashU(h, hh);
+            dumpf(dump, cap, &n, "[heist] hash %08x mode %s\n", hh, portHeistModeStateText());
         }
         dumpf(dump, cap, &n, "[alarm] timer %d\n", (int) alarm_timer);
     }

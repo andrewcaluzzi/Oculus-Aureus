@@ -962,6 +962,15 @@ s32 portJoyPortUseTap(void)
     }
     joyPortDrop(pad, PORTACT_MENU_ACCEPT); /* menu-only: drop banked presses */
     p = portJoyPortTake(pad, PORTACT_USE);
+    {   /* cctv.test_use(p) (tests): one use-action tap in Bond p's own tick, as the Port use key gives it */
+        extern s32 g_PortTestUse[4];
+        s32 me = get_cur_playernum();
+
+        if (!p && me >= 0 && me < 4 && g_PortTestUse[me] > 0) {
+            g_PortTestUse[me] = 0;
+            p = 1;
+        }
+    }
     if (!p) {
         return 0;
     }
@@ -1158,6 +1167,14 @@ s32 portJoyPortWatchObjectivesPressed(s32 pad)
         portConLogf("ge: joyport: pad %d watch_objectives -> START + Briefing (objectives) page / close\n", pad);
     }
     return 1;
+}
+
+/** port_heist.c, the `use` event: 1 = this tick's use tap is the Port use
+ *  action, 0 = the B button (use + reload). Does not consume the flag. */
+s32 portJoyPortUseKeyPeek(void)
+{
+    s32 pad = joyPortPad();
+    return pad >= 0 ? sUseNoReload[pad] : 0;
 }
 
 /** lv.c: after bond_interact_object() found nothing - skip the reload

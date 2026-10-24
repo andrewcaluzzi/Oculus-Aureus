@@ -201,7 +201,10 @@ int         portCctvSeesPoint(int cam, float x, float y, float z);
 int         portCctvChrRoom(int chrnum);                                   /* -1 gone */
 int         portCctvBondRoom(int p);                                       /* -1 none */
 int         portCctvRenderInfo(int *cam, int *start, int *rooms, int max, int *geom, int *frames);   /* this machine's last feed pass */
-void        portCctvTestPress(int mask);                                   /* test: raw N64 buttons held on pad 0 for 4 polls */
+void        portCctvTestPress(int mask);                                   /* test: raw N64 buttons held on pad 0 for 4 sim ticks */
+void        portCctvTestUse(int p);                                        /* test: one Port use-action tap in Bond p's next tick */
+int         portHeistUseKey(int p);                                        /* inside a use handler: the press is the use action, not B */
+void        portHeistModeState(const char *text);                          /* mode.state: the script's sim state, hashed and dumped */
 void        portCctvTestShot(void);                                        /* test: a GE_SHOT capture of the next frame */
 int         portCctvExtraChrs(void);                                       /* chrs the last feed pass posed and drew itself */
 int         portCctvOverlayGet(int *cam, char *name, int namelen, int *index, int *count, int *offline, int *seconds, int *ticks);

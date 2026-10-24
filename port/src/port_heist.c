@@ -69,6 +69,7 @@ static unsigned char sCctvOff[HEIST_REC_MAX / 8 + 1];   /* cameras a script swit
 static KeyRecord sKeyRecs[KEY_REC_N];
 static int sKeyNext;
 void portHeistGuardsReset(void);
+static void cctvBondReset(void);
 
 void portHeistStageReset(void)
 {
@@ -80,7 +81,13 @@ void portHeistStageReset(void)
     memset(sCctvOff, 0, sizeof(sCctvOff));
     memset(sKeyRecs, 0, sizeof(sKeyRecs));
     sKeyNext = 0;
+    cctvBondReset();
     portHeistGuardsReset();
+    {
+        extern void portHeistModeStateReset(void);   /* mode.state and the per-Bond use-key flags */
+
+        portHeistModeStateReset();
+    }
     {
         extern void portCctvViewReset(void);   /* port_cctvview.c: nobody watches a camera at a stage start */
 
@@ -504,14 +511,129 @@ int portHeistCctvAlarmFrames(const void *rec, int stock)
     return sCctvAllTicks > 0 ? sCctvAllTicks : stock;
 }
 
-/* propobj.c, the camera saw the current Bond for the full time: tell the script; returns whether the stock alarm should also go off */
-int portHeistCctvSpotted(const void *rec)
+static int cctvSpottedBy(const void *rec, int p)
 {
     if (portEventListenerCount(PORT_EV_CCTV_SPOTTED) > 0)
     {
-        portEventEmit(PORT_EV_CCTV_SPOTTED, portHeistSetupIndex(rec), (int) get_cur_playernum(), 0, 0);
+        portEventEmit(PORT_EV_CCTV_SPOTTED, portHeistSetupIndex(rec), p, 0, 0);
     }
     return sCctvAlarmOnSpot;
+}
+
+/* propobj.c, the camera saw the current Bond for the full time: tell the script; returns whether the stock alarm should also go off */
+int portHeistCctvSpotted(const void *rec)
+{
+    return cctvSpottedBy(rec, (int) get_cur_playernum());
+}
+
+/* ---- co-op (design P3): a camera sees every Bond, each on his own sight timer ----
+ * The stock test (propobj.c objTick) reads getCurrentPlayerProp(): the Bond whose pass is the sim pass, so in co-op a camera never saw the
+ * other one. With more than one Bond this replaces it (the stock solo path is untouched): the same range, sweep cone (45 degrees either
+ * side), "not while it moves" and stan line, for every living Bond, each with his own accumulated sight time on this camera (stock: the
+ * time adds up while seen and is cleared when the alarm fires). The camera's own timer shows the longest. Sim state (hashed). */
+#define CCTV_BOND_CAMS 32
+static const void *sCamBondRec[CCTV_BOND_CAMS];
+static s32 sCamBondT[CCTV_BOND_CAMS][4];
+static int sCamBondN;
+
+extern void bondviewUpdateGuardTankFlagsRelated(PropRecord *prop, s32 flag);
+
+static void cctvBondReset(void)
+{
+    sCamBondN = 0;
+    memset(sCamBondRec, 0, sizeof(sCamBondRec));
+    memset(sCamBondT, 0, sizeof(sCamBondT));
+}
+
+static int cctvSeesBond(PropRecord *prop, CCTVRecord *cam, PropRecord *bp)
+{
+    ObjectRecord *obj = (ObjectRecord *) cam;
+    f32 xd = bp->pos.x - obj->runtime_pos.x, yd = bp->pos.y - obj->runtime_pos.y, zd = bp->pos.z - obj->runtime_pos.z;
+    f32 range = cam->unkE8, a, face, delta;
+    StandTile *st;
+    int ok;
+
+    if (range > 0.0f && range * range < xd * xd + yd * yd + zd * zd) return 0;
+    if (obj->flags & PROPFLAG_INMOTION) return 0;
+    a = atan2f(xd, zd);
+    face = cam->unkC8;
+    if (face < 0.0f) face += M_TAU_F; else if (face >= M_TAU_F) face -= M_TAU_F;
+    face += cam->unkC4;
+    if (face >= M_TAU_F) face -= M_TAU_F;
+    delta = a - face;
+    if (a < face) delta += M_TAU_F;
+    delta -= M_PI_F;
+    if (delta < 0.0f) delta += M_TAU_F;
+    if (delta > M_PI_F) delta -= M_TAU_F;
+    if (delta > DegToRad(45) || delta < DegToRad(-45)) return 0;
+    st = prop->stan;
+    bondviewUpdateGuardTankFlagsRelated(bp, 0);
+    ok = stanTestLineUnobstructed(&st, prop->pos.x, prop->pos.z, bp->pos.x, bp->pos.z, 0x1B, 100.0f, 100.0f, 0.0f, 1.0f) != 0;
+    bondviewUpdateGuardTankFlagsRelated(bp, 1);
+    return ok;
+}
+
+/* propobj.c objTick, a camera's sight test: 1 = done here (co-op), 0 = one Bond: the stock test runs */
+int portHeistCctvAllBonds(PropRecord *prop, void *rec, int stockFrames)
+{
+    CCTVRecord *cam = (CCTVRecord *) rec;
+    int n = (int) portBondCount(), k, p, best = 0;
+
+    if (n <= 1) return 0;
+    for (k = 0; k < sCamBondN && sCamBondRec[k] != rec; k++)
+    {
+    }
+    if (k == sCamBondN)
+    {
+        if (sCamBondN >= CCTV_BOND_CAMS) return 0;
+        sCamBondRec[k] = rec;
+        memset(sCamBondT[k], 0, sizeof(sCamBondT[k]));
+        sCamBondN++;
+    }
+    for (p = 0; p < n && p < 4; p++)
+    {
+        struct player *pl = g_playerPointers[p];
+
+        if (!portBondInPlay(p) || pl == NULL || pl->prop == NULL || pl->bonddead) continue;
+        if (cctvSeesBond(prop, cam, pl->prop))
+        {
+            sCamBondT[k][p] += g_ClockTimer;
+            if (sCamBondT[k][p] >= portHeistCctvAlarmFrames(rec, stockFrames))
+            {
+                if (cctvSpottedBy(rec, p)) alarmActivate();
+                sCamBondT[k][p] = 0;
+            }
+        }
+        if (sCamBondT[k][p] > best) best = sCamBondT[k][p];
+    }
+    cam->timer = best;
+    return 1;
+}
+
+/* the sight time camera `idx` has on Bond p (co-op), else the camera's own timer; -1 no such camera */
+int portHeistCctvBondTimer(int idx, int p)
+{
+    CCTVRecord *cam = heistCctv(idx);
+    int k;
+
+    if (cam == NULL) return -1;
+    for (k = 0; k < sCamBondN; k++)
+    {
+        if (sCamBondRec[k] == cam) return (p >= 0 && p < 4) ? sCamBondT[k][p] : 0;
+    }
+    return (int) cam->timer;
+}
+
+static unsigned cctvBondHash(void)
+{
+    unsigned h = (unsigned) sCamBondN;
+    int k, p;
+
+    for (k = 0; k < sCamBondN; k++)
+    {
+        for (p = 0; p < 4; p++) h = h * 16777619u + (unsigned) sCamBondT[k][p];
+    }
+    return h;
 }
 
 /* ---- use / gadget events ---- */
@@ -535,14 +657,26 @@ static void heistTarget(PropRecord *prop, int *kind, int *idx, int *objtype)
     }
 }
 
+static u8 sUseKey[4];   /* per Bond: the use press being handled is the Port use action (1), not B (use + reload, 0) */
+
 /* chrprop.c bond_interact_object: the current Bond pressed use on `prop` (an object or door) */
 void portHeistNoteUse(PropRecord *prop)
 {
-    int kind, idx, ot;
+    extern s32 portJoyPortUseKeyPeek(void);
+    int kind, idx, ot, p = (int) get_cur_playernum();
 
     if (portEventListenerCount(PORT_EV_USE) == 0) return;
     heistTarget(prop, &kind, &idx, &ot);
-    portEventEmit(PORT_EV_USE, (int) get_cur_playernum(), kind, idx, ot);
+    if (p >= 0 && p < 4) sUseKey[p] = (u8) (portJoyPortUseKeyPeek() ? 1 : 0);
+    portEventEmit(PORT_EV_USE, p, kind, idx, ot);
+    if (p >= 0 && p < 4) sUseKey[p] = 0;
+}
+
+/* bond.use_key(p), inside a `use` handler: the press came from the use action (the Port use bind), not the B button (which is also
+ * reload). The heist's screens open the camera feeds only on the use action. */
+int portHeistUseKey(int p)
+{
+    return (p >= 0 && p < 4) ? (int) sUseKey[p] : 0;
 }
 
 /* gunfire.c: the current Bond's gadget `item` ran its use animation (first frame); the target is what the use prompt points at */
@@ -743,7 +877,9 @@ static void bodyScan(void)
 
 /* ---- civilians (job 4) ---- */
 
-typedef struct { s32 chrnum; u8 state, dropped, counted, used; f32 aimT, idleT, threatT, cowerT; s32 byPlayer; } HeistCiv;
+/* aimP / threatP: each Bond's own time aiming at it (design P3: every Bond's aim counts on its own, the first to reach the time wins);
+ * aimT / threatT are the largest of them */
+typedef struct { s32 chrnum; u8 state, dropped, counted, used; f32 aimT, idleT, threatT, cowerT; s32 byPlayer; f32 aimP[4], threatP[4]; } HeistCiv;
 static HeistCiv sCiv[CIV_MAX];
 static int sCivN, sCivKilled;
 static f32 sCivRange = 800.0f, sCivAimSec = 0.5f, sCivThreatSec = 2.0f, sCivCowerSec = 4.0f;
@@ -838,12 +974,12 @@ static int civLineOfSight(ChrRecord *civ, PropRecord *bond)
     return ok;
 }
 
-/* the first Bond (lowest index) whose crosshair is on `civ`: holding a gun, within sCivRange, ahead of him, the view ray passing within
+/* every Bond whose crosshair is on `civ` (bit p = Bond p): holding a gun, within sCivRange, ahead of him, the view ray passing within
  * 30 units (+4% of the distance) of it, and a clear line between them (walls and doors block it). Standing next to one with a gun
- * out, or pointing it past one, is not aiming at it. */
-static int aimedBy(ChrRecord *civ)
+ * out, or pointing it past one, is not aiming at it. Each Bond is tested on his own canonical sim state (position, vv_theta). */
+static int aimedMask(ChrRecord *civ)
 {
-    int p, n = (int) portBondCount();
+    int p, n = (int) portBondCount(), mask = 0;
 
     for (p = 0; p < n && p < 4; p++)
     {
@@ -863,9 +999,27 @@ static int aimedBy(ChrRecord *civ)
         if (fwd <= CIV_AIM_NEAR || fwd > sCivRange || ABS(lat) > CIV_AIM_LAT0 + CIV_AIM_LATK * fwd) continue;
         if (!bondArmed(p)) continue;
         if (!civLineOfSight(civ, pl->prop)) continue;
-        return p;
+        mask |= 1 << p;
     }
-    return -1;
+    return mask;
+}
+
+/* add dt to each aiming Bond's timer in t[] (the others decay, or reset); returns the lowest-index Bond at or past `need`, -1 none;
+ * *maxT = the largest timer */
+static int civTimers(f32 *t, int mask, f32 dt, f32 need, int decay, f32 *maxT)
+{
+    int p, first = -1;
+
+    *maxT = 0.0f;
+    for (p = 0; p < 4; p++)
+    {
+        if (mask & (1 << p)) t[p] += dt;
+        else if (decay) t[p] = t[p] > dt ? t[p] - dt : 0.0f;
+        else t[p] = 0.0f;
+        if (t[p] > *maxT) *maxT = t[p];
+        if (first < 0 && (mask & (1 << p)) && t[p] >= need) first = p;
+    }
+    return first;
 }
 
 /* test helper: turn Bond `player`'s view toward (x, z) */
@@ -913,7 +1067,7 @@ int portHeistChrHeard(int chrnum, int clear)
 static void civTick(HeistCiv *v, f32 dt)
 {
     ChrRecord *c = chrFindByLiteralId(v->chrnum);
-    int by;
+    int by, mask;
 
     if (c == NULL || c->prop == NULL || c->model == NULL || (c->hidden & CHRHIDDEN_REMOVE) || chrIsDead(c))
     {
@@ -923,15 +1077,15 @@ static void civTick(HeistCiv *v, f32 dt)
     {
         return;   /* knocked out: the KO tick holds it down */
     }
-    by = aimedBy(c);
+    mask = aimedMask(c);
     if (v->state == 1)
-    {   /* hands up: keep the pose; a sustained threat makes it hand over what it carries */
+    {   /* hands up: keep the pose; a sustained threat (one Bond's own) makes it hand over what it carries */
         portLuaGameChrAnim(v->chrnum, "surrender", 0);
-        if (by >= 0)
+        if (mask != 0)
         {
             v->idleT = 0.0f;
-            v->threatT += dt;
-            if (!v->dropped && v->threatT >= sCivThreatSec)
+            by = civTimers(v->threatP, mask, dt, sCivThreatSec, 0, &v->threatT);
+            if (!v->dropped && by >= 0)
             {
                 v->dropped = 1;
                 chrDropItems(c);   /* CHR_DROP_ALL_CONCEALED_ITEMS: a key from spawn.key falls where it stands */
@@ -941,7 +1095,13 @@ static void civTick(HeistCiv *v, f32 dt)
         else
         {
             v->idleT += dt;
-            if (v->idleT > 3.0f) { v->state = 0; v->aimT = v->threatT = 0.0f; }   /* nobody aims at it any more: lowers its hands */
+            if (v->idleT > 3.0f)
+            {   /* nobody aims at it any more: lowers its hands */
+                v->state = 0;
+                v->aimT = v->threatT = 0.0f;
+                memset(v->aimP, 0, sizeof(v->aimP));
+                memset(v->threatP, 0, sizeof(v->threatP));
+            }
         }
         return;
     }
@@ -949,24 +1109,26 @@ static void civTick(HeistCiv *v, f32 dt)
     {   /* cowering after gunfire */
         portLuaGameChrAnim(v->chrnum, "startled", 0);
         v->cowerT -= dt;
-        if (by >= 0 && v->cowerT > 0.0f) { v->aimT += dt; }
+        by = -1;
+        if (mask != 0 && v->cowerT > 0.0f) by = civTimers(v->aimP, mask, dt, sCivAimSec, 1, &v->aimT);
         if (v->cowerT <= 0.0f) v->state = 0;
-        if (by < 0 || v->aimT < sCivAimSec) return;
+        if (by < 0) return;
+    }
+    else
+    {
+        by = civTimers(v->aimP, mask, dt, sCivAimSec, 1, &v->aimT);
     }
     if (by >= 0)
     {
-        v->aimT += dt;
-        if (v->aimT >= sCivAimSec)
-        {
-            v->state = 1;
-            v->threatT = v->idleT = 0.0f;
-            v->byPlayer = by;
-            portLuaGameChrAnim(v->chrnum, "surrender", 1);
-            portEventEmit(PORT_EV_CIVILIAN_SURRENDERED, v->chrnum, by, 0, 0);
-        }
+        v->state = 1;
+        v->threatT = v->idleT = 0.0f;
+        memset(v->threatP, 0, sizeof(v->threatP));
+        v->byPlayer = by;
+        portLuaGameChrAnim(v->chrnum, "surrender", 1);
+        portEventEmit(PORT_EV_CIVILIAN_SURRENDERED, v->chrnum, by, 0, 0);
         return;
     }
-    v->aimT = v->aimT > dt ? v->aimT - dt : 0.0f;
+    if (mask != 0) return;
     /* gunfire nearby: chrCheckGuardsHeardSound stamps every chr within the noise radius (lastheartarget60) */
     if (c->lastheartarget60 > 0 && g_GlobalTimer - c->lastheartarget60 < 12)
     {
@@ -1154,6 +1316,8 @@ static void koWake(ChrRecord *b, HeistKo *e, ChrRecord *g)
         v->state = 2;   /* a woken civilian cowers */
         v->cowerT = sCivCowerSec;
         v->aimT = v->threatT = 0.0f;
+        memset(v->aimP, 0, sizeof(v->aimP));
+        memset(v->threatP, 0, sizeof(v->threatP));
     }
     else if (g != NULL)
     {
@@ -1644,18 +1808,59 @@ void portHeistAiTick(void)
     }
 }
 
+/* mode.state(text): the mode script's own sim state as one string (the heist: phase, crack progress and jams, the vault timer, loot,
+ * waves, ...), set every tick. Its FNV hash goes into the state hash below and the text into the state dump, so a desync in script
+ * state shows as one, and the dump says where. Reset at every stage start. */
+static unsigned sModeStateHash;
+static char sModeStateText[600];
+
+void portHeistModeState(const char *s)
+{
+    unsigned h = 2166136261u;
+    const char *c;
+
+    for (c = s != NULL ? s : ""; *c != '\0'; c++) h = (h ^ (unsigned char) *c) * 16777619u;
+    sModeStateHash = h;
+    snprintf(sModeStateText, sizeof(sModeStateText), "%s", s != NULL ? s : "");
+}
+
+const char *portHeistModeStateText(void) { return sModeStateText; }
+
+void portHeistModeStateReset(void)
+{
+    sModeStateHash = 0;
+    sModeStateText[0] = '\0';
+    memset(sUseKey, 0, sizeof(sUseKey));
+}
+
 /* folded into the co-op state hash (port_coop.c "flags"); 0 outside a mode */
 unsigned portHeistStateHash(void)
 {
     unsigned h = 0;
     int i;
 
-    if (!portModeActive()) return 0;
+    if (sCamBondN > 0) h = cctvBondHash();   /* co-op cameras: every Bond's sight time (any stage, mode or not) */
+    if (!portModeActive()) return h;
+    h = h * 16777619u + sModeStateHash;
+    for (i = 0; i < (int) portBondCount() && i < 4; i++)
+    {
+        h = h * 16777619u + portHeistBondKeys(i);   /* per-player cards (mode.per_player_keys) */
+    }
+    for (i = 0; i < 4; i++) h = h * 16777619u + sUseKey[i];
     h = h * 16777619u + (unsigned) sFoundN * 131u + (unsigned) sCivKilled * 7919u + (unsigned) sBodyCheck;
     for (i = 0; i < sCivN; i++)
     {
         h = h * 16777619u + (unsigned) sCiv[i].state + (unsigned) sCiv[i].dropped * 4u + (unsigned) sCiv[i].counted * 8u + (unsigned) (sCiv[i].aimT * 100.0f);
+        h = h * 16777619u + (unsigned) sCiv[i].chrnum + (unsigned) sCiv[i].byPlayer * 5u + (unsigned) (sCiv[i].threatT * 100.0f) * 7u
+            + (unsigned) (sCiv[i].idleT * 100.0f) * 11u + (unsigned) (sCiv[i].cowerT * 100.0f) * 13u;
+        {
+            int p;
+
+            for (p = 0; p < 4; p++) h = h * 16777619u + (unsigned) (sCiv[i].aimP[p] * 100.0f) + (unsigned) (sCiv[i].threatP[p] * 100.0f) * 3u;
+        }
     }
+    h = h * 16777619u + (unsigned) sNow + (unsigned) sAcc * 3u + (unsigned) sKeyNext * 5u + (unsigned) sPatrolN * 7u;
+    for (i = 0; i < sFoundN; i++) h = h * 16777619u + (unsigned) sFound[i];
     h += (unsigned) sPerPlayerKeys * 0x9E3779B1u + (unsigned) sCctvAllTicks * 31u + (unsigned) sCctvAlarmOnSpot * 7u;
     for (i = 0; i < sCctvOvN; i++) h = h * 16777619u + (unsigned) sCctvTicks[i];
     for (i = 0; i < (int) sizeof(sCctvOff); i++) h = h * 16777619u + sCctvOff[i];
@@ -1667,6 +1872,8 @@ unsigned portHeistStateHash(void)
         if (!e->used) continue;
         h = h * 16777619u + (unsigned) e->chrnum * 3u + (unsigned) e->slaps * 5u + (unsigned) e->down * 11u + (unsigned) e->searched * 13u
             + (unsigned) e->wstate * 17u + (unsigned) e->waker * 19u + (unsigned) (e->wT * 100.0f);
+        h = h * 16777619u + (unsigned) e->byPlayer * 3u + (unsigned) e->downAt * 5u + (unsigned) e->addedFlags + (unsigned) e->wPlot * 7u
+            + (unsigned) (int) e->wArghs * 11u;
     }
     if (countdownTimerIsRunning()) h = h * 16777619u + (unsigned) countdownTimerGetValue();
     h = h * 16777619u + (unsigned) sLootSerial * 211u + (unsigned) sLootTaken * 977u;

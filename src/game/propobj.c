@@ -5587,6 +5587,17 @@ s32 objTick(struct PropRecord *prop)
 				m_RocketGravity = bottom_pad->unkD0;
 			}
 
+#ifndef TARGET_N64
+			/* PORT: co-op (heist P3): with more than one Bond the camera tests EVERY Bond, each on his own sight timer
+			 * (port_heist.c); the stock test below read only the current player (the sim pass's Bond). Solo: stock. */
+			{
+				extern int portHeistCctvAllBonds(PropRecord *prop, void *rec, int stockFrames);
+
+				cctvSeesPlayer = portHeistCctvAllBonds(prop, bottom_pad, (s32) (CCTV_ALARM_FRAMES * F_80030B14));
+			}
+			if (!cctvSeesPlayer)
+			{
+#endif
 			playerProp = getCurrentPlayerProp();
 			xdiff = playerProp->pos.f[0] - obj->runtime_pos.f[0];
 			temp_f0_13 = bottom_pad->unkE8;
@@ -5682,6 +5693,9 @@ s32 objTick(struct PropRecord *prop)
 
 				bondviewUpdateGuardTankFlagsRelated(playerProp, 1);
 			}
+#ifndef TARGET_N64
+			}   /* PORT: the stock one-Bond test */
+#endif
 
 			if (bottom_pad->unkC8 < m_RocketGravity)
 			{
