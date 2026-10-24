@@ -563,7 +563,9 @@ if(GE_VIDEO)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/tools/mode_heist.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/heist.lua
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            ${CMAKE_SOURCE_DIR}/tools/heist_lib.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/heist_lib.lua)
+            ${CMAKE_SOURCE_DIR}/tools/heist_lib.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/heist_lib.lua
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/tools/bot/heist_bot.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/heist_bot.lua)
     # the player bot's level plans (port_playerbot.c reads Data/BotPlans/<stage>.plan)
     file(GLOB GE_BOT_PLANS CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/tools/bot/plans/*.plan)
     if(GE_BOT_PLANS)

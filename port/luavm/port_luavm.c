@@ -1718,6 +1718,11 @@ static lua_State *portLuaState(void)
 
         portLuaHeistRegister(sL);
     }
+    {   /* the player bot's plan feed: bot.push / bot.clear / bot.step / bot.active (port_luavm_bot.c) */
+        extern void portLuaBotRegister(lua_State *L);
+
+        portLuaBotRegister(sL);
+    }
     lua_pushcfunction(sL, portLuaOn);
     lua_setglobal(sL, "on");
     lua_pushcfunction(sL, portLuaInclude);

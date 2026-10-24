@@ -127,6 +127,10 @@ s32 portModeEndMission(s32 win)
     sResult = win ? 1 : 2;
     printf("ge: mode: mission %s\n", win ? "won" : "failed");
     fflush(stdout);
+    {   /* the player bot (port_playerbot.c): its RESULT line for a mode's own win / fail */
+        extern void portPlayerBotMissionEnd(s32 stage, s32 allcomplete);
+        portPlayerBotMissionEnd(-1, win ? 1 : 0);
+    }
     if (portCoopActive())
     {
         portCoopModeMissionEnd(win ? "mode win" : "mode fail");   /* the shared mission-end: the same sim tick on both machines */

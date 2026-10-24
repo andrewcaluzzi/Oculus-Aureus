@@ -54,6 +54,8 @@ extern int  ge_shot_force;
 extern s32  gamemode;
 extern bool doorIsPadlockFree(DoorRecord *door);
 extern s32  get_ammo_type_for_weapon(ITEM_IDS weapon);   /* gunfire.c */
+extern int  portModeActive(void);                          /* port_mode.c */
+extern const char *portModeName(void);
 extern bool bondinvCheckHasKeyFlags(u32 wantkeyflags);   /* bondinv.c */
 extern s32  get_difficulty_for_objective(s32 objectiveIndex);
 
@@ -1647,16 +1649,27 @@ static void planLoad(void)
     char err[160];
 
     B.planLoaded = 0;
-    B.plan.n = 0;
     if (B.planfile[0] != '\0')
     {
         snprintf(path, sizeof(path), "%s", B.planfile);
+    }
+    else if (portModeActive())
+    {   /* a game mode: its own plan, or none (its script feeds steps through the Lua `bot` library) */
+        snprintf(path, sizeof(path), "%s/%s.plan", B.plandir, portModeName());
     }
     else
     {
         snprintf(path, sizeof(path), "%s/%s.plan", B.plandir, stageName(B.stage));
     }
     f = fopen(path, "rb");
+    if (f == NULL && portModeActive())
+    {   /* keep whatever the script already pushed (its stage_start can run before the bot's first tick) */
+        portConLogf("ge: playerbot: mode %s: no plan %s - following bot.push from the mode script (%d step(s) so far)\n",
+                    portModeName(), path, B.plan.n);
+        B.planLoaded = 1;
+        return;
+    }
+    B.plan.n = 0;
     if (f == NULL)
     {
         portConLogf("ge: playerbot: no plan %s - using 'auto' then 'exit'\n", path);
@@ -2394,8 +2407,7 @@ static void drive(void)
     }
     if (s == NULL)
     {
-        tap(BTN_A, 60);
-        return;
+        return;   /* nothing to do (a mode script may push more) */
     }
     if (B.subKeyNeed != 0)
     {   /* detour: fetch a key (kill its carrier, then walk over it) */
@@ -2688,6 +2700,52 @@ void portPlayerBotActions(u8 *down, s32 count)
             down[PORTACT_NEXT_INV_INDEX] = 1;
         }
     }
+}
+
+/* ---- the Lua `bot` library (port/luavm/port_luavm_bot.c) --------------------------------------------------------- */
+
+int portPlayerBotModeForLua(void)
+{
+    return portPlayerBotMode();
+}
+
+int portPlayerBotPushLine(const char *line, char *err, int errlen)
+{
+    static PblPlan one;
+
+    if (pblParsePlan(line, &one, err, errlen) < 0)
+    {
+        return 0;
+    }
+    if (B.plan.n + one.n > PBL_MAXSTEPS)
+    {
+        /* drop the finished steps to make room */
+        s32 done = B.step < B.plan.n ? B.step : B.plan.n;
+
+        memmove(&B.plan.s[0], &B.plan.s[done], (size_t) (B.plan.n - done) * sizeof(PblStep));
+        B.plan.n -= done;
+        B.step -= done;
+    }
+    if (B.plan.n + one.n > PBL_MAXSTEPS)
+    {
+        snprintf(err, errlen, "plan full");
+        return 0;
+    }
+    memcpy(&B.plan.s[B.plan.n], one.s, (size_t) one.n * sizeof(PblStep));
+    B.plan.n += one.n;
+    return 1;
+}
+
+void portPlayerBotClearSteps(void)
+{
+    B.plan.n = B.step;   /* the running step and the rest go */
+    stepBegin();
+}
+
+void portPlayerBotStepInfo(int *step, int *count)
+{
+    *step = B.step + 1;
+    *count = B.plan.n;
 }
 
 /* ---- console ------------------------------------------------------------------------------------------------------ */
