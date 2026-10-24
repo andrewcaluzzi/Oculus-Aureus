@@ -1479,6 +1479,17 @@ static s32 combatTick(f32 range)
     {
         B.btn |= BTN_CR;
     }
+    {   /* hurt and the enemy close: give ground while shooting (back away from him); badly hurt: crouch too (C-down
+         * is look in 1.1, so crouching is not available - backing off is the cover we have) */
+        struct player *p = bond();
+        f32 hp = p->bondhealth + p->bondarmour;
+        f32 dx = t->pos.x - p->prop->pos.x, dz = t->pos.z - p->prop->pos.z;
+
+        if (hp < 0.5f && dx * dx + dz * dz < 700.0f * 700.0f && B.tick - B.lastHurtTick < 90)
+        {
+            B.sy = -70;
+        }
+    }
     return 1;
 }
 

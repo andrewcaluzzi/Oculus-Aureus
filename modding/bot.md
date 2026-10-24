@@ -14,7 +14,7 @@ identical).
 
 ## Quick start
 
-Inside the build container, with Xvfb on `:99` (see `lab`-style notes in `docs/bot-notes.md`):
+Inside the build container, with Xvfb on `:99` (working notes: `modding/bot-notes.md`):
 
 ```sh
 sh tests/bot/level.sh dam 0          # one stage, Agent: play, record, replay, verify -> one result line
@@ -130,4 +130,4 @@ been reached yet, so they are untested.
 
 ## Known limits
 
-See `docs/bot-notes.md` for the per-level status and the failure modes found so far.
+See `modding/bot-notes.md` for the per-level status and the failure modes found so far.
