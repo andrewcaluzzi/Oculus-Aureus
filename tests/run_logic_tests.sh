@@ -8,6 +8,10 @@ gcc -m32 -std=c11 -O2 -Wall -Werror -Iport/include \
     tests/botlogic_test.c port/src/port_botlogic.c
 ./build_tests/botlogic_test
 gcc -m32 -std=c11 -O2 -Wall -Werror -Iport/include \
+    -o build_tests/playerbot_test \
+    tests/playerbot_test.c port/src/port_playerbotlogic.c port/src/port_playerbotgraph.c -lm
+./build_tests/playerbot_test
+gcc -m32 -std=c11 -O2 -Wall -Werror -Iport/include \
     -o build_tests/event_test \
     tests/event_test.c port/src/port_event.c
 ./build_tests/event_test

@@ -1,0 +1,8 @@
+# Dam (Arkhangelsk). Plan language: modding/bot.md.
+# Objectives: 0 neutralise all alarms (tags 0-3, SA+), 1 install covert modem (flag 0x100, 00),
+#             2 intercept data backup (flag 0x400, 00), 3 bungee jump from platform (flag 0x1000, all).
+# ai_24 sets 0x1000 and runs the ending once Bond is in the room with pad 330 (the jump platform).
+name dam
+obj=0 auto
+goto pad 330 30
+exit

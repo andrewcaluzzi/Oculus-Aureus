@@ -54,6 +54,10 @@ f32 get_007_accuracy_mod(void)
 void portMissionEndLog(s32 stage, s32 allcomplete)
 {
     fprintf(stderr, "ge: mission end: levelid=%d all_objectives_complete=%d\n", stage, allcomplete);
+    { /* PORT: player bot (port_playerbot.c): writes its RESULT line and, in a test run, exits */
+        extern void portPlayerBotMissionEnd(s32 stage, s32 allcomplete);
+        portPlayerBotMissionEnd(stage, allcomplete);
+    }
 }
 #endif
 

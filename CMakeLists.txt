@@ -549,6 +549,13 @@ if(GE_VIDEO)
             ${CMAKE_SOURCE_DIR}/tools/mode_arena_bench_live.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/arena-bench-live.lua
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/tools/mode_probe.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/probe.lua)
+    # the player bot's level plans (port_playerbot.c reads Data/BotPlans/<stage>.plan)
+    file(GLOB GE_BOT_PLANS CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/tools/bot/plans/*.plan)
+    if(GE_BOT_PLANS)
+        add_custom_command(TARGET ge POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:ge>/Data/BotPlans
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different ${GE_BOT_PLANS} $<TARGET_FILE_DIR:ge>/Data/BotPlans)
+    endif()
     if(WIN32)
         # the arena launchers (set GE_MODE / GE_STAGE, then start the exe), next to the exe
         add_custom_command(TARGET ge POST_BUILD

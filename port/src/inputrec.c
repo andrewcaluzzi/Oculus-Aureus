@@ -117,6 +117,27 @@ void portInputRecTick(void)
     sTick++;
 }
 
+/** the sim tick the records are being made in (port_playerbot.c decides once per tick) */
+u32 portInputRecTickNow(void)
+{
+    return sTick;
+}
+
+/** flush a recording before the process leaves through _exit (port_playerbot.c result) */
+void portInputRecFlush(void)
+{
+    if (sOut != NULL)
+    {
+        fflush(sOut);
+    }
+}
+
+/* port_playerbot.c: the player bot writes player 1's input here, before it is recorded (GE_PLAYERBOT=1) */
+extern void portPlayerBotPad(OSContPad *pad);
+extern void portPlayerBotLook(f32 *dx, f32 *dy, s32 *direct, f32 *yawdeg, f32 *pitchdeg);
+extern void portPlayerBotDigMove(s32 *dx, s32 *dy);
+extern void portPlayerBotActions(u8 *down, s32 count);
+
 /* the record of kind k for this call: the next one made in the current tick,
  * else (no record left in this tick) the tick's last one again when `repeat`,
  * else NULL = neutral */
@@ -147,6 +168,7 @@ static RecEntry *inputRecNext(s32 k, s32 repeat)
 void portInputRecPad(OSContPad *pad)
 {
     s32 m = inputRecMode();
+    portPlayerBotPad(pad);
     if (m == REC_RECORD)
     {
         fprintf(sOut, "P %u %x %x %x\n", sTick, pad->button, (u8) pad->stick_x, (u8) pad->stick_y);
@@ -166,6 +188,7 @@ void portInputRecActions(u8 *down, s32 count)
 {
     s32 m = inputRecMode();
     s32 i;
+    portPlayerBotActions(down, count);
     if (m == REC_RECORD)
     {
         u32 lo = 0, hi = 0;
@@ -192,6 +215,7 @@ void portInputRecActions(u8 *down, s32 count)
 void portInputRecMouse(f32 *dx, f32 *dy, s32 *direct, f32 *yawdeg, f32 *pitchdeg)
 {
     s32 m = inputRecMode();
+    portPlayerBotLook(dx, dy, direct, yawdeg, pitchdeg);
     if (m == REC_RECORD)
     {
         fprintf(sOut, "M %u %u %.9g %.9g %.9g %.9g\n", sTick, (u32) *direct, *dx, *dy, *yawdeg, *pitchdeg);
@@ -211,6 +235,7 @@ void portInputRecMouse(f32 *dx, f32 *dy, s32 *direct, f32 *yawdeg, f32 *pitchdeg
 void portInputRecDigMove(s32 *dx, s32 *dy)
 {
     s32 m = inputRecMode();
+    portPlayerBotDigMove(dx, dy);
     if (m == REC_RECORD)
     {
         fprintf(sOut, "D %u %d %d\n", sTick, *dx, *dy);
