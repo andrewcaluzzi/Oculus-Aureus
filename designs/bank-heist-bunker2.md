@@ -108,7 +108,9 @@ Values from `weapon.get`, radius in world units at scale 1.0:
 
 Reading it for the heist: a silenced pistol is heard within **100 units on a first shot** (about a metre; a standing guard in the same corridor can still be farther), climbing to **500 at full cap** after about five rapid shots; the unsilenced PP7 is **300 on one shot and 1200 sustained**. A corridor on this map is 100-300 units wide, rooms 500-1500. Decay rates (`NoiseDecayLinearTime` / `NoiseDecayScaledTime`) are in the weapon data and were not logged; the table above is steady-state peaks.
 
-## 7. Camera view switch: feasibility (not built)
+## 7. Camera view switch: feasibility (built in P1: designs/bank-heist.md section 10, port/src/port_cctvview.c)
+
+(As built: the prop and room matrices are not rebuilt for the camera; the two projection matrices the display list loads are rewritten instead, and the chrs only the camera sees are posed for the feed with their Model structs restored. The "first hour" function is `bondviewUpdateCameraMatrices` (bondview2.c), called from `bondviewRenderDebugBondView`, which is the normal per-pass camera setup despite its name.)
 
 **Goal.** Using a monitor moves the player's view to a CCTV camera (static or black if the camera is shot), render-only; the sim keeps Bond's canonical sim view, so it is safe for co-op and netplay.
 

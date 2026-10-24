@@ -189,6 +189,26 @@ int         portHeistBondWeapon(int player);                               /* IT
 int         portHeistDifficulty(void);                                     /* 0 Agent .. 3 007 */
 int         portHeistDoorOneWay(int idx, int clear);                       /* stock one-way bits set? (clear = drop them); -1 no such door */
 int         portHeistDoorSnap(int idx, int open);                          /* snap fully open / shut now, blocked or not; -1 no such door */
+/* heist CCTV view (port_cctvview.c, designs/bank-heist.md P1 T2) and the HUD panel */
+int         portCctvView(int p, int cam, int why);                         /* 1 = Bond p watches camera cam now; why = the event's reason */
+int         portCctvViewOff(int p, int why);                               /* 1 = he was watching */
+int         portCctvViewing(int p);                                        /* camera setup index, -1 none */
+int         portCctvViewTicks(int p);                                      /* ticks on the current camera */
+void        portCctvSetName(int cam, const char *name);
+const char *portCctvName(int cam);                                         /* NULL = none set */
+int         portCctvSeesChr(int cam, int chrnum);                          /* a working camera has the chr in its live cone, clear line */
+int         portCctvSeesPoint(int cam, float x, float y, float z);
+int         portCctvChrRoom(int chrnum);                                   /* -1 gone */
+int         portCctvBondRoom(int p);                                       /* -1 none */
+int         portCctvRenderInfo(int *cam, int *start, int *rooms, int max, int *geom, int *frames);   /* this machine's last feed pass */
+void        portCctvTestPress(int mask);                                   /* test: raw N64 buttons held on pad 0 for 4 polls */
+void        portCctvTestShot(void);                                        /* test: a GE_SHOT capture of the next frame */
+int         portCctvExtraChrs(void);                                       /* chrs the last feed pass posed and drew itself */
+int         portCctvOverlayGet(int *cam, char *name, int namelen, int *index, int *count, int *offline, int *seconds, int *ticks);
+int         portCctvButtonMask(const char *name);                          /* "a" "b" "z" "cl" "cr" -> mask, 0 unknown */
+const char *portLuaGameHudPanelGet(int line);                              /* this machine's panel line (tests), NULL empty */
+void        portLuaGameHudPanel(int player, int line, const char *text);   /* player < 0 = all; NULL text clears the line */
+void        portLuaGameHudPanelClear(int player);
 
 /* Mods menu items added by scripts (menu.add_toggle / menu.add_number), port_luavm.c.
  * Values are cached: Refresh calls the scripts' getters (never from a render path). */

@@ -6258,6 +6258,10 @@ static s32 portMouseLookPermitted(void)
         extern int portCoopBondHeld(int p);
         if (portCoopBondHeld(get_cur_playernum())) return 0;
     }
+    {   /* PORT: heist: a Bond watching a camera feed neither looks around nor takes the Port binds (port_cctvview.c reads them) */
+        extern int portCctvViewing(int p);
+        if (portCctvViewing(get_cur_playernum()) >= 0) return 0;
+    }
     { /* No mouse, Port binds or pointer capture during demo playback: the
        * demo replays a recorded pad, and live mouse input would steer and
        * desync it. Recording is untouched. */
@@ -11657,6 +11661,12 @@ void bondviewMovePlayerUpdateViewport(s8 stick_x, s8 stick_y, u16 buttons)
         }
 
 #ifndef TARGET_N64
+        {   /* PORT: heist CCTV view (port_cctvview.c): a Bond watching a camera feed stands at the console. His buttons cycle the cameras
+             * and leave the view; nothing reaches MoveBond (sim state: the same on every machine, it reads only this Bond's input) */
+            extern int portCctvViewTick(int p, s8 *sx, s8 *sy, u16 *buttons);
+
+            portCctvViewTick(get_cur_playernum(), &stick_x, &stick_y, &buttons);
+        }
         {   /* PORT: coop (job CO-OP-EXITS): a Bond held at the level exit cannot act (netplay already zeroed its record; this covers local co-op) */
             extern int portCoopBondHeld(int p);
 
@@ -13244,8 +13254,20 @@ Gfx *maybe_mp_interface(Gfx *gdl)
     }
 
     gunUpdateAndFireBothHands();
+#ifndef TARGET_N64
+    {   /* PORT: heist CCTV view: the feed shows no gun. The gun is built as always (its matrices) and its display list dropped */
+        extern s32 portCctvPassActive(void);
+        Gfx *gunStart = gdl;
+#endif
     gunRenderCasings(&gdl);
     gunRenderFirstPersonGunModels(&gdl);
+#ifndef TARGET_N64
+        if (portCctvPassActive())
+        {
+            gdl = gunStart;
+        }
+    }
+#endif
     gdl = bondviewRenderWatch(gdl);
     if (g_CurrentPlayer->mpmenuon != 0)
     {
@@ -13450,8 +13472,20 @@ blood_frame_held:;
     gdl = hudmsgBottomRender(gdl);
     bondviewUpperTextWindowTimerTick();
     gdl = sub_GAME_7F08AAE8(gdl);
+#ifndef TARGET_N64
+    {   /* PORT: heist CCTV view: no crosshair or ammo counter over a camera feed */
+        extern s32 portCctvPassActive(void);
+        Gfx *hudStart = gdl;
+#endif
     gunDrawSight(&gdl);
     gdl = generate_ammo_total_microcode(gdl);
+#ifndef TARGET_N64
+        if (portCctvPassActive())
+        {
+            gdl = hudStart;
+        }
+    }
+#endif
     gdl = countdownTimerRender(gdl);
     gdl = display_red_blue_on_radar(gdl);
 #ifndef TARGET_N64

@@ -81,6 +81,11 @@ void portHeistStageReset(void)
     memset(sKeyRecs, 0, sizeof(sKeyRecs));
     sKeyNext = 0;
     portHeistGuardsReset();
+    {
+        extern void portCctvViewReset(void);   /* port_cctvview.c: nobody watches a camera at a stage start */
+
+        portCctvViewReset();
+    }
 }
 
 static void heistScan(void)
@@ -126,6 +131,12 @@ static CCTVRecord *heistCctv(int idx)
     heistScan();
     if (!portModeActive() || idx < 0 || idx >= sRecN || sRec[idx]->type != PROPDEF_CCTV) return NULL;
     return (CCTVRecord *) sRec[idx];
+}
+
+/* the CCTV record of setup index idx (port_cctvview.c), NULL if it is not a camera or no mode runs */
+void *portHeistCctvRecord(int idx)
+{
+    return heistCctv(idx);
 }
 
 static int heistList(int type, int *out, int max)
@@ -1662,6 +1673,11 @@ unsigned portHeistStateHash(void)
     for (i = 0; i < LOOT_N; i++)
     {
         if (sLoot[i].used) h = h * 16777619u + (unsigned) i * 3u + (unsigned) sLoot[i].kind;
+    }
+    {
+        extern unsigned portCctvViewHash(void);   /* port_cctvview.c: who watches which camera (sim state: it holds the Bond) */
+
+        h = h * 16777619u + portCctvViewHash();
     }
     return h;
 }

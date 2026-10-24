@@ -1358,7 +1358,21 @@ Gfx* lvlRender(Gfx* DL)
             { extern void portNetPassDebug(const char *where); portNetPassDebug("after-playerprops"); }
 #endif
             PSECT(4);
+#ifndef TARGET_N64
+            {   /* PORT: heist CCTV view: this pass's world draw is the camera's (render matrices only; port_cctvview.c) */
+                extern void portCctvPassMatrices(void);
+
+                portCctvPassMatrices();
+            }
+#endif
             DL = bgLevelRender(DL);
+#ifndef TARGET_N64
+            {   /* PORT: heist CCTV view: the people only the camera sees (posed into fresh matrices, their models put back) */
+                extern Gfx *portCctvDrawChrs(Gfx *gdl);
+
+                DL = portCctvDrawChrs(DL);
+            }
+#endif
             PSECT(5);
 
             if (get_debug_portal_flag())
