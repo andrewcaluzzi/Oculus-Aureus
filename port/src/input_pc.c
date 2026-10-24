@@ -6963,6 +6963,8 @@ s32 portInputAssignTake(void)
  * slot's map first - see point 1 above - then writes the key live and to
  * midas.ini through the ordinary setter.
  */
+s32 portInputDeviceIniKey(s32 dev, const char *name, char *buf, s32 len);   /* below */
+
 s32 portInputPadBindSet(s32 dev, const char *name, const char *token)
 {
     extern s32 portVideoIniSetKey(const char *key, const char *value);

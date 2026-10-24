@@ -69,6 +69,7 @@ extern void set_missionstate(int state);          /* mp_music.c */
 extern void bossRunTitleStage(void);              /* boss.c */
 extern s32 mission_failed_or_aborted;             /* front.c */
 extern void portConPrintf(s32 showmsg, const char *fmt, ...);
+extern void portNetMusicRelease(void);   /* mp_music.c */
 #ifndef _WIN32
 extern int putenv(char *);
 #endif

@@ -1,5 +1,11 @@
 #include <ultra64.h>
 
+#ifndef TARGET_N64
+extern int portAllPlayerCount(void);   /* port_coop.c (as game/player.h, which this file does not include) */
+#else
+#define portAllPlayerCount() getPlayerCount()
+#endif
+
 void set_favorite_weapon_for_every_player(void) {
     int right_hand;
     int left_hand;

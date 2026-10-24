@@ -40,6 +40,7 @@ extern s32 getPlayerCount(void);
 extern s32 get_is_ramrom_flag(void);
 extern s32 get_recording_ramrom_flag(void);
 extern s32 chrGetNumFree(void);
+extern s32 get_difficulty_for_objective(s32 objectiveIndex);   /* objective_status.c, in no header */
 
 #define PAD_SANE_MAX     20000
 #define HUD_LEN          64

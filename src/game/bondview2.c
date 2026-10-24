@@ -65,6 +65,7 @@ extern s32 portAimLock(void); /* video.c: midas.ini [display] aim_lock; weak 0 h
 extern s32 portMpAimLock(void); /* video.c: [display] mp_aim_lock - multiplayer's own copy; weak 0 headless */
 extern s32 get_is_ramrom_flag(void); /* demo playback gate for aim lock / scope
                                       * steady / no head roll */
+extern s32 portInputPadIsN64(s32 slot); /* input_pc.c (weak 0 headless) */
 static s32 portAimLockActive(void)
 {
     /* two or more players read multiplayer's key, never the solo one, so a
