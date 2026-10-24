@@ -37,6 +37,11 @@ static int simheapRange(int i, unsigned char **lo, unsigned int *len)
     return 0;
 }
 
+unsigned int portSimHeapUsed(void)   /* the arena benchmark report */
+{
+    return sUsed;
+}
+
 void *portAllocSimHigh(unsigned int size)
 {
     void *p;

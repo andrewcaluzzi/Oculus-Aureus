@@ -161,9 +161,16 @@ Rotate Image:
 #define HUNDRED_PERCENT_CHANCE 0xFFFF
 
 #define SFX_RELATED_LEN 8
+#ifdef TARGET_N64
 #define MAX_PROPS 600
 #define PTR_LIST_OBJECT_LOOKUP_INDICES_LEN 512
 #define BSS_8007161C_LEN 256
+#else
+/* PORT: the Colosseum benchmark runs ~1400 chrs + drops (all in a few rooms) */
+#define MAX_PROPS 2400
+#define PTR_LIST_OBJECT_LOOKUP_INDICES_LEN 2600
+#define BSS_8007161C_LEN 512
+#endif
 #define BSS_8007161C_DATA_LEN 16
 #define MAX_WEAPON_SLOTS 30
 #define MAX_HAT_SLOTS 10
@@ -171,7 +178,11 @@ Rotate Image:
 #define PROJECTILES_ARR_MAX 20
 #define PROXIMITYARRMAX 30 /*canonical name for max mines*/
 #define EMBEDMENT_ARR_MAX 40
+#ifdef TARGET_N64
 #define ONSCREEN_PROP_LIST_LEN 500
+#else
+#define ONSCREEN_PROP_LIST_LEN 2500
+#endif
 
 
 

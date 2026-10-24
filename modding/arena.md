@@ -100,6 +100,14 @@ For testing, the wave can be jumped. They work when the setting `test_keys` is t
 
 The wave counter, titles, bosses and difficulty follow the wave you land on (it never goes below 1). In fixed mode, "next" past the last wave wins. A Lua mode can listen with `on("test_key", function(name) ... end)`; `name` is `"next"`, `"back"`, `"next+"` or `"back+"`.
 
+## Big crowds and keeping every body
+
+The stage reserves 240 chr slots by default (`GE_COLOSSEUM_SLOTS=<n>` raises it, up to 4000; stage init runs before Lua, so it is an environment variable). The PC build's fixed pools are sized for about 1400 chrs: 2400 props, 32000 model hit entries, 2500 on-screen props. They cost memory (about 1 MB) in every stage and do not change behaviour below the old limits. Settings: `corpse_keep` (seconds before a corpse is removed, 4; `-1` = keep every body), `corpse_limit` (when more are kept, the oldest go, 400), `crowd_rate` (spectators spawned per second, 200). The mode ticks four times a second, so that is 50 a tick.
+
+## The benchmark
+
+`Arena Benchmark.bat` (next to the exe) runs the preset `arena-bench` (`tools/mode_arena_bench.lua`) with `GE_COLOSSEUM_SLOTS=1400` and `GE_CHEATS=invuln`, and quits by itself after about 4 minutes. Five phases of 30 s steady state: crowd 100 / 100 / 300 / 1000 / 1000, 0 / 250 / 250 / 250 / 250 corpses (real kills, kept to the end) and, in the last, 18 live enemies shooting at Bond. Bond stands in the middle and turns at 24 degrees a second, alternating half turns looking at the stands and at the floor. `Data/Logs/arena_bench.txt` gets the machine lines, then per phase the frame time (avg, p50, p95, p99, max, fps; overall and for the stands and floor views), render/sim split and draw calls, spectator / corpse / enemy counts, and pool use (chr slots, props, hit entries with their peak, stage memory left). The Lua side is the `bench` table (`port/luavm/port_luavm_arena.c`).
+
 ## Under the hood
 
 The mode relies on the Lua spawning API (`spawn.chr`, `spawn.item`, `spawn.anim`, `bond.give`, `bond.heal`; see `lua.md`) and on C-side additions that are active only for arena enemies: AI lists with ranged fire and direct routes, a bigger model hit-entry pool, per-chr knife throwing, and a weapon pool that protects drops near Bond. The stock game, the attract demos and the rest of the port are not affected; the demo oracle in `tests/baseline/` verifies this.

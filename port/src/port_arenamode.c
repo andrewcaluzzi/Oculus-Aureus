@@ -23,6 +23,7 @@
 #include "game/gun.h"
 #include "game/model.h"
 #include "game/math_atan2f.h"
+#include <memp.h>
 #include "port_lua.h"
 #include "port_spawn.h"
 #include "port_blocks.h"
@@ -41,7 +42,7 @@ extern s32 check_cur_player_ammo_amount_in_inventory(AMMOTYPE type);
 extern s32 get_max_ammo_for_type(s32 type);
 
 #define ARENA_CHRNUM0   8000
-#define INFO_N          1024   /* direct-mapped by chrnum (arena chrnums are consecutive, so a window of INFO_N never collides) */
+#define INFO_N          4096  /* direct-mapped by chrnum (arena chrnums are consecutive, so a window of INFO_N never collides) */
 
 #define KNIFE_RANGE_DEFAULT     4500.0f   /* A5: farthest knife throw */
 #define KNIFE_COOLDOWN_DEFAULT  1.2f      /* A5: seconds between a thrower's throws (was ~2.5) */
@@ -203,6 +204,21 @@ s32 portArenaChrKnifer(const ChrRecord *chr)
 }
 
 /* an enemy the arena mode spawned (not the crowd): the engine uses this for the direct-route and the first-shot log */
+/* spawn.keep_bodies(on): dead arena enemies are not faded out and removed by the stock chrlvTickDead (90 ticks); the mode removes them */
+static s32 sKeepBodies;
+
+void portLuaGameKeepBodies(int on)
+{
+    sKeepBodies = on;
+}
+
+s32 portArenaKeepBody(const ChrRecord *chr)
+{
+    ArenaInfo *a = (sKeepBodies && chr != NULL) ? infoGet((s32)chr->chrnum) : NULL;
+
+    return a != NULL && a->enemy;
+}
+
 s32 portArenaChrIsEnemy(const ChrRecord *chr)
 {
     ArenaInfo *a = (chr != NULL) ? infoGet((s32)chr->chrnum) : NULL;
@@ -700,6 +716,86 @@ int portLuaGameBondWarp(int player, int pad, float dx, float dz)
     set_cur_player(player);
     portTeleportBondToPad(g_playerPointers[player]->prop, pad, dx, dz);
     set_cur_player(saved);
+    return 1;
+}
+
+/* bench.look(player, yaw, pitch): the benchmark's camera sweep (degrees, set absolutely every tick) */
+int portLuaGameBondLook(int player, float yaw, float pitch)
+{
+    if (!portModeActive() || player < 0 || player >= (int)portBondCount() || !portBondInPlay(player))
+    {
+        return 0;
+    }
+    g_playerPointers[player]->vv_theta = yaw;
+    g_playerPointers[player]->vv_verta = pitch;
+    return 1;
+}
+
+/* bench.sweep(rate, pitch): turn Bond's view at rate degrees a second (0 = hold) and ease the pitch to `pitch`, every game tick (smooth,
+ * unlike the 4 Hz Lua tick); bench.sweep_off() stops it */
+static s32 sSweepOn;
+static f32 sSweepRate, sSweepYaw, sSweepPitch, sSweepPitchNow;
+
+void portBenchSweep(int on, float rate, float pitch)
+{
+    if (on && !sSweepOn && portModeActive() && portBondCount() > 0 && g_playerPointers[0] != NULL)
+    {
+        sSweepYaw = g_playerPointers[0]->vv_theta;
+        sSweepPitchNow = g_playerPointers[0]->vv_verta;
+    }
+    sSweepOn = on;
+    sSweepRate = rate;
+    sSweepPitch = pitch;
+}
+
+void portBenchSweepTick(int clockTicks)
+{
+    f32 dt = (f32)clockTicks / 60.0f, step = 40.0f * dt;
+
+    if (!sSweepOn || !portModeActive() || portBondCount() == 0 || !portBondInPlay(0))
+    {
+        return;
+    }
+    sSweepYaw += sSweepRate * dt;
+    while (sSweepYaw >= 360.0f) sSweepYaw -= 360.0f;
+    while (sSweepYaw < 0.0f) sSweepYaw += 360.0f;
+    if (sSweepPitchNow < sSweepPitch - step) sSweepPitchNow += step;
+    else if (sSweepPitchNow > sSweepPitch + step) sSweepPitchNow -= step;
+    else sSweepPitchNow = sSweepPitch;
+    portLuaGameBondLook(0, sSweepYaw, sSweepPitchNow);
+}
+
+extern s32 portModelHitEntriesLen(void);   /* initunk_005450.c */
+
+/* bench.pools(): chr slots total / free, props total / free, hit entries total / free / peak used, stage mempool bytes left, display list peak / cap, vertex pool peak / cap
+ * (bytes, since bench.begin), converted-model heap used */
+int portLuaGameBenchPools(int *out)
+{
+    extern void portModelHitStats(s32 *used, s32 *peak, s32 reset);   /* objecthandler.c */
+    extern void portDynPeaks(s32 *gfx, s32 *gfxCap, s32 *vtx, s32 *vtxCap, s32 reset);
+    extern unsigned int portSimHeapUsed(void);
+    s32 nf = 0, total = portModelHitEntriesLen(), hitUsed, hitPeak;
+    PropRecord *p;
+
+    if (!portModeActive())
+    {
+        return 0;
+    }
+    for (p = g_FreeProps; p != NULL && nf < MAX_PROPS + 8; p = p->prev)
+    {
+        nf++;
+    }
+    portModelHitStats(&hitUsed, &hitPeak, 0);
+    out[0] = g_NumChrSlots;
+    out[1] = chrGetNumFree();
+    out[2] = MAX_PROPS;
+    out[3] = nf;
+    out[4] = total;
+    out[5] = total - hitUsed;
+    out[6] = hitPeak;
+    out[7] = mempGetBankSizeLeft(MEMPOOL_STAGE);
+    portDynPeaks(&out[8], &out[9], &out[10], &out[11], 0);
+    out[12] = (s32)portSimHeapUsed();
     return 1;
 }
 

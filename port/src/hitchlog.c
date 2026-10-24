@@ -133,6 +133,11 @@ void portHitchFrame(unsigned long long interval_us, unsigned long long run_us,
     const unsigned long long slept = sleep - s_LastSleep;
     const unsigned long long judged = (portTickHwPace() && interval_us > slept) ? interval_us - slept : interval_us;
 
+    if (s_Primed)
+    {
+        extern void portBenchFrame(unsigned long long, unsigned long long, unsigned long long, unsigned long long, unsigned int, unsigned long long);   /* port_bench.c */
+        portBenchFrame(interval_us, run_us, swap_us, lim_us, draws, simmax);
+    }
     if (threshold > 0 && judged >= (unsigned long long) threshold && s_Primed)
     {
         if (s_Lines < 10)

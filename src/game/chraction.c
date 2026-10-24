@@ -5602,6 +5602,16 @@ void chrlvTickSurrender(ChrRecord *self)
 */
 void chrlvTickDead(ChrRecord *self)
 {
+#ifndef TARGET_N64
+    {   /* PORT: arena: keep the bodies (corpse_keep), the mode removes them */
+        extern s32 portArenaKeepBody(const ChrRecord *chr);
+
+        if (portArenaKeepBody(self))
+        {
+            return;
+        }
+    }
+#endif
     if (self->act_init.padding[0] >= 0)
     {
         self->act_init.padding[0] += g_ClockTimer;

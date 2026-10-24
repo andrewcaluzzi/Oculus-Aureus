@@ -2799,7 +2799,7 @@ s32 sub_GAME_7F03DB70(s32* roomids1, s32* roomids2)
 }
 
 
-#define MAXBLOCKS 256
+#define MAXBLOCKS BSS_8007161C_LEN
 #define ROOMLISTMAX 256
 /*
 * Address: 0x7F03DBCC

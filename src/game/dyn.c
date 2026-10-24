@@ -71,6 +71,15 @@ void dynInitMemory(void) {
     g_VtxSizesByPlayerCount[portAllPlayerCount() - 1] *= 2;
 #endif
 
+#ifndef TARGET_N64
+    {   /* PORT: a Colosseum with GE_COLOSSEUM_SLOTS beyond the default draws a thousand chrs a frame: more master list and vertex room per extra slot */
+        extern s32 portColosseumBigSlots(void);
+        s32 big = portColosseumBigSlots();
+
+        g_GfxSizesByPlayerCount[portAllPlayerCount() - 1] += big * 1536;
+        g_VtxSizesByPlayerCount[portAllPlayerCount() - 1] += big * 1536;
+    }
+#endif
     g_GfxBuffers[0] = mempAllocBytesInBank(g_GfxSizesByPlayerCount[portAllPlayerCount() - 1] * 2, MEMPOOL_STAGE);
     g_GfxBuffers[1] = (g_GfxBuffers[0] + g_GfxSizesByPlayerCount[portAllPlayerCount() - 1]);
     g_GfxBuffers[2] = (g_GfxBuffers[1] + g_GfxSizesByPlayerCount[portAllPlayerCount() - 1]);
@@ -192,6 +201,20 @@ void dynCalculateMembarLength(const char* arg0, f32 arg1, f32 arg2)
 }
 
 #ifndef TARGET_N64
+static s32 g_PortDynGfxPeak, g_PortDynVtxPeak;
+
+/* master display list and vertex pool: the peak use since the last reset and the capacity of one buffer */
+void portDynPeaks(s32 *gfx, s32 *gfxCap, s32 *vtx, s32 *vtxCap, s32 reset)
+{
+    *gfx = g_PortDynGfxPeak;
+    *vtx = g_PortDynVtxPeak;
+    *gfxCap = g_GfxSizesByPlayerCount[portAllPlayerCount() - 1];
+    *vtxCap = g_VtxSizesByPlayerCount[portAllPlayerCount() - 1];
+    if (reset) {
+        g_PortDynGfxPeak = g_PortDynVtxPeak = 0;
+    }
+}
+
 /* GE_ROOM_AUDIT: frame-end check of gfx/vtx pool usage, called from boss.c
  * with the master display list's end pointer BEFORE dynSwapBuffers. Both pools
  * are unchecked bump allocators that grow with the visible-room set, so an
@@ -203,6 +226,16 @@ void portDynAuditFrameEnd(Gfx *gdlEnd)
     static u32 frames;
     s32 cap, used, vcap, vused;
 
+    if (g_GfxBuffers[0] != NULL) {   /* the arena benchmark's per-phase peaks (portDynPeaks) */
+        used  = (u8 *)gdlEnd - g_GfxBuffers[g_GfxActiveBufferIndex];
+        vused = g_GfxMemPos - g_VtxBuffers[g_GfxActiveBufferIndex];
+        if (used > g_PortDynGfxPeak) {
+            g_PortDynGfxPeak = used;
+        }
+        if (vused > g_PortDynVtxPeak) {
+            g_PortDynVtxPeak = vused;
+        }
+    }
     if (!portRoomAuditEnabled() || g_GfxBuffers[0] == NULL) {
         return;
     }

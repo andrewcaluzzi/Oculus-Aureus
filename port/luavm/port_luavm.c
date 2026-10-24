@@ -593,6 +593,9 @@ void portLuaTestKey(const char *name)
 void portLuaTick(int clockTicks)
 {
     int i;
+    extern void portBenchSweepTick(int clockTicks);   /* port_arenamode.c: the benchmark's camera sweep */
+
+    portBenchSweepTick(clockTicks);
 
     if (sL != NULL && sTestKeyN > 0)
     {

@@ -542,7 +542,9 @@ if(GE_VIDEO)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/tools/mode_arena.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/arena.lua
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            ${CMAKE_SOURCE_DIR}/tools/mode_arena_endless.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/arena-endless.lua)
+            ${CMAKE_SOURCE_DIR}/tools/mode_arena_endless.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/arena-endless.lua
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/tools/mode_arena_bench.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/arena-bench.lua)
     if(WIN32)
         # the arena launchers (set GE_MODE / GE_STAGE, then start the exe), next to the exe
         add_custom_command(TARGET ge POST_BUILD
@@ -550,6 +552,7 @@ if(GE_VIDEO)
                 "${CMAKE_SOURCE_DIR}/launchers/Play Arena.bat"
                 "${CMAKE_SOURCE_DIR}/launchers/Play Arena (Endless).bat"
                 "${CMAKE_SOURCE_DIR}/launchers/Play Arena (Test Keys).bat"
+                "${CMAKE_SOURCE_DIR}/launchers/Arena Benchmark.bat"
                 "$<TARGET_FILE_DIR:ge>"
             VERBATIM)
     endif()

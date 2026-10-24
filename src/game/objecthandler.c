@@ -12,7 +12,7 @@
  * its real size here and the stand-ins are N64-only. */
 /* PORT: 600 entries is the N64 pool; the arena's crowd (100+ on-screen chrs, ~20 entries each) exhausted it, and a chr
  * that gets no entries is drawn as NOTHING (invisible) and crashes chrTestHit. Keep in step with initunk_005450.c. */
-char g_ModelHitEntries[8000 * 0x14];
+char g_ModelHitEntries[32000 * 0x14];
 #else
 char g_ModelHitEntries[0xC];
 //CODE.bss:80076A5C
@@ -276,6 +276,25 @@ s32 D_8003641C =  0;
 /*
 */
 
+#ifndef TARGET_N64
+/* PORT: entries in use now and the peak since the last reset (the arena benchmark's pool report) */
+static s32 sHitUsed, sHitPeak;
+
+void portModelHitReset(void)   /* initModelHitEntryFreeList: the pool is whole again */
+{
+    sHitUsed = sHitPeak = 0;
+}
+
+void portModelHitStats(s32 *used, s32 *peak, s32 reset)
+{
+    *used = sHitUsed;
+    *peak = sHitPeak;
+    if (reset) {
+        sHitPeak = sHitUsed;
+    }
+}
+#endif
+
 ModelHitEntry* sub_GAME_7F06B120(ModelHitEntry* head, Model* context) {
     ModelHitEntry* freeListCursor;
     ModelNode* sceneCursor;
@@ -302,6 +321,11 @@ ModelHitEntry* sub_GAME_7F06B120(ModelHitEntry* head, Model* context) {
             freeListCursor->model = context;
             freeListCursor->rootnode = sceneCursor;
             freeListCursor = freeListCursor->next;
+#ifndef TARGET_N64
+            if (++sHitUsed > sHitPeak) {
+                sHitPeak = sHitUsed;
+            }
+#endif
             break;
 
         default:
@@ -368,6 +392,11 @@ void sub_GAME_7F06B248(ModelHitEntry *entry)
     ModelHitEntry *tail;
     
     if (entry != NULL) {
+#ifndef TARGET_N64
+        for (tail = entry; tail != NULL; tail = tail->next) {
+            sHitUsed--;
+        }
+#endif
         oldhead = g_ModelHitFreeList;
         if (oldhead != NULL) {
             tail = entry;

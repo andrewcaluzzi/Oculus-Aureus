@@ -16,6 +16,8 @@
  *   test helpers: bond.walk(player, x, z) -> distance (real stick input toward x, z, every tick), bond.walk_stop()
  * behaviour: "chase" (default), "rush", "hold", "snipe", "standard". health is a multiplier (1 = stock). */
 #include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include "lua.h"
 #include "lauxlib.h"
 #include "../include/port_lua.h"
@@ -134,6 +136,15 @@ static int arenaSpawnKill(lua_State *L)
     needStage(L, "spawn.kill");
     lua_pushboolean(L, portLuaGameChrKill((int) luaL_checkinteger(L, 1)));
     return 1;
+}
+
+/* spawn.keep_bodies(on): dead arena enemies stay (no stock fade-out and removal) until spawn.remove */
+static int arenaSpawnKeepBodies(lua_State *L)
+{
+    extern void portLuaGameKeepBodies(int on);
+
+    portLuaGameKeepBodies(lua_toboolean(L, 1));
+    return 0;
 }
 
 /* spawn.pools() -> loose, held, free weapon slots, free props: the 30-slot weapon pool and the 600-prop pool */
@@ -411,6 +422,74 @@ static int arenaBondVitals(lua_State *L)
     return 2;
 }
 
+/* ---- bench: the arena benchmark (port_bench.c, tools/mode_arena_bench.lua) ----
+ *   bench.run_start()  fresh Data/Logs/arena_bench.txt with the machine lines     bench.note(text)  one report line
+ *   bench.begin()      start sampling frames     bench.tag(n)  0 = floor view, 1 = stands view for the frames from now on
+ *   bench.finish(label, extra)  stop, write the phase block (frame stats, pools)     bench.pools() -> 13 numbers (chr total/free, props total/free,
+ *   hit entries total/free/peak used, stage mempool bytes left)     bench.look(player, yaw, pitch)  degrees
+ *   bench.sweep(deg_per_sec, pitch)  turn Bond's view every game tick, pitch eased in   bench.sweep_off()     bench.exit()  quit the game */
+extern void portBenchRunStart(void);
+extern void portBenchLine(const char *fmt, ...);
+extern void portBenchBegin(void);
+extern void portBenchTag(int tag);
+extern void portBenchEnd(const char *label, const char *extra, const int *pools);
+extern int portLuaGameBenchPools(int *out);
+extern void portBenchSweep(int on, float rate, float pitch);
+extern int portLuaGameBondLook(int player, float yaw, float pitch);
+
+static int benchRunStart(lua_State *L) { (void) L; portBenchRunStart(); return 0; }
+static int benchNote(lua_State *L) { portBenchLine("%s", luaL_checkstring(L, 1)); return 0; }
+static int benchBegin(lua_State *L) { (void) L; portBenchBegin(); return 0; }
+static int benchTag(lua_State *L) { portBenchTag((int) luaL_checkinteger(L, 1)); return 0; }
+
+static int benchPools(lua_State *L)
+{
+    int p[13], i;
+
+    needStage(L, "bench.pools");
+    if (!portLuaGameBenchPools(p)) return 0;
+    for (i = 0; i < 13; i++) lua_pushinteger(L, p[i]);
+    return 13;
+}
+
+static int benchFinish(lua_State *L)
+{
+    int p[13];
+    int ok;
+
+    needStage(L, "bench.finish");
+    ok = portLuaGameBenchPools(p);
+    portBenchEnd(luaL_checkstring(L, 1), luaL_optstring(L, 2, ""), ok ? p : NULL);
+    return 0;
+}
+
+static int benchLook(lua_State *L)
+{
+    needStage(L, "bench.look");
+    lua_pushboolean(L, portLuaGameBondLook((int) luaL_checkinteger(L, 1), (float) luaL_checknumber(L, 2), (float) luaL_checknumber(L, 3)));
+    return 1;
+}
+
+static int benchSweep(lua_State *L)
+{
+    needStage(L, "bench.sweep");
+    portBenchSweep(1, (float) luaL_checknumber(L, 1), (float) luaL_checknumber(L, 2));
+    return 0;
+}
+
+static int benchSweepOff(lua_State *L) { (void) L; portBenchSweep(0, 0.0f, 0.0f); return 0; }
+
+static int benchExit(lua_State *L)
+{
+    extern void portConLogf(const char *fmt, ...);
+
+    (void) L;
+    portConLogf("ge: bench: done, quitting\n");
+    fflush(stdout);
+    exit(0);
+    return 0;
+}
+
 static void addTo(lua_State *L, const char *lib, const luaL_Reg *reg)
 {
     lua_getglobal(L, lib);
@@ -423,12 +502,18 @@ void portLuaArenaRegister(lua_State *L)
     static const luaL_Reg spawnAdd[] = { { "chr", arenaSpawnChr }, { "remove", arenaSpawnRemove },
         { "alive", arenaSpawnAlive }, { "free", arenaSpawnFree }, { "where", arenaSpawnWhere }, { "skins", arenaSpawnSkins }, { "anim", arenaSpawnAnim },
         { "weapons", arenaSpawnWeapons }, { "bodies", arenaSpawnBodies }, { "kill", arenaSpawnKill }, { "pools", arenaSpawnPools },
-        { "trim_drops", arenaSpawnTrimDrops }, { "item", arenaSpawnItem }, { "item_alive", arenaSpawnItemAlive },
+        { "trim_drops", arenaSpawnTrimDrops }, { "keep_bodies", arenaSpawnKeepBodies }, { "item", arenaSpawnItem }, { "item_alive", arenaSpawnItemAlive },
         { "item_remove", arenaSpawnItemRemove }, { "item_pos", arenaSpawnItemPos }, { NULL, NULL } };
     static const luaL_Reg bondAdd[] = { { "give", arenaBondGive }, { "heal", arenaBondHeal },
         { "vitals", arenaBondVitals }, { "warp", arenaBondWarp }, { "give_ammo", arenaBondGiveAmmo }, { "take_drop", arenaBondTakeDrop },
         { "ammo", arenaBondAmmo }, { "walk", arenaBondWalk }, { "walk_stop", arenaBondWalkStop }, { NULL, NULL } };
 
+    static const luaL_Reg benchLib[] = { { "run_start", benchRunStart }, { "note", benchNote }, { "begin", benchBegin },
+        { "tag", benchTag }, { "pools", benchPools }, { "finish", benchFinish }, { "look", benchLook }, { "sweep", benchSweep }, { "sweep_off", benchSweepOff }, { "exit", benchExit },
+        { NULL, NULL } };
+
+    luaL_newlib(L, benchLib);
+    lua_setglobal(L, "bench");
     addTo(L, "spawn", spawnAdd);
     addTo(L, "bond", bondAdd);
 }

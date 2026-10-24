@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
+#include <string.h>
 #include <stdint.h>
 
 #if defined(__i386__) || defined(__x86_64__)
@@ -108,14 +109,37 @@ const char *portPlatformName(void)
 #endif
 }
 
-void sysLogSystemInfo(void)
+/* port_bench.c: the benchmark report repeats these lines (not the env ones) */
+extern char g_PortSysSummary[2048];
+
+static void sysLine(const char *fmt, ...)
 {
     extern void portConLogf(const char *fmt, ...);
+    char line[300];
+    size_t n = strlen(g_PortSysSummary), l;
+    va_list ap;
+
+    va_start(ap, fmt);
+    vsnprintf(line, sizeof(line), fmt, ap);
+    va_end(ap);
+    portConLogf("%s", line);
+    l = strlen(line);
+    if (l > 0 && line[l - 1] == '\n') { line[--l] = '\0'; }
+    if (strncmp(line, "ge: sys: env ", 13) != 0 && n + l + 2 < 2048)
+    {
+        memcpy(g_PortSysSummary + n, line, l);
+        g_PortSysSummary[n + l] = '\n';
+        g_PortSysSummary[n + l + 1] = '\0';
+    }
+}
+
+void sysLogSystemInfo(void)
+{
 
     /* the stamp names the BUILD; the commit hash is what identifies it (the
      * count is per branch), and the compile time is only as fresh as this
      * file's last recompile */
-    portConLogf("ge: sys: build %s commit %s branch %s (sysstubs.c compiled %s %s)\n", PORT_BUILD_STRING, PORT_BUILD_COMMIT,
+    sysLine("ge: sys: build %s commit %s branch %s (sysstubs.c compiled %s %s)\n", PORT_BUILD_STRING, PORT_BUILD_COMMIT,
                 (PORT_BUILD_BRANCH[0] != '\0') ? PORT_BUILD_BRANCH : "-", __DATE__, __TIME__);
 #if defined(__i386__) || defined(__x86_64__)
     {
@@ -133,7 +157,7 @@ void sysLogSystemInfo(void)
         for (i = 0; i < 48; i++) { brand[i] = (char) (r[i / 4] >> ((i % 4) * 8)); }
         brand[48] = '\0';
         for (i = 47; i >= 0 && (brand[i] == ' ' || brand[i] == '\0'); i--) { brand[i] = '\0'; } /* space padded */
-        portConLogf("ge: sys: cpu '%s'%s\n", brand, __builtin_cpu_supports("avx2") ? " avx2" : "");
+        sysLine("ge: sys: cpu '%s'%s\n", brand, __builtin_cpu_supports("avx2") ? " avx2" : "");
     }
 #endif
 #ifdef _WIN32
@@ -145,7 +169,7 @@ void sysLogSystemInfo(void)
         GetSystemInfo(&si);
         ms.dwLength = sizeof(ms);
         GlobalMemoryStatusEx(&ms);
-        portConLogf("ge: sys: %u logical cores, RAM %u MB (%u MB free, load %u%%)\n",
+        sysLine("ge: sys: %u logical cores, RAM %u MB (%u MB free, load %u%%)\n",
                 (unsigned) si.dwNumberOfProcessors, (unsigned) (ms.ullTotalPhys >> 20),
                 (unsigned) (ms.ullAvailPhys >> 20), (unsigned) ms.dwMemoryLoad);
         if (ntdll != NULL)
@@ -161,13 +185,13 @@ void sysLogSystemInfo(void)
             vi.dwOSVersionInfoSize = sizeof(vi);
             if (getver != NULL && getver(&vi) == 0)
             {
-                portConLogf("ge: sys: Windows %u.%u build %u%s\n", (unsigned) vi.dwMajorVersion, (unsigned) vi.dwMinorVersion,
+                sysLine("ge: sys: Windows %u.%u build %u%s\n", (unsigned) vi.dwMajorVersion, (unsigned) vi.dwMinorVersion,
                         (unsigned) vi.dwBuildNumber, GetProcAddress(ntdll, "wine_get_version") != NULL ? " (Wine/Proton)" : "");
             }
             if (gettimer != NULL && gettimer(&tmin, &tmax, &tcur) == 0)
             {
                 /* 100ns units; ~1.0ms wanted, 15.6ms = every Sleep() in the pacers overshoots */
-                portConLogf("ge: sys: timer resolution %u.%02ums (best %u.%02ums)\n",
+                sysLine("ge: sys: timer resolution %u.%02ums (best %u.%02ums)\n",
                         (unsigned) (tcur / 10000), (unsigned) ((tcur % 10000) / 100),
                         (unsigned) (tmax / 10000), (unsigned) ((tmax % 10000) / 100));
             }
@@ -177,7 +201,7 @@ void sysLogSystemInfo(void)
         char **e;
         for (e = _environ; e != NULL && *e != NULL; e++)
         {
-            if ((*e)[0] == 'G' && (*e)[1] == 'E' && (*e)[2] == '_') { portConLogf("ge: sys: env %s\n", *e); }
+            if ((*e)[0] == 'G' && (*e)[1] == 'E' && (*e)[2] == '_') { sysLine("ge: sys: env %s\n", *e); }
         }
     }
 #endif

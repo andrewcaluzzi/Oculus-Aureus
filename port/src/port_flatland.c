@@ -9,6 +9,7 @@
 #include <ultra64.h>
 #include <bondtypes.h>
 #include <bondconstants.h>
+#include <stdlib.h>
 
 extern s32 bossGetStageNum(void);
 
@@ -32,9 +33,18 @@ s32 portFlatlandExtraSlots(void)
 {
     if (portColosseumStage())
     {
-        return COLOSSEUM_EXTRA_SLOTS;
+        /* GE_COLOSSEUM_SLOTS raises it (benchmark: ~1400) */
+        const char *e = getenv("GE_COLOSSEUM_SLOTS");
+        s32 n = e ? atoi(e) : 0;
+        return (n >= COLOSSEUM_EXTRA_SLOTS && n <= 4000) ? n : COLOSSEUM_EXTRA_SLOTS;
     }
     return portFlatlandStage() ? FLATLAND_EXTRA_SLOTS : 0;
+}
+
+/* slots beyond the default (0 unless the Colosseum runs with GE_COLOSSEUM_SLOTS): dyn.c grows the per-frame display list and vertex pools by it */
+s32 portColosseumBigSlots(void)
+{
+    return portColosseumStage() ? portFlatlandExtraSlots() - COLOSSEUM_EXTRA_SLOTS : 0;
 }
 
 #endif

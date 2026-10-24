@@ -29,7 +29,10 @@
 --                 uncollected, each gone after ammo_ttl (90). It is not a gun: it does not rotate through weapons.
 --   armour_center / armour_chance / armour_amount / armour_ttl   (A6) a body armour pickup in the centre after every boss wave and, with
 --                 armour_chance (0.25), after other waves; replaces the old armour gift
---   crowd         spectators in the stands (0 = none)
+--   crowd         spectators in the stands (0 = none); they appear crowd_rate a second (200: the mode ticks 4 times a second, so 50 a tick),
+--                 so a big crowd does not hitch the start. The stage needs the chr slots: GE_COLOSSEUM_SLOTS=<n> (default 240) on a PC that can take 1000+
+--   corpse_keep   seconds before a dead enemy is removed (4: the stock fade-out); -1 = keep every body, above 4 the bodies stay whole until then
+--   corpse_limit  when more than this many corpses are kept, the oldest go (400)
 --   first_wave    test hook: start at this wave;  debug_track / debug_clear_after: test hooks
 --   test_keys     true = the wave-jump hotkeys work (or set GE_ARENA_TESTKEYS=1): PageDown/PageUp = next/back wave and clear the
 --                 live enemies, with Shift = start it on top of them (never in co-op or netplay)
@@ -49,6 +52,9 @@ local S = {
   acc_growth  = 2.5,
   supplies    = true,
   crowd       = 100,
+  crowd_rate  = 200,
+  corpse_keep  = 4,
+  corpse_limit = 400,
   test_keys   = false,
 
   -- pickups
@@ -180,6 +186,11 @@ local FIDGETS = { "yawn", "flies", "scratch_leg", "scratch_butt", "adjust", "sne
 local crowd = {}                      -- spectators: { chr=, next=, react=, react_at= }
 local crowd_pads, crowd_i = {}, 1     -- seat pads still to be filled
 local crowd_logged = false
+local crowd_acc, crowd_fail, crowd_retry = 0, 0, 0
+local seats_all, seats_used, seats_planned = {}, {}, {}   -- every stand seat pad; the ones given to the crowd; the ones in crowd_pads
+local pit_pads = {}                      -- pit floor pads (not gates, not the middle): benchmark corpses and fighters
+local corpse_n = 0                       -- kept corpses (this tick)
+local pit_foe_i, pit_order = 0, nil
 
 local gates = { {}, {}, {}, {} }      -- gate -> pad ids, mouth pad first (gate 1 = +x, 2 = +z, 3 = -x, 4 = -z)
 local gate_next = { 0, 0, 0, 0 }
@@ -261,11 +272,35 @@ local function crowd_spawn_some(max_n)
   while crowd_i <= #crowd_pads and n < max_n and spawn.free() > S.max_alive + 12 do
     -- a small fixed set of skins only: every extra skin is another model file loaded and kept in the stage pool
     local skin = pick(CROWD_SKINS)
-    local c = spawn.chr(crowd_pads[crowd_i], { skin = skin, weapon = "none", behaviour = "spectator" })
+    local pad = crowd_pads[crowd_i]
+    local c = spawn.chr(pad, { skin = skin, weapon = "none", behaviour = "spectator" })
+    seats_used[pad] = true
     crowd_i = crowd_i + 1
     n = n + 1
-    if c then crowd[#crowd + 1] = { chr = c, next = elapsed + 1 + math.random() * 10 } end
+    if c then crowd[#crowd + 1] = { chr = c, next = elapsed + 1 + math.random() * 10 }
+    else   -- a few seat pads have no floor under them: take another free seat instead
+      local alt
+      for _ = 1, 60 do
+        local p = seats_all[math.random(#seats_all)]
+        if not seats_used[p] and not seats_planned[p] then alt = p; break end
+      end
+      if alt then crowd_pads[#crowd_pads + 1] = alt; seats_planned[alt] = true; crowd_retry = crowd_retry + 1
+      else crowd_fail = crowd_fail + 1 end
+      print(string.format("ge: arena: crowd seat %d unusable, %s", pad, alt and ("using seat " .. alt) or "no spare seat"))
+    end
   end
+end
+
+-- (test/benchmark hook) grow the crowd to n spectators in all: more seats, evenly spread among the free ones
+local function crowd_set(n)
+  local free = {}
+  for _, p in ipairs(seats_all) do if not seats_used[p] then free[#free + 1] = p end end
+  local want = math.min(n - #crowd_pads, #free)
+  if want > 0 then
+    for _, p in ipairs(choose_seats(free, want)) do crowd_pads[#crowd_pads + 1] = p; seats_planned[p] = true end
+    crowd_logged = false
+  end
+  return #crowd_pads
 end
 
 -- some of the crowd react: `kinds` = list of { animation, share (0..1) }, each spectator rolls once
@@ -789,7 +824,7 @@ local function wave_cleared()
   print(string.format("ge: arena: wave %d cleared, kills %d, t=%s; economy: healed %.2f of a bar, centre items %d spawned / %d collected / %d expired",
     wave, kills, mmss(elapsed), healed_total, items_spawned, items_taken, items_expired))
   if pool_last then
-    print(string.format("ge: arena: pools wave %d: loose drops %d, held %d, free weapon slots %d (min %d of 30), free props %d (min %d of 600); peak loose %d",
+    print(string.format("ge: arena: pools wave %d: loose drops %d, held %d, free weapon slots %d (min %d of 30), free props %d (min %d); peak loose %d",
       wave, pool_last[1], pool_last[2], pool_last[3], min_slots, pool_last[4], min_props, peak_loose))
   end
   crowd_react({ { "dance", 0.3 }, { "laugh", 0.3 }, { "surrender", 0.15 } }, 1.5)   -- the crowd cheers
@@ -842,6 +877,37 @@ end
 on("test_key", test_key)
 function ARENA_TEST_KEY(name) test_key(name) end   -- test hook: a preset script presses the same keys on a timer
 
+-- Benchmark hooks (arena-bench.lua): crowd_set(n) grows the crowd to n; pit_foes(n, kill_after, beh) puts n soldiers on distinct pit pads spread
+-- over the floor (kill_after seconds: killed through the damage path, so a real corpse; nil = they stay and fight); counts() = crowd, corpses, alive
+ARENA_HOOKS = {
+  crowd_set = crowd_set,
+  say = say,
+  counts = function() return #crowd, corpse_n, alive_count(), crowd_fail, crowd_retry end,
+  pit_foes = function(n, kill_after, beh)
+    if not pit_order then   -- one shuffle: successive calls walk through different pads
+      pit_order = {}
+      for i, p in ipairs(pit_pads) do pit_order[i] = p end
+      for i = #pit_order, 2, -1 do local j = math.random(i); pit_order[i], pit_order[j] = pit_order[j], pit_order[i] end
+    end
+    local pads = pit_order
+    local placed = 0
+    for k = 1, n do
+      local pad = pads[(pit_foe_i + k - 1) % #pads + 1]
+      if spawn.free() <= 8 then break end
+      local spec = soldier(5, { beh = beh })
+      spec.face = { 0, 0 }
+      spec.sight = S.sight
+      local c = spawn.chr(pad, spec)
+      if c then
+        E[#E + 1] = { chr = c, born = elapsed, tier = spec._tier, kill_due = kill_after and (elapsed + kill_after) or nil }
+        placed = placed + 1
+      end
+    end
+    pit_foe_i = pit_foe_i + n
+    return placed
+  end,
+}
+
 -- ----------------------------------------------------------- events/tick ---
 
 on("stage_start", function(stage)
@@ -854,6 +920,7 @@ on("stage_start", function(stage)
       elseif x then
         local dc = math.sqrt(x * x + z * z)
         if dc <= S.centre_radius then centre_pads[#centre_pads + 1] = { id = i, d = dc } end
+        if dc > 900 and math.abs(x) <= 4500 and math.abs(z) <= 4500 then pit_pads[#pit_pads + 1] = i end
         local g, depth
         if x > 4500 then g, depth = 1, x elseif z > 4500 then g, depth = 2, z
         elseif x < -4500 then g, depth = 3, -x elseif z < -4500 then g, depth = 4, -z end
@@ -875,7 +942,11 @@ on("stage_start", function(stage)
       ended = true
       return
     end
+    seats_all = seats
+    -- the stock game fades a dead chr out and removes it after 1.5 s: to keep bodies longer than the default 4 s (or for good) it must not
+    spawn.keep_bodies(S.corpse_keep < 0 or S.corpse_keep > 4)
     crowd_pads = choose_seats(seats, S.crowd)
+    for _, p in ipairs(crowd_pads) do seats_planned[p] = true end
     print(string.format("ge: arena: crowd %d of %d seats", #crowd_pads, #seats))
     say(string.format("GET READY - WAVE 1 IN %d", S.start_delay), S.start_delay)
   end)
@@ -913,9 +984,25 @@ on("tick", function(dt)
   end
 
   -- safety net: an enemy that vanished without a death event counts as gone; corpses are removed after a while
+  local keep_s = S.corpse_keep
+  corpse_n = 0
   for _, e in ipairs(E) do
     if not e.dead_at and not spawn.alive(e.chr) then e.dead_at = elapsed; kills = kills + 1 end
-    if e.dead_at and not e.gone and elapsed - e.dead_at > 4 then e.gone = true; spawn.remove(e.chr) end
+    if e.kill_due and not e.dead_at and elapsed >= e.kill_due then e.kill_due = nil; spawn.kill(e.chr) end   -- benchmark corpses
+    if e.dead_at and not e.gone then
+      if keep_s >= 0 and elapsed - e.dead_at > keep_s then e.gone = true; spawn.remove(e.chr)
+      else corpse_n = corpse_n + 1 end
+    end
+  end
+  while S.corpse_limit and corpse_n > S.corpse_limit do   -- too many bodies kept: the oldest go
+    local old
+    for _, e in ipairs(E) do
+      if e.dead_at and not e.gone and (not old or e.dead_at < old.dead_at) then old = e end
+    end
+    if not old then break end
+    old.gone = true
+    spawn.remove(old.chr)
+    corpse_n = corpse_n - 1
   end
   if S.debug_kill then   -- test hook (drop stress): kill every enemy this many seconds after it spawned, so there are many real kills and drops
     for _, e in ipairs(E) do
@@ -931,6 +1018,11 @@ on("tick", function(dt)
   if drop_acc >= 1 then
     drop_acc = 0
     if S.max_drops and S.max_drops >= 0 then spawn.trim_drops(S.max_drops, S.drop_keep_radius) end
+    if #E > 60 then   -- drop old records now and then so the list stays short
+      local keep = {}
+      for _, e in ipairs(E) do if not e.gone then keep[#keep + 1] = e end end
+      E = keep
+    end
     local loose, held, fw, fp = spawn.pools()
     if loose then
       pool_last = { loose, held, fw, fp }
@@ -940,12 +1032,6 @@ on("tick", function(dt)
     end
   end
 
-  -- drop old records now and then so the list stays short
-  if #E > 60 then
-    local keep = {}
-    for _, e in ipairs(E) do if not e.gone then keep[#keep + 1] = e end end
-    E = keep
-  end
 
   -- centre pickups (A6): upkeep, and an ammo drop every ammo_every seconds once wave 1 has started
   if #IT > 0 then items_tick() end
@@ -957,7 +1043,12 @@ on("tick", function(dt)
     end
   end
 
-  crowd_spawn_some(1000)   -- the whole crowd on the first tick (during GET READY), not a trickle
+  crowd_acc = crowd_acc + dt * S.crowd_rate   -- the crowd comes in a few at a time (a big one all at once would hitch)
+  if crowd_acc >= 1 then
+    local n = math.floor(crowd_acc)
+    crowd_acc = crowd_acc - n
+    crowd_spawn_some(n)
+  end
   if not crowd_logged and crowd_i > #crowd_pads then
     crowd_logged = true
     print(string.format("ge: arena: crowd of %d placed at t=%.2f", #crowd, elapsed))

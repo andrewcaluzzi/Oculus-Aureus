@@ -5,7 +5,7 @@
 #ifdef TARGET_N64
 #define MODELHITENTRIES_LEN 600
 #else
-#define MODELHITENTRIES_LEN 8000   /* PORT: matches g_ModelHitEntries in objecthandler.c (the arena crowd needs thousands) */
+#define MODELHITENTRIES_LEN 32000  /* PORT: matches g_ModelHitEntries in objecthandler.c (the arena crowd needs thousands) */
 #endif
 
 extern struct ModelHitEntry *g_ModelHitFreeList; // canonically freedist
@@ -27,12 +27,25 @@ extern char g_ModelHitEntriesPenultimate[]; // dword_CODE_bss_80079908
  * Initializes a fixed pool of ModelHitEntry records used while building per-model hit/collision traversal lists.
  * The pool is threaded as a doubly linked free list and consumed by objecthandler.c.
  */
+#ifndef TARGET_N64
+s32 portModelHitEntriesLen(void)   /* the arena benchmark's pool report */
+{
+    return MODELHITENTRIES_LEN;
+}
+#endif
+
 void initModelHitEntryFreeList(void)
 {
     s32 i;
     ModelHitEntry *entries = (ModelHitEntry *)g_ModelHitEntries;
 
     g_ModelHitFreeList = entries;
+#ifndef TARGET_N64
+    {
+        extern void portModelHitReset(void);   /* objecthandler.c */
+        portModelHitReset();
+    }
+#endif
 
     entries[0].next = &entries[1];
 

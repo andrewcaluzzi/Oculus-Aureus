@@ -1415,6 +1415,8 @@ static bool gfx_opengl_supports_shaders(void) {
     return GLAD_GL_EXT_gpu_shader4;
 }
 
+extern "C" char g_PortGlRenderer[160];   /* port_bench.c: for the benchmark report */
+
 static void gfx_opengl_log_info(void) {
     const char *version = (const char *)glGetString(GL_VERSION);
     const char *vendor = (const char *)glGetString(GL_VENDOR);
@@ -1423,6 +1425,9 @@ static void gfx_opengl_log_info(void) {
     sysLogPrintf(LOG_NOTE, "GL: version: %s", version ? version : "unknown");
     sysLogPrintf(LOG_NOTE, "GL: vendor: %s", vendor ? vendor : "unknown");
     sysLogPrintf(LOG_NOTE, "GL: renderer: %s", renderer ? renderer : "unknown");
+    if (renderer) {
+        snprintf(g_PortGlRenderer, sizeof(g_PortGlRenderer), "%s (%s, GL %s)", renderer, vendor ? vendor : "?", version ? version : "?");
+    }
     /* no GPU driver at all: Windows' GL 1.1 fallback, or a CPU rasteriser */
     if (renderer && (strstr(renderer, "GDI Generic") || strstr(renderer, "llvmpipe") ||
                      strstr(renderer, "softpipe") || strstr(renderer, "Microsoft Basic Render"))) {
