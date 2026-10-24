@@ -31,8 +31,12 @@ typedef enum PortEventType
     PORT_EV_DAMAGE,         /* a = victim (chrnum / PORT_CHR_BOND), b = attacker (chrnum / BOND / NONE), c = amount in
                              * milli-units (damage actually applied * 1000), d = weapon id or -1 */
     PORT_EV_CHR_SPAWNED,    /* a = chrnum (port spawns only) */
-    PORT_EV_ITEM_PICKUP,    /* a = PROPDEF object type, b = id (weapon number / ammo type, else -1), c = quantity */
+    PORT_EV_ITEM_PICKUP,    /* a = PROPDEF object type, b = id (weapon number / ammo type / key flags, else -1), c = quantity, d = player index */
     PORT_EV_OBJECTIVE_CHANGED, /* a = objective index, b = new status (OBJECTIVESTATUS_*) */
+    PORT_EV_ALARM,          /* a = 1 alarm started, 0 alarm stopped (any cause: CCTV, a guard, alarm.start/stop, the siren timing out) */
+    PORT_EV_CCTV_SPOTTED,   /* a = camera setup index (the probe's idx), b = player index of the Bond it saw for a full alarm time */
+    PORT_EV_USE,            /* a = player, b = PROP_TYPE_* of the target, c = target setup index (-1 none), d = PROPDEF_* type of the target */
+    PORT_EV_GADGET_USED,    /* a = player, b = ITEM_* id of the gadget, c = target setup index (-1 none), d = PROPDEF_* type of the target */
     PORT_EV_COUNT
 } PortEventType;
 
@@ -44,6 +48,7 @@ void        portEventOff(int type, PortEventFn fn, void *ud);   /* removes one m
 void        portEventClearAll(void);                            /* drop every listener of every type */
 void        portEventEmit(int type, int a, int b, int c, int d);
 int         portEventAnyListeners(void);                        /* nonzero if any type has a listener */
+int         portEventListenerCount(int type);                   /* listeners of one type (0 for a bad type) */
 void        portEventEmitDamage(int victim, int attacker, float amount, int weapon);   /* no-op without listeners */
 void        portEventSetAttacker(int chrnum);                   /* the chr whose shot is being resolved; PORT_CHR_NONE clears */
 int         portEventAttacker(void);

@@ -2992,6 +2992,10 @@ int portCoopStateHash(PortNetHashMsg *m, char *dump, int cap)
         extern s32 alarm_timer;
 
         h = hashU(h, (unsigned) alarm_timer);
+        {
+            extern unsigned portHeistStateHash(void);   /* port_heist.c: per-player keys, CCTV overrides and switch-offs, the countdown */
+            h = hashU(h, portHeistStateHash());
+        }
         dumpf(dump, cap, &n, "[alarm] timer %d\n", (int) alarm_timer);
     }
     h = portCoopEscortHash(h);   /* which Bond each escort NPC follows (hysteresis state) */

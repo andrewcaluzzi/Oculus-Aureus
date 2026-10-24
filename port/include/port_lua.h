@@ -122,6 +122,32 @@ void        portProbeCctv(void);                         /* live state of each C
 int         portProbeDoorsUnlocked(void);                /* the UNLOCK DOORS cheat is on (every door opens for Bond) */
 int         portProbeAlarm(void);                    /* alarm siren ticks left (0 = off) */
 
+/* heist bindings (port_heist.c): door.*, spawn.key, bond.has_key, alarm.*, cctv.*, hud.countdown. Door and camera indices are the
+ * setup-record indices the probe logs. */
+typedef struct PortHeistDoor { int idx, room, state, live, autoclose, linked, cell, padlocked; unsigned keyflags; float x, y, z, open; } PortHeistDoor;
+typedef struct PortHeistCctv { int idx, room, timer, disabled, destroyed, live, lookpad, alarm_ticks; float x, y, z, face; } PortHeistCctv;
+int         portHeistDoorList(int *out, int max);
+int         portHeistDoorGet(int idx, PortHeistDoor *d);
+int         portHeistDoorMove(int idx, int open);                          /* -1 no such door, 0 nothing to do, 1 started */
+int         portHeistDoorKeyflags(int idx, int mode, unsigned flags);      /* mode 0 lock (|=), 1 unlock (&= ~), 2 set */
+int         portHeistTryDoor(int player, int idx);                         /* -1 no such door / Bond, 0 locked, 1 moved */
+int         portHeistTestGadget(int player, const char *name);             /* test hook for the gadget_used plumbing */
+int         portHeistPerPlayerKeys(void);
+void        portHeistSetPerPlayerKeys(int on);
+unsigned    portHeistBondKeys(int player);                                 /* key flags that Bond carries */
+int         portHeistSpawnKey(int where, int isChr, unsigned flags, int model);   /* handle 1.., 0 failed, -2 bad pad */
+int         portHeistKeyState(int handle, float *x, float *z, int *held);
+void        portHeistAlarm(int on);
+int         portHeistAlarmActive(void);
+int         portHeistCctvList(int *out, int max);
+int         portHeistCctvGet(int idx, PortHeistCctv *c);
+int         portHeistCctvEnable(int idx, int on);
+int         portHeistCctvSetAlarmTime(int idx, float seconds);             /* idx < 0 = all; seconds <= 0 = stock */
+void        portHeistCctvAlarmOnSpot(int on);
+int         portHeistCctvAlarmFrames(const void *rec, int stock);
+void        portHeistCountdown(float seconds);                             /* < 0 hides and stops */
+float       portHeistCountdownLeft(void);                                  /* seconds, -1 = not running */
+
 /* Mods menu items added by scripts (menu.add_toggle / menu.add_number), port_luavm.c.
  * Values are cached: Refresh calls the scripts' getters (never from a render path). */
 int         portLuaMenuCount(void);

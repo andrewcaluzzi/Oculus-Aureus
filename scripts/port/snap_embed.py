@@ -23,7 +23,7 @@ import argparse, os, re, struct, sys
 # port/src files that own simulation state. Everything the sim reads that is not derived from the pools or the game's own statics.
 SIM_PORT = {
     'inputrec.c', 'n64_random.c', 'port_arena.c', 'port_blocks.c', 'port_bot.c', 'port_botlogic.c', 'port_chrthrow.c',
-    'port_coop.c', 'port_coopdrop.c', 'port_cooplogic.c', 'port_event.c', 'port_faction.c', 'port_flatland.c', 'port_hostage.c',
+    'port_coop.c', 'port_coopdrop.c', 'port_cooplogic.c', 'port_event.c', 'port_faction.c', 'port_flatland.c', 'port_heist.c', 'port_hostage.c',
     'port_lua.c', 'port_mode.c', 'port_modifier.c', 'port_modparse.c', 'port_mpsettings.c', 'port_mpstats.c', 'port_options.c',
     'port_roomvis.c', 'port_spawn.c', 'port_wsets.c', 'ramrom_data.c', 'port_simheap.c', 'port_arenamode.c',
     # input latches the sim reads (held / edge / zoom state per pad); its live accumulators are excluded by portSnapLive()

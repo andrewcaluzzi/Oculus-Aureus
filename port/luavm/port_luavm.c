@@ -495,7 +495,11 @@ static const struct { const char *name; int type; int nargs; } sEvents[] = {
     { "hostage_wait", PORT_EV_HOSTAGE_WAIT, 2 },       /* hostage chr, player index of the Bond that told it to wait */
     { "damage", PORT_EV_DAMAGE, 4 },             /* victim, attacker, amount (float), weapon (-1 unknown) */
     { "chr_spawned", PORT_EV_CHR_SPAWNED, 1 },   /* chrnum (port spawns only) */
-    { "item_pickup", PORT_EV_ITEM_PICKUP, 3 },   /* objtype (PROPDEF_*), id (weapon / ammo type / -1), qty */
+    { "item_pickup", PORT_EV_ITEM_PICKUP, 4 },   /* objtype (PROPDEF_*), id (weapon / ammo type / key flags / -1), qty, player */
+    { "alarm", PORT_EV_ALARM, 1 },               /* 1 started, 0 stopped */
+    { "cctv_spotted", PORT_EV_CCTV_SPOTTED, 2 }, /* camera setup index, player */
+    { "use", PORT_EV_USE, 4 },                   /* player, PROP_TYPE_* of the target, target setup index (-1), PROPDEF_* type */
+    { "gadget_used", PORT_EV_GADGET_USED, 4 },   /* player, ITEM_* id, target setup index (-1), PROPDEF_* type */
     { "objective_changed", PORT_EV_OBJECTIVE_CHANGED, 2 },   /* index, status (0 incomplete, 1 complete, 2 failed) */
     { "tick", LUA_EV_TICK, 1 },                  /* seconds since the last tick event */
     { "test_key", LUA_EV_TESTKEY, 1 },           /* name of a test hotkey: "next" "back" "next+" "back+" (PageDown, PageUp, with Shift = +) */
@@ -661,7 +665,7 @@ static int portLuaOn(lua_State *L)
     if (k == LUA_EV_N)
     {
         return luaL_error(L, "unknown event '%s' (chr_died zone_enter zone_leave stage_start bond_died "
-                             "hostage_follow hostage_wait damage chr_spawned item_pickup objective_changed tick test_key)", name);
+                             "hostage_follow hostage_wait damage chr_spawned item_pickup objective_changed alarm cctv_spotted use gadget_used tick test_key)", name);
     }
     type = sEvents[k].type;
     lua_getfield(L, LUA_REGISTRYINDEX, LUA_HANDLERS_KEY);
@@ -1701,6 +1705,11 @@ static lua_State *portLuaState(void)
         extern void portLuaArenaRegister(lua_State *L);
 
         portLuaArenaRegister(sL);
+    }
+    {   /* heist bindings: door, alarm, cctv, spawn.key, bond.has_key, mode.per_player_keys, hud.countdown (port_luavm_heist.c) */
+        extern void portLuaHeistRegister(lua_State *L);
+
+        portLuaHeistRegister(sL);
     }
     lua_pushcfunction(sL, portLuaOn);
     lua_setglobal(sL, "on");

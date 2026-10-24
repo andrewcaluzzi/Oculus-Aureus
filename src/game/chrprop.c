@@ -1790,6 +1790,12 @@ bool bond_interact_object(void)
             }
         }
 #endif
+#ifndef TARGET_N64
+        { /* PORT: heist: the `use` event (player, target) before the interaction runs */
+            extern void portHeistNoteUse(PropRecord *prop);
+            portHeistNoteUse(prop);
+        }
+#endif
         switch (prop->type)
         {
             case PROP_TYPE_OBJ:

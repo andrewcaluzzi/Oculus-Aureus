@@ -4905,6 +4905,16 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
 
     if (handptr->weapon_action_state == GUN_ANIM_STATE_USE_ITEM)
     {
+#ifndef TARGET_N64
+        if (handptr->field_88C == 0 &&
+            (var_s1 == ITEM_BOMBDEFUSER || var_s1 == ITEM_DATATHIEF || var_s1 == ITEM_DOORDECODER || var_s1 == ITEM_EXPLOSIVEFLOPPY ||
+             var_s1 == ITEM_DATTAPE || var_s1 == ITEM_SAFECRACKERCASE || var_s1 == ITEM_LOCKEXPLODER || var_s1 == ITEM_DOOREXPLODER ||
+             var_s1 == ITEM_CREDITCARD || var_s1 == ITEM_GASKEYRING))
+        {   /* PORT: heist: the gadget_used event (player, gadget, target) */
+            extern void portHeistNoteGadget(int item);
+            portHeistNoteGadget((int) var_s1);
+        }
+#endif
         if (var_s1 == ITEM_KEYANALYSERCASE)
         {
             if (handptr->field_88C == 0)

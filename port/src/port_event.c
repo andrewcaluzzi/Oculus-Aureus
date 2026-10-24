@@ -63,6 +63,11 @@ void portEventEmit(int type, int a, int b, int c, int d)
     }
 }
 
+int portEventListenerCount(int type)
+{
+    return (type > PORT_EV_NONE && type < PORT_EV_COUNT) ? sN[type] : 0;
+}
+
 int portEventAnyListeners(void)
 {
     int i;
@@ -115,7 +120,7 @@ const char *portEventName(int type)
 {
     static const char *const names[PORT_EV_COUNT] = { "NONE", "CHR_DIED", "ZONE_ENTER", "ZONE_LEAVE", "STAGE_START", "BOND_DIED",
                                                        "HOSTAGE_FOLLOW", "HOSTAGE_WAIT", "DAMAGE", "CHR_SPAWNED",
-                                                       "ITEM_PICKUP", "OBJECTIVE_CHANGED" };
+                                                       "ITEM_PICKUP", "OBJECTIVE_CHANGED", "ALARM", "CCTV_SPOTTED", "USE", "GADGET_USED" };
 
     return (type > 0 && type < PORT_EV_COUNT) ? names[type] : "?";
 }

@@ -5657,11 +5657,27 @@ s32 objTick(struct PropRecord *prop)
 				if (stanTestLineUnobstructed(&sp4F0, prop->pos.f[0], prop->pos.f[2], playerProp->pos.f[0], playerProp->pos.f[2], 0x1B, 100.0f, 100.0f, 0.0f, 1.0f) != 0)
 				{
 					bottom_pad->timer += g_ClockTimer;
+#ifndef TARGET_N64
+					{   /* PORT: heist: settable sight time, and the cctv_spotted event (cctv.* in modding/lua.md) */
+						extern int portHeistCctvAlarmFrames(const void *rec, int stock);
+						extern int portHeistCctvSpotted(const void *rec);
+
+						if (bottom_pad->timer >= portHeistCctvAlarmFrames(bottom_pad, (s32) (CCTV_ALARM_FRAMES * F_80030B14)))
+						{
+							if (portHeistCctvSpotted(bottom_pad))
+							{
+								alarmActivate();
+							}
+							bottom_pad->timer = 0;
+						}
+					}
+#else
 					if (bottom_pad->timer >= ((s32) (CCTV_ALARM_FRAMES * F_80030B14)))
 					{
 						alarmActivate();
 						bottom_pad->timer = 0;
 					}
+#endif
 				}
 
 				bondviewUpdateGuardTankFlagsRelated(playerProp, 1);
@@ -11488,6 +11504,9 @@ TICKOP propPickupByPlayer(PropRecord *prop, bool showstring)
     {
         case PROPDEF_KEY:
         {
+#ifndef TARGET_N64
+            evId = (s32) ((struct KeyRecord *)obj)->keyflags;   /* PORT: event: the key's flags */
+#endif
             sndPlaySfx((struct ALBankAlt_s *)g_musicSfxBufferPtr, KEYCARD_SFX, 0);
 
             if (showstring)
@@ -11559,7 +11578,7 @@ TICKOP propPickupByPlayer(PropRecord *prop, bool showstring)
 #ifndef TARGET_N64
                 if (ammoquantity > 0) /* PORT: event: one ITEM_PICKUP per ammo type in the crate */
                 {
-                    portEventEmit(PORT_EV_ITEM_PICKUP, evType, ammotype, ammoquantity, 0);
+                    portEventEmit(PORT_EV_ITEM_PICKUP, evType, ammotype, ammoquantity, (s32) get_cur_playernum());
                 }
 #endif
             }
@@ -11783,7 +11802,7 @@ TICKOP propPickupByPlayer(PropRecord *prop, bool showstring)
 #ifndef TARGET_N64
     if (op != TICKOP_NONE && evType != PROPDEF_AMMO) /* PORT: event: ITEM_PICKUP (crates emitted per ammo type above) */
     {
-        portEventEmit(PORT_EV_ITEM_PICKUP, evType, evId, evQty, 0);
+        portEventEmit(PORT_EV_ITEM_PICKUP, evType, evId, evQty, (s32) get_cur_playernum());
     }
 #endif
     if ((op == TICKOP_FREE) && ((obj->runtime_bitflags & RUNTIMEBITFLAG_TAGGED) == 0))
@@ -15977,6 +15996,9 @@ void alarmActivate(void)
 {
     if (alarm_timer < 1) {
         alarm_timer = 1;
+#ifndef TARGET_N64
+        portEventEmit(PORT_EV_ALARM, 1, 0, 0, 0);   /* PORT: event: alarm started */
+#endif
     }
     return;
 }
@@ -15993,6 +16015,12 @@ void deactivate_alarm_sound_effect(void)
 
 void alarmDeactivate(void)
 {
+#ifndef TARGET_N64
+  if (alarm_timer > 0) {
+    alarm_timer = 0;
+    portEventEmit(PORT_EV_ALARM, 0, 0, 0, 0);   /* PORT: event: alarm stopped */
+  }
+#endif
   alarm_timer = 0;
   deactivate_alarm_sound_effect();
   return;

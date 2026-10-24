@@ -72,6 +72,10 @@ void portModeStageStart(int stage)
     }
     sActive = 0;
     sKeepLocks = 0;
+    {
+        extern void portHeistStageReset(void);   /* port_heist.c: per-player keys, CCTV overrides */
+        portHeistStageReset();
+    }
     sName[0] = '\0';
     /* Same predicate as the co-op bot: solo, no demo playing or recording. */
     if (stage == LEVELID_TITLE || gamemode == GAMEMODE_MULTI || getPlayerCount() != 1

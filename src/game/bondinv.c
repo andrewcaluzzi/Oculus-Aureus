@@ -770,8 +770,10 @@ bool bondinvCheckHasKeyFlags(u32 wantkeyflags)
     u32 held = 0;
 #ifndef TARGET_N64
     extern int portCoopActive(void);
+    extern int portHeistPerPlayerKeys(void);
 
-    if (portCoopActive())
+    /* a heist mode can make keys personal (mode.per_player_keys): then only the opening Bond's own keys count */
+    if (portCoopActive() && !portHeistPerPlayerKeys())
     {
         s32 i;
 
@@ -787,6 +789,17 @@ bool bondinvCheckHasKeyFlags(u32 wantkeyflags)
 #endif
     return bondinvKeyFlagsOf(g_CurrentPlayer, wantkeyflags, &held);
 }
+
+#ifndef TARGET_N64
+/* PORT: heist: every key flag one Bond carries (bond.keys / bond.has_key) */
+u32 bondinvPlayerKeyFlags(struct player *pl)
+{
+    u32 held = 0;
+
+    bondinvKeyFlagsOf(pl, 0xFFFFFFFFu, &held);
+    return held;
+}
+#endif
 
 static bool bondinvHasGEKeyOf(struct player *pl)
 {

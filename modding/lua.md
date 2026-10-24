@@ -72,11 +72,15 @@ Registers a handler (at most 16 per event; an unknown event name raises).
 | `hostage_follow`, `hostage_wait` | `(chr [, player])` |
 | `damage` | `(victim, attacker, amount, weapon)`: damage actually applied (float); weapon is an item id or -1 |
 | `chr_spawned` | `(chrnum)`: chrs spawned by the port (the bot, mode scripts) |
-| `item_pickup` | `(objtype, id, qty)`: `objtype` is the `PROPDEF_*` number (4 key, 7 single magazine, 8 weapon, 19 multi-ammo box, 20 armour) |
+| `item_pickup` | `(objtype, id, qty, player)`: `objtype` is the `PROPDEF_*` number (4 key, 7 single magazine, 8 weapon, 19 multi-ammo box, 20 armour); `id` is the weapon / ammo type, or the **key flags** for a key; `player` is the 0-based index of the Bond who picked it up |
+| `alarm` | `(on)`: 1 the alarm started, 0 it stopped (any cause: a camera, a guard, `alarm.start/stop`, the siren timing out) |
+| `cctv_spotted` | `(camera, player)`: a camera saw Bond `player` for its full alarm time (`camera` is the setup index, see `cctv.*`). The stock alarm also goes off unless `cctv.alarm_on_spot(false)` |
+| `use` | `(player, proptype, idx, objtype)`: Bond `player` pressed use on a door or object. `proptype` is `PROP_TYPE_*` (1 object, 2 door, 4 weapon), `idx` the target's setup index (-1 for a prop made at run time), `objtype` its `PROPDEF_*` number. Fires before the interaction runs, locked or not |
+| `gadget_used` | `(player, item, idx, objtype)`: Bond `player` used a gadget (`item` is the `ITEM_*` number: door decoder 38, bomb defuser, data thief, floppy, data tape, safe cracker case, lock/door exploder, credit card, gas keyring) once, on the first frame of its use animation; `idx`/`objtype` as in `use`, for what the use prompt points at (-1 if nothing) |
 | `objective_changed` | `(index, status)`: 0 incomplete, 1 complete, 2 failed |
 | `test_key` | `(name)`: a test hotkey, `"next"` (PageDown), `"back"` (PageUp), `"next+"`, `"back+"` (with Shift), or the console `arena <name>`. Never from the keyboard in co-op or netplay. |
 
-Chr ids are chrnums. Globals: `CHR_BOND = -2` (player 0; `bond.id(p)` gives the id of other Bonds) and `CHR_NONE = -1`. `damage`, `chr_spawned`, `item_pickup` and `objective_changed` also fire on an ordinary solo stage, not only in a mode.
+Chr ids are chrnums. Globals: `CHR_BOND = -2` (player 0; `bond.id(p)` gives the id of other Bonds) and `CHR_NONE = -1`. `damage`, `chr_spawned`, `item_pickup` and `objective_changed` also fire on an ordinary solo stage, not only in a mode. The heist events (`alarm`, `cctv_spotted`, `use`, `gadget_used`) fire wherever the game does the thing, but a script only runs in a mode.
 
 ## Reference
 
@@ -138,6 +142,33 @@ Chr ids are chrnums. Globals: `CHR_BOND = -2` (player 0; `bond.id(p)` gives the 
 | `hud.set(line, text [, player])`, `hud.clear([player])` | Lines 1..3, up to 63 characters. Use lines 1 and 2: line 3 is used by the hostage flash. |
 | `hostages.list()`, `hostages.state(chr)`, `hostages.set_state(chr, "follow"\|"wait" [, player])`, `hostages.extract(chr)` | Hostage control; extraction is the script's job (use a zone). |
 | `mission.win(msg)`, `mission.fail(msg)` | Ends the mission on the stock report screen. Returns true on the first call. No progress is saved. |
+
+### Heist bindings: doors, keys, alarm, CCTV, countdown
+
+Generic building blocks for a heist-style mode (designs/bank-heist.md). Door and camera numbers are the **setup-record indices** that `probe.level()` logs (`ge: probe: DOOR idx=75`, `CCTV idx=95`); designs/bank-heist-bunker2.md lists them for Bunker 2. All of it runs identically on both machines in co-op; where a Bond is involved the call takes his player index `p`. Under a mode the level reset opens every door for Bond: call `mode.keep_locks()` first (top level) if keys are to matter. Locking a door does not stop a one-way door (flags2 bits 0x08000000 / 0x10000000, e.g. the keyed pairs on Bunker 2) opening from its free side, as in the stock game.
+
+| Call | Notes |
+| --- | --- |
+| `door.list()` | Array of door setup indices. |
+| `door.get(i)` | `{idx, state, open, keyflags, x, y, z, room, live, autoclose, linked, cell, padlocked}` or nil. `state` is `"closed"`, `"opening"`, `"open"` (open, or waiting to auto-close) or `"closing"`; `open` is 0..1; `autoclose` in ticks; `linked` the sibling door of a pair (-1 none). |
+| `door.open(i)`, `door.close(i)` | Start the move whatever the lock says. `true` started, `false` already that way, nil no such door. |
+| `door.lock(i, flags)`, `door.unlock(i [, flags])`, `door.set_keyflags(i, flags)` | Set / clear (all, when `flags` is omitted) / replace the key bits a Bond must hold to open it. A door with `keyflags == 0` is unlocked. |
+| `door.try(p, i)` | Bond `p` uses door `i` as the use key would: the stock key check against **that Bond's** keys (plus the `use` event). `true` the door moved, `false` refused, nil no such door or Bond. Handy for scripted NPC use and tests. |
+| `spawn.key(chr, flags [, model])` | Gives a spawned chr a key (a stock key assigned to the chr, so it drops where he dies and is picked up like any guard's key). `model` defaults to 86 (the swipe card; the stock keys use 86, 243 and 244). Returns a handle, or nil (no such chr, or it has no model yet; call it right after `spawn.chr`). |
+| `spawn.key_at(pad, flags [, model])` | A floor key on a pad. |
+| `spawn.key_alive(h)` | `alive, held, x, z`: whether the key is still in the world, whether a chr carries it, and where it is. A key a Bond picked up is no longer alive. Up to 64 keys per stage. |
+| `bond.has_key(p, flags)`, `bond.keys(p)` | True when Bond `p` himself carries every bit of `flags`; the bitmask of all the key flags he carries. Never pooled, even in stock co-op. |
+| `mode.per_player_keys([on])` | Co-op: a key opens doors only for the Bond who picked it up. The stock game pools every Bond's keys (`bondinv.c`); this is off by default and reset at each stage start. Call it at script top level or in `stage_start`. |
+| `alarm.start()`, `alarm.stop()`, `alarm.active()` | The global alarm (siren and the guards' alert state, as a camera or a guard raising it). The `alarm` event fires on every change. |
+| `cctv.list()` | Array of camera setup indices. |
+| `cctv.get(i)` | `{idx, x, y, z, room, face, timer, alarm_time, disabled, destroyed, live, lookpad}`. `timer` is the seconds of unbroken sight so far; `alarm_time` the override in seconds (0 = stock: 10 s on Agent, 5 s above); `disabled` is true for a shot camera too, `destroyed` only for those. |
+| `cctv.disable(i)`, `cctv.enable(i)` | Switch a camera off / on (it stops seeing and sweeping). `enable` does not revive a shot camera (returns false). |
+| `cctv.set_alarm_time(seconds [, i])` | Sight time before a camera fires, for camera `i` or all cameras; 0 or nil restores the stock time. |
+| `cctv.alarm_on_spot(on)` | With `false` a camera that spots a Bond only fires `cctv_spotted` and the script decides what happens (default true: the alarm also goes off). |
+| `hud.countdown(seconds)` | Shows the stock mission countdown clock, set to `seconds` and running; `hud.countdown(nil)` hides and stops it. `hud.countdown_left()` gives the seconds left, or nil when it is not running. The clock keeps counting below 0 (shown as a positive number) if you do not stop it, so test `countdown_left()` yourself. |
+| `bond.test_gadget(p, name)` | Test hook: fires `gadget_used` for Bond `p` as if he used `doordecoder`, `bombdefuser`, `datathief`, `safecracker` or `lockexploder`. |
+
+Co-op notes. Stock cameras test only the Bond whose pass is running and keep one timer per camera, so two Bonds in view share the timer; the event names the Bond whose pass tipped it over. The state these calls set (key mode, camera overrides and switch-offs, the countdown) is folded into the co-op state hash. A test mode that exercises all of the above is `tests/heist/heist_bindings.lua`.
 
 ### Weapons, modifiers, music, menus
 
