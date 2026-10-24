@@ -74,6 +74,7 @@ Registers a handler (at most 16 per event; an unknown event name raises).
 | `chr_spawned` | `(chrnum)`: chrs spawned by the port (the bot, mode scripts) |
 | `item_pickup` | `(objtype, id, qty)`: `objtype` is the `PROPDEF_*` number (4 key, 7 single magazine, 8 weapon, 19 multi-ammo box, 20 armour) |
 | `objective_changed` | `(index, status)`: 0 incomplete, 1 complete, 2 failed |
+| `test_key` | `(name)`: a test hotkey, `"next"` (PageDown), `"back"` (PageUp), `"next+"`, `"back+"` (with Shift), or the console `arena <name>`. Never from the keyboard in co-op or netplay. |
 
 Chr ids are chrnums. Globals: `CHR_BOND = -2` (player 0; `bond.id(p)` gives the id of other Bonds) and `CHR_NONE = -1`. `damage`, `chr_spawned`, `item_pickup` and `objective_changed` also fire on an ordinary solo stage, not only in a mode.
 
@@ -84,6 +85,7 @@ Chr ids are chrnums. Globals: `CHR_BOND = -2` (player 0; `bond.id(p)` gives the 
 | Call | Notes |
 | --- | --- |
 | `mode.name()` | The `GE_MODE` string, `""` outside a mode. |
+| `mode.env_flag(name)` | True when the environment variable `name` (it must start with `GE_`) is set and not `0`. |
 | `include(name)` | Runs `Data/Scripts/modes/<name>.lua` from inside a mode script. `arena-endless.lua` sets `ARENA_SETTINGS` and then `include("arena")`. |
 | `pads.count()` | Number of pads (0 before the stage is set up). |
 | `pads.pos(i)` | `x, y, z`, or nil. |

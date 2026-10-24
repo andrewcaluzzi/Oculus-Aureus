@@ -1942,6 +1942,18 @@ static int inputFixedKeyDown(const SDL_KeyboardEvent *key)
         }
         return 1;
     }
+    if ((sc == SDL_SCANCODE_PAGEUP || sc == SDL_SCANCODE_PAGEDOWN) && !repeat)
+    {   /* Lua test hotkeys (modding/arena.md); they read this machine's keyboard, so never in co-op or netplay */
+        extern int portCoopActive(void);
+        extern int portNetActive(void);
+        extern void portLuaTestKey(const char *name);
+        const int plus = (key->keysym.mod & KMOD_SHIFT) != 0;
+
+        if (!portCoopActive() && !portNetActive())
+        {
+            portLuaTestKey(sc == SDL_SCANCODE_PAGEDOWN ? (plus ? "next+" : "next") : (plus ? "back+" : "back"));
+        }
+    }
     return 0;
 }
 

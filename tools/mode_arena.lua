@@ -31,6 +31,8 @@
 --                 armour_chance (0.25), after other waves; replaces the old armour gift
 --   crowd         spectators in the stands (0 = none)
 --   first_wave    test hook: start at this wave;  debug_track / debug_clear_after: test hooks
+--   test_keys     true = the wave-jump hotkeys work (or set GE_ARENA_TESTKEYS=1): PageDown/PageUp = next/back wave and clear the
+--                 live enemies, with Shift = start it on top of them (never in co-op or netplay)
 --
 -- Per-Bond safe: it only reads bond.count/pos(p)/dead(p) and hands pickups to every Bond; math.random is the session's.
 
@@ -47,6 +49,7 @@ local S = {
   acc_growth  = 2.5,
   supplies    = true,
   crowd       = 100,
+  test_keys   = false,
 
   -- pickups
   pickup_mode          = "boss+random",
@@ -534,19 +537,31 @@ local function roman(n)
   return out
 end
 
-local title_seen = {}   -- wave type -> times it has been played; the 2nd is "II", the 3rd "III", ...
-
-local function numbered(key, base)
-  local k = (title_seen[key] or 0) + 1
-  title_seen[key] = k
-  if k == 1 then return base end
-  return base .. " " .. roman(k)
-end
-
 local function kind_for(w)
   local kind = (w == 1) and "standard" or SEQ[(w - 1) % #SEQ + 1]
   if kind == "knife" and w >= S.turbo_knife_from then kind = "turbo_knife" end
   return kind
+end
+
+-- a wave's type key and base title
+local function key_for(w)
+  if is_boss(w) then
+    local t = BOSSES[(w // S.boss_every - 1) % #BOSSES + 1].title
+    return t, t
+  end
+  local kind = kind_for(w)
+  return kind, TITLES[kind]
+end
+
+-- the 2nd wave of a type is "II", the 3rd "III", ...; counted from the wave number so test jumps keep the numbering
+local function numbered(w)
+  local key, base = key_for(w)
+  local k = 0
+  for i = 1, w do
+    if (key_for(i)) == key then k = k + 1 end
+  end
+  if k == 1 then return base end
+  return base .. " " .. roman(k)
 end
 
 local function design(w)
@@ -558,14 +573,14 @@ local function design(w)
     local k = w // S.boss_every
     local b = BOSSES[(k - 1) % #BOSSES + 1]
     local m = 1 + S.boss_cycle_mult * ((k - 1) // #BOSSES)
-    title = numbered(b.title, b.title)
+    title = numbered(w)
     q = b.make(w, m)
     for i = 1, 2 + math.floor(w / 5) do
       q[#q + 1] = { n = i, spec = soldier(w, { elite = true }) }
     end
   else
     local kind = kind_for(w)
-    title = numbered(kind, TITLES[kind])
+    title = numbered(w)
     q = MK[kind](w)
   end
   return title, q
@@ -784,6 +799,48 @@ local function wave_cleared()
   say(string.format("WAVE %d CLEARED. %s", wave, sup), math.max(4, S.breather - 3))
   if sup == "" then say(string.format("WAVE %d CLEARED", wave), math.max(4, S.breather - 3)) end
 end
+
+-- Test jump (the test_key event): start wave `wave + dir` now. clear = remove the live enemies first (spawn.remove: no kills, drops or
+-- health) and drop the queued spawns; otherwise they stay and the old queue still spawns after the new wave's.
+local function test_jump(dir, clear)
+  if ended then return end
+  local from, target = wave, math.max(1, wave + dir)
+  local before, kills0, healed0 = alive_count(), kills, healed_total
+  local loose0 = spawn.pools()
+  if clear then
+    for _, e in ipairs(E) do
+      if not e.dead_at then spawn.remove(e.chr); e.dead_at, e.gone = elapsed, true end
+    end
+    queue, qi = {}, 1
+  end
+  local rest = {}
+  if not clear then for i = qi, #queue do rest[#rest + 1] = queue[i] end end
+  if S.mode == "fixed" and target > S.waves then
+    print(string.format("ge: arena: TEST %s past the last wave: win", clear and "next" or "next+"))
+    finish(true)
+    return
+  end
+  start_wave(target)
+  for _, e in ipairs(rest) do queue[#queue + 1] = e end
+  say(string.format("TEST: WAVE %d (%s)", target, clear and "CLEARED" or "STACKED"), 2)
+  local loose1 = spawn.pools()
+  print(string.format("ge: arena: TEST %s%s: wave %d -> %d '%s', alive %d -> %d, queued kept %d, kills %d -> %d, healed %.2f -> %.2f, loose drops %s -> %s",
+    dir > 0 and "next" or "back", clear and "" or "+", from, target, wave_title, before, alive_count(), #rest,
+    kills0, kills, healed0, healed_total, tostring(loose0), tostring(loose1)))
+end
+
+local TEST_KEYS = { next = { 1, true }, back = { -1, true }, ["next+"] = { 1, false }, ["back+"] = { -1, false } }
+
+local function test_key(name)
+  if not (S.test_keys or mode.env_flag("GE_ARENA_TESTKEYS")) then return end
+  local k = TEST_KEYS[name]
+  if not k or phase == "delay" and wave == 0 and k[1] < 0 then return end
+  local ok, err = pcall(test_jump, k[1], k[2])
+  if not ok then print("ge: arena: test jump error:", err) end
+end
+
+on("test_key", test_key)
+function ARENA_TEST_KEY(name) test_key(name) end   -- test hook: a preset script presses the same keys on a timer
 
 -- ----------------------------------------------------------- events/tick ---
 

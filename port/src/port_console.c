@@ -420,6 +420,7 @@ static void conCmdHelp(void)
     conPrintLn(0, "  net [info]            netplay: role, delay, ping, KB/s, loss/late, run, last hash tick, desync count");
     conPrintLn(0, "  net_graph 0|1|2|3     overlay: 1 numbers, 2 + graphs (ping, bytes, input wait, sim/render ms), 3 + sub-hash lights");
     conPrintLn(0, "  lua <code>            run Lua (weapon.set/get/reset, print); lua_reload re-runs Data/Scripts");
+    conPrintLn(0, "  arena next|next+|back|back+   arena test jumps (see modding/arena.md)");
     conPrintLn(0, "  spawn guard [n] [dist]|clear  arena: hostile guards in a ring around Bond (netplay: both sides, around the issuer)");
     conPrintLn(0, "  give <item> [p1|p2] [ammo]    give an item by game name (give list); netplay: both sides");
     conPrintLn(0, "  clear                 empty the scrollback");
@@ -775,7 +776,7 @@ static void conExecute(char *line)
         const int isCl = (cmd[0] == 'c' || cmd[0] == 'C') && (cmd[1] == 'l' || cmd[1] == 'L') && cmd[2] == '_';
         const char *clName = isCl ? cmd + 3 : (conStrEqI(cmd, "set") && arg1 != NULL ? arg1 : NULL);
         const int readOnlyArg = arg1 == NULL || conStrEqI(arg1, "list") || conStrEqI(arg1, "info") || conStrEqI(arg1, "stats");
-        int mutate = conStrEqI(cmd, "lua") || conStrEqI(cmd, "lua_reload")
+        int mutate = conStrEqI(cmd, "lua") || conStrEqI(cmd, "lua_reload") || conStrEqI(cmd, "arena")
                      || ((conStrEqI(cmd, "bot") || conStrEqI(cmd, "coop") || conStrEqI(cmd, "mod")) && !readOnlyArg);
 
         if (clName != NULL && (isCl ? arg1 != NULL : arg2 != NULL))   /* cl_<key> <value>, set <key> <value>: a write */
@@ -885,6 +886,19 @@ static void conExecute(char *line)
         extern void portLuaConsole(const char *arg1, const char *arg2);
 
         portLuaConsole(arg1, arg2);
+    }
+    else if (conStrEqI(cmd, "arena"))
+    {
+        extern void portLuaTestKey(const char *name);
+
+        if (arg1 != NULL && (conStrEqI(arg1, "next") || conStrEqI(arg1, "next+") || conStrEqI(arg1, "back") || conStrEqI(arg1, "back+")))
+        {
+            portLuaTestKey(arg1);
+        }
+        else
+        {
+            portConPrintf(0, "usage: arena next|next+|back|back+   (+ = stack on the live enemies; needs test_keys or GE_ARENA_TESTKEYS=1)\n");
+        }
     }
     else if (conStrEqI(cmd, "lua_reload"))
     {

@@ -480,6 +480,7 @@ static const luaL_Reg sWeaponLib[] = {
 /* ---- mode API (step 2) -------------------------------------------------- */
 
 #define LUA_EV_TICK       100         /* not on the C bus: driven by portLuaTick */
+#define LUA_EV_TESTKEY    101         /* likewise: queued by portLuaTestKey, delivered on the next game tick */
 #define LUA_TICK_PERIOD   15          /* clock ticks (60 = 1 s): the tick event fires every 0.25 s */
 #define LUA_MAX_HANDLERS  16          /* per event */
 #define LUA_HANDLERS_KEY  "midas_handlers"
@@ -497,12 +498,17 @@ static const struct { const char *name; int type; int nargs; } sEvents[] = {
     { "item_pickup", PORT_EV_ITEM_PICKUP, 3 },   /* objtype (PROPDEF_*), id (weapon / ammo type / -1), qty */
     { "objective_changed", PORT_EV_OBJECTIVE_CHANGED, 2 },   /* index, status (0 incomplete, 1 complete, 2 failed) */
     { "tick", LUA_EV_TICK, 1 },                  /* seconds since the last tick event */
+    { "test_key", LUA_EV_TESTKEY, 1 },           /* name of a test hotkey: "next" "back" "next+" "back+" (PageDown, PageUp, with Shift = +) */
 };
 #define LUA_EV_N ((int) (sizeof(sEvents) / sizeof(sEvents[0])))
 
 static unsigned char sHooked[PORT_EV_COUNT];
 static int sTickOn;
 static int sTickAccum;
+static int sTestKeyOn;
+static char sTestKeyQ[8][8];
+static int sTestKeyN;
+static const char *sTestKeyName;
 
 static void portLuaDispatch(int type, int a, int b, int c, int d, double dt)
 {
@@ -538,6 +544,10 @@ static void portLuaDispatch(int type, int a, int b, int c, int d, double dt)
         {
             lua_pushnumber(L, dt);
         }
+        else if (type == LUA_EV_TESTKEY)
+        {
+            lua_pushstring(L, sTestKeyName);
+        }
         else
         {
             if (nargs >= 1) lua_pushinteger(L, a);
@@ -570,8 +580,33 @@ int portLuaHasTick(void)
     return sTickOn && sL != NULL;
 }
 
+/* A test hotkey (input_pc.c) or the `arena` console command; it reaches Lua's test_key handlers on the next game tick. */
+void portLuaTestKey(const char *name)
+{
+    if (!sTestKeyOn || sL == NULL || name == NULL || sTestKeyN >= 8)
+    {
+        return;
+    }
+    snprintf(sTestKeyQ[sTestKeyN++], sizeof(sTestKeyQ[0]), "%s", name);
+}
+
 void portLuaTick(int clockTicks)
 {
+    int i;
+
+    if (sL != NULL && sTestKeyN > 0)
+    {
+        int n = sTestKeyN;
+        char q[8][8];
+
+        memcpy(q, sTestKeyQ, sizeof(q));
+        sTestKeyN = 0;
+        for (i = 0; i < n; i++)
+        {
+            sTestKeyName = q[i];
+            portLuaDispatch(LUA_EV_TESTKEY, 0, 0, 0, 0, 0.0);
+        }
+    }
     if (!sTickOn || sL == NULL)
     {
         return;
@@ -601,6 +636,8 @@ static void portLuaListenersClear(void)
     }
     sTickOn = 0;
     sTickAccum = 0;
+    sTestKeyOn = 0;
+    sTestKeyN = 0;
     if (sL != NULL)
     {
         lua_newtable(sL);
@@ -621,7 +658,7 @@ static int portLuaOn(lua_State *L)
     if (k == LUA_EV_N)
     {
         return luaL_error(L, "unknown event '%s' (chr_died zone_enter zone_leave stage_start bond_died "
-                             "hostage_follow hostage_wait damage chr_spawned item_pickup objective_changed tick)", name);
+                             "hostage_follow hostage_wait damage chr_spawned item_pickup objective_changed tick test_key)", name);
     }
     type = sEvents[k].type;
     lua_getfield(L, LUA_REGISTRYINDEX, LUA_HANDLERS_KEY);
@@ -642,6 +679,10 @@ static int portLuaOn(lua_State *L)
     if (type == LUA_EV_TICK)
     {
         sTickOn = 1;
+    }
+    else if (type == LUA_EV_TESTKEY)
+    {
+        sTestKeyOn = 1;
     }
     else if (!sHooked[type])
     {
@@ -1333,7 +1374,17 @@ static const luaL_Reg sModsLib[] = { { "get", portLuaModsGet }, { "set", portLua
                                      { NULL, NULL } };
 static const luaL_Reg sMusicLib[] = { { "set", portLuaMusicSet }, { "play", portLuaMusicPlay }, { "list", portLuaMusicList },
                                       { "current", portLuaMusicCurrent }, { NULL, NULL } };
-static const luaL_Reg sModeLib[] ={ { "name", portLuaModeName }, { NULL, NULL } };
+/* mode.env_flag("GE_...") -> true when that environment variable is set and not "0" (Lua has no os library) */
+static int portLuaModeEnvFlag(lua_State *L)
+{
+    const char *name = luaL_checkstring(L, 1);
+    const char *v = (strncmp(name, "GE_", 3) == 0) ? getenv(name) : NULL;
+
+    lua_pushboolean(L, v != NULL && v[0] != '\0' && strcmp(v, "0") != 0);
+    return 1;
+}
+
+static const luaL_Reg sModeLib[] ={ { "name", portLuaModeName }, { "env_flag", portLuaModeEnvFlag }, { NULL, NULL } };
 static const luaL_Reg sPadsLib[] = { { "count", portLuaPadsCount }, { "pos", portLuaPadsPos },
                                      { "far_from", portLuaPadsFarFrom }, { NULL, NULL } };
 static const luaL_Reg sSpawnLib[] = { { "hostage", portLuaSpawnHostage }, { "guard", portLuaSpawnGuard }, { NULL, NULL } };

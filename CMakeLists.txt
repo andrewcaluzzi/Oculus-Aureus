@@ -549,6 +549,7 @@ if(GE_VIDEO)
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${CMAKE_SOURCE_DIR}/launchers/Play Arena.bat"
                 "${CMAKE_SOURCE_DIR}/launchers/Play Arena (Endless).bat"
+                "${CMAKE_SOURCE_DIR}/launchers/Play Arena (Test Keys).bat"
                 "$<TARGET_FILE_DIR:ge>"
             VERBATIM)
     endif()

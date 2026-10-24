@@ -9,7 +9,9 @@ A wave-survival mode in a generated gladiator pit. The map is a C data set built
 | `Play Arena.bat` | `GE_MODE=arena`: 20 waves, a boss every 5, then the mission is won. |
 | `Play Arena (Endless).bat` | `GE_MODE=arena-endless`: waves keep coming and keep getting harder; your wave, kills and time are logged when you fall (`ge: arena: OVER wave ...`). |
 
-Both set `GE_STAGE=colosseum GE_SKIPINTRO=1` too. To make your own variant, copy `Data/Scripts/modes/arena-endless.lua` (three lines: it sets `ARENA_SETTINGS`, then `include("arena")`) and run it with `GE_MODE=<your file name>`. For example `ARENA_SETTINGS = { waves = 10, boss_every = 3, crowd = 30 }`. Add `GE_CHEATS=invuln` to watch without dying.
+| `Play Arena (Test Keys).bat` | `GE_MODE=arena` with the wave-jump test keys (below) and `GE_CHEATS=invuln,guns`. |
+
+All set `GE_STAGE=colosseum GE_SKIPINTRO=1` too. To make your own variant, copy `Data/Scripts/modes/arena-endless.lua` (three lines: it sets `ARENA_SETTINGS`, then `include("arena")`) and run it with `GE_MODE=<your file name>`. For example `ARENA_SETTINGS = { waves = 10, boss_every = 3, crowd = 30 }`. Add `GE_CHEATS=invuln` to watch without dying.
 
 ## The map
 
@@ -86,6 +88,17 @@ Set them by editing table `S` at the top of `arena.lua`, or in a preset file wit
 Below `S` are the tables `TIERS` (health and armour multipliers), `TIER_MIX` (which tier mix applies from which wave), `ELITES` (the elite bodies and `ELITE_GUNS_*`), the skin pools and `TITLES`. Per-wave-type counts and base health are in the `mk_*` functions.
 
 Test hooks: `first_wave = N` starts at wave N; `debug_track = true` logs every live enemy's distance to Bond and action every 2 seconds; `debug_clear_after = s` kills each enemy after s seconds. Enemy toughness and speed scale with the wave, so a long endless run gets very hard.
+
+## Test keys
+
+For testing, the wave can be jumped. They work when the setting `test_keys` is true or `GE_ARENA_TESTKEYS=1` is set, and never in co-op or netplay.
+
+| Key | Console | Action |
+| --- | --- | --- |
+| PageDown / PageUp | `arena next` / `arena back` | remove the live enemies (no kills, drops or health) and start the next / previous wave now |
+| Shift+PageDown / Shift+PageUp | `arena next+` / `arena back+` | start the next / previous wave now and leave the live enemies and the queued spawns alone |
+
+The wave counter, titles, bosses and difficulty follow the wave you land on (it never goes below 1). In fixed mode, "next" past the last wave wins. A Lua mode can listen with `on("test_key", function(name) ... end)`; `name` is `"next"`, `"back"`, `"next+"` or `"back+"`.
 
 ## Under the hood
 
