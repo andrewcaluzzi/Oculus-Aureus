@@ -121,6 +121,10 @@ typedef struct ALSoundState_s {
      * because the source prop can be freed while the sound still plays. */
     f32 portPanPos[3];
     s32 portPanTracked;
+    /* A presentation sound (Lua sound.play_sfx, port_gamesfx.c): it never takes
+     * a game sound's slot when the player is full, and a game sound takes its
+     * slot first (sndHandleEvent). Set by sndSetupSound for each new state. */
+    s32 portPresent;
 #endif
 
 } ALSoundState;
@@ -198,6 +202,9 @@ s32 portSndKillAllSfx(s32 *voices);
 /* GE_SNDEVTQ=0 restores the vanilla SFX event queue (no coalescing, eviction or
  * extra headroom) for comparison. Read from the environment once. */
 s32 portSndEvtqPolicy(void);
+/* A presentation one-shot (port_gamesfx.c): volume 0..1, pitch multiplier,
+ * pan -1..1; *owner reads the state until it ends (NULL after). */
+ALSoundState *portSndPlayPresent(s16 soundIndex, f32 vol, f32 pitch, f32 pan, ALSoundState **owner);
 #endif
 u16 sndGetSfxSlotFirstNaturalVolume(void);
 void sndApplyVolumeAllSfxSlot(u16 arg0);

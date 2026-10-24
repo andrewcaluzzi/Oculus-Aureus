@@ -23,6 +23,8 @@ ARENA_SETTINGS = {
 }
 include("arena")
 
+local REACT_EVERY = mode.env_flag("GE_BENCH_REACT") and 3 or nil   -- seconds between forced crowd reactions while measuring
+local react_acc, react_i = 0, 0
 local MEASURE_S  = 30        -- seconds measured per phase
 local SEGMENT_S  = 7.5       -- seconds per view segment (24 deg/s = a half turn)
 local TURN_RATE  = 24        -- degrees a second
@@ -165,6 +167,14 @@ on("tick", function(dt)
       pools_acc = pools_acc + dt
       if pools_acc >= 1 then pools_acc = 0; bench.pools() end   -- keeps the hit-entry high-water mark
       top_up(p)
+      if REACT_EVERY then   -- GE_BENCH_REACT=1: the crowd cheers and boos all through the phase (the spectators' reaction cost)
+        react_acc = react_acc + dt
+        if react_acc >= REACT_EVERY then
+          react_acc = 0
+          react_i = react_i + 1
+          ARENA_HOOKS.react(react_i % 2 == 0 and "wave_clear" or "bond_died")
+        end
+      end
       if p.live > 0 then
         eng_acc = eng_acc + dt
         if eng_acc >= 2 then   -- how many are actually fighting

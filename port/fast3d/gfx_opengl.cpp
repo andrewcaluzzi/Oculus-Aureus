@@ -3087,13 +3087,21 @@ static GLuint crowd_tex = 0, crowd_prog = 0, crowd_vao = 0, crowd_vbo = 0;
 static GLint cu_mvp = -1, cu_fix = -1, cu_right = -1, cu_box = -1, cu_now = -1, cu_flip = -1, cu_tint = -1, cu_tex = -1;
 static int crowd_ver = -1, crowd_verts = 0;
 static bool crowd_failed = false;
+static size_t crowd_saved_fb_id = 0;
+static float crowd_saved_noise = 1.0f;
 
-/* the capture framebuffer is keyed on magenta, so the model's own alpha does not matter */
-extern "C" void gfx_opengl_crowd_clear(void) {
+/* bind the atlas framebuffer (remembering the one bound, for capture_done) and clear it. It is keyed on magenta,
+ * so the model's own alpha does not matter. */
+extern "C" void gfx_opengl_crowd_capture_begin(int fb) {
+    crowd_saved_fb_id = current_framebuffer;
+    crowd_saved_noise = current_noise_scale;
+    gfx_opengl_start_draw_to_framebuffer(fb, 1.f);
     glDisable(GL_SCISSOR_TEST);
     glClearColor(1.0f, 0.0f, 1.0f, 1.0f);
     glDepthMask(GL_TRUE);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glStencilMask(0xFF);
+    glClearStencil(0);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
     glDepthMask(current_depth_mask ? GL_TRUE : GL_FALSE);
     glEnable(GL_SCISSOR_TEST);
 }
@@ -3164,6 +3172,11 @@ extern "C" void gfx_opengl_crowd_capture_done(void) {
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     }
     glActiveTexture(GL_TEXTURE0 + last_selected_tile);
+    if (crowd_saved_fb_id < framebuffers.size()) {   /* back to the framebuffer capture_begin found bound */
+        glBindFramebuffer(GL_FRAMEBUFFER, framebuffers[crowd_saved_fb_id].fbo);
+        current_framebuffer = crowd_saved_fb_id;
+        current_noise_scale = crowd_saved_noise;
+    }
     printf("ge: crowd: atlas captured (%d of %d texels solid)\n", solid, n);
 }
 
@@ -3230,7 +3243,7 @@ static bool crowd_init(void) {
 }
 
 /* every impostor in one draw: cylindrical billboards, alpha-tested, depth-tested and written like opaque geometry */
-extern "C" void gfx_opengl_crowd_draw(const CrowdFrame* f, const float mvp[16], const float fix[2], int invert_y) {
+extern "C" void gfx_opengl_crowd_draw(const CrowdFrame* f, const float fix[2], int invert_y) {
     if (f == NULL || f->n <= 0 || crowd_tex == 0 || !crowd_init()) return;
     glBindVertexArray(crowd_vao);
     glBindBuffer(GL_ARRAY_BUFFER, crowd_vbo);
@@ -3251,7 +3264,7 @@ extern "C" void gfx_opengl_crowd_draw(const CrowdFrame* f, const float mvp[16], 
         crowd_verts = f->n * 6;
     }
     glUseProgram(crowd_prog);
-    glUniformMatrix4fv(cu_mvp, 1, GL_FALSE, mvp);
+    glUniformMatrix4fv(cu_mvp, 1, GL_FALSE, f->mvp);
     glUniform2f(cu_fix, fix[0], fix[1]);
     glUniform2f(cu_right, f->right[0], f->right[1]);
     glUniform3f(cu_box, f->box[0], f->box[1], f->box[2]);
@@ -3269,15 +3282,20 @@ extern "C" void gfx_opengl_crowd_draw(const CrowdFrame* f, const float mvp[16], 
     glDepthMask(GL_TRUE);
     glDisable(GL_POLYGON_OFFSET_FILL);
     glDrawArrays(GL_TRIANGLES, 0, crowd_verts);
+    /* put back everything Fast3D believes is bound, so its caches stay true: blend, cull, depth (test, func, mask,
+     * polygon offset), the active unit, VAO + array buffer, and the program with its uniforms */
     if (blend) glEnable(GL_BLEND);
     if (cull) glEnable(GL_CULL_FACE);
     gfx_opengl_set_depth_mode(ge_dm_args[0], ge_dm_args[1], ge_dm_args[2], ge_dm_args[3], ge_dm_zmode);
+    glDepthMask(current_depth_mask ? GL_TRUE : GL_FALSE);
     glActiveTexture(GL_TEXTURE0 + last_selected_tile);
     glBindVertexArray((gl_core_profile || gl_es) ? opengl_vao : 0);
     glBindBuffer(GL_ARRAY_BUFFER, opengl_vbo);
     if (gl_current_prg != nullptr) {
         glUseProgram(gl_current_prg->opengl_program_id);
         gfx_opengl_set_uniforms(gl_current_prg);
+    } else {
+        glUseProgram(0);
     }
 }
 

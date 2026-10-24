@@ -60,7 +60,7 @@ Boss health is multiplied by `boss_hp_mult` (2.5) and given armour worth `boss_a
 - **Centre ammo box.** Every `ammo_every` seconds (40) one real MP ammo box with PP7, KF7 and shotgun rounds (`ammo_rounds`) appears on a random pad near the middle of the pit. At most `ammo_max_center` (3) lie uncollected (a new one replaces the oldest), and each disappears after `ammo_ttl` (90). It is an ammo box, not a gun: it never rotates through weapons. Note that solo play doubles box ammo.
 - **Centre armour.** One body-armour pickup after every boss wave, and with `armour_chance` (0.25) after other waves, gone after `armour_ttl` (120 s).
 - **Health per kill.** No health between waves; each kill heals the Bond who got it, by a fraction of a full bar set per tier in `health_per_kill` (3% light and normal, 4% armoured, 6% heavy, 25% for a boss).
-- **The crowd.** `crowd` (150) harmless, invincible spectators fill the front rows during GET READY, with impostors behind them (see The impostor crowd). They fidget on their own timers and react: dance, laugh or raise their hands when a wave is cleared, look startled when a boss arrives. Each costs a little frame time; lower `crowd` on a weaker machine. Zero removes them.
+- **The crowd.** `crowd` (150) harmless, invincible spectators fill the front rows during GET READY, with impostors behind them (see The impostor crowd). They fidget on their own timers, look startled when a boss arrives, and cheer and boo what happens in the pit (see Crowd reactions). Each costs a little frame time; lower `crowd` on a weaker machine. Zero removes them.
 
 ## Settings
 
@@ -75,6 +75,8 @@ Set them by editing table `S` at the top of `arena.lua`, or in a preset file wit
 | `hp_growth` / `acc_growth` | 0.10 / 2.5 | enemy health and armour grow by this fraction per wave / accuracy points gained per wave |
 | `crowd` (or `crowd_real`) | 150 | real spectators, front rows first |
 | `crowd_impostors` | 1000 | impostor spectators on the spare seats (PC; see below) |
+| `reactions`, `REACT`, `multikill_n`, `multikill_window`, `big_hit`, `low_health`, `react_gap`, `crowd_volume` | true, see below | the crowd's cheers and boos (see Crowd reactions) |
+| `crowd_screams`, `scream_volume`, `SCREAMS` | false, 0.8, see below | the crowd screams the game's own hit yells (see The scream crowd) |
 | `supplies` | true | false turns off every pickup and gift between waves |
 | `pickup_mode` | `"boss+random"` | health/armour gifts: `"boss"`, `"random"`, `"boss+random"`, `"every"`, `"none"` (the A6 economy turns the health gift off with `health_gifts = false` and replaces the armour gift with centre armour) |
 | `ammo_every`, `ammo_max_center`, `ammo_ttl`, `ammo_rounds`, `centre_radius` | 40, 3, 90, 50/60/16, 800 | the centre ammo box |
@@ -88,7 +90,7 @@ Set them by editing table `S` at the top of `arena.lua`, or in a preset file wit
 
 Below `S` are the tables `TIERS` (health and armour multipliers), `TIER_MIX` (which tier mix applies from which wave), `ELITES` (the elite bodies and `ELITE_GUNS_*`), the skin pools and `TITLES`. Per-wave-type counts and base health are in the `mk_*` functions.
 
-Test hooks: `first_wave = N` starts at wave N; `debug_track = true` logs every live enemy's distance to Bond and action every 2 seconds; `debug_clear_after = s` kills each enemy after s seconds. Enemy toughness and speed scale with the wave, so a long endless run gets very hard.
+Test hooks: `first_wave = N` starts at wave N; `debug_track = true` logs every live enemy's distance to Bond and action every 2 seconds; `debug_clear_after = s` kills each enemy after s seconds; `debug_kill = s` kills each enemy s seconds after it spawns (a real death), and `debug_headshot = n` makes every n'th of those a headshot. `tests/arena_crowd/run-react.sh` runs the crowd reaction test. Enemy toughness and speed scale with the wave, so a long endless run gets very hard.
 
 ## Test keys
 
@@ -107,9 +109,67 @@ The stage reserves 600 chr slots by default (`GE_COLOSSEUM_SLOTS=<n>` overrides 
 
 ## The impostor crowd
 
-On PC the seats the real spectators do not use get impostors: flat pictures of the crowd skins that turn to face the camera around the vertical axis. On the first frames of the stage `port/src/port_crowd.c` builds each of the 16 `CROWD_SKINS` as a private model (not a chr, not in the model slots) and renders it through the normal display list into a 1024x1024 atlas framebuffer, once idle and once arms up (`surrendering_unarmed`). The atlas is read back once, keyed on its magenta clear colour for alpha and mipmapped. Every frame, all impostors are one GL draw (`gfx_opengl.cpp`, `gfx_opengl_crowd_draw`): a static vertex buffer, billboarded in the vertex shader, alpha-tested and depth-tested against the level, drawn just before the world-end marker. They are presentation only: no chr, prop, collision or hit test, their own RNG and clock, and nothing the sim or the netplay hash sees.
+On PC the seats the real spectators do not use get impostors: flat pictures of the crowd skins that turn to face the camera around the vertical axis. On the first frames of the stage `port/src/port_crowd.c` builds each of the 16 `CROWD_SKINS` as a private model (not a chr, not in the model slots) and renders it through the normal display list into a 1024x1024 atlas framebuffer, once idle and once arms up (`surrendering_unarmed`). The atlas is read back once, keyed on its magenta clear colour for alpha and mipmapped. Every frame, all impostors are one GL draw (`gfx_opengl.cpp`, `gfx_opengl_crowd_draw`): a static vertex buffer, billboarded in the vertex shader, alpha-tested and depth-tested against the level, drawn just before the world-end marker. The draw carries its own world-to-clip matrix and loads nothing into the RSP, and the GL state it changes is put back afterwards: the gun draws next, with whatever projection the world left loaded, so a leaked matrix once put Bond's gun on the floor in front of him (`tests/arena_crowd/gun-look.lua` checks it). They are presentation only: no chr, prop, collision or hit test, their own RNG and clock, and nothing the sim or the netplay hash sees.
 
-Lua: `crowd.impostors({x, y, z, ...}, {skin names})` puts them up (`{}` removes them); `crowd.cheer(seconds [, fraction])` makes that share (1) raise their arms, each with its own small delay and length so it ripples. The arena cheers on a wave clear and when a boss dies; the real spectators keep their own reactions. Settings: `crowd` (real spectators, front rows first, 150) and `crowd_impostors` (1000). Limits: front view only, and the poses do not animate beyond the idle / cheer swap. Seats are the 1200 seat pads, so the crowd is no denser than the seats. `tests/arena_crowd/` has the look and smoke scripts.
+Lua: `crowd.impostors({x, y, z, ...}, {skin names})` puts them up (`{}` removes them); `crowd.cheer(seconds [, fraction])` makes that share (1) raise their arms, each with its own small delay and length so it ripples. The arena cheers with them for kills, wave clears and boss kills (see Crowd reactions). Settings: `crowd` (real spectators, front rows first, 150) and `crowd_impostors` (1000). Limits: front view only, and the poses do not animate beyond the idle / cheer swap. Seats are the 1200 seat pads, so the crowd is no denser than the seats. `tests/arena_crowd/` has the look and smoke scripts.
+
+## Crowd reactions
+
+The crowd cheers kills and boos Bond's trouble. Each trigger has a level, and a reaction is skipped while its own cooldown runs, or while a reaction of the same or a higher level started less than `react_gap` (1 s) ago, so a run of kills does not turn into a wall of noise and a boss kill is not followed by a second, smaller wave-clear cheer. The defaults (`REACT` in `S`, every field tunable; `ARENA_SETTINGS = { REACT = { kill = { vol = 0.3 } } }` changes just that):
+
+| Trigger | Level | Impostors with arms up | Real spectators reacting | Seconds | Sound | Volume | Cooldown |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `kill`: an arena enemy dies | 1 | 12% | 5% | 1.5 | `cheer_small` | 0.45 | 0.8 s |
+| `headshot`: its last hit was to the head | 2 | 30% | 15% | 2.5 | `cheer_big` | 0.65 | 1.5 s |
+| `multikill`: `multikill_n` (3) kills in `multikill_window` (2 s) | 3 | 50% | 30% | 3 | `cheer_big` | 0.80 | 3 s |
+| `wave_clear` | 4 | 80% | 60% | 4 | `cheer_big` | 0.90 | - |
+| `boss_kill` | 5 | 100% | 75% | 5 | `cheer_huge` (ducks the rest to 0.5) | 1.0 | - |
+| `big_hit`: Bond loses `big_hit` (0.1 of a bar, health + armour; a squad of wave-3 shooters takes about 0.06 to 0.10 a second) inside 1 s | 2 | boo | 15% | 2 | `jeer` | 0.55 | 4 s |
+| `low_health`: Bond's health drops under `low_health` (0.25) | 3 | boo | 35% | 3 | `boo` | 0.75 | 10 s, and only after it has been back above 0.40 |
+| `bond_died` (each Bond in co-op) | 6 | boo | 85% | 5 | `boo_big` (ducks the rest to 0.25) | 1.0 | - |
+
+The strongest kill trigger that is not cooling down wins: boss, then multi-kill, then headshot, then an ordinary kill. Intensity is the share of the crowd that reacts, how long it lasts, and the sound's volume.
+
+- **The real spectators** each roll once: the share in the table plays an animation, a little staggered, then returns to the idle pose and its fidgets. Cheer: `surrender` (arms up, half of them), `dance` or `laugh`. Boo: `fists` (`ANIM_drop_weapon_and_show_fight_stance`, fists raised at the pit, the MP character-select taunt: only its stance, frames 248 to 360, about 4 s; over half of them), `cross_arms` (the guard's holster-and-fold-arms, unarmed) or `laugh` (`ANIM_laughing_in_disbelief`, mocking). These are the same one-shot animations as the fidgets (`spawn.anim`), so they cost what a fidget costs: the spectator stays dormant (no prop collision, no AI beyond its idle list, invincible). Spectators already animate every frame.
+- **The impostors** raise their arms for a cheer (`crowd.cheer`). The atlas is full (16 skins x 2 poses in its 8 x 4 cells), so there is no boo pose: a boo lowers the arms of any still cheering.
+- **The sounds** are WAV files you supply, below. With none, everything else still happens. `crowd_screams` adds (or swaps in) the game's own yells, below.
+
+Co-op and netplay: the triggers are sim events (kills, the waves, Bond's vitals and death) timed on the mode's clock, and the spectator choices use the session's `math.random`, so every machine animates the same spectators the same way. The impostors and the sounds are presentation only: their own RNG on the C side, and nothing they return steers the game. Each machine plays whatever recordings it has.
+
+### Crowd sounds
+
+Put WAV files in `Data/Sounds/` next to the exe (the build creates the folder, with a README). Any sample rate, mono or stereo, 8, 16 or 32-bit or float: each file is converted once, when first used, to the game's output (22050 Hz stereo, so content above 11 kHz is lost); files over 60 s are cut. The arena loads them at stage start and logs `ge: arena: crowd sounds in Data/Sounds: cheer_small 2, cheer_big 1, ...`.
+
+| Name | Played for | Falls back to |
+| --- | --- | --- |
+| `cheer_small` | a kill | - |
+| `cheer_big` | a headshot, a multi-kill, a wave cleared | - |
+| `cheer_huge` | a boss kill | `cheer_big` |
+| `jeer` | a big hit on Bond | `boo` |
+| `boo` | Bond's health low | - |
+| `boo_big` | Bond dies | `boo` |
+
+Each name can have up to 16 variants: `cheer_small.wav`, `cheer_small1.wav` ... `cheer_small16.wav` (gaps are fine). A random one plays each time, never the same one twice in a row when there is a choice. A missing file is skipped. The level follows the game's sound effects volume (and its pause fades) times `crowd_volume`. At most 6 crowd sounds are heard at once (a seventh fades the oldest out), and together they are scaled by 1/sqrt(the number playing).
+
+**Licensing:** the project ships no crowd recordings. Anything you put in `Data/Sounds/` and pass on, or include in a release, must be licensed for redistribution (CC0 / public domain, or a licence whose terms you meet, with the credit it asks for in the release notes).
+
+The Lua side is the `sound` table (`lua.md`): `sound.play_any(base, volume)` is what the arena uses.
+
+### The scream crowd
+
+The game has no crowd recordings, but it has 25 male hit yells, the girls' hits, a crushed yell and an evil laugh. `crowd_screams = true` layers them as a crowd on top of the WAV sounds; `crowd_screams = "only"` plays the yells instead of the WAVs (so it needs nothing in `Data/Sounds/`). Off by default. In a preset: `ARENA_SETTINGS = { crowd_screams = true }`; or, without editing a file, set `GE_ARENA_SCREAMS=1` before starting the game (`set GE_ARENA_SCREAMS=1` in a command prompt, then run `Play Arena.bat` from it).
+
+| Trigger | Yells |
+| --- | --- |
+| `kill` | 2 to 4 male yells |
+| `headshot`, `multikill` | 6 to 10 |
+| `wave_clear` | 12 to 16 |
+| `boss_kill` | an explosion, then all 25 male yells, the 4 girl hits and the crushed yell |
+| `bond_died` | the evil laugh and 3 to 5 yells after it |
+
+The other triggers (big hit, low health) scream nothing. Each yell starts 30 to 150 ms after the one before (30 to 100 for the boss chorus), at a random pitch (0.85 to 1.25) and pan, at `scream_volume` (0.8) times `crowd_volume`. A reaction's cooldown and level rules apply as for the WAVs. `SCREAMS` in `S` holds the layers per trigger, `{ set, count [, count_hi], vol =, pitch = {lo, hi}, gap = {lo, hi}, delay = }`, with the sets `male`, `girl`, `crushed`, `boom` and `laugh` (`SCREAM_SETS`) or a list of `SFX_ID` names; `ARENA_SETTINGS = { SCREAMS = {...} }` replaces the whole table.
+
+They play through `sound.sfx_burst` (`lua.md`): the game's own sound player, so the game's sound effects volume applies, but they never cost a game sound. The player holds 16 sounds (8 x `GE_SNDSCALE`). A yell that finds the player full is dropped instead of cutting a shot, a shot that finds it full cuts a yell first, and at most 16 yells are under way at once (counting the ones about to start: the game starts each sound a little after it is asked for). On a quiet floor the full chorus plays about 28 of its 31 sounds, about 10 of them at once; on a firefight it loses more of its yells, never a gunshot. Like the WAVs they are presentation only: the C side picks the yells, pitches, pans and gaps with its own RNG, and the mode's `math.random` is not touched. `tests/arena_crowd/run-screams.sh` renders the bursts to a file and runs them over real gunfire; the result is the game's own audio, so it never goes in the repository.
 
 ## The benchmark
 

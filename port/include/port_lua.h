@@ -96,7 +96,9 @@ typedef struct PortLuaChrSpec {
     float offx, offz;
 } PortLuaChrSpec;
 int         portLuaGameSpawnChr(int pad, const PortLuaChrSpec *spec);   /* chrnum, -1 failed, -2 bad skin, -3 bad weapon */
-int         portLuaGameChrKill(int chr);                                  /* test helper: lethal damage to an arena chr; 1 = done */
+int         portLuaGameChrKill(int chr, int head);                        /* test helper: lethal damage to an arena chr (head = count as a headshot); 1 = done */
+int         portLuaGameChrHeadshot(int chr);                              /* 1 = an arena enemy's last damaging hit was to the head */
+int         portLuaGameChrIdle(int chr);                                  /* 1 idle (standing / one-shot anim run out), 0 animating, -1 gone or dead */
 int         portLuaGamePools(int *loose, int *held, int *freeSlots, int *freeProps);   /* weapon slots (30): loose on the floor / held by chrs / free; free props (600) */
 int         portLuaGameTrimDrops(int maxDrops, float keepRadius);         /* drop cap: free the oldest loose weapons beyond maxDrops, never one within keepRadius of a Bond; returns the number freed */
 int         portLuaGameBondWarp(int player, int pad, float dx, float dz);                     /* test helper: put a Bond on a pad */

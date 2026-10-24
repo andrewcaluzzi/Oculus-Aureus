@@ -14,6 +14,14 @@ void portAudioPumpForce(void)
 {
 }
 
+/* port_soundfile.c (Lua `sound`): no audio, so no file plays */
+int portSoundFileExists(const char *name) { (void)name; return 0; }
+int portSoundFilePlay(const char *name, float vol, float duck) { (void)name; (void)vol; (void)duck; return 0; }
+const char *portSoundFilePlayAny(const char *base, float vol, float duck, int *id) { (void)base; (void)vol; (void)duck; if (id) *id = 0; return 0; }
+int portSoundFileVariants(const char *base) { (void)base; return 0; }
+void portSoundFileStop(int id, float fade) { (void)id; (void)fade; }
+int portSoundFilePlaying(void) { return 0; }
+
 /* blood_animation.c evicts CPU-animated textures from the fast3d cache;
  * no renderer, no cache. */
 void gfx_texture_cache_delete(const unsigned char *orig_addr)
