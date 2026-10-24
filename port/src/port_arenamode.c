@@ -437,7 +437,18 @@ int portLuaGameSpawnChr(int pad, const PortLuaChrSpec *s)
         w = NULL;   /* civilians are unarmed */
     }
     bp = anchorProp();
-    if (bp == NULL || !portPadStan(pad, &pos, &stan, &angle))
+    if (s->hasoff && (s->offx != 0.0f || s->offz != 0.0f))
+    {   /* heist job 6: offset from the pad: walk the stan from the pad's own tile to that point (a wall or a ledge in between refuses
+         * it). The pad centre may be taken (portPadStan's clear-circle test would refuse); chrSpawnAtCoord tests the new spot itself. */
+        extern int portHeistOffsetStan(coord3d *pos, StandTile **stan, float dx, float dz);
+        extern int portHeistPadRaw(int pad, coord3d *pos, StandTile **stan, float *angle);
+
+        if (bp == NULL || !portHeistPadRaw(pad, &pos, &stan, &angle) || !portHeistOffsetStan(&pos, &stan, s->offx, s->offz))
+        {
+            return -1;
+        }
+    }
+    else if (bp == NULL || !portPadStan(pad, &pos, &stan, &angle))
     {
         return -1;
     }

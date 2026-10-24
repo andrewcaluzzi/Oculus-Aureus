@@ -6,6 +6,8 @@
 --     `max_alive` of them alive at once (and never if spawn.free() is below `reserve`, default 12). `first` = delay before the first wave
 --     after the alarm starts (default 0). Returns the controller: r.alive() -> count, r.spawned -> total, r.stop(), r.waves.
 --     The wave guards are tagged: r.is_wave(chr). One reinforcement controller per call; the alarm event restarts the first-wave timer.
+--     Optional: `active = function() return hot end` replaces alarm.active() as the "waves run" test (a mode's own latch: the stock siren
+--     times out after ~30 s); `opts` may be a function returning a fresh spawn.chr table per guard (variety); r.wave_now() spawns a wave at once.
 heist = heist or {}
 
 function heist.reinforce(cfg)
@@ -38,7 +40,7 @@ function heist.reinforce(cfg)
       for _ = 1, #pads do   -- a pad whose spot is still occupied by the last arrival fails: try the next one
         ring = ring % #pads + 1
         local o = {}
-        for k, v in pairs(opts) do o[k] = v end
+        if type(opts) == "function" then o = opts(r.spawned + made + 1) else for k, v in pairs(opts) do o[k] = v end end
         chr = spawn.chr(pads[ring], o)
         if chr then break end
       end
@@ -48,10 +50,13 @@ function heist.reinforce(cfg)
     return made
   end
 
+  function r.wave_now() return wave() end
+
   on("tick", function(dt)
     if not r.running then return end
     clock = clock + dt
-    local active = alarm.active()
+    local active
+    if cfg.active then active = cfg.active() and true or false else active = alarm.active() end
     if active and not was_active then nextwave = clock + (cfg.first or 0) end
     was_active = active
     if active and nextwave and clock >= nextwave then

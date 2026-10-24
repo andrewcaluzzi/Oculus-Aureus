@@ -91,6 +91,9 @@ typedef struct PortLuaChrSpec {
      * patrol = a stock patrol path id (-1 none) */
     float hearing;
     int alarmPad, patrol;
+    /* heist job 6: offset = spawn at (pad + offx, pad + offz) on the stan tile that point lands on (hasoff), so many chrs can share a pad */
+    int hasoff;
+    float offx, offz;
 } PortLuaChrSpec;
 int         portLuaGameSpawnChr(int pad, const PortLuaChrSpec *spec);   /* chrnum, -1 failed, -2 bad skin, -3 bad weapon */
 int         portLuaGameChrKill(int chr);                                  /* test helper: lethal damage to an arena chr; 1 = done */
@@ -175,6 +178,17 @@ int         portHeistSlapsToKo(void);
 void        portHeistSetGuardsWake(int on);
 int         portHeistKoSearch(int player);                                 /* Bond p searches the knocked-out chr next to him: chrnum, -1 none */
 int         portHeistTestSlap(int player, int chrnum);                     /* test hook: a slapper hit through the stock hit path */
+/* heist job 6 (port_heist.c): loot pickups (spawn.item "goldbar" / "money"), weapon in hand, difficulty */
+#define PORT_HEIST_LOOT_HANDLE 0x1000000                                   /* loot handles are >= this (arena item handles stay below) */
+int         portHeistLootSpawn(int pad, int kind, float dx, float dz);     /* kind 0 gold bar, 1 money: handle, 0 no room, -2 bad pad */
+int         portHeistLootAlive(int handle);
+int         portHeistLootRemove(int handle);
+int         portHeistLootPos(int handle, float *x, float *z);
+int         portHeistBondEquip(int player, int item);                      /* draw that item into the right hand (give it first if missing); 1 ok */
+int         portHeistBondWeapon(int player);                               /* ITEM_* in his right hand, -1 no such Bond */
+int         portHeistDifficulty(void);                                     /* 0 Agent .. 3 007 */
+int         portHeistDoorOneWay(int idx, int clear);                       /* stock one-way bits set? (clear = drop them); -1 no such door */
+int         portHeistDoorSnap(int idx, int open);                          /* snap fully open / shut now, blocked or not; -1 no such door */
 
 /* Mods menu items added by scripts (menu.add_toggle / menu.add_number), port_luavm.c.
  * Values are cached: Refresh calls the scripts' getters (never from a render path). */

@@ -876,6 +876,19 @@ static void testTeleportBond(PropRecord *bp, s32 pad, f32 offx, f32 offz)
             pos.z = got.z;
             st = gst;
         }
+        else
+        {   /* heist job 6: a point on another stan tile (or with a chr on it): walk the floor from the pad to it instead */
+            extern int portHeistOffsetStan(coord3d *pos, StandTile **stan, float dx, float dz);
+            coord3d at = p->pos;
+            StandTile *wst = p->stan;
+
+            if (portHeistOffsetStan(&at, &wst, offx, offz))
+            {
+                pos.x = at.x;
+                pos.z = at.z;
+                st = wst;
+            }
+        }
     }
     floor = stanGetPositionYValue(st, pos.x, pos.z);
     pos.y = g_CurrentPlayer->eyeheight + floor;

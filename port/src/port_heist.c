@@ -23,7 +23,13 @@
 #include "game/model.h"
 #include "game/gun.h"
 #include "game/bondview.h"
+#include "game/lv.h"
+#include "game/math_atan2f.h"   /* the game's atan2f: the shadow <math.h> (include/math.h) declares only sinf/cosf/sqrtf, and an
+                                 * implicit atan2f / fabsf returned garbage (bond.face, the civilian aim test, offset spawns) */
+#include "snd.h"
+#include "music.h"
 #include "port_blocks.h"
+#include "port_console.h"
 #include "port_mode.h"
 #include "port_event.h"
 #include "port_lua.h"
@@ -198,6 +204,57 @@ int portHeistDoorKeyflags(int idx, int mode, unsigned flags)
     if (mode == 0) door->keyflags |= flags;
     else if (mode == 1) door->keyflags &= ~flags;
     else door->keyflags = flags;
+    return 1;
+}
+
+/* door.one_way(i [, false]): whether door i is a stock one-way door (flags2 0x10000000 / 0x08000000: it opens from its free side whatever
+ * the key, propdoorInteract); `clear` drops both bits so only the key opens it. -1 no such door, else the state before. */
+int portHeistDoorOneWay(int idx, int clear)
+{
+    DoorRecord *door = heistDoor(idx);
+    int was;
+
+    if (door == NULL) return -1;
+    was = (door->flags2 & (PROPFLAG2_10000000 | PROPFLAG2_08000000)) != 0;
+    if (clear) door->flags2 &= ~(PROPFLAG2_10000000 | PROPFLAG2_08000000);
+    return was;
+}
+
+/* door.snap(i, open): put door i (and its linked siblings) fully open / shut now, whatever stands in the doorway (stock: a blocked door just
+ * stops where it is). For a vault time lock. The portal opens / closes as the stock move would. -1 no such door, 0 no prop, 1 done. */
+extern void doorBuildClippedVertices(DoorRecord *inDoor);
+extern void doorFinishClose(DoorRecord *door);
+extern void doorStartOpen(DoorRecord *door);
+extern void doorUpdateBbox(DoorRecord *door);
+extern s32 g_GlobalTimer;
+
+int portHeistDoorSnap(int idx, int open)
+{
+    DoorRecord *door = heistDoor(idx), *d;
+    int n = 0;
+
+    if (door == NULL) return -1;
+    if (((ObjectRecord *) door)->prop == NULL) return 0;
+    for (d = door; d != NULL && n < 8; n++)
+    {
+        f32 to = open ? d->maxFrac : 0.0f;
+        int moved = d->openPosition != to;
+
+        if (open && moved && d->openPosition <= 0.0f) doorStartOpen(d);   /* the portal opens (and the stock open sound) */
+        d->openPosition = to;
+        d->lastcalc60f = to;
+        d->speed = 0.0f;
+        d->openstate = DOORSTATE_STATIONARY;
+        d->openedTime = open ? (u32) g_GlobalTimer : 0;
+        if (((ObjectRecord *) d)->prop != NULL)
+        {
+            doorUpdateBbox(d);
+            doorBuildClippedVertices(d);
+            if (!open && moved) doorFinishClose(d);   /* the portal closes */
+        }
+        d = d->linkedDoor;
+        if (d == door) break;
+    }
     return 1;
 }
 
@@ -531,6 +588,37 @@ s32 portHeistExtraSlots(void)
     return (m != NULL && strncmp(m, "heist", 5) == 0) ? HEIST_MODE_SLOTS : 0;
 }
 
+/* initunk_005520.c: spare object model slots (stock: setup objects + 30). Every gun a spawned chr holds, every key and every loot pickup
+ * takes one; with the stock 30 a heist runs out after ~30 armed guards and nothing else can appear (spawn.item / spawn.key fail). */
+s32 portHeistExtraObjSlots(void)
+{
+    s32 n = portHeistExtraSlots();
+
+    return n > 0 ? n + 160 : 0;
+}
+
+/* propobj.c weaponCreate, when every stock weapon slot (30) is held and no setup record can be reused: a record from this pool, so a crowd
+ * of armed guards stays armed (stock would leave guard 31+ unarmed). A record is free while it has no prop (objFree clears it). Mode only. */
+#define XWEAPON_N 320
+static WeaponObjRecord sXWeapon[XWEAPON_N];
+
+WeaponObjRecord *portHeistExtraWeapon(s32 musthaveprop, s32 musthavemodel)
+{
+    int i;
+
+    if (musthaveprop || musthavemodel || !portModeActive() || portHeistExtraSlots() <= 0) return NULL;
+    for (i = 0; i < XWEAPON_N; i++)
+    {
+        if (sXWeapon[i].prop == NULL)
+        {
+            if (i % 25 == 0) portConLogf("ge: heist: extra weapon slot %d of %d handed out (the stock 30 are held)\n", i + 1, XWEAPON_N);
+            return &sXWeapon[i];
+        }
+    }
+    portConLogf("ge: heist: all %d extra weapon slots are in use\n", XWEAPON_N);
+    return NULL;
+}
+
 /* dyn.c grows the display list and vertex pools by this many slots (the base was sized for ~240 chrs) */
 s32 portHeistBigSlots(void)
 {
@@ -706,6 +794,7 @@ void portHeistChrDied(s32 chrnum, s32 killerPlayer)
     }
 }
 
+/* a gun or a knife in Bond p's right hand. The slappers (ITEM_FIST), bare hands and gadgets (the door decoder, ...) are not a threat. */
 static int bondArmed(int p)
 {
     s32 saved = get_cur_playernum();
@@ -714,10 +803,33 @@ static int bondArmed(int p)
     set_cur_player(p);
     w = (int) getCurrentPlayerWeaponId(GUNRIGHT);
     set_cur_player(saved);
-    return w != 0 && w != ITEM_UNARMED;   /* note: the slappers are ITEM_FIST, so they count as armed here (heist_guards relies on it) */
+    return w >= ITEM_KNIFE && w <= ITEM_ROCKETLAUNCH;
 }
 
-/* the first Bond (lowest index) whose crosshair is on `civ`: within sCivRange, ahead of him, and the view ray passes within 90 units of it */
+#define CIV_AIM_NEAR   40.0f     /* units: closer than this straight ahead is a shove, not an aim */
+#define CIV_AIM_LAT0   30.0f     /* the view ray must pass within LAT0 + LATK * distance of it (a body is ~30 units wide) */
+#define CIV_AIM_LATK   0.04f
+
+/* a line of sight between Bond and the civilian: in the same room, yes (the stan line cannot see over a step or a raised floor, which a
+ * big hall has); else the stock guard "can see Bond" test (chrlvCurrentPlayerCall7F0B0E24: the stan line from Bond's tile at his eye
+ * height to the chr, cdtypes 0x13, ending on the chr's tile), for any Bond. Walls and closed doors block it. */
+static int civLineOfSight(ChrRecord *civ, PropRecord *bond)
+{
+    StandTile *st = bond->stan;
+    int ok;
+
+    if (st == NULL || civ->prop->stan == NULL) return 0;
+    if (st->room == civ->prop->stan->room) return 1;
+    chrSetMoving(civ, 0);
+    ok = stanTestLineUnobstructed(&st, bond->pos.x, bond->pos.z, civ->prop->pos.x, civ->prop->pos.z, 0x13, bond->pos.y, bond->pos.y, 0.0f, 1.0f) != 0
+         && st == civ->prop->stan;
+    chrSetMoving(civ, 1);
+    return ok;
+}
+
+/* the first Bond (lowest index) whose crosshair is on `civ`: holding a gun, within sCivRange, ahead of him, the view ray passing within
+ * 30 units (+4% of the distance) of it, and a clear line between them (walls and doors block it). Standing next to one with a gun
+ * out, or pointing it past one, is not aiming at it. */
 static int aimedBy(ChrRecord *civ)
 {
     int p, n = (int) portBondCount();
@@ -727,7 +839,7 @@ static int aimedBy(ChrRecord *civ)
         struct player *pl = g_playerPointers[p];
         float dx, dy, dz, th, fx, fz, fwd, lat;
 
-        if (!portBondInPlay(p) || pl == NULL || pl->prop == NULL) continue;
+        if (!portBondInPlay(p) || pl == NULL || pl->prop == NULL || pl->prop->stan == NULL) continue;
         dx = civ->prop->pos.x - pl->prop->pos.x;
         dy = civ->prop->pos.y - pl->prop->pos.y;
         dz = civ->prop->pos.z - pl->prop->pos.z;
@@ -737,8 +849,9 @@ static int aimedBy(ChrRecord *civ)
         fz = cosf(th);
         fwd = dx * fx + dz * fz;
         lat = dx * -fz + dz * fx;
-        if (fwd <= 0.0f || fwd > sCivRange || fabsf(lat) > 90.0f) continue;
+        if (fwd <= CIV_AIM_NEAR || fwd > sCivRange || ABS(lat) > CIV_AIM_LAT0 + CIV_AIM_LATK * fwd) continue;
         if (!bondArmed(p)) continue;
+        if (!civLineOfSight(civ, pl->prop)) continue;
         return p;
     }
     return -1;
@@ -1259,6 +1372,207 @@ int portHeistTestSlap(int player, int chrnum)
     return r;
 }
 
+/* ---- loot (job 6): gold bars and money, spawn.item(pad, "goldbar" | "money") ----
+ * A stock standard prop (PROPDEF_PROP) with the beta pickup model (PROP_CHRGOLDBAR / PROP_CHRMONEY), placed by domakedefaultobj on the
+ * pad (the pad is moved by the offset for the call and put back). Not a stock pickup: every sim tick a living Bond within LOOT_REACH of
+ * it collects it (this file), it is removed and item_pickup(PROPDEF_PROP, ITEM_GOLDBAR | ITEM_MONEY, 1, player) fires. Its own pool, so
+ * the arena's 12 world pickups and the 30 weapon slots are untouched. A record is reused only well after its prop was freed (the arena's
+ * same-tick reuse crash, port_arenamode.c). */
+#define LOOT_N       160
+#define LOOT_REACH   90.0f
+#define LOOT_REUSE   60        /* ticks after a removal before the record can be reused */
+
+static ObjectRecord sLootRec[LOOT_N];
+static struct { u8 used, kind; s32 serial, freedAt; } sLoot[LOOT_N];
+static s32 sLootSerial, sLootTaken, sLootNext;
+
+/* a pad's position, stan tile and facing, with no clear-circle test (portPadStan refuses a pad a chr stands on) */
+int portHeistPadRaw(int pad, coord3d *pos, StandTile **stan, float *angle)
+{
+    PadRecord *p;
+
+    if (pad < 0 || pad >= (int) portPadCount() || g_CurrentSetup.pads == NULL) return 0;
+    p = &g_CurrentSetup.pads[pad];
+    if (p->stan == NULL) return 0;
+    *pos = p->pos;
+    *stan = p->stan;
+    if (angle != NULL) *angle = atan2f(p->look.f[0], p->look.f[2]);
+    return 1;
+}
+
+/* (pos, stan) moved by (dx, dz) along the floor: the stan walk from the start tile must reach the point (no wall, ledge or gap in
+ * between) and the point must be on the same floor height (within 60 units). 1 = moved, 0 = refused (pos / stan unchanged). */
+int portHeistOffsetStan(coord3d *pos, StandTile **stan, float dx, float dz)
+{
+    StandTile *st = *stan;
+    f32 y0, y1;
+
+    if (st == NULL) return 0;
+    if (!walkTilesBetweenPoints_NoCallback(&st, pos->x, pos->z, pos->x + dx, pos->z + dz) || st == NULL) return 0;
+    y0 = stanGetPositionYValue(*stan, pos->x, pos->z);
+    y1 = stanGetPositionYValue(st, pos->x + dx, pos->z + dz);
+    if (y1 - y0 > 60.0f || y0 - y1 > 60.0f) return 0;
+    pos->x += dx;
+    pos->z += dz;
+    pos->y += y1 - y0;
+    *stan = st;
+    return 1;
+}
+
+static int lootSlotAlive(int i)
+{
+    ObjectRecord *o = &sLootRec[i];
+
+    return sLoot[i].used && o->prop != NULL && !(o->runtime_bitflags & RUNTIMEBITFLAG_REMOVE);
+}
+
+static int lootFromHandle(int handle)
+{
+    int i;
+
+    if (handle < PORT_HEIST_LOOT_HANDLE) return -1;
+    i = (handle - PORT_HEIST_LOOT_HANDLE) & 0xFF;
+    if (i >= LOOT_N || sLoot[i].serial != ((handle - PORT_HEIST_LOOT_HANDLE) >> 8) || !lootSlotAlive(i)) return -1;
+    return i;
+}
+
+int portHeistLootSpawn(int pad, int kind, float dx, float dz)
+{
+    PadRecord *p, saved;
+    ObjectRecord *o;
+    int i, k, slot = -1;
+
+    if (!portModeActive()) return 0;
+    if (pad < 0 || pad >= (int) portPadCount() || g_CurrentSetup.pads == NULL || g_CurrentSetup.pads[pad].stan == NULL) return -2;
+    for (k = 0; k < LOOT_N; k++)
+    {
+        i = (sLootNext + k) % LOOT_N;
+        if (sLoot[i].used && !lootSlotAlive(i)) { sLoot[i].used = 0; sLoot[i].freedAt = sNow; }
+        if (!sLoot[i].used && (sLoot[i].serial == 0 || sNow - sLoot[i].freedAt >= LOOT_REUSE)) { slot = i; break; }
+    }
+    if (slot < 0) return 0;
+    sLootNext = (slot + 1) % LOOT_N;
+    p = &g_CurrentSetup.pads[pad];
+    saved = *p;
+    if (dx != 0.0f || dz != 0.0f)
+    {
+        coord3d at = p->pos;
+        StandTile *st = p->stan;
+
+        if (!portHeistOffsetStan(&at, &st, dx, dz)) return 0;   /* a wall or a ledge in the way */
+        p->pos.x = at.x;
+        p->pos.z = at.z;
+        p->stan = st;
+    }
+    o = &sLootRec[slot];
+    memset(o, 0, sizeof(*o));
+    o->extrascale = 256;
+    o->type = PROPDEF_PROP;
+    o->obj = kind ? PROP_CHRMONEY : PROP_CHRGOLDBAR;
+    o->pad = pad;
+    o->flags = 1 | PROPFLAG_INVINCIBLE;      /* fall to the floor; shots do not destroy it */
+    *(s32 *) &o->damage = 1000 << 16;        /* the raw setup form: domakedefaultobj converts it */
+    domakedefaultobj(0, o, 0);
+    *p = saved;
+    o->state &= ~PROPSTATE_RESPAWN;
+    if (o->prop == NULL) return 0;
+    sLootSerial = (sLootSerial % 0xFFFF) + 1;
+    sLoot[slot].used = 1;
+    sLoot[slot].kind = (u8) (kind ? 1 : 0);
+    sLoot[slot].serial = sLootSerial;
+    return PORT_HEIST_LOOT_HANDLE + ((sLootSerial << 8) | slot);
+}
+
+int portHeistLootAlive(int handle) { return portModeActive() && lootFromHandle(handle) >= 0; }
+
+int portHeistLootRemove(int handle)
+{
+    int i = portModeActive() ? lootFromHandle(handle) : -1;
+
+    if (i < 0) return 0;
+    sLootRec[i].runtime_bitflags |= RUNTIMEBITFLAG_REMOVE;   /* freed by the object tick, as a pickup is */
+    sLoot[i].used = 0;
+    sLoot[i].freedAt = sNow;
+    return 1;
+}
+
+int portHeistLootPos(int handle, float *x, float *z)
+{
+    int i = portModeActive() ? lootFromHandle(handle) : -1;
+
+    if (i < 0) return 0;
+    *x = sLootRec[i].prop->pos.x;
+    *z = sLootRec[i].prop->pos.z;
+    return 1;
+}
+
+static void lootTick(void)
+{
+    int i, p, n = (int) portBondCount();
+
+    for (i = 0; i < LOOT_N; i++)
+    {
+        PropRecord *lp;
+
+        if (!sLoot[i].used) continue;
+        if (!lootSlotAlive(i)) { sLoot[i].used = 0; sLoot[i].freedAt = sNow; continue; }
+        lp = sLootRec[i].prop;
+        for (p = 0; p < n && p < 4; p++)
+        {
+            struct player *pl = g_playerPointers[p];
+            f32 dx, dy, dz;
+
+            if (!portBondInPlay(p) || pl == NULL || pl->prop == NULL || pl->bonddead) continue;
+            dx = pl->prop->pos.x - lp->pos.x;
+            dy = pl->prop->pos.y - lp->pos.y;   /* Bond's prop is at eye height */
+            dz = pl->prop->pos.z - lp->pos.z;
+            if (dx * dx + dz * dz > LOOT_REACH * LOOT_REACH || dy < -100.0f || dy > 320.0f) continue;
+            sLootRec[i].runtime_bitflags |= RUNTIMEBITFLAG_REMOVE;
+            sLoot[i].used = 0;
+            sLoot[i].freedAt = sNow;
+            sLootTaken++;
+            sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, PICKUP_AMMO_SFX, 0);
+            portEventEmit(PORT_EV_ITEM_PICKUP, PROPDEF_PROP, sLoot[i].kind ? ITEM_MONEY : ITEM_GOLDBAR, 1, p);
+            break;
+        }
+    }
+}
+
+/* ---- weapon in hand, difficulty (job 6) ---- */
+
+extern int bondinvHasInvItem(ITEM_IDS item);
+extern int bondinvAddInvItem(ITEM_IDS item);
+
+/* bond.equip: Bond `player` draws `item` (the stock weapon switch, as the start-of-level loadout does); gives it first if he lacks it */
+int portHeistBondEquip(int player, int item)
+{
+    s32 saved;
+
+    if (!portModeActive() || player < 0 || player >= (int) portBondCount() || !portBondInPlay(player) || item < 0 || item >= ITEM_BOMBCASE + 64) return 0;
+    saved = get_cur_playernum();
+    set_cur_player(player);
+    if (item > ITEM_FIST && !bondinvHasInvItem((ITEM_IDS) item)) bondinvAddInvItem((ITEM_IDS) item);
+    currentPlayerEquipWeaponWrapper(GUNRIGHT, item);
+    currentPlayerEquipWeaponWrapper(GUNLEFT, ITEM_UNARMED);
+    set_cur_player(saved);
+    return 1;
+}
+
+int portHeistBondWeapon(int player)
+{
+    s32 saved;
+    int w;
+
+    if (!portModeActive() || player < 0 || player >= (int) portBondCount() || g_playerPointers[player] == NULL) return -1;
+    saved = get_cur_playernum();
+    set_cur_player(player);
+    w = (int) getCurrentPlayerWeaponId(GUNRIGHT);
+    set_cur_player(saved);
+    return w;
+}
+
+int portHeistDifficulty(void) { return (int) lvlGetSelectedDifficulty(); }
+
 void portHeistGuardsReset(void)
 {
     {
@@ -1276,6 +1590,10 @@ void portHeistGuardsReset(void)
     sCivN = sCivKilled = 0;
     memset(sCiv, 0, sizeof(sCiv));
     sCivRange = 800.0f; sCivAimSec = 0.5f; sCivThreatSec = 2.0f; sCivCowerSec = 4.0f;
+    memset(sLootRec, 0, sizeof(sLootRec));
+    memset(sLoot, 0, sizeof(sLoot));
+    memset(sXWeapon, 0, sizeof(sXWeapon));
+    sLootSerial = sLootTaken = sLootNext = 0;
 }
 
 /* called every sim tick from portBlocksTick while a mode runs */
@@ -1287,6 +1605,7 @@ void portHeistAiTick(void)
     sNow += g_ClockTimer;
     sAcc += g_ClockTimer;
     if (sKoN > 0) koTick(dt);
+    if (sLootSerial > 0) lootTick();
     for (i = 0; i < sCivN; i++)
     {
         if (sCiv[i].used) civTick(&sCiv[i], dt);
@@ -1339,6 +1658,11 @@ unsigned portHeistStateHash(void)
             + (unsigned) e->wstate * 17u + (unsigned) e->waker * 19u + (unsigned) (e->wT * 100.0f);
     }
     if (countdownTimerIsRunning()) h = h * 16777619u + (unsigned) countdownTimerGetValue();
+    h = h * 16777619u + (unsigned) sLootSerial * 211u + (unsigned) sLootTaken * 977u;
+    for (i = 0; i < LOOT_N; i++)
+    {
+        if (sLoot[i].used) h = h * 16777619u + (unsigned) i * 3u + (unsigned) sLoot[i].kind;
+    }
     return h;
 }
 
