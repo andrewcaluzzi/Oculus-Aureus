@@ -498,6 +498,7 @@ static const struct { const char *name; int type; int nargs; } sEvents[] = {
     { "item_pickup", PORT_EV_ITEM_PICKUP, 4 },   /* objtype (PROPDEF_*), id (weapon / ammo type / key flags / -1), qty, player */
     { "alarm", PORT_EV_ALARM, 1 },               /* 1 started, 0 stopped */
     { "cctv_spotted", PORT_EV_CCTV_SPOTTED, 2 }, /* camera setup index, player */
+    { "cctv_view", PORT_EV_CCTV_VIEW, 3 },       /* player, camera now watched (-1 = the view ended), why (0 script, 1 cycle, 2 left, 3 damage, 4 down) */
     { "use", PORT_EV_USE, 4 },                   /* player, PROP_TYPE_* of the target, target setup index (-1), PROPDEF_* type */
     { "gadget_used", PORT_EV_GADGET_USED, 4 },   /* player, ITEM_* id, target setup index (-1), PROPDEF_* type */
     { "body_found", PORT_EV_BODY_FOUND, 3 },     /* guard chr that found it, body chr, 1 knocked out / 0 dead */
@@ -672,7 +673,7 @@ static int portLuaOn(lua_State *L)
     if (k == LUA_EV_N)
     {
         return luaL_error(L, "unknown event '%s' (chr_died zone_enter zone_leave stage_start bond_died "
-                             "hostage_follow hostage_wait damage chr_spawned item_pickup objective_changed alarm cctv_spotted use gadget_used body_found civilian_killed civilian_surrendered civilian_robbed tick test_key)", name);
+                             "hostage_follow hostage_wait damage chr_spawned item_pickup objective_changed alarm cctv_spotted cctv_view use gadget_used body_found civilian_killed civilian_surrendered civilian_robbed tick test_key)", name);
     }
     type = sEvents[k].type;
     lua_getfield(L, LUA_REGISTRYINDEX, LUA_HANDLERS_KEY);
@@ -1717,6 +1718,12 @@ static lua_State *portLuaState(void)
         extern void portLuaHeistRegister(lua_State *L);
 
         portLuaHeistRegister(sL);
+    }
+    {   /* heist CCTV view and the HUD panel: cctv.view / view_off / viewing / name / sees / render_info, hud.panel, bond.room, spawn.room
+         * (port_luavm_cctv.c; after the heist bindings, which make the cctv table) */
+        extern void portLuaCctvRegister(lua_State *L);
+
+        portLuaCctvRegister(sL);
     }
     {   /* the player bot's plan feed: bot.push / bot.clear / bot.step / bot.active (port_luavm_bot.c) */
         extern void portLuaBotRegister(lua_State *L);

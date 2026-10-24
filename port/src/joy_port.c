@@ -918,6 +918,28 @@ s32 portJoyPortWeaponStep(void)
     return next ? 1 : (prev ? -1 : 0);
 }
 
+/**
+ * Heist CCTV view (port_cctvview.c), in the watching Bond's tick: the Port binds that drive the feed, taken whatever the permission
+ * (the view itself blocks play). Bit 0 = next camera (next weapon / next inventory), bit 1 = previous (previous weapon / inventory),
+ * bit 2 = leave (use / menu back). Every latch is taken, so one press never also acts after the view ends.
+ */
+s32 portJoyPortCctvTake(void)
+{
+    s32 r = 0;
+    s32 pad = joyPortPad();
+
+    if (pad < 0) {
+        return 0;
+    }
+    if (portJoyPortTake(pad, PORTACT_NEXT_WEAPON)) r |= 1;
+    if (portJoyPortTake(pad, PORTACT_NEXT_INV)) r |= 1;
+    if (portJoyPortTake(pad, PORTACT_PREV_WEAPON)) r |= 2;
+    if (portJoyPortTake(pad, PORTACT_PREV_INV)) r |= 2;
+    if (portJoyPortTake(pad, PORTACT_USE)) r |= 4;
+    if (portJoyPortTake(pad, PORTACT_MENU_BACK)) r |= 4;
+    return r;
+}
+
 static s32 sUseNoReload[PORT_PADS]; /* this tick's btap came from the Port use key */
 
 /**

@@ -26,6 +26,8 @@ SIM_PORT = {
     'port_coop.c', 'port_coopdrop.c', 'port_cooplogic.c', 'port_event.c', 'port_faction.c', 'port_flatland.c', 'port_heist.c', 'port_hostage.c',
     'port_lua.c', 'port_mode.c', 'port_modifier.c', 'port_modparse.c', 'port_mpsettings.c', 'port_mpstats.c', 'port_options.c',
     'port_roomvis.c', 'port_spawn.c', 'port_wsets.c', 'ramrom_data.c', 'port_simheap.c', 'port_arenamode.c',
+    # the heist CCTV view: who watches which camera (sim); its per-pass render state is rebuilt every pass, so a restore is harmless
+    'port_cctvview.c',
     # input latches the sim reads (held / edge / zoom state per pad); its live accumulators are excluded by portSnapLive()
     'joy_port.c',
 }

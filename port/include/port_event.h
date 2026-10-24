@@ -44,6 +44,7 @@ typedef enum PortEventType
     PORT_EV_CHR_KNOCKED_OUT, /* a = chrnum, b = player index of the Bond whose slap did it (-1 a script); port_heist.c */
     PORT_EV_CHR_WOKEN,       /* a = chrnum, b = chrnum of the guard that woke it (-1 a script) */
     PORT_EV_CHR_SEARCHED,    /* a = knocked-out chrnum, b = player index; it dropped what it carried */
+    PORT_EV_CCTV_VIEW,       /* a = player, b = camera setup index now watched (-1 = the view ended), c = why (port_cctvview.h CCTV_WHY_*) */
     PORT_EV_COUNT
 } PortEventType;
 

@@ -53,6 +53,12 @@ const char *portModeHudGet(s32 line);                     /* the all-players tex
 const char *portModeHudGetFor(s32 player, s32 line);      /* the text player draws: its own, else the all-players one */
 const char *portModeHudGetOwn(s32 player, s32 line);      /* only the per-player text (NULL when that player has none) */
 const char *portModeHudGetLocal(s32 line);                /* RENDER ONLY (port_console.c): the text of this machine's Bond */
+/* The HUD panel (hud.panel): up to 8 more lines in a box at the top right (the heist's control-room intel). Same rules: per player or
+ * for every player, presentation only, cleared with the HUD. */
+#define PORT_HUD_PANEL_LINES 8
+void        portModeHudPanelSet(s32 player, s32 line, const char *text);   /* player < 0 = all players; NULL clears the line */
+void        portModeHudPanelClear(s32 player);                               /* player < 0 = the all-players panel */
+const char *portModeHudPanelGetLocal(s32 line);                              /* RENDER ONLY: this machine's Bond's panel (else the all-players one) */
 
 /* Limits: 32 zones, 32 watched chrs, 3 HUD lines of 63 chars, a 64-entry last-attacker ring
  * (portModeNoteHit overwrites the oldest), 512 chr slots polled for deaths. Deaths and BOND_DIED are

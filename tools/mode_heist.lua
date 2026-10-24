@@ -52,6 +52,9 @@ local S = {
   lockdown        = true,    -- the alarm closes and locks the blast doors at the hall: BLUE card to pass (exit B is always open)
   -- cameras: stock (10 s of unbroken sight on Agent, 5 s above); the security console blinds every camera for cam_off_time seconds
   cam_off_time    = 90,
+  -- the screens in the banking hall (room 6): use one to watch the camera feeds (cctv.view); the intel box shows in that room or on a feed
+  monitor_reach   = 170,     -- units from a screen at which a use press watches the feeds
+  intel_room      = 6,
   -- the cracker (the door decoder: equip it and fire at the vault door, or press use there)
   crack_time      = 90,      -- seconds of progress to open the vault (progress runs only while a Bond is in the zone)
   crack_radius    = 260,
@@ -137,6 +140,8 @@ local P = {
   vault = { { 650, 3380, 380 }, { 1400, 3950, 560 }, { 1233, 4671, 200 }, { 925, 4567, 200 }, { 356, 3703, 200 }, { 365, 4200, 220 } },
                                           -- the vault interior (rooms 56, 55, 47, 57, 58) as circles x, z, r
   console = 82,                           -- the security console (room 43)
+  monitors = { { -455, 200 }, { -455, 330 }, { -455, 470 }, { -455, 610 }, { -455, 750 }, { 890, 383 }, { 890, 511 } },
+                                          -- the banking hall's screens (room 6): the monitor wall at x -477 (z 148..794), the two desk screens
   waves_front = { 60, 61, 53, 57 },       -- just inside the blast doors (hall north end)
   waves_dock = { 102, 103, 105 },         -- the loading dock (west wing)
   squad = { 86, 87, 13, 80 },             -- east wing: crack squads come in here
@@ -628,12 +633,132 @@ on("gadget_used", function(p, item, idx, objtype)
   if item == 38 or item == 44 then crack_action(p, "gadget") end   -- door decoder, safe cracker case
 end)
 
+-- ------------------------------------------------------------------------------------------------------------------------------------
+-- the camera feeds (designs/bank-heist.md P1 T2) and the control-room intel (P1 T1)
+
+local CAM_LABEL = { [87] = "SECURITY WING", [89] = "OFFICES", [91] = "CENTRAL CORRIDOR", [93] = "SECURITY STAIRS", [95] = "BANKING HALL",
+                    [97] = "EAST WING" }
+local CAM_AREA = { [87] = "security", [89] = "offices", [91] = "central", [93] = "security", [95] = "hall", [97] = "east" }
+H.cctv_left = {}       -- per Bond: when he last left a feed (a held use press must not re-open it)
+H.cctv_last = {}       -- per Bond: the camera he watched last (the screens reopen on it)
+H.seen = {}            -- card role -> { area, at } where a working camera last saw its carrier
+
+local function near_monitor(p)
+  local x, _, z = bond.pos(p)
+  if x == nil or bond.room(p) ~= S.intel_room then return false end
+  for _, m in ipairs(P.monitors) do
+    if d2(x, z, m[1], m[2]) <= S.monitor_reach then return true end
+  end
+  return false
+end
+H.near_monitor = near_monitor
+
+function H.watch(p, cam)
+  local list = cctv.list()
+  cam = cam or H.cctv_last[p] or list[1]
+  if not cam or not cctv.view(p, cam) then return false end
+  return true
+end
+
+on("cctv_view", function(p, cam, why)
+  if cam >= 0 then
+    H.cctv_last[p] = cam
+    if S.test then log("Bond %d watches camera %d (%s, why %d)", p, cam, cctv.name(cam), why) end
+  else
+    H.cctv_left[p] = H.elapsed
+    if why == 3 then flash("Hit! You look up from the screens", 3) end
+    if S.test then log("Bond %d left the feeds (why %d)", p, why) end
+  end
+end)
+
 on("use", function(p, kind, idx, objtype)
   for _, d in ipairs(DOORS.vault_a) do if idx == d then crack_action(p, "use") end end
   for _, d in ipairs(DOORS.vault_b) do if idx == d then crack_action(p, "use") end end
   -- the security console: blinds every camera for cam_off_time seconds and shows who carries the cards
   if bond.has_key(p, BLUE) and H.console_zone and zone.contains(H.console_zone, bond.id(p)) then H.camera_switch(p) end
+  -- the hall's screens: watch the camera feeds (a use press at a screen; MONITOR / MULTI_MONITOR / RACK or nothing in reach)
+  if (idx < 0 or objtype == 10 or objtype == 11 or objtype == 12) and not cctv.viewing(p) and near_monitor(p)
+     and H.elapsed - (H.cctv_left[p] or -100) > 0.75 then
+    H.watch(p)
+  end
 end)
+
+-- every 0.5 s: where the working cameras see the card carriers now (6 cameras x 5 carriers)
+local function intel_scan()
+  for role, c in pairs(H.carriers) do
+    if c.chr and spawn.alive(c.chr) then
+      for _, cam in ipairs(cctv.list()) do
+        if cctv.sees(cam, c.chr) then H.seen[role] = { area = CAM_AREA[cam] or c.area, at = H.elapsed }; break end
+      end
+    end
+  end
+end
+
+local CARD_ROLES = { { GREEN, "GREEN" }, { BLUE, "BLUE" }, { RED, "RED" }, { GOLD, "GOLD" } }
+local GUARD_AREAS = { "hall", "offices", "security", "central", "east" }   -- the areas a camera covers
+
+local function cams_up()
+  local up, n = 0, 0
+  local covered = {}
+  for _, cam in ipairs(cctv.list()) do
+    n = n + 1
+    local g = cctv.get(cam)
+    if g and not g.disabled then up = up + 1; covered[CAM_AREA[cam] or "?"] = true end
+  end
+  return up, n, covered
+end
+
+local function vault_text()
+  local ph = H.phase
+  if ph == "cracking" or ph == "recracking" then return string.format("%s %d%%", ph == "recracking" and "RE-CRACK" or "CRACKING", math.floor(H.progress * 100))
+  elseif ph == "jammed" then return "CRACKER JAMMED"
+  elseif ph == "open" or ph == "closing" then return string.format("OPEN %ds", math.max(0, math.floor(H.vault_left or 0)))
+  elseif ph == "trapped" then return "SEALED - crew inside"
+  elseif ph == "sealed" or ph == "escaped" then return "sealed"
+  end
+  return "time-locked"
+end
+
+function H.intel_lines(p)
+  local up, n, covered = cams_up()
+  local t = {}
+  t[#t + 1] = string.format("%s  cams %d/%d  alarm: %s", cctv.viewing(p) and "CAMERA FEEDS" or "CONTROL ROOM", up, n,
+                            H.hot and "RAISED" or "quiet")
+  t[#t + 1] = "VAULT: " .. vault_text()
+  for _, cr in ipairs(CARD_ROLES) do
+    local c, role
+    for r, cc in pairs(H.carriers) do if cc.flags == cr[1] and cc.chr then c, role = cc, r end end
+    local where
+    if not c then where = "-"
+    elseif not (c.key and select(2, spawn.key_alive(c.key))) then where = "card not on him"
+    elseif not spawn.alive(c.chr) or spawn.down(c.chr) then where = "down"
+    else
+      local s = H.seen[role]
+      if s and H.elapsed - s.at < 1 then where = (AREA_LABEL[s.area] or s.area) .. " (live)"
+      elseif s then where = string.format("%s %ds ago", AREA_LABEL[s.area] or s.area, math.floor(H.elapsed - s.at))
+      else where = "unknown" end
+    end
+    t[#t + 1] = string.format("%s %s: %s", cr[2], role or "?", where)
+  end
+  local counts = {}
+  for _, g in ipairs(H.guards) do
+    if spawn.alive(g.chr) and not spawn.down(g.chr) then counts[g.area] = (counts[g.area] or 0) + 1 end
+  end
+  local gl = {}
+  for _, a in ipairs(GUARD_AREAS) do
+    gl[#gl + 1] = string.format("%s %s", a, covered[a] and tostring(counts[a] or 0) or "?")
+  end
+  t[#t + 1] = "GUARDS " .. table.concat(gl, "  ", 1, 3)
+  t[#t + 1] = "  " .. table.concat(gl, "  ", 4) .. "  (west, records, cells: no cams)"
+  return t
+end
+
+local function intel_tick()
+  intel_scan()
+  for p = 0, bond.count() - 1 do
+    if not H.ended and (cctv.viewing(p) or bond.room(p) == S.intel_room) then hud.panel(H.intel_lines(p), p) else hud.panel(nil, p) end
+  end
+end
 
 function H.camera_switch(p)
   for _, cam in ipairs(cctv.list()) do cctv.disable(cam) end
@@ -714,6 +839,8 @@ local function finish(win, msg)
     hud.set(1, win and string.format("HEIST COMPLETE  SCORE %s%s", money(score), best) or ("HEIST FAILED: " .. msg), p)
     hud.set(2, string.format("Loot %s  bonus %s  civilians %d  best %s", money(H.loot), money(bonus), killed, money(HEIST_BEST)), p)
     hud.set(3, "", p)
+    hud.panel(nil, p)
+    cctv.view_off(p)
   end
   H.score = score
   if win then mission.win(string.format("Heist complete: %s (best %s)", money(score), money(HEIST_BEST)))
@@ -780,6 +907,7 @@ on("stage_start", function(stage)
   H.zones.exit_b = zone.add("exit_dock", bx, by, bz, S.exit_radius - 50)
   local cx, cy, cz = pads.pos(P.console)
   H.console_zone = zone.add("console", cx, cy, cz, 300)
+  for cam, label in pairs(CAM_LABEL) do cctv.name(cam, label) end
   queue_carriers()
   queue_area_guards()
   queue_civilians()
@@ -832,5 +960,5 @@ on("tick", function(dt)
   fail_tick()
   if not H.ended then exits_tick() end
   hud_acc = hud_acc + dt
-  if hud_acc >= 0.5 then hud_acc = 0; if not H.ended then refresh_hud() end end
+  if hud_acc >= 0.5 then hud_acc = 0; if not H.ended then refresh_hud(); intel_tick() end end
 end)

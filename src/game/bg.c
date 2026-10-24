@@ -193,6 +193,12 @@ static void bgRenderListSave(s32 pl);
 static void bgRenderListMerge(s32 pl);
 static s32 s_RenderSwapped;                 /* 1 while bgLevelRender draws this pass's own render walk (bgRenderListSwapIn .. SwapOut) */
 static u8 s_GeomOnlyNow[MAXROOMCOUNT];     /* while swapped: rooms only the view's own walk found (its margin): their geometry is drawn, their props are not */
+static s32 s_CctvWalking;                   /* heist CCTV view (port_cctvview.c): 1 while the camera's own walk runs: it starts at the camera */
+static s32 s_CctvStart;
+static s_bound_info s_RenderList[4][204];   /* (tentative: defined with the render walk below) */
+static u8 s_GeomOnlyPl[4][MAXROOMCOUNT];
+static void bgCctvWalk(void);
+static void bgCctvListBuild(s32 pl);
 #endif
 u8 D_800443C4[PORTMAX] = {
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -798,6 +804,9 @@ Gfx *sub_GAME_7F0B3C8C(Gfx *gdl)
         s32 n = g_BgNumberOfRoomsDrawn;
         s32 k;
         PropRecord *plr = getCurrentPlayerProp();
+        extern s32 portCctvPassActive(void);
+        extern coord3d *portCctvEye(void);
+        coord3d *refpos = portCctvPassActive() ? portCctvEye() : (plr != NULL ? &plr->pos : NULL);   /* a CCTV feed sorts from the camera */
 
         if (n > 128)
         {
@@ -809,11 +818,11 @@ Gfx *sub_GAME_7F0B3C8C(Gfx *gdl)
             coord3d c;
             order[j] = j;
             bgGetRoomCenter(dword_CODE_bss_8007FFA0[j].roomid, &c);
-            if (plr != NULL)
+            if (refpos != NULL)
             {
-                f32 dx = c.x - plr->pos.x;
-                f32 dy = c.y - plr->pos.y;
-                f32 dz = c.z - plr->pos.z;
+                f32 dx = c.x - refpos->x;
+                f32 dy = c.y - refpos->y;
+                f32 dz = c.z - refpos->z;
                 dist[j] = dx * dx + dy * dy + dz * dz;
             }
             else
@@ -1423,6 +1432,14 @@ void bgRoomVisibilityRelated(void)
         s_RenderN[pl] = -1;
         s_RealValid[pl] = 0;
     }
+    {   /* PORT: heist CCTV view: this machine's Bond watches a camera feed. The camera's own walk runs first and its list is kept for the
+         * world draw only (bgCctvListBuild below); every walk after it (the co-op render walk, the sim walk) runs exactly as before. */
+        extern s32 portCctvPassBegin(void);
+
+        if (portCctvPassBegin()) {
+            bgCctvWalk();
+        }
+    }
     if (bgRealWalkWanted()) {
         s32 old = portSimVisOld();
 
@@ -1453,6 +1470,69 @@ void bgRoomVisibilityRelated(void)
         bgRoomVisibilityWalk(0, 1);
         bgSimRoomsSnapshot();
     }
+    bgCctvListBuild(pl);
+}
+
+/* ---- the heist CCTV view (port_cctvview.c, designs/bank-heist.md P1 T2) ----------------------------------------------------------------
+ * A Bond watching a security camera draws the world from the camera. Presentation only: the sim walk still runs from Bond's canonical view
+ * and is the last walk of the pass, so everything the sim reads (room flags, lists, the global-vis packet) is its own. The camera's walk
+ * runs first with the camera's world-to-screen matrix, fov, room and eye swapped in for the walk (and back after); its drawn list becomes
+ * this pass's world draw (bgRenderListSwapIn). Rooms the sim walk did not reach draw geometry only, like the co-op margin: a prop's render
+ * builds matrices the sim reads back, so only the props the sim made onscreen are ever drawn. */
+static s_bound_info s_CctvList[204];
+static s32 s_CctvN = -1;
+
+static void bgCctvWalk(void)
+{
+    extern void viCctvCameraModel(void *save, f32 fovy);
+    extern void viSimCameraRestore(const void *save);
+    extern Mtxf *portCctvWorldToScreen(void);
+    extern f32 portCctvFovY(void);
+    u8 save[256];
+    s32 n;
+
+    viCctvCameraModel(save, portCctvFovY());
+    g_CurrentPlayer->field_10CC = portCctvWorldToScreen();   /* in the saved block: restored below */
+    s_CctvWalking = 1;
+    g_PortRealWalk = 1;
+    bgRoomVisibilityWalk(1, 0);
+    g_PortRealWalk = 0;
+    s_CctvWalking = 0;
+    s_CctvStart = g_PortWalkStartRoom;
+    n = g_BgNumberOfRoomsDrawn;
+    if (n > 204) {
+        n = 204;
+    }
+    memcpy(s_CctvList, dword_CODE_bss_8007FFA0, (size_t) n * sizeof(s_bound_info));
+    s_CctvN = n;
+    viSimCameraRestore(save);
+}
+
+static void bgCctvListBuild(s32 pl)
+{
+    extern void portCctvNoteRooms(s32 start, const s32 *rooms, s32 n, s32 geomonly);
+    s32 i, n = 0, geom = 0;
+    s32 ids[204];
+
+    if (s_CctvN < 0) {
+        return;
+    }
+    if (pl >= 0 && pl < 4) {
+        memset(s_GeomOnlyPl[pl], 0, sizeof(s_GeomOnlyPl[pl]));
+        for (i = 0; i < s_CctvN; i++) {
+            s32 room = s_CctvList[i].roomid;
+
+            s_RenderList[pl][n++] = s_CctvList[i];
+            ids[i] = room;
+            if (room >= 0 && room < MAXROOMCOUNT && !g_BgRoomInfo[room].room_rendered) {   /* the sim walk's flags: it ran last */
+                s_GeomOnlyPl[pl][room] = 1;
+                geom++;
+            }
+        }
+        s_RenderN[pl] = n;
+        portCctvNoteRooms(s_CctvStart, ids, s_CctvN, geom);
+    }
+    s_CctvN = -1;
 }
 
 static void bgRoomVisibilityWalk(s32 realview, s32 unload)
@@ -1518,6 +1598,16 @@ void bgRoomVisibilityRelated(void)
 
     pos = bondviewGetCurrentPlayersPosition();
     pos3 = bondviewGetCurrentPlayersPosition3();
+#ifndef TARGET_N64
+    if (s_CctvWalking) {   /* the CCTV view's walk starts in the camera's room, at its eye */
+        extern s32 portCctvRoom(void);
+        extern coord3d *portCctvEye(void);
+
+        room = portCctvRoom();
+        g_BgCurrentRoom = room;
+        pos = pos3 = portCctvEye();
+    }
+#endif
 
     // FAKE
     if (1) {}
@@ -2014,8 +2104,9 @@ Gfx* bgScissorCurrentPlayerViewF(Gfx* arg0, f32 arg1, f32 arg2, f32 arg3, f32 ar
          * (aspect, FOV, screen size) they would clip the picture wrongly, so the room keeps the whole view (the z-buffer still
          * hides what is behind walls) */
         extern s32 viSimViewMatchesDraw(void);
+        extern s32 portCctvPassActive(void);
 
-        if (!viSimViewMatchesDraw())
+        if (!viSimViewMatchesDraw() || portCctvPassActive())   /* (a CCTV feed: the boxes are the camera walk's, keep the whole view) */
         {
             return bgScissorCurrentPlayerViewDefault(arg0);
         }
@@ -5291,6 +5382,13 @@ void sub_GAME_7F0B7F84(s32 roomnum, s32 portalnum /*canonically p*/, s32 depth, 
     if (i);
 
     playerpos = bondviewGetCurrentPlayersPosition();
+#ifndef TARGET_N64
+    if (s_CctvWalking) {   /* the CCTV view's walk: which side of the portal is the camera's eye */
+        extern coord3d *portCctvEye(void);
+
+        playerpos = portCctvEye();
+    }
+#endif
     sub_GAME_7F0B96CC(portalnum, &metric);
     playermetric = ((metric.normal.z * playerpos->z) + ((metric.normal.x * playerpos->x) + (metric.normal.y * playerpos->y))) * room_data_float1;
     portalmetric = sub_GAME_7F0B9990(portalnum);
@@ -5474,6 +5572,13 @@ s32 sub_GAME_7F0B7F84(s32 value, s32 roomnum, s32 portalnum /*canonically p*/, s
     if (i);
 
     playerpos = bondviewGetCurrentPlayersPosition();
+#ifndef TARGET_N64
+    if (s_CctvWalking) {   /* the CCTV view's walk: which side of the portal is the camera's eye */
+        extern coord3d *portCctvEye(void);
+
+        playerpos = portCctvEye();
+    }
+#endif
     sub_GAME_7F0B96CC(portalnum, &metric);
     playermetric = ((metric.normal.z * playerpos->z) + ((metric.normal.x * playerpos->x) + (metric.normal.y * playerpos->y))) * room_data_float1;
     portalmetric = sub_GAME_7F0B9990(portalnum);

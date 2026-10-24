@@ -64,6 +64,7 @@ static Zone sZone[PORT_ZONE_MAX];
 static s32 sWatch[WATCH_MAX];
 static s32 sWatchUsed[WATCH_MAX];
 static char sHud[HUD_SLOTS][PORT_HUD_LINES][HUD_LEN];
+static char sPanel[HUD_SLOTS][PORT_HUD_PANEL_LINES][HUD_LEN];   /* hud.panel (the heist's intel box) */
 static s32 sStage;
 static s32 sStarted;        /* STAGE_START emitted */
 static s32 sTicks;          /* gated sim ticks since STAGE_START */
@@ -533,6 +534,57 @@ void portModeHudSet(s32 line, const char *text)
 void portModeHudClearAll(void)
 {
     memset(sHud, 0, sizeof(sHud));
+    memset(sPanel, 0, sizeof(sPanel));
+}
+
+void portModeHudPanelSet(s32 player, s32 line, const char *text)
+{
+    s32 slot = player < 0 ? 0 : player + 1;
+
+    if (line < 0 || line >= PORT_HUD_PANEL_LINES || slot >= HUD_SLOTS)
+    {
+        return;
+    }
+    if (text == NULL)
+    {
+        sPanel[slot][line][0] = '\0';
+        return;
+    }
+    strncpy(sPanel[slot][line], text, HUD_LEN - 1);
+    sPanel[slot][line][HUD_LEN - 1] = '\0';
+}
+
+void portModeHudPanelClear(s32 player)
+{
+    s32 slot = player < 0 ? 0 : player + 1;
+
+    if (slot < HUD_SLOTS)
+    {
+        memset(sPanel[slot], 0, sizeof(sPanel[slot]));
+    }
+}
+
+const char *portModeHudPanelGetLocal(s32 line)
+{
+    const s32 pl = (s32) portLocalPlayer();   /* render only */
+    s32 own = 0, i;
+
+    if (!portModeActive() || line < 0 || line >= PORT_HUD_PANEL_LINES)
+    {
+        return NULL;
+    }
+    if (pl >= 0 && pl + 1 < HUD_SLOTS)
+    {
+        for (i = 0; i < PORT_HUD_PANEL_LINES && !own; i++)
+        {
+            own = sPanel[pl + 1][i][0] != '\0';
+        }
+    }
+    if (own)
+    {   /* a Bond with a panel of his own draws only his (the lines of one panel belong together) */
+        return sPanel[pl + 1][line][0] != '\0' ? sPanel[pl + 1][line] : NULL;
+    }
+    return sPanel[0][line][0] != '\0' ? sPanel[0][line] : NULL;
 }
 
 void portModeHudClearFor(s32 player)

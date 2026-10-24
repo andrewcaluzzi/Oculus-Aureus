@@ -7873,6 +7873,15 @@ void portInputPadMerge(s32 idx, OSContPad *pad)
                 pad->stick_y = (s8) g_PortGotoStickY;
             }
         }
+        { /* cctv.test_press (port_cctvview.c, tests): raw N64 buttons held on slot 0 for a few polls */
+            extern u16 g_PortTestButtons;
+            extern s32 g_PortTestButtonPolls;
+            if (idx == 0 && g_PortTestButtonPolls > 0)
+            {
+                pad->button |= g_PortTestButtons;
+                g_PortTestButtonPolls--;
+            }
+        }
         if (idx == 0)
         {   /* GE_PADB_AT="n[,m...]": raw N64 B held for 3 polls at those poll counts (hostage B-press test) */
             static const char *spec = (const char *) 1;

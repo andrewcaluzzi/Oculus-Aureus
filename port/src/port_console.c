@@ -1671,6 +1671,120 @@ static Gfx *portNetGraphRender(Gfx *gdl)
     return conSpaceEnd(gdl);
 }
 
+/* ---- heist CCTV view overlay and the HUD panel (port_cctvview.c, hud.panel) ------------------------------------------------------- */
+
+#define CV_STATIC_COLS 40
+#define CV_STATIC_ROWS 30
+#define CV_COL_WHITE   0xFFFFFFFFu
+#define CV_COL_RED     0xFF3030FFu
+#define CV_COL_DIM     0xC0C0C0FFu
+#define CV_GFX_NEED    (CV_STATIC_COLS * CV_STATIC_ROWS * 2 + 6 * CON_GFX_ROW + CON_GFX_SETUP + CON_GFX_TAIL + 64)
+
+/* A camera feed on this machine's screen: the name, where it is in the list, a blinking REC dot, the clock, the controls; a camera that
+ * is off is full-screen static under the labels. Presentation only (it reads the view state and the camera's flags). */
+static Gfx *cctvOverlay(Gfx *gdl)
+{
+    extern int portCctvOverlayGet(int *cam, char *name, int namelen, int *index, int *count, int *offline, int *seconds, int *ticks);
+    static u32 seed = 0x2545F491u;
+    int cam, idx, cnt, off, secs, ticks;
+    char name[32], line[96];
+    s32 W, H, x, y;
+
+    if (!portCctvOverlayGet(&cam, name, (int) sizeof(name), &idx, &cnt, &off, &secs, &ticks))
+    {
+        return gdl;
+    }
+    if (dynGetFreeGfx2(gdl) < CV_GFX_NEED)
+    {
+        return gdl;
+    }
+    ngHavePrim = 0;
+    gdl = conSpaceBegin(gdl);
+    W = conSpaceW;
+    H = conSpaceH;
+    gDPSetRenderMode(gdl++, G_RM_XLU_SURF, G_RM_XLU_SURF2);
+    gDPSetCombineMode(gdl++, G_CC_PRIMITIVE, G_CC_PRIMITIVE);
+    if (off)
+    {   /* static: a grid of grey blocks, new every frame */
+        s32 bw = (W + CV_STATIC_COLS - 1) / CV_STATIC_COLS, bh = (H + CV_STATIC_ROWS - 1) / CV_STATIC_ROWS;
+
+        for (y = 0; y < CV_STATIC_ROWS; y++)
+        {
+            for (x = 0; x < CV_STATIC_COLS; x++)
+            {
+                u32 g;
+
+                seed = seed * 1664525u + 1013904223u;
+                g = (seed >> 24) & 0xE0u;   /* 8 levels: fewer colour changes */
+                gdl = ngRect(gdl, x * bw, y * bh, x * bw + bw, y * bh + bh, (g << 24) | (g << 16) | (g << 8) | 0xFFu);
+            }
+        }
+    }
+    gdl = ngRect(gdl, 0, 0, W, 24, 0x00000090u);
+    gdl = ngRect(gdl, 0, H - 22, W, H, 0x00000090u);
+    if (off)
+    {
+        gdl = ngRect(gdl, W / 2 - 80, H / 2 - 18, W / 2 + 80, H / 2 + 18, 0x000000E0u);
+    }
+    if (((ticks / 30) & 1) == 0)
+    {
+        gdl = ngRect(gdl, W - 64, 7, W - 54, 17, CV_COL_RED);
+    }
+    gDPSetCombineLERP(gdl++, 0, 0, 0, PRIMITIVE, TEXEL0, 0, PRIMITIVE, 0, 0, 0, 0, PRIMITIVE, TEXEL0, 0, PRIMITIVE, 0);
+    snprintf(line, sizeof(line), "CAM %d/%d  %s", idx, cnt, name);
+    gdl = conDrawRow(gdl, CON_TEXT_X, 6, line, CV_COL_WHITE);
+    gdl = conDrawRow(gdl, W - 48, 6, "REC", CV_COL_RED);
+    snprintf(line, sizeof(line), "%02d:%02d:%02d", (secs / 3600) % 100, (secs / 60) % 60, secs % 60);
+    gdl = conDrawRow(gdl, W - 48 - 16 - conTextWidth(line) - 12, 6, line, CV_COL_WHITE);
+    gdl = conDrawRow(gdl, CON_TEXT_X, H - 17, "NEXT: A / C-right / next weapon   PREV: C-left / previous weapon   LEAVE: B / use", CV_COL_DIM);
+    if (off)
+    {
+        const char *t1 = "NO SIGNAL";
+        const char *t2 = "CAMERA OFFLINE";
+
+        gdl = conDrawRow(gdl, (W - conTextWidth(t1)) / 2, H / 2 - 12, t1, CV_COL_WHITE);
+        gdl = conDrawRow(gdl, (W - conTextWidth(t2)) / 2, H / 2 + 2, t2, CV_COL_WHITE);
+    }
+    return conSpaceEnd(gdl);
+}
+
+/* hud.panel: up to 8 lines in a dark box at the top right, under the feed's top bar */
+static Gfx *hudPanel(Gfx *gdl)
+{
+    char rows[PORT_HUD_PANEL_LINES][64];
+    s32 n = 0, i, w = 0, x, y = 30;
+
+    for (i = 0; i < PORT_HUD_PANEL_LINES; i++)
+    {
+        const char *t = portModeHudPanelGetLocal(i);
+
+        rows[i][0] = '\0';
+        if (t != NULL)
+        {
+            memcpy(rows[i], t, 63);
+            rows[i][63] = '\0';
+            n = i + 1;
+            if (conTextWidth(rows[i]) > w) w = conTextWidth(rows[i]);
+        }
+    }
+    if (n == 0 || dynGetFreeGfx2(gdl) < n * CON_GFX_ROW + CON_GFX_SETUP + CON_GFX_TAIL + 16)
+    {
+        return gdl;
+    }
+    ngHavePrim = 0;
+    gdl = conSpaceBegin(gdl);
+    x = conSpaceW - w - 14;
+    gDPSetRenderMode(gdl++, G_RM_XLU_SURF, G_RM_XLU_SURF2);
+    gDPSetCombineMode(gdl++, G_CC_PRIMITIVE, G_CC_PRIMITIVE);
+    gdl = ngRect(gdl, x - 6, y - 4, conSpaceW - 4, y + n * CON_ROW_PITCH + 2, 0x000000A8u);
+    gDPSetCombineLERP(gdl++, 0, 0, 0, PRIMITIVE, TEXEL0, 0, PRIMITIVE, 0, 0, 0, 0, PRIMITIVE, TEXEL0, 0, PRIMITIVE, 0);
+    for (i = 0; i < n; i++)
+    {
+        gdl = conDrawRow(gdl, x, y + i * CON_ROW_PITCH, rows[i], i == 0 ? 0xFFE060FFu : CON_COL_TEXT);
+    }
+    return conSpaceEnd(gdl);
+}
+
 Gfx *portConRender(Gfx *gdl)
 {
     s32 i;
@@ -1691,6 +1805,12 @@ Gfx *portConRender(Gfx *gdl)
     if (dynGetFreeGfx2(gdl) < CON_GFX_SETUP + CON_GFX_TAIL)
     {
         return gdl;
+    }
+
+    if (portModeActive())
+    {
+        gdl = cctvOverlay(gdl);   /* heist: a camera feed's labels and static (under every other line) */
+        gdl = hudPanel(gdl);
     }
 
     gdl = portNetGraphRender(gdl);   /* job 6: net_graph 1-3 (a no-op at 0) */

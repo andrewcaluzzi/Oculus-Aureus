@@ -351,6 +351,9 @@ const char *portLuaGameZoneName(int zone) { return portModeActive() ? portZoneNa
 
 void portLuaGameHudSet(int player, int line, const char *text) { if (portModeActive()) portModeHudSetFor(player, line, text); }
 void portLuaGameHudClear(int player) { if (portModeActive()) portModeHudClearFor(player); }
+void portLuaGameHudPanel(int player, int line, const char *text) { if (portModeActive()) portModeHudPanelSet(player, line, text); }
+void portLuaGameHudPanelClear(int player) { if (portModeActive()) portModeHudPanelClear(player); }
+const char *portLuaGameHudPanelGet(int line) { return portModeHudPanelGetLocal(line); }
 
 int portLuaGameHostageList(int *chrs, int *states, int *leaders, int max)
 {

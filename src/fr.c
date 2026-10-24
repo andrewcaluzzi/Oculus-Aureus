@@ -929,6 +929,25 @@ void viSimCameraRestore(const void *save)
 {
     memcpy(&g_CurrentPlayer->c_screenwidth, save, PORT_CAMBLOCK_BYTES);
 }
+
+/* PORT: heist CCTV view (port_cctvview.c): the same swap for a security camera's walk, with the camera's own fov. The block also holds
+ * the world-to-screen matrix pointer (field_10CC), so the caller may point it at the camera's for the walk; Restore puts Bond's back. */
+void viCctvCameraModel(void *save, f32 fovy)
+{
+    memcpy(save, &g_CurrentPlayer->c_screenwidth, PORT_CAMBLOCK_BYTES);
+    currentPlayerSetScreenSize(g_ViBackData->viewx, g_ViBackData->viewy);
+    currentPlayerSetScreenPosition(g_ViBackData->viewleft, g_ViBackData->viewtop);
+    currentPlayerSetPerspective(g_ViBackData->znear, fovy, g_ViBackData->aspect);
+    currentPlayerSetCameraScale();
+}
+
+/* the display projection a camera feed draws with: the window's aspect and z range, the camera's fov */
+void viCctvPerspectiveF(f32 mf[4][4], f32 fovy)
+{
+    u16 norm;
+
+    guPerspectiveF(mf, &norm, fovy, g_ViBackData->aspect, g_ViBackData->znear, g_ViBackData->zfar, 1.0f);
+}
 #endif
 
 void viSetViewSize(s16 x, s16 y)

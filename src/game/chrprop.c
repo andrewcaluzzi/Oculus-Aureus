@@ -1817,6 +1817,12 @@ bool bond_interact_object(void)
         return FALSE;
     }
 
+#ifndef TARGET_N64
+    { /* PORT: heist: a use press at nothing still tells the script (target -1): "use here" places with no object, the monitors, the console */
+        extern void portHeistNoteUse(PropRecord *prop);
+        portHeistNoteUse(NULL);
+    }
+#endif
     return TRUE;
 }
 
