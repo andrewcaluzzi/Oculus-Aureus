@@ -29,6 +29,7 @@ static char sName[32];
 static s32 sActive;
 static s32 sResult;   /* 0 = running, 1 = won, 2 = failed (kept until the next mission stage loads) */
 static char sMenuChoice[32];   /* the Mods menu's Game mode pick; session-only, "" = Off */
+static s32 sKeepLocks;         /* a mode script asked for the level's keyed doors to stay locked (mode.keep_locks); reset every stage start */
 
 /* PORT: the Mods menu picks the mode for the next solo stage. GE_MODE in the environment still wins. */
 void portModeSetMenuChoice(const char *name)
@@ -70,6 +71,7 @@ void portModeStageStart(int stage)
         sResult = 0;   /* the end screen (loaded as the title stage) still reads it */
     }
     sActive = 0;
+    sKeepLocks = 0;
     sName[0] = '\0';
     /* Same predicate as the co-op bot: solo, no demo playing or recording. */
     if (stage == LEVELID_TITLE || gamemode == GAMEMODE_MULTI || getPlayerCount() != 1
@@ -150,9 +152,28 @@ void portModeOneSecond(void)
 {
     if (sActive)
     {
-        cheatButtonHandleCheatsTurnedOn(CHEAT_PORT_UNLOCK_DOORS);
+        /* the level reset opens every door for Bond (no guards carry the keys), unless the script wants the keycard doors (mode.keep_locks) */
+        if (!sKeepLocks)
+        {
+            cheatButtonHandleCheatsTurnedOn(CHEAT_PORT_UNLOCK_DOORS);
+        }
         portModeReport("t+1s");
     }
+}
+
+/* mode.keep_locks(true): keep the stage's keyed doors and padlocks working (the mode's own key carriers hand out the keys). Call it from the
+ * script's top level: the unlock happens one second into the stage. Inert outside a mode. */
+void portModeKeepLocks(int on)
+{
+    if (sActive)
+    {
+        sKeepLocks = on ? 1 : 0;
+    }
+}
+
+int portModeLocksKept(void)
+{
+    return sActive && sKeepLocks;
 }
 
 #endif /* TARGET_N64 */

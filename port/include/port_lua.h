@@ -114,6 +114,13 @@ void        portLuaGameHeal(int player, float health, float armour);      /* add
 int         portLuaGameBondVitals(int player, float *health, float *armour); /* 0 = no such Bond */
 int         portLuaGameEndMission(int win);
 int         portLuaGameMissionEnded(void);               /* mission.win/fail already happened */
+void        portModeKeepLocks(int on);                   /* port_mode.c: mode.keep_locks(bool); the level reset otherwise opens every door for Bond */
+/* probe.* (port_probe.c): read-only logging of the stage's setup objects and pads ("ge: probe: ..." lines); inert outside a mode */
+void        portProbeLevel(void);
+void        portProbePads(void);
+void        portProbeCctv(void);                         /* live state of each CCTV (sight timer, sweep, distance to Bond 0) */
+int         portProbeDoorsUnlocked(void);                /* the UNLOCK DOORS cheat is on (every door opens for Bond) */
+int         portProbeAlarm(void);                    /* alarm siren ticks left (0 = off) */
 
 /* Mods menu items added by scripts (menu.add_toggle / menu.add_number), port_luavm.c.
  * Values are cached: Refresh calls the scripts' getters (never from a render path). */

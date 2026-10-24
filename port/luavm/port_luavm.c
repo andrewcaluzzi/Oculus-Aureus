@@ -1387,7 +1387,16 @@ static int portLuaModeEnvFlag(lua_State *L)
     return 1;
 }
 
-static const luaL_Reg sModeLib[] ={ { "name", portLuaModeName }, { "env_flag", portLuaModeEnvFlag }, { NULL, NULL } };
+/* mode.keep_locks([on = true]): keep the stage's keyed doors and padlocks working. The level reset otherwise turns the UNLOCK DOORS cheat on one
+ * second into the stage, so no key door ever stops Bond. Call it from the script's top level (before that second is up). Inert outside a mode. */
+static int portLuaModeKeepLocks(lua_State *L)
+{
+    portModeKeepLocks(lua_isnone(L, 1) ? 1 : lua_toboolean(L, 1));
+    return 0;
+}
+
+static const luaL_Reg sModeLib[] ={ { "name", portLuaModeName }, { "env_flag", portLuaModeEnvFlag }, { "keep_locks", portLuaModeKeepLocks },
+                                    { NULL, NULL } };
 static const luaL_Reg sPadsLib[] = { { "count", portLuaPadsCount }, { "pos", portLuaPadsPos },
                                      { "far_from", portLuaPadsFarFrom }, { NULL, NULL } };
 static const luaL_Reg sSpawnLib[] = { { "hostage", portLuaSpawnHostage }, { "guard", portLuaSpawnGuard }, { NULL, NULL } };
@@ -1402,6 +1411,48 @@ static const luaL_Reg sHostagesLib[] = { { "list", portLuaHostagesList }, { "sta
                                          { "set_state", portLuaHostagesSetState }, { "extract", portLuaHostagesExtract },
                                          { NULL, NULL } };
 static const luaL_Reg sMissionLib[] = { { "win", portLuaMissionWin }, { "fail", portLuaMissionFail }, { NULL, NULL } };
+
+/* probe.level() / probe.pads(): log the stage's setup objects (doors, keys, CCTV, alarms, monitors, safes, guard records) and the
+ * pad table with rooms. Read-only; the output goes to stdout as "ge: probe: ..." lines. */
+static int portLuaProbeLevel(lua_State *L)
+{
+    portLuaNeedStage(L, "probe.level");
+    portProbeLevel();
+    return 0;
+}
+
+static int portLuaProbePads(lua_State *L)
+{
+    portLuaNeedStage(L, "probe.pads");
+    portProbePads();
+    return 0;
+}
+
+/* probe.alarm() -> ticks of siren left (0 = no alarm). The stock CCTV raises it after 300 ticks of unbroken sight. */
+static int portLuaProbeAlarm(lua_State *L)
+{
+    portLuaNeedStage(L, "probe.alarm");
+    lua_pushinteger(L, portLuaGameModeActive() ? portProbeAlarm() : 0);
+    return 1;
+}
+
+/* probe.doors_unlocked() -> true while the UNLOCK DOORS cheat is on for Bond (the mode default; mode.keep_locks() prevents it) */
+static int portLuaProbeDoorsUnlocked(lua_State *L)
+{
+    portLuaNeedStage(L, "probe.doors_unlocked");
+    lua_pushboolean(L, portLuaGameModeActive() && portProbeDoorsUnlocked());
+    return 1;
+}
+
+static int portLuaProbeCctv(lua_State *L)
+{
+    portLuaNeedStage(L, "probe.cctv");
+    portProbeCctv();
+    return 0;
+}
+
+static const luaL_Reg sProbeLib[] = { { "level", portLuaProbeLevel }, { "pads", portLuaProbePads }, { "alarm", portLuaProbeAlarm },
+                                      { "cctv", portLuaProbeCctv }, { "doors_unlocked", portLuaProbeDoorsUnlocked }, { NULL, NULL } };
 
 static void portLuaRegisterLib(lua_State *L, const char *name, const luaL_Reg *reg)
 {
@@ -1645,6 +1696,7 @@ static lua_State *portLuaState(void)
     portLuaRegisterLib(sL, "bond", sBondLib);
     portLuaRegisterLib(sL, "hostages", sHostagesLib);
     portLuaRegisterLib(sL, "mission", sMissionLib);
+    portLuaRegisterLib(sL, "probe", sProbeLib);
     {   /* arena mode additions to spawn and bond (port_luavm_arena.c) */
         extern void portLuaArenaRegister(lua_State *L);
 

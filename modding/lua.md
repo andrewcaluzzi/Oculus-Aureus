@@ -16,7 +16,7 @@ All paths are relative to the folder holding the exe (`build_win/`, `build_pc/`)
 
 The build copies `tools/scripts_example.lua` to `Data/Scripts/example.lua` (all commented out: a tour of the `weapon` table) and the shipped modes (`arena`, `arena-endless`, `hostage`, `hostage-flatland`) into `Data/Scripts/modes/`. Edit them in place or write your own.
 
-A mode **wipes the stage to bare geometry** (no guards, objects or objectives; `GE_MODE=reset` is just the wipe) and runs only in a single-player mission: not in demos, recording, multiplayer or the title stage. Scripts run at stage load, before Bond exists, so register handlers with `on(...)` and do the setup in `stage_start`.
+A mode **removes the stage's guards, objectives and level AI scripts**; the level's **objects are kept** (doors, keyed locks, padlocks, cells, CCTV cameras, monitors, safes, props; confirmed by `probe.level()` on Bunker 2: all 38 door records and 6 cameras are live props), and the stock object code still runs (cameras raise the alarm after 300 ticks of unbroken sight). The one thing the reset adds is the UNLOCK DOORS cheat one second into the stage, so every door opens for Bond; call `mode.keep_locks()` at script load to prevent that (`GE_MODE=reset` is just the reset) and runs only in a single-player mission: not in demos, recording, multiplayer or the title stage. Scripts run at stage load, before Bond exists, so register handlers with `on(...)` and do the setup in `stage_start`.
 
 Handy: pick the stage with `GE_STAGE=dam` (or `colosseum`, `flatland`, ...), skip the intro with `GE_SKIPINTRO=1`, run a script from anywhere with `GE_LUA_TEST=<file>`. The in-game console has `lua <code>` (an expression prints `=> value`) and `lua_reload`. Both are refused during netplay. Logs go to `ge: lua: ...`; `print` goes there too.
 
@@ -86,6 +86,9 @@ Chr ids are chrnums. Globals: `CHR_BOND = -2` (player 0; `bond.id(p)` gives the 
 | --- | --- |
 | `mode.name()` | The `GE_MODE` string, `""` outside a mode. |
 | `mode.env_flag(name)` | True when the environment variable `name` (it must start with `GE_`) is set and not `0`. |
+| `mode.keep_locks([on])` | Call at script top level (before the 1 s mark). Skips the level reset's UNLOCK DOORS cheat, so keyed doors and padlocks keep working. |
+| `probe.level()`, `probe.pads()` | Log the setup records (doors with key flags, padlocks, cells, CCTV, alarms, monitors, safes, keys, guard records) and the pad table with rooms, as `ge: probe: ...` lines. Read-only. `tools/mode_probe.lua` uses them. |
+| `probe.cctv()`, `probe.alarm()`, `probe.doors_unlocked()` | Live camera state (sight timer, sweep, line of sight to Bond) logged as lines; alarm siren ticks left; whether the unlock cheat is on. |
 | `include(name)` | Runs `Data/Scripts/modes/<name>.lua` from inside a mode script. `arena-endless.lua` sets `ARENA_SETTINGS` and then `include("arena")`. |
 | `pads.count()` | Number of pads (0 before the stage is set up). |
 | `pads.pos(i)` | `x, y, z`, or nil. |
