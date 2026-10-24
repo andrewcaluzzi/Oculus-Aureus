@@ -1134,6 +1134,11 @@ void portAudioPump(void)
             }
         }
 
+        { /* the game sounds Lua queued (port_gamesfx.c: the arena's scream crowd), on the audio's own clock */
+            extern void portGameSfxPump(u32 samples);
+
+            portGameSfxPump(samples);
+        }
         alAudioFrame(cmdList, &cmdLen, frameBuf, (s32)samples);
         if (cmdLen <= 0) {
             break; /* no clients / nothing to render */

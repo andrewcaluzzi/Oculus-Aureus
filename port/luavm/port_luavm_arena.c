@@ -605,6 +605,123 @@ static int soundExists(lua_State *L) { lua_pushboolean(L, portSoundFileExists(lu
 static int soundStop(lua_State *L) { portSoundFileStop((int) luaL_checkinteger(L, 1), (float) luaL_optnumber(L, 2, 0.1)); return 0; }
 static int soundPlaying(lua_State *L) { lua_pushinteger(L, portSoundFilePlaying()); return 1; }
 
+/* ---- the game's own sound effects (port_gamesfx.c), presentation only ----
+ *   sound.play_sfx(name_or_id [, volume [, pitch [, delay [, pan]]]]) -> handle | nil   name = an SFX_ID without _SFX ("GET_HIT_MALE3"),
+ *       any case; volume 0..1 (x the game's sfx volume); pitch multiplier (1 = as recorded); delay seconds; pan -1 (left) .. 1 (right)
+ *   sound.sfx_burst(names, count [, opts]) -> sounds queued   count = n or {lo, hi}; opts: vol, pitch = {lo, hi}, gap = {lo, hi}
+ *       seconds between starts, delay (first start), pan (spread 0..1). The picks, pitches, pans and gaps use the C side's RNG.
+ *   sound.sfx_names() -> list (index = id);  sound.stop_sfx(handle);  sound.sfx_playing() -> playing, queued
+ * They play through the game's sound player but never take a game sound's place (snd.c portPresent). Never steer the game with them. */
+extern int portGameSfxId(const char *name);
+extern const char *portGameSfxName(int id);
+extern int portGameSfxCount(void);
+extern int portGameSfxPlay(int sfx, float vol, float pitch, float delay, float pan);
+extern int portGameSfxBurst(const int *ids, int n, int lo, int hi, float vol, float plo, float phi, float glo, float ghi, float delay,
+                            float panSpread);
+extern void portGameSfxStop(int id);
+extern int portGameSfxPlaying(int *queued);
+
+static int sfxArg(lua_State *L, int idx)
+{
+    if (lua_type(L, idx) == LUA_TNUMBER)
+    {
+        int id = (int) lua_tointeger(L, idx);
+
+        return portGameSfxName(id) != NULL ? id : 0;
+    }
+    return portGameSfxId(luaL_checkstring(L, idx));
+}
+
+/* opts[key] as a {lo, hi} pair or one number (both ends) */
+static void rangeOpt(lua_State *L, int opts, const char *key, float *lo, float *hi)
+{
+    if (opts == 0) return;
+    lua_getfield(L, opts, key);
+    if (lua_isnumber(L, -1)) { *lo = *hi = (float) lua_tonumber(L, -1); }
+    else if (lua_istable(L, -1))
+    {
+        lua_rawgeti(L, -1, 1); *lo = (float) luaL_optnumber(L, -1, *lo); lua_pop(L, 1);
+        lua_rawgeti(L, -1, 2); *hi = (float) luaL_optnumber(L, -1, *lo); lua_pop(L, 1);
+    }
+    lua_pop(L, 1);
+}
+
+static float numOpt(lua_State *L, int opts, const char *key, float def)
+{
+    float v = def;
+
+    if (opts == 0) return def;
+    lua_getfield(L, opts, key);
+    if (lua_isnumber(L, -1)) v = (float) lua_tonumber(L, -1);
+    lua_pop(L, 1);
+    return v;
+}
+
+static int soundPlaySfx(lua_State *L)
+{
+    int id = sfxArg(L, 1), h;
+
+    if (id == 0) return 0;
+    h = portGameSfxPlay(id, (float) luaL_optnumber(L, 2, 1.0), (float) luaL_optnumber(L, 3, 1.0), (float) luaL_optnumber(L, 4, 0.0),
+                        (float) luaL_optnumber(L, 5, 0.0));
+    if (h <= 0) return 0;
+    lua_pushinteger(L, h);
+    return 1;
+}
+
+static int soundSfxBurst(lua_State *L)
+{
+    int ids[64], n = 0, i, lo, hi, opts = lua_istable(L, 3) ? 3 : 0;
+    float plo = 0.85f, phi = 1.25f, glo = 0.03f, ghi = 0.15f, flo, fhi;
+
+    luaL_checktype(L, 1, LUA_TTABLE);
+    for (i = 1; i <= (int) lua_rawlen(L, 1) && n < 64; i++)
+    {
+        lua_rawgeti(L, 1, i);
+        ids[n] = sfxArg(L, -1);
+        if (ids[n] != 0) n++;
+        lua_pop(L, 1);
+    }
+    flo = fhi = 1.0f;
+    if (lua_istable(L, 2))
+    {
+        lua_rawgeti(L, 2, 1); flo = (float) luaL_checknumber(L, -1); lua_pop(L, 1);
+        lua_rawgeti(L, 2, 2); fhi = (float) luaL_optnumber(L, -1, flo); lua_pop(L, 1);
+    }
+    else flo = fhi = (float) luaL_checknumber(L, 2);
+    lo = (int) flo;
+    hi = (int) fhi;
+    rangeOpt(L, opts, "pitch", &plo, &phi);
+    rangeOpt(L, opts, "gap", &glo, &ghi);
+    lua_pushinteger(L, portGameSfxBurst(ids, n, lo, hi, numOpt(L, opts, "vol", 1.0f), plo, phi, glo, ghi, numOpt(L, opts, "delay", 0.0f),
+                                        numOpt(L, opts, "pan", 0.8f)));
+    return 1;
+}
+
+static int soundSfxNames(lua_State *L)
+{
+    int i;
+
+    lua_createtable(L, portGameSfxCount(), 0);
+    for (i = 1; i < portGameSfxCount(); i++)
+    {
+        lua_pushstring(L, portGameSfxName(i));
+        lua_rawseti(L, -2, i);
+    }
+    return 1;
+}
+
+static int soundStopSfx(lua_State *L) { portGameSfxStop((int) luaL_checkinteger(L, 1)); return 0; }
+
+static int soundSfxPlaying(lua_State *L)
+{
+    int q = 0, n = portGameSfxPlaying(&q);
+
+    lua_pushinteger(L, n);
+    lua_pushinteger(L, q);
+    return 2;
+}
+
 static void addTo(lua_State *L, const char *lib, const luaL_Reg *reg)
 {
     lua_getglobal(L, lib);
@@ -630,7 +747,9 @@ void portLuaArenaRegister(lua_State *L)
 
     static const luaL_Reg crowdLib[] = { { "impostors", crowdImpostors }, { "cheer", crowdCheer }, { NULL, NULL } };
     static const luaL_Reg soundLib[] = { { "play_file", soundPlayFile }, { "play_any", soundPlayAny }, { "variants", soundVariants },
-        { "file_exists", soundExists }, { "stop", soundStop }, { "playing", soundPlaying }, { NULL, NULL } };
+        { "file_exists", soundExists }, { "stop", soundStop }, { "playing", soundPlaying }, { "play_sfx", soundPlaySfx },
+        { "sfx_burst", soundSfxBurst }, { "sfx_names", soundSfxNames }, { "stop_sfx", soundStopSfx }, { "sfx_playing", soundSfxPlaying },
+        { NULL, NULL } };
 
     luaL_newlib(L, benchLib);
     lua_setglobal(L, "bench");

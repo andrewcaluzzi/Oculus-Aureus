@@ -41,6 +41,10 @@
 --                 multikill_n kills inside multikill_window seconds = a multi-kill; big_hit = Bond losing this much of a bar (health +
 --                 armour) inside 1 s; low_health = his health falling under this (again once it has been back above it + 0.15);
 --                 crowd_volume scales every crowd sound (the game's FX volume applies on top)
+--   crowd_screams false (default); true = the crowd also screams: layered game hit yells per trigger (SCREAMS: a kill 2-4, a headshot
+--                 or multi-kill 6-10, a wave clear 12-16, a boss kill all 25 + the girls + the crushed yell over an explosion, Bond's
+--                 death the evil laugh and a few yells), staggered with random pitch and pan; "only" = the yells instead of the WAVs.
+--                 scream_volume (0.8) is their level. Needs nothing in Data/Sounds: the sounds are the game's own. GE_ARENA_SCREAMS=1 = true.
 --   corpse_keep   seconds before a dead enemy is removed: -1 (default) = keep every body; 4 = the stock fade-out; above 4 the bodies stay whole until then
 --   corpse_limit  when more than this many corpses are kept, the oldest go (400); also the oldest go first whenever chr slots run low, so a wave never starves
 --   first_wave    test hook: start at this wave;  debug_track / debug_clear_after: test hooks
@@ -73,6 +77,18 @@ local S = {
   low_health       = 0.25,
   react_gap        = 1.0,      -- seconds after a reaction before another of the same or a lower level
   crowd_volume     = 1.0,
+  crowd_screams    = false,    -- true: the crowd also screams the game's own hit yells (SCREAMS); "only": the yells instead of the WAVs
+  scream_volume    = 0.8,
+  -- per trigger, layers of { set, count [, count_hi], vol =, pitch = {lo, hi}, gap = {lo, hi} seconds, delay = seconds } (SCREAM_SETS below)
+  SCREAMS = {
+    kill       = { { "male", 2, 4 } },
+    headshot   = { { "male", 6, 10 } },
+    multikill  = { { "male", 6, 10 } },
+    wave_clear = { { "male", 12, 16 } },
+    boss_kill  = { { "boom", 1, vol = 1.0, pitch = { 0.9, 1.0 } }, { "male", 25, gap = { 0.03, 0.10 } }, { "girl", 4, delay = 0.3 },
+                   { "crushed", 1, delay = 0.6, pitch = { 0.9, 1.1 } } },
+    bond_died  = { { "laugh", 1, vol = 1.0, pitch = { 0.95, 1.05 } }, { "male", 3, 5, delay = 0.4 } },
+  },
   REACT = {
     kill       = { level = 1, frac = 0.12, secs = 1.5, real = 0.05, sound = "cheer_small", vol = 0.45, cooldown = 0.8 },
     headshot   = { level = 2, frac = 0.30, secs = 2.5, real = 0.15, sound = "cheer_big",   vol = 0.65, cooldown = 1.5 },
@@ -151,6 +167,8 @@ if type(ARENA_SETTINGS) == "table" then
   for k, v in pairs(ARENA_SETTINGS) do S[k] = v end
   if ARENA_SETTINGS.crowd_real then S.crowd = ARENA_SETTINGS.crowd_real end
 end
+-- GE_ARENA_SCREAMS=1 turns the scream crowd on without editing a file (presentation only, so a per-machine switch is fine)
+if not S.crowd_screams and mode.env_flag("GE_ARENA_SCREAMS") then S.crowd_screams = true end
 -- ARENA_SETTINGS.REACT may give just some triggers, or some fields of one: the rest come from the defaults
 if S.REACT ~= REACT_DEFAULT then
   local mine = type(S.REACT) == "table" and S.REACT or {}
@@ -451,6 +469,26 @@ local function crowd_sound(name, vol, duck)
 end
 local react_voice                       -- the sound of the reaction under way (a stronger one cutting in fades it out)
 
+-- the scream crowd (crowd_screams): layered game yells through sound.sfx_burst. The C side picks which yells, their pitch, pan and
+-- the gaps between them with its own RNG, so math.random (the session's) is never touched here.
+local SCREAM_SETS = { male = {}, girl = { "GET_HIT_GIRL1", "GET_HIT_GIRL2", "GET_HIT_GIRL3", "GIRL_GET_HIT1" },
+                      crushed = { "CRUSHED_YELL" }, boom = { "EXPLOSION_2A" }, laugh = { "EVIL_LAUGH" } }
+for i = 0, 24 do SCREAM_SETS.male[#SCREAM_SETS.male + 1] = "GET_HIT_MALE" .. i end
+
+local function crowd_screams(trigger)
+  local layers = S.crowd_screams and SOUND and SOUND.sfx_burst and S.SCREAMS and S.SCREAMS[trigger]
+  if not layers then return 0 end
+  local n = 0
+  for _, l in ipairs(layers) do
+    local set = SCREAM_SETS[l[1]] or (type(l[1]) == "table" and l[1])
+    if set then
+      n = n + SOUND.sfx_burst(set, { l[2] or 1, l[3] or l[2] or 1 }, { vol = (l.vol or S.scream_volume or 0.8) * (S.crowd_volume or 1),
+        pitch = l.pitch or { 0.85, 1.25 }, gap = l.gap or { 0.03, 0.15 }, delay = l.delay or 0, pan = l.pan or 0.8 })
+    end
+  end
+  return n
+end
+
 -- one reaction: false when its cooldown runs, or a stronger one is under way
 local function react(trigger)
   local r = S.reactions and S.REACT[trigger]
@@ -469,10 +507,12 @@ local function react(trigger)
   end
   if r.boo then cheer(0, 1)   -- the atlas has no boo pose: the impostors still cheering lower their arms
   elseif (r.frac or 0) > 0 then cheer(r.secs or 2, r.frac) end
-  local played, voice = crowd_sound(r.sound, r.vol or 1, r.duck)
+  local played, voice
+  if S.crowd_screams ~= "only" then played, voice = crowd_sound(r.sound, r.vol or 1, r.duck) end
   react_voice = voice
-  print(string.format("ge: arena: crowd %s: %s (level %d, impostors %.2f, spectators %.2f, %.1f s) at t=%.2f, sound %s",
-    r.boo and "boo" or "cheer", trigger, r.level or 1, r.boo and 0 or (r.frac or 0), r.real or 0, r.secs or 2, elapsed, played or "none"))
+  local screams = crowd_screams(trigger)
+  print(string.format("ge: arena: crowd %s: %s (level %d, impostors %.2f, spectators %.2f, %.1f s) at t=%.2f, sound %s, screams %d",
+    r.boo and "boo" or "cheer", trigger, r.level or 1, r.boo and 0 or (r.frac or 0), r.real or 0, r.secs or 2, elapsed, played or "none", screams))
   return true
 end
 
@@ -1156,6 +1196,10 @@ on("stage_start", function(stage)
       local parts = {}
       for _, n in ipairs(SOUND_NAMES) do sound_have[n] = SOUND.variants(n); parts[#parts + 1] = n .. " " .. sound_have[n] end
       print("ge: arena: crowd sounds in Data/Sounds: " .. table.concat(parts, ", "))
+    end
+    if S.crowd_screams then
+      print(string.format("ge: arena: crowd screams %s (game yells%s)", SOUND and SOUND.sfx_burst and "on" or "unavailable",
+        S.crowd_screams == "only" and ", instead of the WAVs" or ""))
     end
     say(string.format("GET READY - WAVE 1 IN %d", S.start_delay), S.start_delay)
   end)

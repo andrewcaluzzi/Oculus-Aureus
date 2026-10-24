@@ -6,6 +6,7 @@ local die = mode.env_flag("GE_CROWD_TEST_DIE")
 ARENA_SETTINGS = { waves = 3, boss_every = 2, start_delay = 3, breather = 8, crowd = 80, crowd_impostors = 400,
                    debug_kill = die and 400 or 4, debug_headshot = 4 }
 if die then ARENA_SETTINGS.first_wave = 3 end   -- armed enemies: their bursts land big hits
+if mode.env_flag("GE_CROWD_TEST_SCREAMS") then ARENA_SETTINGS.crowd_screams = true end   -- the game yells on top (run-screams.sh)
 if mode.env_flag("GE_CROWD_TEST_MISSING") then   -- a reaction whose sound file does not exist: it plays nothing
   ARENA_SETTINGS.REACT = { kill = { sound = "no_such_sound" } }
 end
