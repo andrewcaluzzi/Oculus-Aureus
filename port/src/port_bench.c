@@ -18,6 +18,13 @@ static float sFrameMs[BENCH_MAXF], sGlMs[BENCH_MAXF], sSwapMs[BENCH_MAXF], sSimM
 static unsigned short sDraws[BENCH_MAXF];
 static unsigned char sTag[BENCH_MAXF];
 static volatile int sN, sActive, sTagNow;
+static float sLastSim, sLastGl;   /* avg sim / gl ms of the phase portBenchEnd wrote last */
+
+void portBenchLast(float *simAvg, float *glAvg)
+{
+    *simAvg = sLastSim;
+    *glAvg = sLastGl;
+}
 
 /* hitchlog.c, render thread, once per presented frame */
 void portBenchFrame(unsigned long long interval_us, unsigned long long run_us, unsigned long long swap_us,
@@ -157,6 +164,8 @@ void portBenchEnd(const char *label, const char *extra, const int *pools)
         if (sSimMs[i] > simmax) simmax = sSimMs[i];
         if (sDraws[i] > drmax) drmax = sDraws[i];
     }
+    sLastSim = n > 0 ? (float)(sim / n) : 0.0f;
+    sLastGl = n > 0 ? (float)(gl / n) : 0.0f;
     portBenchLine("");
     portBenchLine("== %s ==", label);
     statLine("ALL", -1);

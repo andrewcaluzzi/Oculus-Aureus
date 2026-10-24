@@ -8,11 +8,17 @@
 -- (corpse_keep = -1). Bond stands in the middle of the pit and turns at a constant rate; each phase looks at the stands (pitch up) for two
 -- half turns and at the floor (pitch down) for two, tagged in the report as "stands" and "floor". No waves run.
 -- The settle time after each spawn burst is not measured.
+--
+-- Live variant (arena-bench-live.lua sets BENCH_LIVE and includes this file): no crowd, no corpses, phases L0 (baseline, nobody) then
+-- 25 / 50 / 100 / 200 live soldiers (the arena "chase" behaviour: they walk, path and shoot at the invulnerable Bond, who never fires).
+-- The live count is topped up all through each phase. The report adds how many were attacking / moving, and a sim cost per live enemy
+-- ((sim avg - the L0 sim avg) / live).
+local LIVE = BENCH_LIVE and true or false
 ARENA_SETTINGS = {
   start_delay = 100000,      -- no waves: this mode only spawns what the phases ask for
   supplies = false, ammo_every = 0, pickup_mode = "none",
-  crowd = 100,
-  corpse_keep = -1, corpse_limit = 100000,
+  crowd = LIVE and 0 or 100,
+  corpse_keep = LIVE and 4 or -1, corpse_limit = LIVE and 40 or 100000,
 }
 include("arena")
 
@@ -28,9 +34,20 @@ local PH = {
   { name = "D", crowd = 1000, corpses = 250, live = 0,  settle = 8 },
   { name = "E", crowd = 1000, corpses = 250, live = 18, settle = 5 },
 }
+if LIVE then
+  PH = {
+    { name = "L0",   crowd = 0, corpses = 0, live = 0,   settle = 4 },
+    { name = "L25",  crowd = 0, corpses = 0, live = 25,  settle = 8 },
+    { name = "L50",  crowd = 0, corpses = 0, live = 50,  settle = 8 },
+    { name = "L100", crowd = 0, corpses = 0, live = 100, settle = 10 },
+    { name = "L200", crowd = 0, corpses = 0, live = 200, settle = 12 },
+  }
+end
 
 local bt, pi, st, st_t = 0, 0, "start", 0          -- bench clock, phase index, step, seconds in the step
-local corpses_made, live_made = 0, 0
+local corpses_made = 0
+local eng_att, eng_mov, eng_oth, eng_n, eng_acc = 0, 0, 0, 0, 0   -- live enemies by action, summed over the samples of a phase
+local base_sim                                      -- sim ms avg of the empty phase (live variant)
 local seg_t, seg_i = 0, 0
 local pools_acc = 0
 local done = false
@@ -70,10 +87,34 @@ end
 local function end_phase()
   local p = PH[pi]
   local c, k, a, f, txt = counts_text()
+  local eng = ""
+  if p.live > 0 and eng_n > 0 then
+    eng = string.format(" | engaged (avg of %d samples, %.0f live): attacking %.1f, moving %.1f, other %.1f", eng_n, a, eng_att / eng_n, eng_mov / eng_n, eng_oth / eng_n)
+  end
   bench.finish(string.format("Phase %s: crowd %d, corpses %d, live enemies %d (%.0f s measured)", p.name, p.crowd, p.corpses, p.live, MEASURE_S),
-    txt .. string.format(" | view: %d segments of %.1f s at %d deg/s (stands pitch %d, floor pitch %d)", math.floor(MEASURE_S / SEGMENT_S), SEGMENT_S, TURN_RATE, PITCH_STANDS, PITCH_FLOOR))
-  print(string.format("ge: bench: phase %s done: %s", p.name, txt))
-  summary[#summary + 1] = string.format("%s: spectators %d, corpses %d, live %d", p.name, c, k, a)
+    txt .. eng .. string.format(" | view: %d segments of %.1f s at %d deg/s (stands pitch %d, floor pitch %d)", math.floor(MEASURE_S / SEGMENT_S), SEGMENT_S, TURN_RATE, PITCH_STANDS, PITCH_FLOOR))
+  print(string.format("ge: bench: phase %s done: %s%s", p.name, txt, eng))
+  local line = string.format("%s: spectators %d, corpses %d, live %d", p.name, c, k, a)
+  if LIVE then
+    local sim = bench.last()
+    if p.live == 0 then
+      base_sim = sim
+      line = line .. string.format(", sim %.2f ms (baseline)", sim)
+    elseif base_sim then
+      local per = (sim - base_sim) * 1000 / p.live
+      local txt2 = string.format("per live enemy: sim %.1f us  (= (%.2f - %.2f ms) / %d live)", per, sim, base_sim, p.live)
+      bench.note("  " .. txt2)
+      print("ge: bench: phase " .. p.name .. " " .. txt2)
+      line = line .. string.format(", sim %.2f ms, %.1f us per live enemy", sim, per)
+    end
+  end
+  summary[#summary + 1] = line
+end
+
+-- keep p.live soldiers fighting: top up what is missing (spawn.free() stops it before the pool runs out)
+local function top_up(p)
+  local _, _, a = ARENA_HOOKS.counts()
+  if p.live > 0 and a < p.live then ARENA_HOOKS.pit_foes(math.min(10, p.live - a), nil, "chase") end
 end
 
 on("tick", function(dt)
@@ -84,7 +125,7 @@ on("tick", function(dt)
     if st == "start" then
       if bt < 1 then return end   -- let the stage and the arena's own start-up settle
       bench.run_start()
-      note("preset arena-bench: 5 phases x " .. MEASURE_S .. " s, view sweep " .. TURN_RATE .. " deg/s")
+      note((LIVE and "preset arena-bench-live: " or "preset arena-bench: ") .. #PH .. " phases x " .. MEASURE_S .. " s, view sweep " .. TURN_RATE .. " deg/s")
       local pad = middle_pad()
       if pad then bond.warp(0, pad) end
       start_phase(1)
@@ -97,11 +138,9 @@ on("tick", function(dt)
       if corpses_made < p.corpses then
         corpses_made = corpses_made + ARENA_HOOKS.pit_foes(math.min(20, p.corpses - corpses_made), 1.0, "hold")
       end
-      if live_made < p.live then
-        live_made = live_made + ARENA_HOOKS.pit_foes(math.min(6, p.live - live_made), nil, "chase")
-      end
+      top_up(p)
       local crowd_ok = c + f >= p.crowd
-      local made_ok = corpses_made >= p.corpses and live_made >= p.live
+      local made_ok = corpses_made >= p.corpses and a >= p.live
       -- corpses = the dead ones kept; live fighters are counted in `a`
       local dead_ok = k >= p.corpses
       if (crowd_ok and made_ok and dead_ok and st_t >= 2) or st_t > 90 then
@@ -112,6 +151,7 @@ on("tick", function(dt)
       if st_t >= p.settle then
         st, st_t = "measure", 0
         seg_t, seg_i = 0, 0
+        eng_att, eng_mov, eng_oth, eng_n, eng_acc = 0, 0, 0, 0, 0
         bench.begin()
         bench.tag(1)
         bench.sweep(TURN_RATE, PITCH_STANDS)
@@ -121,6 +161,16 @@ on("tick", function(dt)
       seg_t = seg_t + dt
       pools_acc = pools_acc + dt
       if pools_acc >= 1 then pools_acc = 0; bench.pools() end   -- keeps the hit-entry high-water mark
+      top_up(p)
+      if p.live > 0 then
+        eng_acc = eng_acc + dt
+        if eng_acc >= 2 then   -- how many are actually fighting
+          eng_acc = 0
+          local at, mv, ot = ARENA_HOOKS.acts()
+          eng_att, eng_mov, eng_oth, eng_n = eng_att + at, eng_mov + mv, eng_oth + ot, eng_n + 1
+          print(string.format("ge: bench: phase %s: live %d: attacking %d, moving %d, other %d", p.name, at + mv + ot, at, mv, ot))
+        end
+      end
       if seg_t >= SEGMENT_S and st_t < MEASURE_S then
         seg_t, seg_i = 0, seg_i + 1
         local stands = (seg_i % 2 == 0)

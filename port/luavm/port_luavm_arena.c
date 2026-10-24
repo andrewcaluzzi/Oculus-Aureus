@@ -477,6 +477,18 @@ static int benchSweep(lua_State *L)
     return 0;
 }
 
+extern void portBenchLast(float *simAvg, float *glAvg);
+/* bench.last() -> avg sim ms, avg gl ms of the phase bench.finish wrote last */
+static int benchLast(lua_State *L)
+{
+    float s, g;
+
+    portBenchLast(&s, &g);
+    lua_pushnumber(L, s);
+    lua_pushnumber(L, g);
+    return 2;
+}
+
 static int benchSweepOff(lua_State *L) { (void) L; portBenchSweep(0, 0.0f, 0.0f); return 0; }
 
 static int benchExit(lua_State *L)
@@ -509,7 +521,7 @@ void portLuaArenaRegister(lua_State *L)
         { "ammo", arenaBondAmmo }, { "walk", arenaBondWalk }, { "walk_stop", arenaBondWalkStop }, { NULL, NULL } };
 
     static const luaL_Reg benchLib[] = { { "run_start", benchRunStart }, { "note", benchNote }, { "begin", benchBegin },
-        { "tag", benchTag }, { "pools", benchPools }, { "finish", benchFinish }, { "look", benchLook }, { "sweep", benchSweep }, { "sweep_off", benchSweepOff }, { "exit", benchExit },
+        { "tag", benchTag }, { "pools", benchPools }, { "finish", benchFinish }, { "look", benchLook }, { "sweep", benchSweep }, { "sweep_off", benchSweepOff }, { "last", benchLast }, { "exit", benchExit },
         { NULL, NULL } };
 
     luaL_newlib(L, benchLib);

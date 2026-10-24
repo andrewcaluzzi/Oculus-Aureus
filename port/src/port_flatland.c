@@ -22,7 +22,11 @@ s32 portFlatlandStage(void)
 
 /* The Colosseum arena (port/colosseum, modding/arena.md) takes the cut stage LEVELID_EAR. It has
  * no guards either; waves plus a crowd need many more slots than Flatland. */
-#define COLOSSEUM_EXTRA_SLOTS 240   /* waves (max_alive ~14 + corpses) + a crowd of up to ~150 */
+/* Default 600 = crowd 100 + 400 kept corpses (corpse_limit) + up to 18 live enemies + Bonds/bot + ~80 headroom (removals land a frame late).
+ * A 20-wave run is ~173 enemies, all kept: 100 + 173 + 18 = ~290. COLOSSEUM_BASE_SLOTS (240) is what the display list and vertex pools were
+ * sized for before; they grow by every slot above it (dyn.c). */
+#define COLOSSEUM_BASE_SLOTS 240
+#define COLOSSEUM_EXTRA_SLOTS 600
 
 s32 portColosseumStage(void)
 {
@@ -36,15 +40,15 @@ s32 portFlatlandExtraSlots(void)
         /* GE_COLOSSEUM_SLOTS raises it (benchmark: ~1400) */
         const char *e = getenv("GE_COLOSSEUM_SLOTS");
         s32 n = e ? atoi(e) : 0;
-        return (n >= COLOSSEUM_EXTRA_SLOTS && n <= 4000) ? n : COLOSSEUM_EXTRA_SLOTS;
+        return (n >= COLOSSEUM_BASE_SLOTS && n <= 4000) ? n : COLOSSEUM_EXTRA_SLOTS;
     }
     return portFlatlandStage() ? FLATLAND_EXTRA_SLOTS : 0;
 }
 
-/* slots beyond the default (0 unless the Colosseum runs with GE_COLOSSEUM_SLOTS): dyn.c grows the per-frame display list and vertex pools by it */
+/* slots beyond the base 240: dyn.c grows the per-frame display list and vertex pools by it */
 s32 portColosseumBigSlots(void)
 {
-    return portColosseumStage() ? portFlatlandExtraSlots() - COLOSSEUM_EXTRA_SLOTS : 0;
+    return portColosseumStage() ? portFlatlandExtraSlots() - COLOSSEUM_BASE_SLOTS : 0;
 }
 
 #endif

@@ -30,9 +30,9 @@
 --   armour_center / armour_chance / armour_amount / armour_ttl   (A6) a body armour pickup in the centre after every boss wave and, with
 --                 armour_chance (0.25), after other waves; replaces the old armour gift
 --   crowd         spectators in the stands (0 = none); they appear crowd_rate a second (200: the mode ticks 4 times a second, so 50 a tick),
---                 so a big crowd does not hitch the start. The stage needs the chr slots: GE_COLOSSEUM_SLOTS=<n> (default 240) on a PC that can take 1000+
---   corpse_keep   seconds before a dead enemy is removed (4: the stock fade-out); -1 = keep every body, above 4 the bodies stay whole until then
---   corpse_limit  when more than this many corpses are kept, the oldest go (400)
+--                 so a big crowd does not hitch the start. The stage needs the chr slots: GE_COLOSSEUM_SLOTS=<n> (default 600) on a PC that can take 1000+
+--   corpse_keep   seconds before a dead enemy is removed: -1 (default) = keep every body; 4 = the stock fade-out; above 4 the bodies stay whole until then
+--   corpse_limit  when more than this many corpses are kept, the oldest go (400); also the oldest go first whenever chr slots run low, so a wave never starves
 --   first_wave    test hook: start at this wave;  debug_track / debug_clear_after: test hooks
 --   test_keys     true = the wave-jump hotkeys work (or set GE_ARENA_TESTKEYS=1): PageDown/PageUp = next/back wave and clear the
 --                 live enemies, with Shift = start it on top of them (never in co-op or netplay)
@@ -53,7 +53,7 @@ local S = {
   supplies    = true,
   crowd       = 100,
   crowd_rate  = 200,
-  corpse_keep  = 4,
+  corpse_keep  = -1,
   corpse_limit = 400,
   test_keys   = false,
 
@@ -221,6 +221,19 @@ local function alive_count()
   local n = 0
   for _, e in ipairs(E) do if not e.dead_at then n = n + 1 end end
   return n
+end
+
+-- remove the oldest kept corpse (the corpse_limit valve, and the slot valve below); false when there is none
+local function remove_oldest_corpse()
+  local old
+  for _, e in ipairs(E) do
+    if e.dead_at and not e.gone and (not old or e.dead_at < old.dead_at) then old = e end
+  end
+  if not old then return false end
+  old.gone = true
+  spawn.remove(old.chr)
+  corpse_n = corpse_n - 1
+  return true
 end
 
 -- ----------------------------------------------------------------- HUD -----
@@ -883,6 +896,19 @@ ARENA_HOOKS = {
   crowd_set = crowd_set,
   say = say,
   counts = function() return #crowd, corpse_n, alive_count(), crowd_fail, crowd_retry end,
+  -- live enemies by what they are doing: attacking (ACT_ATTACK, ATTACKWALK, ATTACKROLL), moving (SIDESTEP, RUNPOS, PATROL, GOPOS), other
+  acts = function()
+    local att, mov, oth = 0, 0, 0
+    for _, e in ipairs(E) do
+      if not e.dead_at then
+        local _, _, act = spawn.where(e.chr)
+        if act == 8 or act == 9 or act == 10 then att = att + 1
+        elseif act == 11 or act == 13 or act == 14 or act == 15 then mov = mov + 1
+        else oth = oth + 1 end
+      end
+    end
+    return att, mov, oth
+  end,
   pit_foes = function(n, kill_after, beh)
     if not pit_order then   -- one shuffle: successive calls walk through different pads
       pit_order = {}
@@ -995,14 +1021,7 @@ on("tick", function(dt)
     end
   end
   while S.corpse_limit and corpse_n > S.corpse_limit do   -- too many bodies kept: the oldest go
-    local old
-    for _, e in ipairs(E) do
-      if e.dead_at and not e.gone and (not old or e.dead_at < old.dead_at) then old = e end
-    end
-    if not old then break end
-    old.gone = true
-    spawn.remove(old.chr)
-    corpse_n = corpse_n - 1
+    if not remove_oldest_corpse() then break end
   end
   if S.debug_kill then   -- test hook (drop stress): kill every enemy this many seconds after it spawned, so there are many real kills and drops
     for _, e in ipairs(E) do
@@ -1061,6 +1080,10 @@ on("tick", function(dt)
     -- trickle the queue in, a couple at a time, keeping at most max_alive on the floor
     local n = 0
     local cap = math.min(S.max_alive_cap, S.max_alive + (wave - 1) // math.max(1, S.max_alive_every))
+    -- chr slots running low (a removal lands a frame later, so a few go each tick): the oldest corpses make room, a wave never waits for slots
+    if qi <= #queue and spawn.free() <= S.max_alive + 20 then
+      for _ = 1, 6 do if not remove_oldest_corpse() then break end end
+    end
     while qi <= #queue and alive_count() < cap and n < 2 and spawn.free() > 8 do
       local entry = queue[qi]
       if spawn_one(entry) then qi = qi + 1; n = n + 1; spawn_fail = 0
