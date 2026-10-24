@@ -7174,6 +7174,81 @@ static struct DlJumpEntry {
 } s_DlJumpRing[DL_JUMP_RING_LEN];
 static uint32_t s_DlJumpRingIdx;
 
+/* GE arena crowd (gfx_crowd.h, port_crowd.c): capture the skins into an atlas framebuffer, and draw the impostors */
+#include "gfx_crowd.h"
+extern "C" void gfx_opengl_crowd_clear(void);
+extern "C" void gfx_opengl_crowd_capture_done(void);
+extern "C" void gfx_opengl_crowd_draw(const CrowdFrame* f, const float mvp[16], const float fix[2], int invert_y);
+static int crowd_fb = -1;
+static bool crowd_saved_fb;
+static struct RSP crowd_saved_rsp;
+static struct XYWidthHeight crowd_saved_vp, crowd_saved_sc;
+
+static void gfx_crowd_cmd(uint32_t op, uintptr_t arg) {
+    gfx_flush();
+    switch (op) {
+        case CROWD_CAP_BEGIN:
+            if (crowd_fb < 0) {
+                crowd_fb = gfx_rapi->create_framebuffer();
+                gfx_rapi->update_framebuffer_parameters(crowd_fb, CROWD_ATLAS, CROWD_ATLAS, 1, false, true, true, false);
+            }
+            crowd_saved_rsp = rsp;
+            crowd_saved_vp = rdp.viewport;
+            crowd_saved_sc = rdp.scissor;
+            crowd_saved_fb = fbActive;
+            gfx_rapi->start_draw_to_framebuffer(crowd_fb, 1.f);
+            gfx_opengl_crowd_clear();
+            fbActive = true;
+            break;
+        case CROWD_CAP_CELL:
+            rdp.viewport.x = (int16_t) ((arg % CROWD_COLS) * CROWD_CELL_W);
+            rdp.viewport.y = (int16_t) ((arg / CROWD_COLS) * CROWD_CELL_H);
+            rdp.viewport.width = CROWD_CELL_W;
+            rdp.viewport.height = CROWD_CELL_H;
+            rdp.scissor.x = 0;
+            rdp.scissor.y = 0;
+            rdp.scissor.width = CROWD_ATLAS;
+            rdp.scissor.height = CROWD_ATLAS;
+            rdp.viewport_or_scissor_changed = true;
+            break;
+        case CROWD_CAP_END:
+            gfx_opengl_crowd_capture_done();
+            gfx_rapi->start_draw_to_framebuffer(game_renders_to_framebuffer ? game_framebuffer : 0,
+                                                (float) gfx_current_dimensions.height / SCREEN_HEIGHT);
+            rsp = crowd_saved_rsp;
+            rdp.viewport = crowd_saved_vp;
+            rdp.scissor = crowd_saved_sc;
+            rdp.viewport_or_scissor_changed = true;
+            rendering_state.viewport = {};
+            rendering_state.scissor = {};
+            ge_state_serial++;
+            fbActive = crowd_saved_fb;
+            break;
+        case CROWD_DRAW: {
+            float mvp[16];
+            float fix[2] = { 1.0f, 0.0f };
+            for (int i = 0; i < 4; i++) {
+                for (int j = 0; j < 4; j++) {
+                    mvp[i * 4 + j] = rsp.MP_matrix[i][j];
+                }
+            }
+            if (!fbActive && gfx_current_dimensions.aspect_ratio != 0.0f) {
+                fix[0] = rsp.aspect_scale / gfx_current_dimensions.aspect_ratio;
+                fix[1] = rsp.aspect_ofs * fix[0];
+            }
+            if (rdp.viewport_or_scissor_changed) { /* the world view's viewport, as a triangle would set it */
+                gfx_rapi->set_viewport(rdp.viewport.x, rdp.viewport.y, rdp.viewport.width, rdp.viewport.height);
+                rendering_state.viewport = rdp.viewport;
+                gfx_rapi->set_scissor(rdp.scissor.x, rdp.scissor.y, rdp.scissor.width, rdp.scissor.height);
+                rendering_state.scissor = rdp.scissor;
+                rdp.viewport_or_scissor_changed = false;
+            }
+            gfx_opengl_crowd_draw((const CrowdFrame*) arg, mvp, fix, gfx_rapi->get_clip_parameters().invert_y);
+            break;
+        }
+    }
+}
+
 static void gfx_run_dl(Gfx* cmd) {
     // puts("dl");
     int dummy = 0;
@@ -7665,6 +7740,9 @@ static void gfx_run_dl(Gfx* cmd) {
             case G_CLEAR_DEPTH_EXT:
                 gfx_flush();
                 gfx_rapi->clear_framebuffer(false, true);
+                break;
+            case G_CROWD_EXT:
+                gfx_crowd_cmd((uint32_t) (cmd->words.w0 & 0xffu), cmd->words.w1);
                 break;
             case G_DXLU_NEWVIEW_EXT:
                 gfx_dxlu_new_view();

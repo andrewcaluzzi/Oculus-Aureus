@@ -29,7 +29,9 @@
 --                 uncollected, each gone after ammo_ttl (90). It is not a gun: it does not rotate through weapons.
 --   armour_center / armour_chance / armour_amount / armour_ttl   (A6) a body armour pickup in the centre after every boss wave and, with
 --                 armour_chance (0.25), after other waves; replaces the old armour gift
---   crowd         spectators in the stands (0 = none); they appear crowd_rate a second (200: the mode ticks 4 times a second, so 50 a tick),
+--   crowd_impostors  (PC) flat camera-facing pictures of the crowd skins on the spare seats behind the real spectators (1000; 0 = none):
+--                 no chr slots, no sim cost, one draw call. crowd.cheer() raises their arms (wave clear, boss down)
+--   crowd         real spectators in the stands, front rows first (150; crowd_real is the same setting); they appear crowd_rate a second (200: the mode ticks 4 times a second, so 50 a tick),
 --                 so a big crowd does not hitch the start. The stage needs the chr slots: GE_COLOSSEUM_SLOTS=<n> (default 600) on a PC that can take 1000+
 --   corpse_keep   seconds before a dead enemy is removed: -1 (default) = keep every body; 4 = the stock fade-out; above 4 the bodies stay whole until then
 --   corpse_limit  when more than this many corpses are kept, the oldest go (400); also the oldest go first whenever chr slots run low, so a wave never starves
@@ -51,7 +53,8 @@ local S = {
   hp_growth   = 0.10,
   acc_growth  = 2.5,
   supplies    = true,
-  crowd       = 100,
+  crowd       = 150,
+  crowd_impostors = 1000,
   crowd_rate  = 200,
   corpse_keep  = -1,
   corpse_limit = 400,
@@ -117,6 +120,7 @@ local S = {
 }
 if type(ARENA_SETTINGS) == "table" then
   for k, v in pairs(ARENA_SETTINGS) do S[k] = v end
+  if ARENA_SETTINGS.crowd_real then S.crowd = ARENA_SETTINGS.crowd_real end
 end
 
 -- toughness tiers: hp = x the type's base health, armour = extra stock armour in units of the base 4 damage (grows with the wave
@@ -183,6 +187,7 @@ local FIDGETS = { "yawn", "flies", "scratch_leg", "scratch_butt", "adjust", "sne
 
 -- ------------------------------------------------------------- state -------
 
+local IMPOSTORS = crowd               -- the engine's crowd table (crowd.impostors / crowd.cheer); nil on builds without it
 local crowd = {}                      -- spectators: { chr=, next=, react=, react_at= }
 local crowd_pads, crowd_i = {}, 1     -- seat pads still to be filled
 local crowd_logged = false
@@ -314,6 +319,37 @@ local function crowd_set(n)
     crowd_logged = false
   end
   return #crowd_pads
+end
+
+-- the n lowest seats (front rows first; seats in the same row in random order), shuffled
+local function front_seats(seats, n)
+  local t = {}
+  for _, p in ipairs(seats) do
+    local _, y = pads.pos(p)
+    t[#t + 1] = { p = p, y = y, r = math.random() }
+  end
+  table.sort(t, function(a, b) if a.y ~= b.y then return a.y < b.y end return a.r < b.r end)
+  local out = {}
+  for i = 1, math.min(n, #t) do out[i] = t[i].p end
+  for i = #out, 2, -1 do local j = math.random(i); out[i], out[j] = out[j], out[i] end
+  return out
+end
+
+-- (PC) impostors on up to n seats no real spectator has or will have; returns how many
+local function impostors_set(n)
+  if not IMPOSTORS then return 0 end
+  local free = {}
+  for _, p in ipairs(seats_all) do if not seats_used[p] and not seats_planned[p] then free[#free + 1] = p end end
+  local xyz = {}
+  for _, p in ipairs(choose_seats(free, n)) do
+    local x, y, z = pads.pos(p)
+    xyz[#xyz + 1] = x; xyz[#xyz + 1] = y; xyz[#xyz + 1] = z
+  end
+  return IMPOSTORS.impostors(xyz, CROWD_SKINS)
+end
+
+local function cheer(secs, frac)
+  if IMPOSTORS then IMPOSTORS.cheer(secs, frac) end
 end
 
 -- some of the crowd react: `kinds` = list of { animation, share (0..1) }, each spectator rolls once
@@ -841,6 +877,7 @@ local function wave_cleared()
       wave, pool_last[1], pool_last[2], pool_last[3], min_slots, pool_last[4], min_props, peak_loose))
   end
   crowd_react({ { "dance", 0.3 }, { "laugh", 0.3 }, { "surrender", 0.15 } }, 1.5)   -- the crowd cheers
+  cheer(4, 0.8)
   if final_wave() then finish(true); return end
   phase, phase_t = "breather", 0
   local sup = give_supplies()
@@ -894,6 +931,8 @@ function ARENA_TEST_KEY(name) test_key(name) end   -- test hook: a preset script
 -- over the floor (kill_after seconds: killed through the damage path, so a real corpse; nil = they stay and fight); counts() = crowd, corpses, alive
 ARENA_HOOKS = {
   crowd_set = crowd_set,
+  impostors = impostors_set,
+  cheer = cheer,
   say = say,
   counts = function() return #crowd, corpse_n, alive_count(), crowd_fail, crowd_retry end,
   -- live enemies by what they are doing: attacking (ACT_ATTACK, ATTACKWALK, ATTACKROLL), moving (SIDESTEP, RUNPOS, PATROL, GOPOS), other
@@ -971,9 +1010,10 @@ on("stage_start", function(stage)
     seats_all = seats
     -- the stock game fades a dead chr out and removes it after 1.5 s: to keep bodies longer than the default 4 s (or for good) it must not
     spawn.keep_bodies(S.corpse_keep < 0 or S.corpse_keep > 4)
-    crowd_pads = choose_seats(seats, S.crowd)
+    crowd_pads = front_seats(seats, S.crowd)
     for _, p in ipairs(crowd_pads) do seats_planned[p] = true end
-    print(string.format("ge: arena: crowd %d of %d seats", #crowd_pads, #seats))
+    local nimp = (S.crowd_impostors or 0) > 0 and impostors_set(S.crowd_impostors) or 0
+    print(string.format("ge: arena: crowd %d of %d seats, %d impostors", #crowd_pads, #seats, nimp))
     say(string.format("GET READY - WAVE 1 IN %d", S.start_delay), S.start_delay)
   end)
   if not ok then print("ge: arena: setup error:", err); ended = true end
@@ -989,6 +1029,7 @@ on("chr_died", function(victim, killer)
       if e.boss then
         say("BOSS DOWN!", 4)
         crowd_react({ { "dance", 0.5 }, { "surrender", 0.2 } }, 1.0)
+        cheer(5, 1.0)
       end
       return
     end

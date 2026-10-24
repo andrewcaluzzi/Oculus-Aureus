@@ -502,6 +502,48 @@ static int benchExit(lua_State *L)
     return 0;
 }
 
+/* ---- crowd: the impostor crowd (port_crowd.c), presentation only ----
+ *   crowd.impostors({x, y, z, x, y, z, ...}, {skin names}) -> count   impostors standing at those points ({} removes them)
+ *   crowd.cheer(seconds [, fraction])   that share of the impostors (1) raise their arms for about `seconds`, rippling */
+extern int portCrowdSet(const float *xyz, int n, const char *const *skins, int nskins);
+extern void portCrowdCheer(float secs, float frac);
+
+static int crowdImpostors(lua_State *L)
+{
+    float *xyz;
+    const char *skins[16];
+    int n, i, ns = 0;
+
+    needStage(L, "crowd.impostors");
+    luaL_checktype(L, 1, LUA_TTABLE);
+    n = (int) lua_rawlen(L, 1) / 3;
+    if (n > 4096) n = 4096;
+    xyz = lua_newuserdata(L, (size_t) (n > 0 ? n : 1) * 3 * sizeof(float));   /* scratch, collected */
+    for (i = 0; i < n * 3; i++)
+    {
+        lua_rawgeti(L, 1, i + 1);
+        xyz[i] = (float) luaL_checknumber(L, -1);
+        lua_pop(L, 1);
+    }
+    if (lua_istable(L, 2))
+    {
+        for (i = 0; i < 16 && i < (int) lua_rawlen(L, 2); i++)
+        {
+            lua_rawgeti(L, 2, i + 1);
+            skins[ns++] = luaL_checkstring(L, -1);   /* the table keeps the strings alive */
+            lua_pop(L, 1);
+        }
+    }
+    lua_pushinteger(L, portCrowdSet(xyz, n, skins, ns));
+    return 1;
+}
+
+static int crowdCheer(lua_State *L)
+{
+    portCrowdCheer((float) luaL_checknumber(L, 1), (float) luaL_optnumber(L, 2, 1.0));
+    return 0;
+}
+
 static void addTo(lua_State *L, const char *lib, const luaL_Reg *reg)
 {
     lua_getglobal(L, lib);
@@ -524,8 +566,12 @@ void portLuaArenaRegister(lua_State *L)
         { "tag", benchTag }, { "pools", benchPools }, { "finish", benchFinish }, { "look", benchLook }, { "sweep", benchSweep }, { "sweep_off", benchSweepOff }, { "last", benchLast }, { "exit", benchExit },
         { NULL, NULL } };
 
+    static const luaL_Reg crowdLib[] = { { "impostors", crowdImpostors }, { "cheer", crowdCheer }, { NULL, NULL } };
+
     luaL_newlib(L, benchLib);
     lua_setglobal(L, "bench");
+    luaL_newlib(L, crowdLib);
+    lua_setglobal(L, "crowd");
     addTo(L, "spawn", spawnAdd);
     addTo(L, "bond", bondAdd);
 }

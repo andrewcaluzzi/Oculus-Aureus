@@ -2,7 +2,8 @@
 -- launcher sets them). Shipped to Data/Scripts/modes/arena-bench.lua by the build.
 --
 -- Five phases of 30 s steady state each, then the game quits by itself and the report is Data/Logs/arena_bench.txt:
---   A  crowd 100,  0 corpses            B  crowd 100,  250 corpses        C  crowd 300,  250 corpses
+--   A  crowd 100,  0 corpses            AI A + impostors on the other 1100 seats (PC: crowd.impostors, one draw)
+--   B  crowd 100,  250 corpses          C  crowd 300,  250 corpses
 --   D  crowd 1000, 250 corpses          E  crowd 1000, 250 corpses + 18 live enemies shooting at Bond
 -- Corpses are real: enemies placed on distinct pit pads and killed through the game's damage path (spawn.kill), kept for the whole run
 -- (corpse_keep = -1). Bond stands in the middle of the pit and turns at a constant rate; each phase looks at the stands (pitch up) for two
@@ -17,7 +18,7 @@ local LIVE = BENCH_LIVE and true or false
 ARENA_SETTINGS = {
   start_delay = 100000,      -- no waves: this mode only spawns what the phases ask for
   supplies = false, ammo_every = 0, pickup_mode = "none",
-  crowd = LIVE and 0 or 100,
+  crowd = LIVE and 0 or 100, crowd_impostors = 0,
   corpse_keep = LIVE and 4 or -1, corpse_limit = LIVE and 40 or 100000,
 }
 include("arena")
@@ -29,6 +30,7 @@ local PITCH_STANDS, PITCH_FLOOR = 16, -40
 
 local PH = {
   { name = "A", crowd = 100,  corpses = 0,   live = 0,  settle = 4 },
+  { name = "AI", crowd = 100, corpses = 0,   live = 0,  settle = 4, imp = 1100 },
   { name = "B", crowd = 100,  corpses = 250, live = 0,  settle = 4 },
   { name = "C", crowd = 300,  corpses = 250, live = 0,  settle = 5 },
   { name = "D", crowd = 1000, corpses = 250, live = 0,  settle = 8 },
@@ -73,7 +75,8 @@ local function start_phase(n)
   pi, st, st_t = n, "prep", 0   -- (corpses_made and live_made are totals: a phase only adds what the last did not have)
   local p = PH[n]
   ARENA_HOOKS.crowd_set(p.crowd)
-  say(string.format("BENCHMARK %s/%d: CROWD %d  CORPSES %d  LIVE %d", p.name, #PH, p.crowd, p.corpses, p.live))
+  p.imp_n = ARENA_HOOKS.impostors(p.imp or 0)
+  say(string.format("BENCHMARK %s/%d: CROWD %d  CORPSES %d  LIVE %d  IMPOSTORS %d", p.name, #PH, p.crowd, p.corpses, p.live, p.imp_n))
   print(string.format("ge: bench: phase %s: preparing (crowd %d, corpses %d, live %d)", p.name, p.crowd, p.corpses, p.live))
   bench.sweep(TURN_RATE, PITCH_FLOOR)
 end
@@ -94,7 +97,7 @@ local function end_phase()
   bench.finish(string.format("Phase %s: crowd %d, corpses %d, live enemies %d (%.0f s measured)", p.name, p.crowd, p.corpses, p.live, MEASURE_S),
     txt .. eng .. string.format(" | view: %d segments of %.1f s at %d deg/s (stands pitch %d, floor pitch %d)", math.floor(MEASURE_S / SEGMENT_S), SEGMENT_S, TURN_RATE, PITCH_STANDS, PITCH_FLOOR))
   print(string.format("ge: bench: phase %s done: %s%s", p.name, txt, eng))
-  local line = string.format("%s: spectators %d, corpses %d, live %d", p.name, c, k, a)
+  local line = string.format("%s: spectators %d, impostors %d, corpses %d, live %d", p.name, c, p.imp_n or 0, k, a)
   if LIVE then
     local sim = bench.last()
     if p.live == 0 then

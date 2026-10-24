@@ -3081,7 +3081,207 @@ static void gfx_opengl_resolve_n64_aa(int fb_dst, int fb_src) {
     glDepthMask(current_depth_mask ? GL_TRUE : GL_FALSE);
 }
 
-struct GfxRenderingAPI gfx_opengl_api = { 
+/* ==== GE arena crowd (gfx_crowd.h): the impostor atlas and its one batched draw ==== */
+#include "gfx_crowd.h"
+static GLuint crowd_tex = 0, crowd_prog = 0, crowd_vao = 0, crowd_vbo = 0;
+static GLint cu_mvp = -1, cu_fix = -1, cu_right = -1, cu_box = -1, cu_now = -1, cu_flip = -1, cu_tint = -1, cu_tex = -1;
+static int crowd_ver = -1, crowd_verts = 0;
+static bool crowd_failed = false;
+
+/* the capture framebuffer is keyed on magenta, so the model's own alpha does not matter */
+extern "C" void gfx_opengl_crowd_clear(void) {
+    glDisable(GL_SCISSOR_TEST);
+    glClearColor(1.0f, 0.0f, 1.0f, 1.0f);
+    glDepthMask(GL_TRUE);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glDepthMask(current_depth_mask ? GL_TRUE : GL_FALSE);
+    glEnable(GL_SCISSOR_TEST);
+}
+
+/* read the atlas back once, alpha from the key, colour bled into the clear texels (no fringe when filtered) */
+extern "C" void gfx_opengl_crowd_capture_done(void) {
+    const int n = CROWD_ATLAS * CROWD_ATLAS;
+    std::vector<uint8_t> px((size_t) n * 4);
+    glPixelStorei(GL_PACK_ALIGNMENT, 4);
+    glReadPixels(0, 0, CROWD_ATLAS, CROWD_ATLAS, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+    int solid = 0;
+    for (int i = 0; i < n; i++) {
+        uint8_t* p = &px[(size_t) i * 4];
+        p[3] = (p[0] > 240 && p[1] < 16 && p[2] > 240) ? 0 : 255;
+        solid += p[3] != 0;
+    }
+    for (int pass = 0; pass < 4; pass++) {
+        std::vector<uint8_t> src = px;
+        for (int y = 0; y < CROWD_ATLAS; y++) {
+            for (int x = 0; x < CROWD_ATLAS; x++) {
+                uint8_t* p = &px[((size_t) y * CROWD_ATLAS + x) * 4];
+                if (src[((size_t) y * CROWD_ATLAS + x) * 4 + 3] != 0 || (p[0] > 240 && p[1] < 16 && p[2] > 240) == false) {
+                    continue;
+                }
+                static const int d[4][2] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+                for (int k = 0; k < 4; k++) {
+                    const int xx = x + d[k][0], yy = y + d[k][1];
+                    if (xx < 0 || yy < 0 || xx >= CROWD_ATLAS || yy >= CROWD_ATLAS) continue;
+                    const uint8_t* q = &src[((size_t) yy * CROWD_ATLAS + xx) * 4];
+                    if (!(q[0] > 240 && q[1] < 16 && q[2] > 240)) {
+                        p[0] = q[0]; p[1] = q[1]; p[2] = q[2];
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    if (getenv("GE_CROWD_DUMP") != NULL) { /* the atlas as a BMP, transparent texels black */
+        FILE* f = fopen("crowd_atlas.bmp", "wb");
+        if (f != NULL) {
+            uint32_t img = (uint32_t) n * 3, fsz = 54 + img, off = 54, bi = 40;
+            int32_t w = CROWD_ATLAS, h = CROWD_ATLAS;
+            uint16_t planes = 1, bpp = 24;
+            uint8_t hdr[54] = { 'B', 'M' };
+            memcpy(hdr + 2, &fsz, 4); memcpy(hdr + 10, &off, 4); memcpy(hdr + 14, &bi, 4);
+            memcpy(hdr + 18, &w, 4); memcpy(hdr + 22, &h, 4); memcpy(hdr + 26, &planes, 2);
+            memcpy(hdr + 28, &bpp, 2); memcpy(hdr + 34, &img, 4);
+            fwrite(hdr, 1, 54, f);
+            for (int i = 0; i < n; i++) {
+                const uint8_t* p = &px[(size_t) i * 4];
+                const uint8_t bgr[3] = { p[3] ? p[2] : (uint8_t) 0, p[3] ? p[1] : (uint8_t) 0, p[3] ? p[0] : (uint8_t) 0 };
+                fwrite(bgr, 1, 3, f);
+            }
+            fclose(f);
+        }
+    }
+    glActiveTexture(GL_TEXTURE7);
+    if (crowd_tex == 0) glGenTextures(1, &crowd_tex);
+    glBindTexture(GL_TEXTURE_2D, crowd_tex);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, CROWD_ATLAS, CROWD_ATLAS, 0, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    if (glGenerateMipmap != NULL) {
+        glGenerateMipmap(GL_TEXTURE_2D);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    } else {
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    }
+    glActiveTexture(GL_TEXTURE0 + last_selected_tile);
+    printf("ge: crowd: atlas captured (%d of %d texels solid)\n", solid, n);
+}
+
+static bool crowd_init(void) {
+    if (crowd_prog != 0) return true;
+    if (crowd_failed) return false;
+    if (gl_glsl_version < 130 || glGenVertexArrays == NULL) {
+        crowd_failed = true;
+        return false;
+    }
+    char hdr[96];
+    snprintf(hdr, sizeof(hdr), "#version %s\n%s", gl_glsl_version_str, gl_es ? "precision mediump float;\n" : "");
+    std::string vs = std::string(hdr) +
+        "in vec3 aPos;\nin vec2 aCorner;\nin vec3 aInfo;\n"
+        "uniform mat4 uMvp;\nuniform vec2 uFix;\nuniform vec2 uRight;\nuniform vec3 uBox;\nuniform float uNow;\nuniform float uFlip;\n"
+        "out vec2 vUv;\n"
+        "void main() {\n"
+        "    vec3 p = aPos + vec3(uRight.x, 0.0, uRight.y) * (aCorner.x * uBox.x);\n"
+        "    p.y += uBox.y + aCorner.y * uBox.z;\n"
+        "    vec4 c = uMvp * vec4(p, 1.0);\n"
+        "    c.x = c.x * uFix.x + uFix.y * c.w;\n"
+        "    c.y *= uFlip;\n"
+        "    float cell = aInfo.x + ((uNow >= aInfo.y && uNow < aInfo.z) ? 16.0 : 0.0);\n"
+        "    float col = mod(cell, 8.0), row = floor(cell / 8.0);\n"
+        "    vUv = vec2((col + aCorner.x * 0.5 + 0.5) / 8.0, (row + aCorner.y) / 4.0);\n"
+        "    gl_Position = c;\n"
+        "}\n";
+    std::string fs = std::string(hdr) +
+        "in vec2 vUv;\nuniform sampler2D uTex;\nuniform vec4 uTint;\nout vec4 outColor;\n"
+        "void main() {\n"
+        "    vec4 t = texture(uTex, vUv);\n"
+        "    if (t.a < 0.5) discard;\n"
+        "    outColor = vec4(mix(t.rgb, uTint.rgb, uTint.a), 1.0);\n"
+        "}\n";
+    crowd_prog = vi_compile(vs.c_str(), fs.c_str());
+    if (crowd_prog == 0) {
+        crowd_failed = true;
+        return false;
+    }
+    cu_mvp = glGetUniformLocation(crowd_prog, "uMvp");
+    cu_fix = glGetUniformLocation(crowd_prog, "uFix");
+    cu_right = glGetUniformLocation(crowd_prog, "uRight");
+    cu_box = glGetUniformLocation(crowd_prog, "uBox");
+    cu_now = glGetUniformLocation(crowd_prog, "uNow");
+    cu_flip = glGetUniformLocation(crowd_prog, "uFlip");
+    cu_tint = glGetUniformLocation(crowd_prog, "uTint");
+    cu_tex = glGetUniformLocation(crowd_prog, "uTex");
+    glGenVertexArrays(1, &crowd_vao);
+    glGenBuffers(1, &crowd_vbo);
+    glBindVertexArray(crowd_vao);
+    glBindBuffer(GL_ARRAY_BUFFER, crowd_vbo);
+    const char* names[3] = { "aPos", "aCorner", "aInfo" };
+    const int sizes[3] = { 3, 2, 3 }, offs[3] = { 0, 3, 5 };
+    for (int i = 0; i < 3; i++) {
+        GLint loc = glGetAttribLocation(crowd_prog, names[i]);
+        if (loc >= 0) {
+            glEnableVertexAttribArray(loc);
+            glVertexAttribPointer(loc, sizes[i], GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*) (offs[i] * sizeof(float)));
+        }
+    }
+    glBindVertexArray((gl_core_profile || gl_es) ? opengl_vao : 0);
+    glBindBuffer(GL_ARRAY_BUFFER, opengl_vbo);
+    return true;
+}
+
+/* every impostor in one draw: cylindrical billboards, alpha-tested, depth-tested and written like opaque geometry */
+extern "C" void gfx_opengl_crowd_draw(const CrowdFrame* f, const float mvp[16], const float fix[2], int invert_y) {
+    if (f == NULL || f->n <= 0 || crowd_tex == 0 || !crowd_init()) return;
+    glBindVertexArray(crowd_vao);
+    glBindBuffer(GL_ARRAY_BUFFER, crowd_vbo);
+    if (f->version != crowd_ver) {
+        static const float corner[6][2] = { { -1, 0 }, { 1, 0 }, { 1, 1 }, { -1, 0 }, { 1, 1 }, { -1, 1 } };
+        std::vector<float> v((size_t) f->n * 6 * 8);
+        for (int i = 0; i < f->n; i++) {
+            const CrowdImpostor& c = f->imp[i];
+            for (int k = 0; k < 6; k++) {
+                float* o = &v[((size_t) i * 6 + k) * 8];
+                o[0] = c.x; o[1] = c.y; o[2] = c.z;
+                o[3] = corner[k][0]; o[4] = corner[k][1];
+                o[5] = c.skin; o[6] = c.t0; o[7] = c.t1;
+            }
+        }
+        glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr) (v.size() * sizeof(float)), v.data(), GL_STATIC_DRAW);
+        crowd_ver = f->version;
+        crowd_verts = f->n * 6;
+    }
+    glUseProgram(crowd_prog);
+    glUniformMatrix4fv(cu_mvp, 1, GL_FALSE, mvp);
+    glUniform2f(cu_fix, fix[0], fix[1]);
+    glUniform2f(cu_right, f->right[0], f->right[1]);
+    glUniform3f(cu_box, f->box[0], f->box[1], f->box[2]);
+    glUniform1f(cu_now, f->now);
+    glUniform1f(cu_flip, invert_y ? -1.0f : 1.0f);
+    glUniform4f(cu_tint, f->tint[0], f->tint[1], f->tint[2], f->tint[3]);
+    glUniform1i(cu_tex, 7);
+    glActiveTexture(GL_TEXTURE7);
+    glBindTexture(GL_TEXTURE_2D, crowd_tex);
+    const GLboolean blend = glIsEnabled(GL_BLEND), cull = glIsEnabled(GL_CULL_FACE);
+    glDisable(GL_BLEND);
+    glDisable(GL_CULL_FACE);
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LESS);
+    glDepthMask(GL_TRUE);
+    glDisable(GL_POLYGON_OFFSET_FILL);
+    glDrawArrays(GL_TRIANGLES, 0, crowd_verts);
+    if (blend) glEnable(GL_BLEND);
+    if (cull) glEnable(GL_CULL_FACE);
+    gfx_opengl_set_depth_mode(ge_dm_args[0], ge_dm_args[1], ge_dm_args[2], ge_dm_args[3], ge_dm_zmode);
+    glActiveTexture(GL_TEXTURE0 + last_selected_tile);
+    glBindVertexArray((gl_core_profile || gl_es) ? opengl_vao : 0);
+    glBindBuffer(GL_ARRAY_BUFFER, opengl_vbo);
+    if (gl_current_prg != nullptr) {
+        glUseProgram(gl_current_prg->opengl_program_id);
+        gfx_opengl_set_uniforms(gl_current_prg);
+    }
+}
+
+struct GfxRenderingAPI gfx_opengl_api = {
     gfx_opengl_get_name,
     gfx_opengl_get_max_texture_size,
     gfx_opengl_get_clip_parameters,

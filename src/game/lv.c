@@ -1068,7 +1068,9 @@ void lvlStageLoad(s32 stage)
         extern void portPartCacheStageLoaded(s32 stage);
         extern void portHwLoadStageLoaded(void);
         extern void portVehicleCarryReset(void);
+        extern void portCrowdStageLoaded(void);
         portPartCacheStageLoaded(stage);
+        portCrowdStageLoaded(); /* arena impostor crowd (port_crowd.c) */
         portVehicleCarryReset(); /* vehicle rounding-carry slots keyed by setup address (propobj.c) */
         portHwLoadStageLoaded(); /* the stage's own loads are the load time, not a hitch (boss.c holds it) */
     }
@@ -1452,9 +1454,16 @@ Gfx* lvlRender(Gfx* DL)
              * renderer flushes its sorted transparent triangles here, before
              * the gun. The gun depth-tests, so glass flushed after it would
              * paint over it. */
-            DL->words.w0 = (u32)0x47 << 24;
-            DL->words.w1 = 0;
-            DL++;
+            {
+                extern Gfx *portCrowdDraw(Gfx *gdl);
+                extern Gfx *portCrowdCapture(Gfx *gdl);
+
+                DL = portCrowdDraw(DL);   /* arena impostor crowd; nothing unless set up (port_crowd.c) */
+                DL->words.w0 = (u32)0x47 << 24;
+                DL->words.w1 = 0;
+                DL++;
+                DL = portCrowdCapture(DL);
+            }
 #endif
             PSECT(7);
             if (get_debug_render_raster() == DEB_BOND_VIEW)
