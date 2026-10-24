@@ -330,9 +330,86 @@ static s8 clampStick(f32 v, f32 lim)
     return (s8) (v > lim ? lim : (v < -lim ? -lim : v));
 }
 
+/* GE_HASHLOG=<file> (test, solo or co-op, no netplay needed): every sim tick of a stage, "tick N hash H" and the 12 sub-hashes of
+ * portCoopStateHash, taken at the start of the tick. Two runs with the same inputs must write the same file (tests/heist/run_determinism.sh).
+ * GE_HASHLOG_DUMP=<from>[-<to>]: the text dump of those ticks too, to diff two runs at the first tick they part. Ticks count from 1 per stage. */
+const char *portCoopStateFieldName(int i);
+#define HASHLOG_TEXT 262144
+
+static void hashLogTick(void)
+{
+    extern s32 g_StageNum;
+    extern s32 g_ClockTimer;
+    extern enum CAMERAMODE g_CameraMode;
+    static int init, dumpFrom, dumpTo;
+    static FILE *f;
+    static u32 tick;
+    static s32 stage = -1;
+    static char *text;   /* (heap: a static buffer this size would sit in the rollback snapshot's sim statics) */
+    PortNetHashMsg hm;
+    int i;
+
+    if (!init) {
+        const char *e = getenv("GE_HASHLOG");
+        const char *d = getenv("GE_HASHLOG_DUMP");
+
+        init = 1;
+        f = (e != NULL && e[0] != '\0') ? fopen(e, "w") : NULL;
+        if (d != NULL && d[0] != '\0') {
+            const char *dash = strchr(d, '-');
+
+            dumpFrom = atoi(d);
+            dumpTo = dash != NULL ? atoi(dash + 1) : dumpFrom;
+        }
+        text = (f != NULL) ? (char *) malloc(HASHLOG_TEXT) : NULL;
+    }
+    if (f == NULL || text == NULL || g_PortResim) {
+        return;
+    }
+    if (!portStageRunning()) {
+        stage = -1;
+        return;
+    }
+    if (sCoopOn) {   /* co-op / netplay: the session's own tick number (the one about to run), so two machines' logs line up */
+        if (sPupTick + 1u == tick && stage == g_StageNum) {
+            return;   /* (a held lockstep tick: no sim tick ran) */
+        }
+    }
+    if (stage != g_StageNum) {
+        stage = g_StageNum;
+        tick = 0;
+        fprintf(f, "stage %d\n", (int) stage);
+        if (!portNetLockActive() && getenv("GE_NET_RNGTRACE") != NULL) {   /* the RNG trace of a local run (port_net.c), "local" */
+            extern void portNetRngTraceOpenLocal(void);
+
+            portNetRngTraceOpenLocal();
+        }
+    }
+    tick = sCoopOn ? sPupTick + 1u : tick + 1u;
+    memset(&hm, 0, sizeof(hm));
+    text[0] = '\0';
+    {
+        int dump = dumpFrom > 0 && tick >= (u32) dumpFrom && tick <= (u32) dumpTo;
+
+        if (portCoopStateHash(&hm, text, dump ? HASHLOG_TEXT : 1) != 0) {
+            return;
+        }
+        fprintf(f, "tick %u hash %08x clk %d cam %d", tick, hm.hash, (int) g_ClockTimer, (int) g_CameraMode);
+        for (i = 0; i < PORT_NET_HASH_FIELDS; i++) {
+            fprintf(f, " %s %08x", portCoopStateFieldName(i), hm.fields[i]);
+        }
+        fputc('\n', f);
+        if (dump) {
+            fprintf(f, "%s", text);
+        }
+    }
+    fflush(f);
+    fflush(stdout);   /* the port leaves through _exit, which skips stdio: a test's own log lines (Lua print) up to this tick survive */
+}
+
 void portCoopTick(void)
 {
-
+    hashLogTick();
     if (!sCoopOn) {
         return;
     }
@@ -2842,6 +2919,10 @@ int portCoopStateHash(PortNetHashMsg *m, char *dump, int cap)
               (int) q->hands[GUNRIGHT].weaponnum, (int) q->hands[GUNLEFT].weaponnum, (int) q->controldef);
         dumpf(dump, cap, &n, "[player %d aim] crosshair %.5f %.5f damp %.5f speedtheta %.5f speedverta %.5f autoaim %.5f %.5f\n", i,
               q->crosshair_x_pos, q->crosshair_y_pos, q->guncrossdamp, q->speedtheta, q->speedverta, q->autoaimx, q->autoaimy);
+        dumpf(dump, cap, &n, "[player %d bits] pos %08x %08x %08x hp %08x arm %08x th %08x vt %08x cross %08x %08x damp %08x st %08x sv %08x aa %08x %08x zoom %08x\n", i,
+              fbits(q->prop->pos.x), fbits(q->prop->pos.y), fbits(q->prop->pos.z), fbits(q->bondhealth), fbits(q->bondarmour), fbits(q->vv_theta),
+              fbits(q->vv_verta), fbits(q->crosshair_x_pos), fbits(q->crosshair_y_pos), fbits(q->guncrossdamp), fbits(q->speedtheta),
+              fbits(q->speedverta), fbits(q->autoaimx), fbits(q->autoaimy), fbits(q->zoominfovy));
     }
     f[1] = h;
     /* 2 chrs: position, damage, action, flags of every chr slot that has a prop */
@@ -2996,7 +3077,11 @@ int portCoopStateHash(PortNetHashMsg *m, char *dump, int cap)
         h = hashU(h, (unsigned) alarm_timer);
         {
             extern unsigned portHeistStateHash(void);   /* port_heist.c: per-player keys, CCTV overrides and switch-offs, the countdown */
-            h = hashU(h, portHeistStateHash());
+            extern const char *portHeistModeStateText(void);   /* the mode script's mode.state text (phase, crack, vault, loot, waves) */
+            unsigned hh = portHeistStateHash();
+
+            h = hashU(h, hh);
+            dumpf(dump, cap, &n, "[heist] hash %08x mode %s\n", hh, portHeistModeStateText());
         }
         dumpf(dump, cap, &n, "[alarm] timer %d\n", (int) alarm_timer);
     }

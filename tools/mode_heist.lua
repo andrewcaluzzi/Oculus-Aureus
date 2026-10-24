@@ -12,8 +12,8 @@
 --   -> crack it (hold the zone; it jams now and then: get back in and restart it), the vault opens on a timer: grab the gold
 --   -> T-15 s klaxon; at 0 the vault doors close and relock and the alarm goes off: anyone inside re-cracks from the inside (alarm + a
 --      heavy squad). The manager's safe (GOLD card, the vault captain) and the deposit cells (GREEN / the floor key) hold more.
---   -> exits: A the van (where you came in), B the loading dock (west wing). Every living Bond must be in an exit (coop_exits=first:
---      one is enough), carrying at least something.
+--   -> exits: A the van (where you came in), B the loading dock (west wing). Every living Bond must be in an exit (in co-op too,
+--      whatever coop_exits says), and the crew must carry at least something.
 -- Fail: every Bond down, or more civilians killed than the stock Frigate rule allows (Agent 4, Secret Agent 2, 00 Agent / 007 1).
 -- Knock-outs never count. Score = the loot (bars and cash), +25% for a run that never went loud, minus a fine per civilian killed.
 -- The best score this session is kept (HEIST_BEST) and logged ("ge: heist: HIGH SCORE"); modes have no save file.
@@ -304,11 +304,17 @@ local function refresh_hud()
   local status = H.hot and "ALARM" or "quiet"
   if H.cam_off_until and H.elapsed < H.cam_off_until then status = status .. " CAMS OFF" end
   for p = 0, bond.count() - 1 do
-    hud.set(1, string.format("JANUS BANK %s  %d bars  %s  [%s]", money(H.loot), H.bars, status, cards_text(p)), p)
-    hud.set(2, objective(p), p)
-    if H.flash and H.elapsed < H.flash_until then hud.set(3, H.flash, p) else hud.set(3, "", p) end
+    if cctv.viewing(p) then
+      -- on the camera feeds: only the feed's overlay and the intel box (the mode's lines would sit over the picture)
+      hud.set(1, "", p); hud.set(2, "", p); hud.set(3, "", p)
+    else
+      hud.set(1, string.format("JANUS BANK %s  %d bars  %s  [%s]", money(H.loot), H.bars, status, cards_text(p)), p)
+      hud.set(2, objective(p), p)
+      if H.flash and H.elapsed < H.flash_until then hud.set(3, H.flash, p) else hud.set(3, "", p) end
+    end
   end
 end
+H.refresh_hud = refresh_hud
 
 -- ------------------------------------------------------------------------------------------------------------------------------------
 -- alarm, waves
@@ -669,6 +675,7 @@ on("cctv_view", function(p, cam, why)
     if why == 3 then flash("Hit! You look up from the screens", 3) end
     if S.test then log("Bond %d left the feeds (why %d)", p, why) end
   end
+  if not H.ended then refresh_hud() end   -- at once: the mode's lines go while he watches and come back when he leaves
 end)
 
 on("use", function(p, kind, idx, objtype)
@@ -676,8 +683,9 @@ on("use", function(p, kind, idx, objtype)
   for _, d in ipairs(DOORS.vault_b) do if idx == d then crack_action(p, "use") end end
   -- the security console: blinds every camera for cam_off_time seconds and shows who carries the cards
   if bond.has_key(p, BLUE) and H.console_zone and zone.contains(H.console_zone, bond.id(p)) then H.camera_switch(p) end
-  -- the hall's screens: watch the camera feeds (a use press at a screen; MONITOR / MULTI_MONITOR / RACK or nothing in reach)
-  if (idx < 0 or objtype == 10 or objtype == 11 or objtype == 12) and not cctv.viewing(p) and near_monitor(p)
+  -- the hall's screens: watch the camera feeds (a press of the use action at a screen; MONITOR / MULTI_MONITOR / RACK or nothing in
+  -- reach). Only the use action: B is also reload, and a reload next to the screens must not open them (B still leaves the feeds).
+  if (idx < 0 or objtype == 10 or objtype == 11 or objtype == 12) and bond.use_key(p) and not cctv.viewing(p) and near_monitor(p)
      and H.elapsed - (H.cctv_left[p] or -100) > 0.75 then
     H.watch(p)
   end
@@ -858,8 +866,8 @@ local function exits_tick()
     end
   end
   if living == 0 then return end
-  local first = (mods.get("coop_exits") == 1)
-  if inside == living or (first and inside > 0) then finish(true, "the crew got out") end
+  -- every living Bond must be out (AC's answer 8), whatever coop_exits says; a down Bond waiting to respawn does not hold the crew
+  if inside == living then finish(true, "the crew got out") end
 end
 
 local function fail_tick()
@@ -937,8 +945,21 @@ on("stage_start", function(stage)
   refresh_hud()
 end)
 
+-- the script's sim state for the co-op / netplay state hash (mode.state): a script-state desync shows at once, and the dump names it
+local function state_text()
+  local carried = {}
+  for p = 0, bond.count() - 1 do carried[#carried + 1] = tostring(H.carried[p] or 0) .. (H.trapped[p] and "T" or "") end
+  return string.format("%s%s hot=%s@%s t=%.4f prog=%.5f jams=%d nj=%.2f by=%s vl=%s loot=%d/%d/%d carried=%s sq=%d g=%d c=%d w=%d/%d r=%d/%d off=%s q=%d hs=%s ps=%s safe=%s",
+    H.phase, H.ended and "(ended)" or "", tostring(H.hot), tostring(H.hot_at), H.elapsed, H.progress, H.jams, H.next_jam, tostring(H.crack_by), tostring(H.vault_left),
+    H.loot, H.bars, H.cash, table.concat(carried, ","), H.squads, #H.guards, #H.civs, waves and waves.spawned or 0, waves and waves.waves or 0,
+    response and response.spawned or 0, response and response.waves or 0, tostring(H.cam_off_until), #queue, tostring(H.half_squad),
+    tostring(H.paused), tostring(safe_done))
+end
+H.state_text = state_text
+
 local hud_acc = 0
 on("tick", function(dt)
+  if H.phase ~= "off" then mode.state(state_text()) end
   if H.phase == "off" or H.ended then return end
   H.elapsed = H.elapsed + dt
   for _ = 1, S.spawn_per_tick do

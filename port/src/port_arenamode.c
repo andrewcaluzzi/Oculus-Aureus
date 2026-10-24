@@ -49,7 +49,7 @@ extern s32 get_max_ammo_for_type(s32 type);
 #define SIGHT_DEFAULT           15000.0f  /* A5: chr->visionrange in world units (the Colosseum is 9000 across) */
 
 /* per arena chr: its knife numbers and whether it has fired yet (first-shot range log) */
-typedef struct { s32 chrnum; u8 enemy, knifer, fired, spectator, stockroute; f32 knifeRange, knifeCooldown, engage; } ArenaInfo;
+typedef struct { s32 chrnum; u8 enemy, knifer, fired, spectator, stockroute, headshot; f32 knifeRange, knifeCooldown, engage; } ArenaInfo;
 static ArenaInfo sInfo[INFO_N];
 
 static ArenaInfo *infoGet(s32 chrnum)
@@ -237,6 +237,25 @@ s32 portArenaChrDormant(const ChrRecord *chr)
     }
     a = infoGet((s32)chr->chrnum);
     return a != NULL && (a->spectator || (a->enemy && chr->actiontype == ACT_DEAD));
+}
+
+/* chraction.c, on every hit that lands on a chr: remembers whether an arena enemy's last damaging hit was to the head (the crowd
+ * cheers a headshot kill; spawn.headshot). Port-side bookkeeping only, read by the mode on chr_died. */
+void portArenaNoteHitPart(const ChrRecord *chr, s32 head)
+{
+    ArenaInfo *a = (chr != NULL && chr->chrnum >= ARENA_CHRNUM0) ? infoGet((s32)chr->chrnum) : NULL;
+
+    if (a != NULL && a->enemy)
+    {
+        a->headshot = head ? 1 : 0;
+    }
+}
+
+int portLuaGameChrHeadshot(int chrnum)
+{
+    ArenaInfo *a = (chrnum >= ARENA_CHRNUM0) ? infoGet((s32)chrnum) : NULL;
+
+    return a != NULL && a->headshot;
 }
 
 /* GE_ARENA_OLDAI=1: the drop A4 enemy AI (run to 9 m, then fight; waypoint routes only), for before/after measurements on the same binary */
@@ -610,8 +629,8 @@ s32 portArenaWeaponNearBond(const WeaponObjRecord *w)
     return FALSE;
 }
 
-/* test helper: a normal lethal hit (death animation, weapon drops, events) from Bond's position */
-int portLuaGameChrKill(int chrnum)
+/* test helper: a normal lethal hit (death animation, weapon drops, events) from Bond's position; head = count it as a headshot */
+int portLuaGameChrKill(int chrnum, int head)
 {
     ChrRecord *c = chrFindByLiteralId(chrnum);
     PropRecord *bp = anchorProp();
@@ -621,6 +640,10 @@ int portLuaGameChrKill(int chrnum)
         return 0;
     }
     chrlvExplosionDamage(c, &bp->pos, c->maxdamage + 1.0f + (c->damage < 0.0f ? -c->damage : 0.0f), TRUE);
+    if (head)
+    {
+        portArenaNoteHitPart(c, 1);
+    }
     return 1;
 }
 
@@ -874,8 +897,9 @@ int portLuaGameChrAlive(int chrnum)
 }
 
 /* Named animations for the crowd: the stock idle fidgets (with their stock end frames) and some reactions. All play to the end
- * and return to the idle pose (ANIM_IDLE_POSE_WHEN_COMPLETE), as the stock idle-animation list does. */
-static const struct { const char *name; s32 anim, end; u8 flags; } sAnims[] = {
+ * and return to the idle pose (ANIM_IDLE_POSE_WHEN_COMPLETE), as the stock idle-animation list does. start (left out = 0) is the first
+ * frame played. */
+static const struct { const char *name; s32 anim, end; u8 flags; s32 start; } sAnims[] = {
     { "yawn", ANIM_yawning, 193, ANIM_IDLE_POSE_WHEN_COMPLETE | ANIM_PLAY_SFX },
     { "flies", ANIM_swatting_flies, 294, ANIM_IDLE_POSE_WHEN_COMPLETE | ANIM_PLAY_SFX },
     { "scratch_leg", ANIM_scratching_leg, 183, ANIM_IDLE_POSE_WHEN_COMPLETE | ANIM_PLAY_SFX },
@@ -890,7 +914,36 @@ static const struct { const char *name; s32 anim, end; u8 flags; } sAnims[] = {
     { "surrender", ANIM_surrendering_unarmed, -1, ANIM_IDLE_POSE_WHEN_COMPLETE },
     { "dance", ANIM_dancing, -1, ANIM_IDLE_POSE_WHEN_COMPLETE },
     { "look", ANIM_look_around, -1, ANIM_IDLE_POSE_WHEN_COMPLETE },
+    /* crowd boos / jeers: fists raised in a fighting stance (the MP character-select taunt, reads as shaking fists at the pit),
+     * and arms folded in disapproval (the end of the guard's holster-and-cross-arms; unarmed, the holster is an empty hand).
+     * fists: the whole animation is 448 frames (~15 s) and starts with a weapon drop; frames 248..360 (the stance, where the
+     * character select starts it) are about 4 s */
+    { "fists", ANIM_drop_weapon_and_show_fight_stance, 360, ANIM_IDLE_POSE_WHEN_COMPLETE, 248 },
+    { "cross_arms", ANIM_holster_one_handed_weapon_and_cross_arms, -1, ANIM_IDLE_POSE_WHEN_COMPLETE },
 };
+
+/* an idle chr: standing, or a one-shot animation that has run out (it holds the idle pose); the fidget gate of spawn.anim */
+static s32 chrAnimIdle(ChrRecord *c)
+{
+    return c->actiontype == ACT_STAND ||
+           (c->actiontype == ACT_ANIM && modelGetAnimFrame(c->model) >= modelGetAnimEndFrame(c->model));
+}
+
+int portLuaGameChrIdle(int chrnum)
+{
+    ChrRecord *c;
+
+    if (!portModeActive())
+    {
+        return -1;
+    }
+    c = chrFindByLiteralId(chrnum);
+    if (c == NULL || c->prop == NULL || c->model == NULL || chrIsDead(c))
+    {
+        return -1;
+    }
+    return chrAnimIdle(c) ? 1 : 0;
+}
 
 extern void chrlvPerformAnimationForActor(ChrRecord *self, s32 animID, s32 startframe, s32 endframe, u8 bitfield, s32 interpol_time60);
 
@@ -921,13 +974,12 @@ int portLuaGameChrAnim(int chrnum, const char *name, int force)
     }
     if (!force)
     {   /* a fidget only while the chr is idle: standing, or an earlier animation that has run out */
-        if (!(c->actiontype == ACT_STAND ||
-              (c->actiontype == ACT_ANIM && modelGetAnimFrame(c->model) >= modelGetAnimEndFrame(c->model))))
+        if (!chrAnimIdle(c))
         {
             return 0;
         }
     }
-    chrlvPerformAnimationForActor(c, sAnims[i].anim, 0, sAnims[i].end, sAnims[i].flags, ANIM_DEFAULT_INTERPOLATION);
+    chrlvPerformAnimationForActor(c, sAnims[i].anim, sAnims[i].start, sAnims[i].end, sAnims[i].flags, ANIM_DEFAULT_INTERPOLATION);
     return 1;
 }
 

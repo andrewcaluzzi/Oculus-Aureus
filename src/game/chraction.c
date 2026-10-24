@@ -2735,6 +2735,11 @@ bool handles_shot_actors(ChrRecord *self, s32 hitpart, coord3d *vector, s32 weap
                 extern int portEventAttacker(void);
                 portEventEmitDamage(self->chrnum, isPlayer ? -2 : portEventAttacker(), damageToCause, weaponid);
             }
+            if (damageToCause > 0.0f)
+            { /* PORT: arena: the crowd cheers a headshot kill (port_arenamode.c; port-side bookkeeping, no sim state) */
+                extern void portArenaNoteHitPart(const ChrRecord *chr, s32 head);
+                portArenaNoteHitPart(self, hitpart == HIT_HEAD);
+            }
 #endif
 
             if (self->damage < 0.0f)
@@ -2820,6 +2825,11 @@ s32 chrlvExplosionDamage(ChrRecord *self, coord3d *arg1, f32 damage, s32 arg3)
     { /* PORT: event: DAMAGE from a blast (attacker and weapon unknown); the dead return above, so none for corpses */
         extern void portEventEmitDamage(int victim, int attacker, float amount, int weapon);
         portEventEmitDamage(self->chrnum, -1, damage, -1);
+        if (damage > 0.0f)
+        {
+            extern void portArenaNoteHitPart(const ChrRecord *chr, s32 head);
+            portArenaNoteHitPart(self, 0);   /* a blast is not a headshot */
+        }
     }
 #endif
 

@@ -116,6 +116,14 @@ s16 g_sndAllocatedVoicesCount = 0;
  */
 s8 g_sndBootswitchSound = 0;
 
+#ifndef TARGET_N64
+/* portSndPlayPresent -> sndSetupSound: the play under way is a presentation one */
+static s32 s_PortPresent;
+static f32 s_PortPresentPitch = 1.0f;
+static u16 s_PortPresentVol = 0x7fff;
+static u8 s_PortPresentPan = AL_PAN_CENTER;
+#endif
+
 /**
  * Used in level load/setup, sound effect slot volume will be scaled by this amount.
  */
@@ -501,6 +509,55 @@ ALMicroTime sndPlayerVoiceHandler(void *node)
 }
 
 
+#ifndef TARGET_N64
+/* The player is full (maxSounds) and soundState found no voice: a presentation
+ * sound gives up (returns 1: it was disposed), so the crowd never cuts a game
+ * sound; a game sound first preempts a playing presentation one (the oldest),
+ * exactly as the loop below would preempt any sound, and clears *limitReached. */
+static s32 s_PortPresentGaveUp, s_PortPresentYielded, s_PortGamePreempts;
+
+/* port_gamesfx.c log: presentation sounds that gave up / were preempted by a game sound, and game sounds that had to preempt
+ * another game sound (vanilla behaviour when the player is full of game sounds) */
+void portSndPresentStats(s32 *gaveUp, s32 *yielded, s32 *gamePreempts)
+{
+    *gaveUp = s_PortPresentGaveUp;
+    *yielded = s_PortPresentYielded;
+    *gamePreempts = s_PortGamePreempts;
+}
+
+static s32 portSndPresentSlot(ALSndPlayer *sndp, ALSoundState *soundState, s32 *limitReached)
+{
+    ALSoundState *it;
+
+    if (soundState->portPresent)
+    {
+        s_PortPresentGaveUp++;
+        sndDisposeSound(soundState);
+        return 1;
+    }
+    for (it = (ALSoundState *) D_800243E4.node.prev; it != NULL && *limitReached; it = (ALSoundState *) it->link.prev)
+    {
+        if (it->portPresent && !(it->unk3e & 0x12) && (it->unk3e & 0x4) && it->playingState != SOUND_STATE_PREEMPT)
+        {
+            ALSndpEvent interruptEvent;
+
+            interruptEvent.common.type = AL_SNDP_END_EVT;
+            interruptEvent.common.state = it;
+            it->playingState = SOUND_STATE_PREEMPT;
+            *limitReached = FALSE;
+            portSndPostEvent(&sndp->evtq, (ALEvent *) &interruptEvent, DELTA_1_MS);
+            alSynSetVol(sndp->drvr, &it->voice, 0, DELTA_1_MS);
+            s_PortPresentYielded++;
+        }
+    }
+    if (*limitReached)
+    {
+        s_PortGamePreempts++;   /* the stock loop below preempts a game sound (or none is preemptible) */
+    }
+    return 0;
+}
+#endif
+
 void sndHandleEvent(ALSndPlayer *sndp, ALSndpEvent *event) {
     ALVoiceConfig config;
     ALVoice *voice;  // dead but load-bearing. Do not remove.
@@ -576,6 +633,12 @@ void sndHandleEvent(ALSndPlayer *sndp, ALSndpEvent *event) {
                             // Check if we can preempt a lower-priority sound.
                             ALSoundState *iterState = (ALSoundState *) D_800243E4.node.prev;
 
+#ifndef TARGET_N64
+                            if (portSndPresentSlot(sndp, soundState, &limitReached)) {
+                                return;
+                            }
+                            if (limitReached)
+#endif
                             do {
                                 if (!(iterState->unk3e & 0x12) && (iterState->unk3e & 0x4) &&
                                     iterState->playingState != SOUND_STATE_PREEMPT) {
@@ -985,6 +1048,18 @@ ALSoundState *sndSetupSound(struct ALBankAlt_s *soundBank, ALSound* sound)
          * was until its own owner posts. This is the whole lifetime
          * story for the tracking (see snd.h). */
         state->portPanTracked = 0;
+        /* a presentation play (portSndPlayPresent) marks every state its
+         * sndPlaySfx call claims, and sets its level, pitch and pan before
+         * the PLAY event reads them; synth priority 1, so it steals no voice
+         * from a game sound (0x40) and a game sound can steal its voice */
+        state->portPresent = s_PortPresent;
+        if (s_PortPresent)
+        {
+            state->priority = 1;
+            state->pitch_2c = s_PortPresentPitch;
+            state->vol = s_PortPresentVol;
+            state->pan = s_PortPresentPan;
+        }
 #endif
     }
 
@@ -1438,6 +1513,33 @@ ALSoundState *portSndPlaySfxPitched(void *soundBankv, s16 soundIndex, f32 pitch)
         evt.pitch.pitch = pitch;
         portSndPostEvent(&g_sndPlayerPtr->evtq, (ALEvent *)&evt, 0);
     }
+    return state;
+}
+
+/**
+ * A presentation one-shot from the game's sound bank (Lua sound.play_sfx /
+ * sound.sfx_burst, port_gamesfx.c). The states it claims are marked
+ * portPresent and get the level, pitch and pan here, in sndSetupSound, before
+ * the PLAY event reads them; the game's sfx volume (g_sndSfxSlotVolume)
+ * applies on top as for any sound. Through sndPlaySfx itself, so it is a
+ * sound like the sim's, but nothing in the sim reads these states.
+ */
+ALSoundState *portSndPlayPresent(s16 soundIndex, f32 vol, f32 pitch, f32 pan, ALSoundState **owner)
+{
+    ALSoundState *state;
+
+    if (soundIndex <= 0 || g_musicSfxBufferPtr == NULL)
+    {
+        return NULL;
+    }
+    vol = vol < 0.0f ? 0.0f : (vol > 1.0f ? 1.0f : vol);
+    pan = pan < -1.0f ? -1.0f : (pan > 1.0f ? 1.0f : pan);
+    s_PortPresentVol = (u16) (vol * 32767.0f);
+    s_PortPresentPitch = pitch > 0.1f ? (pitch < 4.0f ? pitch : 4.0f) : 0.1f;
+    s_PortPresentPan = (u8) (AL_PAN_CENTER + pan * (AL_PAN_CENTER - 1));
+    s_PortPresent = 1;
+    state = sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, soundIndex, (ALSoundState *) owner);
+    s_PortPresent = 0;
     return state;
 }
 #endif

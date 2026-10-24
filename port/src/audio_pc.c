@@ -1137,6 +1137,11 @@ void portAudioPump(void)
             }
         }
 
+        { /* the game sounds Lua queued (port_gamesfx.c: the arena's scream crowd), on the audio's own clock */
+            extern void portGameSfxPump(u32 samples);
+
+            portGameSfxPump(samples);
+        }
         alAudioFrame(cmdList, &cmdLen, frameBuf, (s32)samples);
         if (cmdLen <= 0) {
             break; /* no clients / nothing to render */
@@ -1149,6 +1154,11 @@ void portAudioPump(void)
                 /* nothing was written: play silence, not the previous frame again */
                 memset(frameBuf, 0, samples * 4);
             }
+        }
+        { /* the WAV voices (port_soundfile.c: the arena crowd), on top of the synth */
+            extern void portSoundFileMix(s16 *buf, u32 frames);
+
+            portSoundFileMix(frameBuf, samples);
         }
 
         { /* always-on: digital proof of synthesis - report the first frame

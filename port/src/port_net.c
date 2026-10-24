@@ -1934,6 +1934,12 @@ static void netRngTraceOpen(const char *who)
     portConLogf("ge: net: RNG trace (every draw) -> %s\n", portRootPath(name));
 }
 
+/* GE_HASHLOG runs (port_coop.c, solo or local co-op, no netplay): GE_NET_RNGTRACE works there too, as "local" */
+void portNetRngTraceOpenLocal(void)
+{
+    netRngTraceOpen("local");
+}
+
 void portNetRngTraceDraw(int kind, void *ret, unsigned int value)
 {
     if (sRngMode == 1) {

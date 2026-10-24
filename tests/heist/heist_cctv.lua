@@ -1,7 +1,8 @@
 -- Heist CCTV test (P1 T1 + T2): the camera feeds and the control-room intel, on the real tools/mode_heist.lua (Bunker 2).
 -- Run: tests/heist/run_cctv.sh (headless; GE_FULLHEIGHT=0 GE_EDGEINSET=1 under Xvfb). Screenshots via cctv.test_shot() land in
 -- build_pc/heist_cctv_shots/ (the "gfx: wrote shot_N.bmp" line follows each "HEIST SHOT <name>").
--- Covers: a real B press at the hall's screens opens the feeds (cctv_view event), the feed's room walk starts at the camera, Bond is held
+-- Covers: a B press at the hall's screens does NOT open the feeds (B is also reload), the use action does (cctv_view event), the mode's own
+-- HUD lines are hidden on the feed and back after it, the feed's room walk starts at the camera, Bond is held
 -- (the stick does not move him), A / C-left cycle, a camera that is off shows static (offline), damage throws him out, B leaves (and the
 -- held B does not reopen), cctv.view / view_off / viewing, the intel box (in room 6 and on a feed, not elsewhere), coverage (cctv.sees).
 HEIST_SETTINGS = { test = true }
@@ -64,12 +65,18 @@ local function body()
   check("at a screen", HEIST.near_monitor(0))
   local lines = hud.panel_lines()
   check("intel box in the control room", #lines >= 7 and lines[1]:find("CONTROL ROOM") ~= nil, lines[1] or "none")
-  cctv.test_press("b")
+  check("the mode's HUD lines show before the feeds", hud.line(1, 0):find("JANUS BANK") ~= nil, hud.line(1, 0))
+  cctv.test_press("b")   -- B is use AND reload: a reload next to the screens must not open them
+  wait(1)
+  check("B at the screens does not open the feeds (B is also reload)", cctv.viewing(0) == nil, "cam=" .. tostring(cctv.viewing(0)))
+  cctv.test_use()        -- the use action (the Port use bind)
   wait(1)
   local v = cctv.viewing(0)
-  check("a use press at the screens opens the feeds", v ~= nil, "cam=" .. tostring(v))
+  check("the use action at the screens opens the feeds", v ~= nil, "cam=" .. tostring(v))
   check("cctv_view event (p, cam, why 0)", last_view().p == 0 and last_view().cam == v and last_view().why == 0)
   if not v then v = cams[1]; cctv.view(0, v); wait(0.5) end
+  check("the mode's HUD lines are hidden on the feed", hud.line(1, 0) == "" and hud.line(2, 0) == "" and hud.line(3, 0) == "",
+        string.format("'%s' '%s' '%s'", hud.line(1, 0), hud.line(2, 0), hud.line(3, 0)))
 
   -- 2. the feed's room visibility is the camera's, not Bond's
   local ri = cctv.render_info()
@@ -135,12 +142,16 @@ local function body()
 
   -- 8. B leaves; the B still held does not reopen the feeds
   wait(1)
-  cctv.test_press("b")
+  cctv.test_use()
   wait(1)
-  check("B at the screens again: watching", cctv.viewing(0) ~= nil)
+  check("the use action at the screens again: watching", cctv.viewing(0) ~= nil)
   cctv.test_press("b")
   wait(1.5)
   check("B leaves the feed (why 2)", cctv.viewing(0) == nil and last_view().why == 2, "why " .. tostring(last_view().why))
+  check("the mode's HUD lines are back after leaving", hud.line(1, 0):find("JANUS BANK") ~= nil, hud.line(1, 0))
+  cctv.test_press("b")
+  wait(1)
+  check("B at the screens still does not reopen them", cctv.viewing(0) == nil, "cam=" .. tostring(cctv.viewing(0)))
   check("Bond moves again after leaving", (function()
     local ax, _, az = bond.pos(0)
     for _ = 1, 6 do bond.walk(0, ax + 300, az); wait(0.25) end

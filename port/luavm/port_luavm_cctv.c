@@ -176,6 +176,39 @@ static int cctvTestPress(lua_State *L)
     return 0;
 }
 
+/* cctv.test_use([p]): test helper, one use-action tap (the Port use bind, not B) in Bond p's next tick (default 0) */
+static int cctvTestUse(lua_State *L)
+{
+    portCctvTestUse((int) luaL_optinteger(L, 1, 0));
+    return 0;
+}
+
+/* bond.use_key(p) -> bool: inside a `use` handler, the press is the use action (the Port use bind), not the B button (B is also reload) */
+static int bondUseKey(lua_State *L)
+{
+    lua_pushboolean(L, portHeistUseKey((int) luaL_checkinteger(L, 1)));
+    return 1;
+}
+
+/* mode.state(text): the mode's own sim state as a string, set each tick: hashed into the co-op / netplay state hash ("flags") and shown
+ * in the desync dump, so a script-state desync is caught and named (the heist: phase, crack, vault, loot, waves) */
+static int modeState(lua_State *L)
+{
+    portHeistModeState(luaL_checkstring(L, 1));
+    return 0;
+}
+
+/* hud.line(n [, p]) -> the text of HUD line n (1..3) Bond p sees (his own line, else the shared one), "" none (tests) */
+static int hudLine(lua_State *L)
+{
+    extern const char *portModeHudGetFor(int player, int line);
+    int n = (int) luaL_checkinteger(L, 1);
+    const char *t = (n >= 1 && n <= 3) ? portModeHudGetFor((int) luaL_optinteger(L, 2, 0), n - 1) : NULL;
+
+    lua_pushstring(L, t != NULL ? t : "");
+    return 1;
+}
+
 /* hud.panel_lines() -> the lines this machine's panel shows (tests) */
 static int hudPanelLines(lua_State *L)
 {
@@ -205,11 +238,14 @@ static void addTo(lua_State *L, const char *lib, const luaL_Reg *reg)
 void portLuaCctvRegister(lua_State *L)
 {
     static const luaL_Reg cctvAdd[] = { { "view", cctvView }, { "view_off", cctvViewOff }, { "viewing", cctvViewing }, { "name", cctvName },
-        { "sees", cctvSees }, { "render_info", cctvRenderInfo }, { "test_press", cctvTestPress }, { "test_shot", cctvTestShot }, { NULL, NULL } };
-    static const luaL_Reg hudAdd[] = { { "panel", hudPanel }, { "panel_lines", hudPanelLines }, { NULL, NULL } };
-    static const luaL_Reg bondAdd[] = { { "room", bondRoom }, { NULL, NULL } };
+        { "sees", cctvSees }, { "render_info", cctvRenderInfo }, { "test_press", cctvTestPress }, { "test_shot", cctvTestShot },
+        { "test_use", cctvTestUse }, { NULL, NULL } };
+    static const luaL_Reg hudAdd[] = { { "panel", hudPanel }, { "panel_lines", hudPanelLines }, { "line", hudLine }, { NULL, NULL } };
+    static const luaL_Reg bondAdd[] = { { "room", bondRoom }, { "use_key", bondUseKey }, { NULL, NULL } };
     static const luaL_Reg spawnAdd[] = { { "room", spawnRoom }, { NULL, NULL } };
+    static const luaL_Reg modeAdd[] = { { "state", modeState }, { NULL, NULL } };
 
+    addTo(L, "mode", modeAdd);
     addTo(L, "cctv", cctvAdd);
     addTo(L, "hud", hudAdd);
     addTo(L, "bond", bondAdd);
