@@ -7176,9 +7176,9 @@ static uint32_t s_DlJumpRingIdx;
 
 /* GE arena crowd (gfx_crowd.h, port_crowd.c): capture the skins into an atlas framebuffer, and draw the impostors */
 #include "gfx_crowd.h"
-extern "C" void gfx_opengl_crowd_clear(void);
+extern "C" void gfx_opengl_crowd_capture_begin(int fb);
 extern "C" void gfx_opengl_crowd_capture_done(void);
-extern "C" void gfx_opengl_crowd_draw(const CrowdFrame* f, const float mvp[16], const float fix[2], int invert_y);
+extern "C" void gfx_opengl_crowd_draw(const CrowdFrame* f, const float fix[2], int invert_y);
 static int crowd_fb = -1;
 static bool crowd_saved_fb;
 static struct RSP crowd_saved_rsp;
@@ -7196,8 +7196,7 @@ static void gfx_crowd_cmd(uint32_t op, uintptr_t arg) {
             crowd_saved_vp = rdp.viewport;
             crowd_saved_sc = rdp.scissor;
             crowd_saved_fb = fbActive;
-            gfx_rapi->start_draw_to_framebuffer(crowd_fb, 1.f);
-            gfx_opengl_crowd_clear();
+            gfx_opengl_crowd_capture_begin(crowd_fb);   /* remembers the bound framebuffer, binds and clears the atlas */
             fbActive = true;
             break;
         case CROWD_CAP_CELL:
@@ -7212,10 +7211,10 @@ static void gfx_crowd_cmd(uint32_t op, uintptr_t arg) {
             rdp.viewport_or_scissor_changed = true;
             break;
         case CROWD_CAP_END:
-            gfx_opengl_crowd_capture_done();
-            gfx_rapi->start_draw_to_framebuffer(game_renders_to_framebuffer ? game_framebuffer : 0,
-                                                (float) gfx_current_dimensions.height / SCREEN_HEIGHT);
-            rsp = crowd_saved_rsp;
+            gfx_opengl_crowd_capture_done();   /* reads the atlas back, rebinds the framebuffer that was bound */
+            rsp = crowd_saved_rsp;              /* the matrices, lights and geometry mode as before the capture */
+            rsp_p_gen++;                        /* P came back without a gfx_sp_matrix: re-derive what hangs off it */
+            roc_mtx_gen++;
             rdp.viewport = crowd_saved_vp;
             rdp.scissor = crowd_saved_sc;
             rdp.viewport_or_scissor_changed = true;
@@ -7224,14 +7223,8 @@ static void gfx_crowd_cmd(uint32_t op, uintptr_t arg) {
             ge_state_serial++;
             fbActive = crowd_saved_fb;
             break;
-        case CROWD_DRAW: {
-            float mvp[16];
+        case CROWD_DRAW: {   /* its matrix is in the frame (gfx_crowd.h): the RSP is only read, never changed */
             float fix[2] = { 1.0f, 0.0f };
-            for (int i = 0; i < 4; i++) {
-                for (int j = 0; j < 4; j++) {
-                    mvp[i * 4 + j] = rsp.MP_matrix[i][j];
-                }
-            }
             if (!fbActive && gfx_current_dimensions.aspect_ratio != 0.0f) {
                 fix[0] = rsp.aspect_scale / gfx_current_dimensions.aspect_ratio;
                 fix[1] = rsp.aspect_ofs * fix[0];
@@ -7243,7 +7236,8 @@ static void gfx_crowd_cmd(uint32_t op, uintptr_t arg) {
                 rendering_state.scissor = rdp.scissor;
                 rdp.viewport_or_scissor_changed = false;
             }
-            gfx_opengl_crowd_draw((const CrowdFrame*) arg, mvp, fix, gfx_rapi->get_clip_parameters().invert_y);
+            gfx_opengl_crowd_draw((const CrowdFrame*) arg, fix, gfx_rapi->get_clip_parameters().invert_y);
+            ge_state_serial++;   /* the next triangle re-derives its whole draw state */
             break;
         }
     }

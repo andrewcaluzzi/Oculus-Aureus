@@ -312,25 +312,31 @@ Gfx *portCrowdCapture(Gfx *gdl)
 /* before the world-end marker (lv.c): one batched draw of every impostor, depth-tested against the scene */
 Gfx *portCrowdDraw(Gfx *gdl)
 {
-    Mtxf *cam;
-    Mtx *mv;
+    Mtxf *cam, *proj;
     CrowdFrame *f;
     f32 rx, rz, l;
+    s32 i, j;
 
     if (sN == 0 || sModel[0] == NULL || !portModeActive())
     {
         return gdl;
     }
     cam = camGetWorldToScreenMtxf();
-    mv = dynAllocate(sizeof(Mtx));
+    proj = currentPlayerGetProjectionMatrixF();   /* the chrs' projection */
     f = dynAllocate(sizeof(CrowdFrame));
-    if (cam == NULL || mv == NULL || f == NULL)
+    if (cam == NULL || proj == NULL || f == NULL)
     {
         return gdl;
     }
-    guMtxF2L(cam->m, mv);
-    gSPMatrix(gdl++, currentPlayerGetProjectionMatrix(), G_MTX_PROJECTION | G_MTX_LOAD | G_MTX_NOPUSH);   /* the chrs' */
-    gSPMatrix(gdl++, mv, G_MTX_MODELVIEW | G_MTX_LOAD | G_MTX_NOPUSH);
+    /* world -> clip in the frame itself (gfx_crowd.h): no gSPMatrix, so the RSP matrices the gun inherits are untouched */
+    for (i = 0; i < 4; i++)
+    {
+        for (j = 0; j < 4; j++)
+        {
+            f->mvp[i * 4 + j] = cam->m[i][0] * proj->m[0][j] + cam->m[i][1] * proj->m[1][j]
+                              + cam->m[i][2] * proj->m[2][j] + cam->m[i][3] * proj->m[3][j];
+        }
+    }
     rx = cam->m[0][0];
     rz = cam->m[2][0];
     l = sqrtf(rx * rx + rz * rz);
@@ -347,7 +353,6 @@ Gfx *portCrowdDraw(Gfx *gdl)
     gdl->words.w0 = ((uintptr_t)G_CROWD_EXT << 24) | CROWD_DRAW;
     gdl->words.w1 = (uintptr_t)f;
     gdl++;
-    gSPMatrix(gdl++, (Mtx *)(uintptr_t)get_BONDdata_field_10E0(), G_MTX_PROJECTION | G_MTX_LOAD | G_MTX_NOPUSH);   /* back to the bg's, as bg.c leaves it */
     return gdl;
 }
 
