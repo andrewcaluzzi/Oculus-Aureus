@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <signal.h>
 #include <stdarg.h>
+#include <string.h>
 #include <ultra64.h>
 #ifdef _WIN32
 #include <direct.h>   /* _mkdir: portLogPath */
@@ -518,6 +519,7 @@ static void portArmWatchpoints(void)
 }
 #else
 #include <execinfo.h>
+#include <unistd.h> /* _exit */
 
 /* Bring-up crash handler: print a raw backtrace (addresses decode with
  * addr2line -e build_pc/ge) so crashes are diagnosable without gdb. */

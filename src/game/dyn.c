@@ -7,6 +7,9 @@
 
 #ifndef TARGET_N64
 #include <stdio.h> /* GE_ROOM_AUDIT dyn-pool watch (see bg.c) */
+extern int portAllPlayerCount(void);   /* port_coop.c (game/player.h has it, this file does not include it) */
+#else
+#define portAllPlayerCount() getPlayerCount()
 #endif
 
 /**

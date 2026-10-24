@@ -100,6 +100,17 @@ double cos(double);
 
 float  sqrtf(float);
 
+#if !defined(TARGET_N64) && !defined(__cplusplus)
+/* PC port: libm floats the port layer calls. The C TUs are -ffreestanding (no builtins), so an
+ * undeclared fabsf/fmaxf/tanf was implicitly int f() and returned garbage (the float result is in
+ * st0, the caller read eax; the argument went as a double). atan2f is the game's own
+ * (game/math_atan2f.h). */
+float fabsf(float);
+float fmaxf(float, float);
+float fminf(float, float);
+float tanf(float);
+#endif
+
 #endif
 
 #if 0

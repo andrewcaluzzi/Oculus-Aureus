@@ -33,6 +33,7 @@ local function dist2(x1, z1, x2, z2) return math.sqrt((x1 - x2) ^ 2 + (z1 - z2) 
 local function body()
   wait(1)
   bond.give(0, "pp7sil")
+  bond.equip(0, "pp7sil")   -- in hand: the slappers no longer count as a gun for the civilians
   local free0 = spawn.free()
   check("chr slots reserved (~250)", free0 >= 240, "free=" .. free0)
   print("HEIST pools (loose, held, free weapon slots, free props): " .. table.concat({ spawn.pools() }, ", "))
@@ -171,7 +172,25 @@ local function body()
   wait(5.5)
   check("civilian recovers from cowering", civilian.state(civ) == "idle", civilian.state(civ) or "nil")
   civilian.tune{ range = 3000 }
+  -- bare fists are no threat (job 6: the slappers used to count as a gun)
+  bond.equip(0, "fist")
+  wait(1.5)
   aim = { cx, cz }
+  wait(2)
+  check("fists: aiming the slappers does not make it surrender", civilian.state(civ) == "idle" and #ev.csurr == 0,
+        string.format("%s, weapon %s", civilian.state(civ) or "nil", tostring(bond.weapon(0))))
+  civilian.tune{ range = 1 }   -- out of aim range while the PP7 comes out and the bystanders are placed (the view stays on it)
+  bond.equip(0, "pp7sil")
+  wait(1.5)
+  check("bond.equip draws the PP7 again", bond.weapon(0) == 5, "weapon=" .. tostring(bond.weapon(0)))
+  -- bystanders: one right beside Bond, one 400 units out but well off the line of fire; neither is being aimed at
+  local bys = {}
+  local b1 = spawn.chr(61, { behaviour = "civilian", body = "Civilian_2", offset = { 0, 150 } })
+  local b2 = spawn.chr(64, { behaviour = "civilian", body = "Civilian_2" })   -- pad 64: ~500 out, ~170 off the line to the civilian
+  if b1 then bys[#bys + 1] = b1 end
+  if b2 then bys[#bys + 1] = b2 end
+  check("two bystander civilians placed", #bys == 2, string.format("b1=%s b2=%s", tostring(b1), tostring(b2)))
+  civilian.tune{ range = 3000 }
   wait(1.5)
   check("civilian surrenders when aimed at", civilian.state(civ) == "surrendered" and #ev.csurr >= 1, civilian.state(civ) or "nil")
   local a1, held1 = spawn.key_alive(kh)
@@ -179,6 +198,14 @@ local function body()
   wait(3)
   local a2, held2 = spawn.key_alive(kh)
   check("civilian drops its key after the sustained threat", a2 and not held2 and #ev.crobbed >= 1, string.format("held=%s robbed=%d", tostring(held2), #ev.crobbed))
+  local bothered = 0
+  for _, b in ipairs(bys) do
+    if civilian.state(b) ~= "idle" then bothered = bothered + 1 end
+    for _, e in ipairs(ev.csurr) do if e[1] == b then bothered = bothered + 1 end end
+    for _, e in ipairs(ev.crobbed) do if e[1] == b then bothered = bothered + 1 end end
+  end
+  check("bystanders beside / off the line of an armed Bond are not threatened or robbed", bothered == 0, "bothered=" .. bothered)
+  for _, b in ipairs(bys) do spawn.remove(b) end
   aim = nil
   print("HEIST step: aim off")
   civilian.tune{ range = 1 }   -- nobody in aim range any more

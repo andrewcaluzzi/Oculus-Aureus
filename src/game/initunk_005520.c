@@ -34,7 +34,13 @@ void modelmgrAllocateModelSlots(s32 numobjs)
     s32 i;
 
     g_MaxModelSlots = numobjs + MODEL_SPARE_SLOTS;
-    
+#ifndef TARGET_N64
+    {   /* PORT: heist / GE_MODE_SLOTS: spare object model slots for the guards' guns, keys and loot a mode spawns (0 otherwise) */
+        extern s32 portHeistExtraObjSlots(void);
+        g_MaxModelSlots += portHeistExtraObjSlots();
+    }
+#endif
+
     g_ModelSlots = mempAllocBytesInBank(g_MaxModelSlots * sizeof(struct ModelSlot), MEMPOOL_STAGE);
 
     for (i = 0; i < g_MaxModelSlots; i++)

@@ -12431,6 +12431,18 @@ WeaponObjRecord* weaponCreate(bool musthaveprop, bool musthavemodel, ModelFileHe
         return sp48;
     }
 
+#ifndef TARGET_N64
+    {   /* PORT: heist (GE_MODE_SLOTS / heist* modes): the 30 weapon slots are all held by guards; arm the next one from a port pool
+         * instead of leaving him unarmed. Only reached where stock returns NULL, and only in such a mode. */
+        extern WeaponObjRecord *portHeistExtraWeapon(s32 musthaveprop, s32 musthavemodel);
+        WeaponObjRecord *x = portHeistExtraWeapon(musthaveprop, musthavemodel);
+
+        if (x != NULL)
+        {
+            return x;
+        }
+    }
+#endif
     return NULL;
 }
 

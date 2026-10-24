@@ -27,9 +27,10 @@ add_compile_options(
     # -fwrapv -funsigned-char -msse2 -mfpmath=sse); verified pixel-identical to
     # the old -Og build (see docs/port/optimisation-inventory.md).
     -O2
-    # (Audit recipe: swap the -w below for -Wreturn-type and rebuild, since
-    # falling off a non-void function is live UB at -O2. Keep the tree clean.)
-    -w
+    # No -w here: it is set per source below (the decompiled game, the engine, the
+    # assets, fast3d), so the port layer keeps -Werror=implicit-function-declaration.
+    # (Audit recipe: swap that -w for -Wreturn-type and rebuild, since falling off a
+    # non-void function is live UB at -O2. Keep the tree clean.)
     # C-only: game code is self-contained against repo-local headers;
     # fast3d C++ needs hosted stdlib and no ms-extensions quirks.
     $<$<COMPILE_LANGUAGE:C>:-ffreestanding>
@@ -441,6 +442,16 @@ if(NOT WIN32)
         HAS_GETHOSTBYNAME_R=1 HAS_GETHOSTBYADDR_R=1 HAS_INET_PTON=1 HAS_INET_NTOP=1 HAS_MSGHDR_FLAGS=1 HAS_SOCKLEN_T=1)
 endif()
 
+# Warnings. Rare's decompiled code (and the vendored fast3d/glad) builds with -w. The port layer
+# builds with gcc's default warnings, and an implicit function declaration is an error there:
+# the C TUs are -ffreestanding (no builtins) against the repo's shadow libc headers, so an
+# undeclared function became int f(), and a float result (fabsf, atan2f) came back as garbage.
+# APPEND, after every set_source_files_properties(COMPILE_OPTIONS) above, which would replace it.
+set_property(SOURCE ${GAME_SRC} ${ENGINE_SRC} ${GU_SRC} ${ASSET_LOOSE_SRC} ${FAST3D_SRC}
+             APPEND PROPERTY COMPILE_OPTIONS -w)
+set_property(SOURCE ${PORT_SRC} APPEND PROPERTY COMPILE_OPTIONS
+             -Werror=implicit-function-declaration -Wno-format-truncation)
+
 add_executable(ge ${GAME_SRC} ${ENGINE_SRC} ${GU_SRC} ${PORT_SRC}
                ${ASSET_LOOSE_SRC} ${ASSET_OBJS} ${FAST3D_SRC})
 # The executable is named ProjectMidas, but the CMake target stays `ge` so build
@@ -548,7 +559,11 @@ if(GE_VIDEO)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/tools/mode_arena_bench_live.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/arena-bench-live.lua
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            ${CMAKE_SOURCE_DIR}/tools/mode_probe.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/probe.lua)
+            ${CMAKE_SOURCE_DIR}/tools/mode_probe.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/probe.lua
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/tools/mode_heist.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/heist.lua
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/tools/heist_lib.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/heist_lib.lua)
     # the player bot's level plans (port_playerbot.c reads Data/BotPlans/<stage>.plan)
     file(GLOB GE_BOT_PLANS CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/tools/bot/plans/*.plan)
     if(GE_BOT_PLANS)
@@ -565,6 +580,7 @@ if(GE_VIDEO)
                 "${CMAKE_SOURCE_DIR}/launchers/Play Arena (Test Keys).bat"
                 "${CMAKE_SOURCE_DIR}/launchers/Arena Benchmark.bat"
                 "${CMAKE_SOURCE_DIR}/launchers/Arena Benchmark (Live).bat"
+                "${CMAKE_SOURCE_DIR}/launchers/Play Heist.bat"
                 "$<TARGET_FILE_DIR:ge>"
             VERBATIM)
     endif()

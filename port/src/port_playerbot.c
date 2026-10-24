@@ -53,6 +53,8 @@ extern s32  objectiveregisters1;
 extern int  ge_shot_force;
 extern s32  gamemode;
 extern bool doorIsPadlockFree(DoorRecord *door);
+extern s32  get_ammo_type_for_weapon(ITEM_IDS weapon);   /* gunfire.c */
+extern bool bondinvCheckHasKeyFlags(u32 wantkeyflags);   /* bondinv.c */
 extern s32  get_difficulty_for_objective(s32 objectiveIndex);
 
 /* stan.c scratch globals that a line test writes: saved and restored around every bot query */

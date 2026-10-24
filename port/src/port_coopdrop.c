@@ -38,6 +38,8 @@ extern f32 bondviewYPositionRelated(struct StandTile *arg0, f32 arg1, f32 arg2);
 extern void matrix_4x4_set_identity(Mtxf *m);
 extern void objDetach(PropRecord *prop);
 extern void chrpropReparent(PropRecord *child, PropRecord *newparent);
+extern void bondinvRemoveItem(InvItem *item);       /* bondinv.c, in no header */
+extern int bondinvAddPropToInv(PropRecord *prop);   /* bondinv.c, in no header */
 
 #define MAXSNAP 40
 

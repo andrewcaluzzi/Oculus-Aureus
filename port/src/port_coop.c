@@ -24,6 +24,8 @@ void portCoopReseed(unsigned int seed);
 extern s32 gamemode;
 extern s32 get_is_ramrom_flag(void);
 extern s32 get_recording_ramrom_flag(void);
+extern bool bondinvCheckHasKeyFlags(u32 wantkeyflags);   /* bondinv.c, in no header */
+extern TICKOP propdoorInteract(PropRecord *doorprop);     /* propobj.c, in no header */
 
 static int sCoopOn;
 static int sLocal;

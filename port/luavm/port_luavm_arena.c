@@ -65,6 +65,19 @@ static int arenaSpawnChr(lua_State *L)
         lua_getfield(L, 2, "patrol");
         if (!lua_isnil(L, -1)) s.patrol = (int) luaL_checkinteger(L, -1);
         lua_pop(L, 1);
+        /* heist job 6: offset = {dx, dz} from the pad centre (several chrs on one pad) */
+        lua_getfield(L, 2, "offset");
+        if (lua_istable(L, -1))
+        {
+            lua_rawgeti(L, -1, 1);
+            s.offx = (float) luaL_checknumber(L, -1);
+            lua_pop(L, 1);
+            lua_rawgeti(L, -1, 2);
+            s.offz = (float) luaL_checknumber(L, -1);
+            lua_pop(L, 1);
+            s.hasoff = 1;
+        }
+        lua_pop(L, 1);
         lua_getfield(L, 2, "post");
         if (!lua_isnil(L, -1) && lua_toboolean(L, -1))
         {
@@ -241,6 +254,29 @@ static int arenaSpawnItem(lua_State *L)
     int crounds[16], ncrate = 0;
 
     needStage(L, "spawn.item");
+    if (strcmp(what, "goldbar") == 0 || strcmp(what, "gold") == 0 || strcmp(what, "money") == 0)
+    {   /* heist job 6: loot (port_heist.c), its own pool of 160; opts {offset = {dx, dz}} */
+        float dx = 0.0f, dz = 0.0f;
+
+        if (lua_istable(L, 3))
+        {
+            lua_getfield(L, 3, "offset");
+            if (lua_istable(L, -1))
+            {
+                lua_rawgeti(L, -1, 1);
+                dx = (float) luaL_checknumber(L, -1);
+                lua_pop(L, 1);
+                lua_rawgeti(L, -1, 2);
+                dz = (float) luaL_checknumber(L, -1);
+                lua_pop(L, 1);
+            }
+            lua_pop(L, 1);
+        }
+        r = portHeistLootSpawn(pad, what[0] == 'm' ? 1 : 0, dx, dz);
+        if (r == -2) return luaL_error(L, "pad %d has no floor", pad);
+        if (r <= 0) lua_pushnil(L); else lua_pushinteger(L, r);
+        return 1;
+    }
     if (lua_istable(L, 3))
     {
         lua_getfield(L, 3, "ammo");
@@ -273,16 +309,20 @@ static int arenaSpawnItem(lua_State *L)
 /* spawn.item_alive(h) -> bool: still lying on the floor (not collected, removed or recycled) */
 static int arenaSpawnItemAlive(lua_State *L)
 {
+    int h = (int) luaL_checkinteger(L, 1);
+
     needStage(L, "spawn.item_alive");
-    lua_pushboolean(L, portLuaGameItemAlive((int) luaL_checkinteger(L, 1)));
+    lua_pushboolean(L, h >= PORT_HEIST_LOOT_HANDLE ? portHeistLootAlive(h) : portLuaGameItemAlive(h));
     return 1;
 }
 
 /* spawn.item_remove(h) -> bool: take it off the floor */
 static int arenaSpawnItemRemove(lua_State *L)
 {
+    int h = (int) luaL_checkinteger(L, 1);
+
     needStage(L, "spawn.item_remove");
-    lua_pushboolean(L, portLuaGameItemRemove((int) luaL_checkinteger(L, 1)));
+    lua_pushboolean(L, h >= PORT_HEIST_LOOT_HANDLE ? portHeistLootRemove(h) : portLuaGameItemRemove(h));
     return 1;
 }
 
@@ -290,9 +330,10 @@ static int arenaSpawnItemRemove(lua_State *L)
 static int arenaSpawnItemPos(lua_State *L)
 {
     float x, z;
+    int h = (int) luaL_checkinteger(L, 1);
 
     needStage(L, "spawn.item_pos");
-    if (!portLuaGameItemPos((int) luaL_checkinteger(L, 1), &x, &z)) return 0;
+    if (!(h >= PORT_HEIST_LOOT_HANDLE ? portHeistLootPos(h, &x, &z) : portLuaGameItemPos(h, &x, &z))) return 0;
     lua_pushnumber(L, x);
     lua_pushnumber(L, z);
     return 2;

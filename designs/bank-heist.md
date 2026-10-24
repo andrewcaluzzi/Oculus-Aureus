@@ -1,6 +1,6 @@
 # Bank Heist: design
 
-Status: design only. Nothing here is built. Every "stock" claim below cites the code it was read from, so it can be checked. Where something was read but not yet run, it says **verify in P0**.
+Status: P0 (the Bunker 2 prototype) is built: the playable mode is section 9. The rest is still design. Every "stock" claim below cites the code it was read from, so it can be checked. Where something was read but not yet run, it says **verify in P0**.
 
 ---
 
@@ -239,3 +239,44 @@ Each "job" is one agent dispatch with its own test. Counts are rough.
 9. **P0 stage:** Bunker 2, approved.
 10. **Guards:** "tonnes across the facility". Plan for 100+ placed guards plus alarm waves, so raise the slot reservation accordingly. Live-enemy perf (fork benchmark): ~75 alive at once is free at 144 fps, ~180 before dropping under 60; most will be idle on post, which is cheap.
 11. **Flavour:** a Janus front bank in St Petersburg, Russian guards. Approved.
+
+Further answers (2026-10-25):
+
+12. **Loot: carry everything** (no bag limit, no trips). Score only, no quota: a high score to chase.
+13. **The cracker jams sometimes.** A jam stops it; the player must walk back into the hold zone and restart it.
+14. **Co-op: no role split for now** (no Overwatch / Inside).
+
+---
+
+## 9. P0 job 6: the heist mode on Bunker 2 (built)
+
+`tools/mode_heist.lua` (shipped as `heist.lua`; `Play Heist.bat`). Every number below is a setting in its `S` table.
+
+**The map, read from the stage.** The BG portal table (`assets/obseg/bg/bg_sevb_all_p.c`) and the waypoint graph (`UsetupsevbZ.c`) give the room graph; the keyed doors sit on it like this: the north tunnel (68-4-3-2-1) enters the hall (6) through the blast doors 80-85; the hall opens south into the central corridors (5, 16, 13, 14, 59, 18). The offices (11, 12) hang off 13 behind door pairs 46-49; the security wing (43, 44, 46) hangs off 14 and 18 behind 50-53. The east wing is a loop 48-49-50-51-56(vault)-...-47-54-53-52-48: **the stock key-0x8 doors 58/59 and 60/61 are the two vault antechambers' outer doors** and 68/69, 70/71 are the vault's own doors (rooms 51/56 and 54/47). The vault is rooms 55, 56, 57, 58, 47 (the crate store). The west wing loops round to the records rooms (33, 30, 25, 27), the manager's safe (26) and the cell block (39-41).
+
+**Flow.** Street (pad 51) → front door 72 (unlocked) → blast doors (unlocked; on the alarm they close and take BLUE: exit B is always open) → banking hall (tellers, customers, guards, camera 95) → GREEN doors 46-49: offices (camera 89) → BLUE doors 50-53: security wing (cameras 87, 93; the camera console: a use press there with BLUE blinds every camera for 90 s and names who still carries a card) → RED doors 58-61: the antechambers → the cracker at vault door A (pad 85).
+
+| Card | Flag | Carrier (spawn.key) | Opens |
+|---|---|---|---|
+| GREEN | 0x2 | the head teller (civilian) or the lobby captain (guard), random per run | offices 46-49, deposit cell 77 |
+| BLUE | 0x4 | the security chief (Russian_Commandant, offices) | security wing 50-53 (and the stock 0x4 side doors 64-67); the blast doors in a lockdown |
+| RED | 0x8 | the branch manager (civilian, security wing) | the antechambers 58-61 |
+| GOLD | 0x10 | the vault captain (inside the vault) | the manager's safe 102 (its 3 bars spill out on the floor when it opens) |
+| (floor key) | 0x1 | stock, lies in the cell corridor | deposit cell 75 |
+| VAULT | 0x40000000 | nobody: only the cracker | vault doors 68-71 (one-way bits cleared with `door.one_way`) |
+
+Cards come off a carrier when he is robbed (a civilian: aim until it surrenders and drops it), knocked out and searched, or killed. Keys are per player (`mode.per_player_keys`).
+
+**Guards.** About 92 posted guards spread over nine areas by share (hall 14, east 14, west 14, south 10, central 9, offices 7, cells 7, security 5, safe 1 parts), 12 alarm raisers who run to their area's "panel" pad, the carriers; ×1.0/1.15/1.3/1.45 by difficulty (≈107 placed on Agent). 8 more wake in the vault when it opens. Several share a pad through `spawn.chr{offset=}`. The guards' guns come from the port weapon pool past the stock 30 (`weaponCreate`), and the stage gets 410 more object model slots.
+
+**Alarm.** Stock cameras (10 s Agent, 5 s above) and raisers. Once the alarm goes off the heist is **hot for good**: the siren is re-raised whenever it times out, the hall locks down, waves of 2-4 come in at the hall's north end every 25 s (16 alive at most, none while 120 armed chrs are alive), and 120 s later an armoured Spetsnaz / Janus SF response from the hall and the loading dock.
+
+**The crack and the vault.** The cracker (the door decoder: fire it at the door, or press use there) starts in the antechamber zone (220 units round pad 85) and runs only while a Bond is in it (the stock countdown clock stops and resumes). Every 15 s of progress it may jam (30%, `math.random`, so co-op agrees); a jam needs a Bond back in the zone to restart it. Starting it sends a squad, half way a second. At 90 s the vault doors open for 60 s (held open; a door blocked by a chr in the doorway is snapped open after 1.5 s, `door.snap`). T-15 s the klaxon (the siren, no response yet); at 0 the doors close and relock (snapped shut if blocked), the alarm goes hot, and anyone inside is trapped: a re-crack from the inside (45 s, at either door) brings an armoured heavy squad and then opens the vault for good.
+
+**Loot and score.** 30 gold bars in the vault ($150,000 each), 3 in the safe, 8 cash bundles ($25,000) in the deposit cells; carry everything. Score = loot + 25% for a run that never went loud − $100,000 per civilian killed. The best this session is kept in `HEIST_BEST` (modes have no save API) and logged as `ge: heist: HIGH SCORE`.
+
+**Exits and fails.** Exit A the van (pad 51), exit B the loading dock (pad 116, west wing). Every living Bond must stand in one, carrying something (`coop_exits=first`: one is enough). Fail: every Bond down, or more civilians killed than Frigate allows (`IF_KILLED_CIVILIANS_GREATER_THAN` in `UsetupdestZ.c`: Agent 4, Secret Agent 2, 00 Agent / 007 1; Facility uses 2). Knock-outs never count.
+
+**Tests.** `tests/heist/run_winpath.sh`: the win path (every card by knock-out and search, the tiered doors, the console, the crack with a forced jam, the zone rule, the vault, the safe, a cell, the exit), the trapped path, and the civilian-limit fail path. Screenshot tour: `tests/heist/run_shots.sh`.
+
+**Known gaps.** The gold bar and cash models are the beta pickups as they are (small textured blocks). Wave guards come in from the hall's north end even when the blast doors are locked behind them (they spawn inside). The loot pickup has no line-of-sight test (none is placed near a wall that matters). Cards drop where the carrier stands; a robbed civilian's card can land under a desk. No intel overlay beyond the console's one-line list; no camera-feed view (P1).

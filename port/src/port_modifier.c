@@ -43,6 +43,7 @@ extern void cheatButtonHandleCheatsTurnedOn(CHEAT_ID cheat_id);
 extern void cheatButtonHandleCheatsTurnedOff(CHEAT_ID cheat_id);
 extern u8   g_CheatActivated[];
 extern s32  g_AppendCheatSinglePlayer;
+extern bool chrIsNotDeadOrShot(ChrRecord *self);   /* chraction.c, not in chraction.h */
 
 enum { B_CHEAT, B_ROCKETS, B_OPT, B_FLAG };
 

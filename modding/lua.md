@@ -14,7 +14,7 @@ All paths are relative to the folder holding the exe (`build_win/`, `build_pc/`)
 | `Data/Scripts/*.lua` | At every solo mission start, alphabetically, each under its own `pcall` (an error is logged and the next file still runs). |
 | `Data/Scripts/modes/<name>.lua` | When `GE_MODE=<name>` (letters, digits, `_`, `-`), after the level reset and after the regular scripts. Also pickable in-game: Options > Gameplay > Mods > Game mode. |
 
-The build copies `tools/scripts_example.lua` to `Data/Scripts/example.lua` (all commented out: a tour of the `weapon` table) and the shipped modes (`arena`, `arena-endless`, `hostage`, `hostage-flatland`) into `Data/Scripts/modes/`. Edit them in place or write your own.
+The build copies `tools/scripts_example.lua` to `Data/Scripts/example.lua` (all commented out: a tour of the `weapon` table) and the shipped modes (`arena`, `arena-endless`, `hostage`, `hostage-flatland`, `heist` with its `heist_lib`) into `Data/Scripts/modes/`. Edit them in place or write your own.
 
 A mode **removes the stage's guards, objectives and level AI scripts**; the level's **objects are kept** (doors, keyed locks, padlocks, cells, CCTV cameras, monitors, safes, props; confirmed by `probe.level()` on Bunker 2: all 38 door records and 6 cameras are live props), and the stock object code still runs (cameras raise the alarm after 300 ticks of unbroken sight). The one thing the reset adds is the UNLOCK DOORS cheat one second into the stage, so every door opens for Bond; call `mode.keep_locks()` at script load to prevent that (`GE_MODE=reset` is just the reset) and runs only in a single-player mission: not in demos, recording, multiplayer or the title stage. Scripts run at stage load, before Bond exists, so register handlers with `on(...)` and do the setup in `stage_start`.
 
@@ -72,7 +72,7 @@ Registers a handler (at most 16 per event; an unknown event name raises).
 | `hostage_follow`, `hostage_wait` | `(chr [, player])` |
 | `damage` | `(victim, attacker, amount, weapon)`: damage actually applied (float); weapon is an item id or -1 |
 | `chr_spawned` | `(chrnum)`: chrs spawned by the port (the bot, mode scripts) |
-| `item_pickup` | `(objtype, id, qty, player)`: `objtype` is the `PROPDEF_*` number (4 key, 7 single magazine, 8 weapon, 19 multi-ammo box, 20 armour); `id` is the weapon / ammo type, or the **key flags** for a key; `player` is the 0-based index of the Bond who picked it up |
+| `item_pickup` | `(objtype, id, qty, player)`: `objtype` is the `PROPDEF_*` number (4 key, 7 single magazine, 8 weapon, 19 multi-ammo box, 20 armour, 3 loot from `spawn.item "goldbar"/"money"`); `id` is the weapon / ammo type, or the **key flags** for a key; `player` is the 0-based index of the Bond who picked it up |
 | `alarm` | `(on)`: 1 the alarm started, 0 it stopped (any cause: a camera, a guard, `alarm.start/stop`, the siren timing out) |
 | `cctv_spotted` | `(camera, player)`: a camera saw Bond `player` for its full alarm time (`camera` is the setup index, see `cctv.*`). The stock alarm also goes off unless `cctv.alarm_on_spot(false)` |
 | `use` | `(player, proptype, idx, objtype)`: Bond `player` pressed use on a door or object. `proptype` is `PROP_TYPE_*` (1 object, 2 door, 4 weapon), `idx` the target's setup index (-1 for a prop made at run time), `objtype` its `PROPDEF_*` number. Fires before the interaction runs, locked or not |
@@ -115,9 +115,13 @@ Chr ids are chrnums. Globals: `CHR_BOND = -2` (player 0; `bond.id(p)` gives the 
 
 `behaviour` is `"chase"` (default: run at Bond, stop and shoot in range), `"rush"`, `"hold"`, `"snipe"` (stand, fire from range, walk in when it loses sight), `"standard"` (stock guard AI) or `"spectator"` (harmless, invincible, untargetable: crowd decoration). Spawned chrs share a limited pool of chr slots; check `spawn.free()` before big waves.
 
+`offset = {dx, dz}` spawns that far from the pad centre: the floor is walked from the pad's stan tile to the point (a wall, a ledge over 60 units or a gap refuses it: nil), and the pad centre itself may be taken, so several chrs can share one pad. Without it a pad with a chr standing on it refuses the spawn.
+
 ### Pickups
 
 `spawn.item(pad, item [, {ammo = , amount = }])` places a real pickup on the floor, collected by walking over it. Returns a handle, or nil. `item` is a name from `spawn.weapons()` (the pickup carries that gun and its ammo), `"armour"` (`amount` 0..1), or `"ammo"` (an MP ammo box; `ammo = {pp7 = 50, kf7 = 60, shotgun = 16}`). Solo play doubles box ammo. Then `spawn.item_alive(h)`, `spawn.item_remove(h)`, `spawn.item_pos(h)`. Health has no stock pickup: use `bond.heal`.
+
+Loot (heist job 6): `spawn.item(pad, "goldbar" | "money" [, {offset = {dx, dz}}])` places the stock beta pickup model (`PchrgoldbarZ` / `PchrmoneyZ`) as a plain prop, from its own pool of 160 (the 12 world pickups above and the 30 weapon slots are untouched). A living Bond within 90 units of it collects it: it goes, the stock ammo pickup sound plays and `item_pickup(3, id, 1, player)` fires (`objtype` 3 = `PROPDEF_PROP`, `id` 79 gold bar / 78 money). It never enters the inventory; the mode counts it. `offset` works as for `spawn.chr`. The handles (above 0x1000000) work with `spawn.item_alive / item_remove / item_pos`. It has no line-of-sight test: do not put it within 90 units of a wall you mean to keep Bond behind (a safe's contents should appear when its door opens).
 
 ### Bonds
 
@@ -130,7 +134,8 @@ Chr ids are chrnums. Globals: `CHR_BOND = -2` (player 0; `bond.id(p)` gives the 
 | `bond.nearest(x, y, z)` | `player, distance`. |
 | `bond.all_down()` | True when nobody can respawn. |
 | `bond.id(p)`, `bond.player(chr)` | Chr id of Bond p, and back. |
-| `bond.give(p, item [, ammo])`, `bond.give_ammo(p, frac)` | Give a gun; top up ammo of the guns he carries. |
+| `bond.give(p, item [, ammo])`, `bond.give_ammo(p, frac)` | Give a gun (it goes in the inventory, not in his hand); top up ammo of the guns he carries. |
+| `bond.equip(p, item)`, `bond.weapon(p)` | Draw `item` into his right hand (the stock weapon switch, about a second; given first if he lacks it; names as `bond.give`, plus `"fist"`); the `ITEM_*` id in his right hand (0 none, 1 slappers, 5 silenced PP7, 38 door decoder). |
 | `bond.heal(p, health, armour)` | Adds, as fractions 0..1 of a full bar. |
 | `bond.vitals(p)` | Health and armour. |
 | `bond.ammo(p, weapon)`, `bond.take_drop(p [, radius])`, `bond.warp(p, pad [, dx, dz])`, `bond.walk(p, x, z)`, `bond.walk_stop()` | Test helpers. |
@@ -144,6 +149,9 @@ Chr ids are chrnums. Globals: `CHR_BOND = -2` (player 0; `bond.id(p)` gives the 
 | `hud.set(line, text [, player])`, `hud.clear([player])` | Lines 1..3, up to 63 characters. Use lines 1 and 2: line 3 is used by the hostage flash. |
 | `hostages.list()`, `hostages.state(chr)`, `hostages.set_state(chr, "follow"\|"wait" [, player])`, `hostages.extract(chr)` | Hostage control; extraction is the script's job (use a zone). |
 | `mission.win(msg)`, `mission.fail(msg)` | Ends the mission on the stock report screen. Returns true on the first call. No progress is saved. |
+| `mission.difficulty()` | 0 Agent, 1 Secret Agent, 2 00 Agent, 3 007. |
+
+There is no save API for modes: a mode that wants a best score keeps it in a global (the Lua state survives stage reloads within a session, `heist` uses `HEIST_BEST`) and logs it.
 
 ### Heist bindings: doors, keys, alarm, CCTV, countdown
 
@@ -156,6 +164,8 @@ Generic building blocks for a heist-style mode (designs/bank-heist.md). Door and
 | `door.open(i)`, `door.close(i)` | Start the move whatever the lock says. `true` started, `false` already that way, nil no such door. |
 | `door.lock(i, flags)`, `door.unlock(i [, flags])`, `door.set_keyflags(i, flags)` | Set / clear (all, when `flags` is omitted) / replace the key bits a Bond must hold to open it. A door with `keyflags == 0` is unlocked. |
 | `door.try(p, i)` | Bond `p` uses door `i` as the use key would: the stock key check against **that Bond's** keys (plus the `use` event). `true` the door moved, `false` refused, nil no such door or Bond. Handy for scripted NPC use and tests. |
+| `door.one_way(i [, false])` | Whether door `i` is a stock one-way door (flags2 0x10000000 / 0x08000000: it opens from its free side whatever the key). With `false` both bits are cleared first (returns the state before), so only the key opens it from either side. Bunker 2's keyed pairs 58-61 and 68-71 and the blast doors 80-85 are one-way. |
+| `door.snap(i, open)` | Put door `i` and its linked doors fully open (`true`) or shut (`false`) at once, even with a chr in the doorway (a blocked door in the stock game just stops where it is). The portal opens / closes as a stock move would. |
 | `spawn.key(chr, flags [, model])` | Gives a spawned chr a key (a stock key assigned to the chr, so it drops where he dies and is picked up like any guard's key). `model` defaults to 86 (the swipe card; the stock keys use 86, 243 and 244). Returns a handle, or nil (no such chr, or it has no model yet; call it right after `spawn.chr`). |
 | `spawn.key_at(pad, flags [, model])` | A floor key on a pad. |
 | `spawn.key_alive(h)` | `alive, held, x, z`: whether the key is still in the world, whether a chr carries it, and where it is. A key a Bond picked up is no longer alive. Up to 64 keys per stage. |
@@ -189,13 +199,13 @@ Job 3 and 4 of designs/bank-heist.md. Test mode: `tests/heist/heist_guards.lua` 
 
 **Chr slots.** Stage init runs before any script, so the slot count comes from the environment, not from Lua: `GE_MODE_SLOTS=n` (any mode) or any mode whose name starts with `heist` (250 extra slots, on top of the stage's own guards + 10; Bunker 2 gets 297 free). The display list and vertex pools grow with the slots above 60 (`dyn.c`, same as the Colosseum). The engine caps nothing else for `spawn.chr` (the 40 cap is `spawn.guard`'s); the limits are slots, the 600-prop pool and frame time (about 75 live chrs are free at 144 fps, idle ones cost almost nothing).
 
-**Reinforcement waves.** `include("heist_lib")` (`tools/heist_lib.lua`, copy it next to the mode scripts) gives `heist.reinforce{pads = {...}, interval = 25, per_wave = 3, max_alive = 16, opts = {weapon = "ak47", behaviour = "chase"}, first = 0, reserve = 12}`: while `alarm.active()` it spawns `per_wave` guards every `interval` seconds at the entrance pads (round robin, a busy pad is skipped), never above `max_alive` alive and never when `spawn.free()` is below `reserve`. Returns `r` with `r.alive()`, `r.spawned`, `r.waves`, `r.is_wave(chr)`, `r.stop()`. The alarm event restarts the first-wave timer. The latch (the siren times out after about 30 s) is the mode's job: call `alarm.start()` again, or run waves from your own flag.
+**Reinforcement waves.** `include("heist_lib")` (`tools/heist_lib.lua`, copy it next to the mode scripts) gives `heist.reinforce{pads = {...}, interval = 25, per_wave = 3, max_alive = 16, opts = {weapon = "ak47", behaviour = "chase"}, first = 0, reserve = 12}`: while `alarm.active()` it spawns `per_wave` guards every `interval` seconds at the entrance pads (round robin, a busy pad is skipped), never above `max_alive` alive and never when `spawn.free()` is below `reserve`. Returns `r` with `r.alive()`, `r.spawned`, `r.waves`, `r.is_wave(chr)`, `r.stop()`. The alarm event restarts the first-wave timer. The latch (the siren times out after about 30 s) is the mode's job: call `alarm.start()` again, or run waves from your own flag: `active = function() return hot end` replaces `alarm.active()` as the "waves run" test. `opts` may also be a function returning a fresh `spawn.chr` table per guard (mixed bodies and guns), and `r.wave_now()` spawns a wave at once.
 
 **Bodies.** Every ~8 ticks each living, non-civilian chr that is in the same room as a dead chr and within its sight range (capped at 1500 units, and within 150 units in height) notices it: its `chrseedie` is set, the stock "I saw someone die" field, so its own AI list reacts (simple guard and alarm raiser: run to Bond or to the alarm pad; the arena lists already hunt). The first one to notice a body fires `body_found(guard, body)`, once per body. Stock only alerts guards while the victim is still dying (and only setup guards, `get_numguards()`); this covers corpses and spawned guards. No facing test. Bodies must still be there: stock removes corpses about 1.5 s after death, so call `spawn.keep_bodies(true)` (or keep the body yourself). `mode.body_check(on)` turns the scan off (default on), `bodies.found()` counts bodies found this stage, `spawn.down(chr)` says whether a chr counts as a body. A knocked-out chr counts as a body too (`chrIsBody` in `port_heist.c`): `body_found(guard, body, 1)`, and see "Knock-outs" below for the guard who comes to wake it.
 
 **Civilians.** `spawn.chr(pad, {behaviour = "civilian", body = "Civilian_1_Female"})`: unarmed (any `weapon` is ignored), idles at its post, in the hostage faction (guards and bots never target it, but any shot or knife that physically hits it hurts it), flagged `CHRFLAG_COUNT_DEATH_AS_CIVILIAN` (the stock casualty counter, `get_civilian_casualties()`, counts it too). Behaviour, driven per sim tick for every Bond (never the local player):
 
-- Aimed at: a Bond who holds a gun and whose view ray passes within 90 units of it, within the aim range (default 800 units), for `aim` seconds (0.5) makes it surrender (hands up, the `surrender` animation, not the stock `GUARD_SURRENDERS` which would drop its items at once). Event `civilian_surrendered(chr, player)`.
+- Aimed at: a Bond who holds a gun or a knife (`ITEM_KNIFE` .. `ITEM_ROCKETLAUNCH`; the slappers, bare hands and gadgets are no threat), 40 units to the aim range (default 800) ahead of it, whose view ray passes within 30 units + 4% of the distance of it (about a body width: standing next to one with a gun out, or pointing past one, does not count), with a line of sight (same room, or the stock guard "can see Bond" stan line: walls and closed doors block it), for `aim` seconds (0.5) makes it surrender (hands up, the `surrender` animation, not the stock `GUARD_SURRENDERS` which would drop its items at once). Event `civilian_surrendered(chr, player)`.
 - Still aimed at for `threat` seconds (2) while surrendered: it drops everything it carries (`chrDropItems`, the stock `CHR_DROP_ALL_CONCEALED_ITEMS`): a key from `spawn.key(civ, flags)` falls where it stands and is picked up like a guard's. Event `civilian_robbed(chr, player)`, once. Nobody aiming for 3 s: it lowers its hands.
 - Gunfire nearby (any shot whose noise reaches it, the stock hearing check) makes it cower for `cower` seconds (4): `"cowering"`, the `startled` animation held. Aiming at a cowering civilian surrenders it as above.
 - Death: `civilian_killed(chr, killer_player)` (-1 when the killer was not a Bond), and `civilian.killed()` counts them. Failing after N is the mode's job. A knock-out is not a death (below); killing a knocked-out civilian is.
@@ -207,7 +217,9 @@ Job 3 and 4 of designs/bank-heist.md. Test mode: `tests/heist/heist_guards.lua` 
 | `civilian.tune{range=, aim=, threat=, cower=}` | Aim distance in units, and the three times above. Unset keeps the current value. |
 | `bond.test_noise(p, loudness)`, `spawn.heard(chr [, clear])`, `bond.face(p, x, z)` | Test helpers: Bond `p` fires a shot of that loudness (same code as a real shot); whether the chr heard a shot in the last half second; turn Bond's view onto a point. |
 
-Known limits. `bond.face` is a test helper: turning the view onto a point and then away again hung the Xvfb test build once (it was not investigated; the test avoids it). An `alarm_pad` or `patrol` chr keeps the stock waypoint routes; every other spawned enemy still uses the arena's straight route toward Bond (so only those two kinds can reach a pad). Spawning needs a clear spot: a busy pad (a held guard still standing on it) makes `spawn.chr` return nil. A civilian's "holds a gun" test counts the slappers (`ITEM_FIST`) as armed, so aiming bare fists at one also makes it surrender.
+Known limits. An `alarm_pad` or `patrol` chr keeps the stock waypoint routes; every other spawned enemy takes the arena's straight route toward Bond when the line is clear and the stock waypoint route otherwise. Spawning needs a clear spot: a busy pad (a held guard still standing on it) makes `spawn.chr` return nil unless you give an `offset`. Before job 6, `atan2f` and `fabsf` were undeclared in `port_heist.c` (the shadow `include/math.h` declares only `sinf`/`cosf`/`sqrtf`, and the build runs with `-w`), so `bond.face` set a garbage view angle and the civilian aim test read garbage: that was the "civilians robbed with nobody aiming" report and probably the old `bond.face` hang. Both are fixed.
+
+**Crowd limits (job 6).** A heist mode (or `GE_MODE_SLOTS`) also gets 410 more object model slots (stock: the setup's objects + 30; every gun a spawned chr holds, every key and every loot pickup takes one) and, once the 30 stock weapon slots are all held, a port pool of 320 weapon records (`weaponCreate`), so guard 31 onwards is armed instead of empty-handed (logged every 25th as `ge: heist: extra weapon slot N of 320`).
 
 `alarm.stop()` sticks: the stock raiser re-fires the siren every tick from frame 60 of its alarm animation to the end, so `alarm.stop()` ends that animation for any raiser past frame 60 (the stock end-of-animation step; its list then runs at Bond as it would have) and logs `ge: heist: alarm.stop: raiser chr N stopped at frame F`. A raiser still before frame 60 has not raised it yet, and still will.
 
@@ -239,6 +251,10 @@ Job 5 of designs/bank-heist.md. Test mode: `tests/heist/heist_ko.lua` (run with 
 | `mode.guards_wake(on)` | A guard who finds a knocked-out chr comes to wake it (default true). |
 
 Co-op: every slap names the Bond whose punch landed; the knock-out table (slaps, state, searched, waker and its timer) and both options are in the co-op state hash. Limits: the fall is always the one stock soft death animation, with none of the stock death code's wall checks, so a chr knocked out facing a wall may clip into it (not seen in the test); the woken chr blends up from lying (there is no stock get-up animation); the waker's "look it over" is the stock look-around animation, not a kneel.
+
+### The heist mode
+
+Job 6 of designs/bank-heist.md: `tools/mode_heist.lua`, shipped as `Data/Scripts/modes/heist.lua`. Run it on Bunker 2: `GE_MODE=heist GE_STAGE=bunker2 GE_SKIPINTRO=1` (Windows: `Play Heist.bat`). The Janus front bank in St Petersburg: about 105 guards on post on Agent (more on harder difficulties), alarm raisers at their area's panel, bank staff, four card carriers (GREEN: the head teller or the lobby captain, chosen at random; BLUE: the security chief; RED: the branch manager; GOLD: the vault captain), Bunker 2's doors re-keyed as tiers, the stock cameras, a cracker with jams and a time-locked vault, gold bars and cash, two exits. Every count, timer and chance is in the settings table `S` at the top; a preset or test sets `HEIST_SETTINGS` before `include("heist")`. The table `HEIST` is its test window (phase, loot, carriers, zones, `HEIST.force_jam()`, `HEIST.camera_switch(p)`). Tests: `tests/heist/run_winpath.sh` (win path, trapped-in-the-vault path, civilian-limit fail path); screenshots: `tests/heist/run_shots.sh`. The flow and the map are written up at the top of the script and in designs/bank-heist.md section 9.
 
 ### Weapons, modifiers, music, menus
 

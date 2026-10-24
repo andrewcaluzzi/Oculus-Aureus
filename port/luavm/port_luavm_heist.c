@@ -11,6 +11,7 @@
  *   hud.countdown(seconds | nil) / hud.countdown_left()
  *   spawn.ko(chr [, p]) / ko.is / ko.count / ko.slaps / ko.wake / ko.waker / ko.search(p) / ko.test_slap(p, chr)
  *   mode.slaps_to_ko([n]) / mode.guards_wake(on)   (knock-outs, job 5)
+ *   bond.equip(p, item) / bond.weapon(p) / mission.difficulty()   (job 6; loot is spawn.item "goldbar"/"money", port_luavm_arena.c)
  * Door and camera indices are the setup-record indices the probe logs. */
 #include <string.h>
 #include <stdio.h>
@@ -128,6 +129,30 @@ static int doorTry(lua_State *L)
 
     needStage(L, "door.try");
     r = portHeistTryDoor((int) luaL_checkinteger(L, 1), (int) luaL_checkinteger(L, 2));
+    if (r < 0) lua_pushnil(L); else lua_pushboolean(L, r);
+    return 1;
+}
+
+/* door.one_way(i [, false]) -> bool: is it a stock one-way door (it opens from its free side whatever the key)? With false the one-way
+ * bits are cleared first (returns the state before), so only the key opens it from either side. nil = no such door. */
+static int doorOneWay(lua_State *L)
+{
+    int r;
+
+    needStage(L, "door.one_way");
+    r = portHeistDoorOneWay((int) luaL_checkinteger(L, 1), !lua_isnoneornil(L, 2) && !lua_toboolean(L, 2));
+    if (r < 0) lua_pushnil(L); else lua_pushboolean(L, r);
+    return 1;
+}
+
+/* door.snap(i, open) -> bool: put the door (and its linked pair) fully open (true) or shut (false) now, even with a chr in the doorway
+ * (stock: a blocked door just stops). nil = no such door. */
+static int doorSnap(lua_State *L)
+{
+    int r;
+
+    needStage(L, "door.snap");
+    r = portHeistDoorSnap((int) luaL_checkinteger(L, 1), lua_toboolean(L, 2));
     if (r < 0) lua_pushnil(L); else lua_pushboolean(L, r);
     return 1;
 }
@@ -451,6 +476,48 @@ static int modeGuardsWake(lua_State *L)
     return 0;
 }
 
+/* ---- job 6: weapon in hand, difficulty ---- */
+
+/* bond.equip(p, item) -> bool: Bond p draws `item` into his right hand (the stock weapon switch; given first if he lacks it).
+ * Names as bond.give takes them, plus "fist" / "unarmed". */
+static int bondEquip(lua_State *L)
+{
+    char key[48];
+    const char *name = luaL_checkstring(L, 2);
+    size_t n = 0;
+    int id;
+
+    needStage(L, "bond.equip");
+    for (; *name != '\0' && n < sizeof(key) - 1; name++)
+    {
+        key[n++] = (*name >= 'a' && *name <= 'z') ? (char) (*name - 32) : *name;
+    }
+    key[n] = '\0';
+    id = portLuaGameItemId(key);
+    if (id < 0) return luaL_error(L, "bond.equip: unknown item '%s'", luaL_checkstring(L, 2));
+    lua_pushboolean(L, portHeistBondEquip((int) luaL_checkinteger(L, 1), id));
+    return 1;
+}
+
+/* bond.weapon(p) -> ITEM_* id in his right hand (0 unarmed, 1 slappers, 5 PP7 silenced, 38 door decoder ...), nil no such Bond */
+static int bondWeapon(lua_State *L)
+{
+    int w;
+
+    needStage(L, "bond.weapon");
+    w = portHeistBondWeapon((int) luaL_checkinteger(L, 1));
+    if (w < 0) lua_pushnil(L); else lua_pushinteger(L, w);
+    return 1;
+}
+
+/* mission.difficulty() -> 0 Agent, 1 Secret Agent, 2 00 Agent, 3 007 */
+static int missionDifficulty(lua_State *L)
+{
+    needStage(L, "mission.difficulty");
+    lua_pushinteger(L, portHeistDifficulty());
+    return 1;
+}
+
 static void addTo(lua_State *L, const char *lib, const luaL_Reg *reg)
 {
     lua_getglobal(L, lib);
@@ -461,13 +528,15 @@ static void addTo(lua_State *L, const char *lib, const luaL_Reg *reg)
 void portLuaHeistRegister(lua_State *L)
 {
     static const luaL_Reg doorLib[] = { { "list", doorList }, { "get", doorGet }, { "open", doorOpen }, { "close", doorClose },
-        { "lock", doorLock }, { "unlock", doorUnlock }, { "set_keyflags", doorSetKeyflags }, { "try", doorTry }, { NULL, NULL } };
+        { "lock", doorLock }, { "unlock", doorUnlock }, { "set_keyflags", doorSetKeyflags }, { "try", doorTry }, { "one_way", doorOneWay }, { "snap", doorSnap }, { NULL, NULL } };
     static const luaL_Reg alarmLib[] = { { "start", alarmStart }, { "stop", alarmStop }, { "active", alarmActive }, { NULL, NULL } };
     static const luaL_Reg cctvLib[] = { { "list", cctvList }, { "get", cctvGet }, { "disable", cctvDisable }, { "enable", cctvEnable },
         { "set_alarm_time", cctvSetAlarmTime }, { "alarm_on_spot", cctvAlarmOnSpot }, { NULL, NULL } };
     static const luaL_Reg spawnAdd[] = { { "key", spawnKey }, { "key_at", spawnKeyAt }, { "key_alive", spawnKeyAlive }, { "down", spawnDown }, { "heard", spawnHeard },
         { "ko", spawnKo }, { NULL, NULL } };
-    static const luaL_Reg bondAdd[] = { { "has_key", bondHasKey }, { "keys", bondKeys }, { "test_gadget", bondTestGadget }, { "face", bondFace }, { "test_noise", bondTestNoise }, { NULL, NULL } };
+    static const luaL_Reg bondAdd[] = { { "has_key", bondHasKey }, { "keys", bondKeys }, { "test_gadget", bondTestGadget }, { "face", bondFace }, { "test_noise", bondTestNoise },
+        { "equip", bondEquip }, { "weapon", bondWeapon }, { NULL, NULL } };
+    static const luaL_Reg missionAdd[] = { { "difficulty", missionDifficulty }, { NULL, NULL } };
     static const luaL_Reg modeAdd[] = { { "per_player_keys", modePerPlayerKeys }, { "body_check", modeBodyCheck }, { "slaps_to_ko", modeSlapsToKo },
         { "guards_wake", modeGuardsWake }, { NULL, NULL } };
     static const luaL_Reg koLib[] = { { "is", koIs }, { "count", koCount }, { "slaps", koSlaps }, { "wake", koWake }, { "waker", koWaker },
@@ -492,4 +561,5 @@ void portLuaHeistRegister(lua_State *L)
     addTo(L, "bond", bondAdd);
     addTo(L, "mode", modeAdd);
     addTo(L, "hud", hudAdd);
+    addTo(L, "mission", missionAdd);
 }

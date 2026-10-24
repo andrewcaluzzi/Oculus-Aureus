@@ -41,6 +41,9 @@
 
 #include <SDL.h>
 
+/* memmove: not <string.h> here. SDL.h brings the C library's on MinGW and the repo's shadow one on
+ * Linux, and the two disagree on strlen, so a second include would conflict on one of them. */
+extern void *memmove(void *, const void *, size_t);
 #include <ultra64.h>
 #include <PR/libaudio.h>
 #include <PR/abi.h>

@@ -46,6 +46,8 @@
 
 #ifndef TARGET_N64
 s32 portGunbarrelClampPhase(void); /* title.c: barrel-intro 30Hz-from-barrel-texture gate */
+extern void updateFrameCounters(s32 deltaFrames); /* frametiming.c, not in frametiming.h */
+extern s32 get_is_ramrom_flag(void);              /* ramromreplay.c, not in ramromreplay.h */
 /* rollback R1 (port_simonly.c): the sim-only tick (GE_SIMONLY_TEST, test only) */
 extern int portSimOnlyNext(int inStage);
 extern int portSimOnlyBegin(void);
