@@ -11834,6 +11834,18 @@ bool chrTryStartAlarm(ChrRecord *self, s32 PadId)
 
             return TRUE;
         }
+#ifndef TARGET_N64
+        {   /* PORT: heist: a mode stage with no alarm box at the pad (Bunker 2 has none): the guard still sounds the alarm */
+            extern s32 portModeActive(void);
+
+            if ((objinst == NULL || objinst->type != PROPDEF_ALARM) && portModeActive())
+            {
+                chrStartAlarmChooseAnimation(self);
+
+                return TRUE;
+            }
+        }
+#endif
     }
 
     return FALSE;

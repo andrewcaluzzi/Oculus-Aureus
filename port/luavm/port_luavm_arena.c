@@ -30,7 +30,7 @@ static void needStage(lua_State *L, const char *api)
     }
 }
 
-static const char *const sBehaviours[] = { "chase", "rush", "hold", "snipe", "standard", "spectator", NULL };
+static const char *const sBehaviours[] = { "chase", "rush", "hold", "snipe", "standard", "spectator", "civilian", NULL };
 
 static const char *const sWeaponNames[] = {
     "ak47", "shotgun", "pp7", "pp7sil", "d5k", "d5ksil", "ar33", "zmg", "dd44", "klobb", "phantom", "rcp90",
@@ -48,8 +48,39 @@ static int arenaSpawnChr(lua_State *L)
     s.speed = -1;
     s.body = -1;
     s.head = -2;
+    s.alarmPad = -1;
+    s.patrol = -1;
     if (lua_istable(L, 2))
     {
+        /* heist job 3: alarm_pad (stock alarm raiser), hearing (hearingscale), vision (= sight), post (hold, facing {x,z}), patrol (stock path id) */
+        lua_getfield(L, 2, "alarm_pad");
+        if (!lua_isnil(L, -1)) s.alarmPad = (int) luaL_checkinteger(L, -1);
+        lua_pop(L, 1);
+        lua_getfield(L, 2, "hearing");
+        if (!lua_isnil(L, -1)) s.hearing = (float) luaL_checknumber(L, -1);
+        lua_pop(L, 1);
+        lua_getfield(L, 2, "vision");
+        if (!lua_isnil(L, -1)) s.sight = (float) luaL_checknumber(L, -1);
+        lua_pop(L, 1);
+        lua_getfield(L, 2, "patrol");
+        if (!lua_isnil(L, -1)) s.patrol = (int) luaL_checkinteger(L, -1);
+        lua_pop(L, 1);
+        lua_getfield(L, 2, "post");
+        if (!lua_isnil(L, -1) && lua_toboolean(L, -1))
+        {
+            s.behaviour = PORTLUA_BEH_HOLD;   /* a behaviour given below wins */
+            if (lua_istable(L, -1))
+            {
+                lua_rawgeti(L, -1, 1);
+                s.fx = (float) luaL_checknumber(L, -1);
+                lua_pop(L, 1);
+                lua_rawgeti(L, -1, 2);
+                s.fz = (float) luaL_checknumber(L, -1);
+                lua_pop(L, 1);
+                s.hasface = 1;
+            }
+        }
+        lua_pop(L, 1);
         lua_getfield(L, 2, "skin");
         if (!lua_isnil(L, -1)) s.skin = luaL_checkstring(L, -1);
         lua_pop(L, 1);

@@ -49,7 +49,7 @@ extern s32 get_max_ammo_for_type(s32 type);
 #define SIGHT_DEFAULT           15000.0f  /* A5: chr->visionrange in world units (the Colosseum is 9000 across) */
 
 /* per arena chr: its knife numbers and whether it has fired yet (first-shot range log) */
-typedef struct { s32 chrnum; u8 enemy, knifer, fired, spectator; f32 knifeRange, knifeCooldown, engage; } ArenaInfo;
+typedef struct { s32 chrnum; u8 enemy, knifer, fired, spectator, stockroute; f32 knifeRange, knifeCooldown, engage; } ArenaInfo;
 static ArenaInfo sInfo[INFO_N];
 
 static ArenaInfo *infoGet(s32 chrnum)
@@ -256,7 +256,10 @@ static s32 legacyAI(void)
 /* an arena enemy that takes the A5 straight route / follows Bond (chraction.c plot_course_for_actor, chrlvTickGoPos) */
 s32 portArenaDirect(const ChrRecord *chr)
 {
-    return !legacyAI() && portArenaChrIsEnemy(chr);
+    ArenaInfo *a = (chr != NULL) ? infoGet((s32)chr->chrnum) : NULL;
+
+    /* heist: an alarm raiser or a patroller keeps the stock routes (it must reach ITS pad, not walk to Bond) */
+    return !legacyAI() && portArenaChrIsEnemy(chr) && !(a != NULL && a->stockroute);
 }
 
 /* range = farthest throw (units), cooldownTicks = ticks between throws (60 Hz); the arena defaults for a chr without an entry */
@@ -336,6 +339,7 @@ static s32 behaviourList(s32 b, s32 cls)
         case PORTLUA_BEH_SNIPE:    return GAILIST_ARENA_SNIPE;   /* stock AIM_AT_BOND is aim-only: never fires */
         case PORTLUA_BEH_STANDARD: return GAILIST_STANDARD_GUARD;
         case PORTLUA_BEH_SPECTATOR: return GAILIST_COOP_BOT;   /* idles forever */
+        case PORTLUA_BEH_CIVILIAN:  return GAILIST_COOP_BOT;   /* idles at its post; port_heist.c drives surrender and cowering */
         default:
             return cls < 0 ? GAILIST_ARENA_CHASE : (cls == 0 ? GAILIST_ARENA_ENGAGE_LONG_CHASE : (cls == 1 ? GAILIST_ARENA_ENGAGE_MID_CHASE : GAILIST_ARENA_ENGAGE_SHORT_CHASE));
     }
@@ -425,6 +429,10 @@ int portLuaGameSpawnChr(int pad, const PortLuaChrSpec *s)
     {
         w = findWeapon("ak47");
     }
+    if (s->behaviour == PORTLUA_BEH_CIVILIAN)
+    {
+        w = NULL;   /* civilians are unarmed */
+    }
     bp = anchorProp();
     if (bp == NULL || !portPadStan(pad, &pos, &stan, &angle))
     {
@@ -444,6 +452,10 @@ int portLuaGameSpawnChr(int pad, const PortLuaChrSpec *s)
     d.nearprop = bp;
     d.angle = angle;
     d.ailistid = behaviourList(s->behaviour, rangeClass(w, s->engage > 0.0f ? s->engage : (s->knives ? 6000.0f : 0.0f)));
+    if (s->alarmPad >= 0 && s->behaviour != PORTLUA_BEH_CIVILIAN)
+    {   /* the stock alarm raiser: on sight / hearing it runs to padpreset1 and sounds the alarm, then runs at Bond */
+        d.ailistid = GAILIST_SIMPLE_GUARD_ALARM_RAISER;
+    }
     d.maxdamage = (s->health > 0.0f) ? 4.0f * s->health : 0.0f;
     d.chrnum = sNextNum;
     gPortSpawnExtraFlags = s->sunglasses ? 1 : 0;   /* SPAWN_SUNGLASSES */
@@ -470,6 +482,26 @@ int portLuaGameSpawnChr(int pad, const PortLuaChrSpec *s)
         chr->chrflags |= CHRFLAG_INVINCIBLE | CHRFLAG_NO_AUTOAIM | CHRFLAG_NO_SHADOW | CHRFLAG_00010000;
         portFactionSetChr(chr, PORT_FACTION_HOSTAGE);
     }
+    if (s->alarmPad >= 0)
+    {
+        chr->padpreset1 = (s16)s->alarmPad;
+    }
+    if (s->hearing > 0.0f)
+    {
+        chr->hearingscale = s->hearing;
+    }
+    if (s->patrol >= 0)
+    {   /* a stock patrol path (the setup's PathRecord ids); applied a few ticks after the spawn, as spawn.guard does */
+        extern void portHeistPatrolLater(int chrnum, int path);
+
+        portHeistPatrolLater((int)chr->chrnum, (int)s->patrol);
+    }
+    if (s->behaviour == PORTLUA_BEH_CIVILIAN)
+    {   /* not hostile to anyone (guards never target it) but any shot that hits it hurts it; its death counts as a civilian casualty */
+        chr->chrflags |= CHRFLAG_COUNT_DEATH_AS_CIVILIAN;
+        portFactionSetChr(chr, PORT_FACTION_HOSTAGE);
+        portHeistCivilianAdd((int)chr->chrnum);
+    }
     if (s->accuracy >= 0)
     {
         chr->accuracyrating = (s8)(s->accuracy > 100 ? 100 : s->accuracy);
@@ -487,8 +519,9 @@ int portLuaGameSpawnChr(int pad, const PortLuaChrSpec *s)
 
         memset(a, 0, sizeof(*a));
         a->chrnum = (s32)chr->chrnum;
-        a->enemy = (s->behaviour != PORTLUA_BEH_SPECTATOR);
-        a->spectator = !a->enemy;
+        a->enemy = (s->behaviour != PORTLUA_BEH_SPECTATOR && s->behaviour != PORTLUA_BEH_CIVILIAN);
+        a->spectator = (s->behaviour == PORTLUA_BEH_SPECTATOR);
+        a->stockroute = (s->alarmPad >= 0 || s->patrol >= 0) ? 1 : 0;
         a->knifer = s->knives ? 1 : 0;
         a->knifeRange = s->knifeRange > 0.0f ? s->knifeRange : KNIFE_RANGE_DEFAULT;
         a->knifeCooldown = s->knifeCooldown > 0.0f ? s->knifeCooldown : KNIFE_COOLDOWN_DEFAULT;

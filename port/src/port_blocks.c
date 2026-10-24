@@ -636,6 +636,9 @@ static s32 takeKiller(s32 victim)
     return PORT_CHR_NONE;
 }
 
+extern void portHeistChrDied(s32 chrnum, s32 killerPlayer);   /* port_heist.c */
+extern void portHeistAiTick(void);                            /* port_heist.c: body discovery, civilians */
+
 static void deathsTick(void)
 {
     s32 i, n = g_NumChrSlots < SLOT_MAX ? g_NumChrSlots : SLOT_MAX;
@@ -662,7 +665,10 @@ static void deathsTick(void)
         if (!sSlotDead[i] && chrIsDead(c))
         {
             sSlotDead[i] = TRUE;
-            portEventEmit(PORT_EV_CHR_DIED, c->chrnum, takeKiller(c->chrnum), 0, 0);
+            s32 killer = takeKiller(c->chrnum);
+
+            portEventEmit(PORT_EV_CHR_DIED, c->chrnum, killer, 0, 0);
+            portHeistChrDied(c->chrnum, PORT_CHR_IS_BOND(killer) ? (s32)PORT_CHR_BOND_PLAYER(killer) : -1);
         }
     }
     {   /* every Bond, by player index (never the current or the local one): BOND_DIED(killer, player) on each death edge */
@@ -978,6 +984,7 @@ void portBlocksTick(void)
     if (mode)
     {
         portHostageDeadSweep();
+        portHeistAiTick();
     }
     deathsTick();   /* before the gate: Bond's death switches to the death cam, which fails bondGate */
     bp = bondGate();

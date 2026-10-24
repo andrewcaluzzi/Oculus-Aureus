@@ -33,7 +33,9 @@ void alloc_init_GUARDdata_entries(s32 count)
         extern s32 portArenaExtraSlots(void);
         extern s32 portFlatlandExtraSlots(void);
         g_NumChrSlots += portArenaExtraSlots();
+        extern s32 portHeistExtraSlots(void);
         g_NumChrSlots += portFlatlandExtraSlots(); /* PORT: Flatland has no guards of its own */
+        g_NumChrSlots += portHeistExtraSlots();    /* PORT: GE_MODE_SLOTS / the heist mode: a crowd of guards on a stock stage */
     }
 #endif
 

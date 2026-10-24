@@ -70,7 +70,8 @@ int         portLuaGameHostageExtract(int chr);
  * health = multiplier of the stock max damage (<= 0 = 1), accuracy / speed 0..100 (-1 = stock), behaviour = PORTLUA_BEH_*,
  * knives = throws knives with its shots, hasface = turn to face (fx, fz) at spawn instead of the pad's look. */
 enum { PORTLUA_BEH_CHASE, PORTLUA_BEH_RUSH, PORTLUA_BEH_HOLD, PORTLUA_BEH_SNIPE, PORTLUA_BEH_STANDARD,
-       PORTLUA_BEH_SPECTATOR /* unarmed crowd: invincible, no autoaim, hostage faction (nobody targets it), idle list; animated by portLuaGameChrAnim */ };
+       PORTLUA_BEH_SPECTATOR, /* unarmed crowd: invincible, no autoaim, hostage faction (nobody targets it), idle list; animated by portLuaGameChrAnim */
+       PORTLUA_BEH_CIVILIAN /* heist job 4: unarmed, hostage faction, counts as a civilian casualty; surrenders when aimed at (port_heist.c) */ };
 typedef struct PortLuaChrSpec {
     const char *skin, *weapon;
     float health;
@@ -86,6 +87,10 @@ typedef struct PortLuaChrSpec {
      * sight = chr->visionrange in world units (default 15000); engage = effective firing range in units (0 = by weapon:
      * rifles 6000, SMGs 3500, pistols 2500) */
     float knifeRange, knifeCooldown, sight, engage;
+    /* heist job 3: hearing = chr->hearingscale (0 = stock 1.0); alarmPad = the pad the stock alarm-raiser list runs to (-1 none);
+     * patrol = a stock patrol path id (-1 none) */
+    float hearing;
+    int alarmPad, patrol;
 } PortLuaChrSpec;
 int         portLuaGameSpawnChr(int pad, const PortLuaChrSpec *spec);   /* chrnum, -1 failed, -2 bad skin, -3 bad weapon */
 int         portLuaGameChrKill(int chr);                                  /* test helper: lethal damage to an arena chr; 1 = done */
@@ -147,6 +152,17 @@ void        portHeistCctvAlarmOnSpot(int on);
 int         portHeistCctvAlarmFrames(const void *rec, int stock);
 void        portHeistCountdown(float seconds);                             /* < 0 hides and stops */
 float       portHeistCountdownLeft(void);                                  /* seconds, -1 = not running */
+/* guards and civilians (port_heist.c, heist jobs 3-4) */
+void        portHeistCivilianAdd(int chrnum);                              /* register a spawned chr as a civilian */
+int         portHeistCivilianState(int chrnum);                            /* 0 idle, 1 surrendered, 2 cowering, -1 not a civilian / gone */
+void        portHeistCivilianTune(float range, float aim_sec, float threat_sec, float cower_sec);   /* <= 0 keeps */
+int         portHeistCivilianKilled(void);                                 /* civilians killed this stage */
+int         portHeistFaceBond(int player, float x, float z, float y);      /* test helper: turn Bond's view onto a point */
+int         portHeistChrDown(int chrnum);                                  /* 1 = dead or knocked out (the body_found notion) */
+int         portHeistBodiesFound(void);
+int         portHeistTestNoise(int player, float noise);                   /* test helpers */
+int         portHeistChrHeard(int chrnum, int clear);
+void        portHeistBodyCheck(int on);                                   /* body discovery on/off (default on) */
 
 /* Mods menu items added by scripts (menu.add_toggle / menu.add_number), port_luavm.c.
  * Values are cached: Refresh calls the scripts' getters (never from a render path). */

@@ -74,7 +74,8 @@ void dynInitMemory(void) {
 #ifndef TARGET_N64
     {   /* PORT: a Colosseum with GE_COLOSSEUM_SLOTS beyond the default draws a thousand chrs a frame: more master list and vertex room per extra slot */
         extern s32 portColosseumBigSlots(void);
-        s32 big = portColosseumBigSlots();
+        extern s32 portHeistBigSlots(void);
+        s32 big = portColosseumBigSlots() + portHeistBigSlots();
 
         g_GfxSizesByPlayerCount[portAllPlayerCount() - 1] += big * 1536;
         g_VtxSizesByPlayerCount[portAllPlayerCount() - 1] += big * 1536;

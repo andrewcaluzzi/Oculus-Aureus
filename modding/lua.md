@@ -170,6 +170,45 @@ Generic building blocks for a heist-style mode (designs/bank-heist.md). Door and
 
 Co-op notes. Stock cameras test only the Bond whose pass is running and keep one timer per camera, so two Bonds in view share the timer; the event names the Bond whose pass tipped it over. The state these calls set (key mode, camera overrides and switch-offs, the countdown) is folded into the co-op state hash. A test mode that exercises all of the above is `tests/heist/heist_bindings.lua`.
 
+### Heist guards, bodies and civilians
+
+Job 3 and 4 of designs/bank-heist.md. Test mode: `tests/heist/heist_guards.lua` (run with `tests/heist/run_guards.sh`).
+
+**More `spawn.chr` options.**
+
+| Option | Effect |
+| --- | --- |
+| `alarm_pad = pad` | The stock alarm raiser list (`GAILIST_SIMPLE_GUARD_ALARM_RAISER`): the guard stands still until it sees or hears Bond (or sees a guard shot or die), looks surprised, runs to `pad`, plays the alarm animation and sounds the alarm, then runs at Bond. Works on stages with no alarm box (a mode-only change to `chrTryStartAlarm`: no box at the pad is fine). The pad should be on the waypoint graph (`pads.far_from(..., true)`); it must be reachable. |
+| `hearing = n` | `chr->hearingscale`. A shot of loudness L alerts the guard when Bond is closer than `hearing * L * 100` units (silenced PP7 first shot L = 1, unsilenced first shot 3, unsilenced at the cap 12; see designs/bank-heist-bunker2.md section 6). Default 1. |
+| `vision = units` | Sight range (alias of `sight`). Default 15000. |
+| `post = true` or `post = {x, z}` | Stand guard at the spawn pad (stock simple guard AI), facing `{x, z}` if given. Same as `behaviour = "hold"` plus `face`. An explicit `behaviour` wins. |
+| `patrol = path_id` | Walk a stock patrol path of the stage's setup (`g_CurrentSetup.patrolpaths`, the ids `spawn.guard` takes). Applied a few ticks after the spawn. A missing path logs one line and the guard holds. Bunker 2's setup has none that the probe lists; check the stage you use. |
+| `behaviour = "civilian"` | See below. |
+
+**Chr slots.** Stage init runs before any script, so the slot count comes from the environment, not from Lua: `GE_MODE_SLOTS=n` (any mode) or any mode whose name starts with `heist` (250 extra slots, on top of the stage's own guards + 10; Bunker 2 gets 297 free). The display list and vertex pools grow with the slots above 60 (`dyn.c`, same as the Colosseum). The engine caps nothing else for `spawn.chr` (the 40 cap is `spawn.guard`'s); the limits are slots, the 600-prop pool and frame time (about 75 live chrs are free at 144 fps, idle ones cost almost nothing).
+
+**Reinforcement waves.** `include("heist_lib")` (`tools/heist_lib.lua`, copy it next to the mode scripts) gives `heist.reinforce{pads = {...}, interval = 25, per_wave = 3, max_alive = 16, opts = {weapon = "ak47", behaviour = "chase"}, first = 0, reserve = 12}`: while `alarm.active()` it spawns `per_wave` guards every `interval` seconds at the entrance pads (round robin, a busy pad is skipped), never above `max_alive` alive and never when `spawn.free()` is below `reserve`. Returns `r` with `r.alive()`, `r.spawned`, `r.waves`, `r.is_wave(chr)`, `r.stop()`. The alarm event restarts the first-wave timer. The latch (the siren times out after about 30 s) is the mode's job: call `alarm.start()` again, or run waves from your own flag.
+
+**Bodies.** Every ~8 ticks each living, non-civilian chr that is in the same room as a dead chr and within its sight range (capped at 1500 units, and within 150 units in height) notices it: its `chrseedie` is set, the stock "I saw someone die" field, so its own AI list reacts (simple guard and alarm raiser: run to Bond or to the alarm pad; the arena lists already hunt). The first one to notice a body fires `body_found(guard, body)`, once per body. Stock only alerts guards while the victim is still dying (and only setup guards, `get_numguards()`); this covers corpses and spawned guards. No facing test. Bodies must still be there: stock removes corpses about 1.5 s after death, so call `spawn.keep_bodies(true)` (or keep the body yourself). `mode.body_check(on)` turns the scan off (default on), `bodies.found()` counts bodies found this stage, `spawn.down(chr)` says whether a chr counts as a body. KO'd chrs plug into the same check (`chrIsBody` in `port_heist.c`) when job 5 lands.
+
+**Civilians.** `spawn.chr(pad, {behaviour = "civilian", body = "Civilian_1_Female"})`: unarmed (any `weapon` is ignored), idles at its post, in the hostage faction (guards and bots never target it, but any shot or knife that physically hits it hurts it), flagged `CHRFLAG_COUNT_DEATH_AS_CIVILIAN` (the stock casualty counter, `get_civilian_casualties()`, counts it too). Behaviour, driven per sim tick for every Bond (never the local player):
+
+- Aimed at: a Bond who holds a gun and whose view ray passes within 90 units of it, within the aim range (default 800 units), for `aim` seconds (0.5) makes it surrender (hands up, the `surrender` animation, not the stock `GUARD_SURRENDERS` which would drop its items at once). Event `civilian_surrendered(chr, player)`.
+- Still aimed at for `threat` seconds (2) while surrendered: it drops everything it carries (`chrDropItems`, the stock `CHR_DROP_ALL_CONCEALED_ITEMS`): a key from `spawn.key(civ, flags)` falls where it stands and is picked up like a guard's. Event `civilian_robbed(chr, player)`, once. Nobody aiming for 3 s: it lowers its hands.
+- Gunfire nearby (any shot whose noise reaches it, the stock hearing check) makes it cower for `cower` seconds (4): `"cowering"`, the `startled` animation held. Aiming at a cowering civilian surrenders it as above.
+- Death: `civilian_killed(chr, killer_player)` (-1 when the killer was not a Bond), and `civilian.killed()` counts them. Failing after N is the mode's job. A KO (job 5) will not be a death: it plugs in beside `portHeistChrDied`.
+
+| Call | Notes |
+| --- | --- |
+| `civilian.state(chr)` | `"idle"`, `"surrendered"`, `"cowering"`, or nil (not a civilian). |
+| `civilian.killed()` | Civilians killed this stage. |
+| `civilian.tune{range=, aim=, threat=, cower=}` | Aim distance in units, and the three times above. Unset keeps the current value. |
+| `bond.test_noise(p, loudness)`, `spawn.heard(chr [, clear])`, `bond.face(p, x, z)` | Test helpers: Bond `p` fires a shot of that loudness (same code as a real shot); whether the chr heard a shot in the last half second; turn Bond's view onto a point. |
+
+Known limits. `bond.face` is a test helper: turning the view onto a point and then away again hung the Xvfb test build once (it was not investigated; the test avoids it). An `alarm_pad` or `patrol` chr keeps the stock waypoint routes; every other spawned enemy still uses the arena's straight route toward Bond (so only those two kinds can reach a pad). Spawning needs a clear spot: a busy pad (a held guard still standing on it) makes `spawn.chr` return nil. The siren is re-triggered every tick while a raiser's alarm animation plays past frame 60, so `alarm.stop()` in that window is undone; remove the chr first.
+
+Events: `body_found(guard, body)`, `civilian_killed(chr, player)`, `civilian_surrendered(chr, player)`, `civilian_robbed(chr, player)`. The civilian table, found-body list and counters are in the co-op state hash.
+
 ### Weapons, modifiers, music, menus
 
 - `weapon.set(item, field, value)`, `weapon.get(item, field)`, `weapon.reset()`, `weapon.items()`, `weapon.fields()`. Items are lowercase `ITEM_*` names (`ak47`, `wppk`, `goldengun`, `throwknife`, ...) plus `pp7 pp7sil dd44 klobb kf7 zmg ar33 rcp90`. Fields: integers `magsize firerate singlerate penetration sound ammotype`; numbers `damage inaccuracy zoom crosshairspeed aimlockspeed sway recoilback recoilup boltrecoil loudnessmin loudnessmax noiseshot impact`. Edits last until the next stage start.

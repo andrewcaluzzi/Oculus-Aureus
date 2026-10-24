@@ -290,6 +290,93 @@ static int hudCountdownLeft(lua_State *L)
     return 1;
 }
 
+/* ---- guards and civilians (jobs 3-4) ---- */
+
+/* civilian.state(chr) -> "idle" | "surrendered" | "cowering" | nil (not a civilian) */
+static int civState(lua_State *L)
+{
+    static const char *const names[] = { "idle", "surrendered", "cowering" };
+    int s;
+
+    needStage(L, "civilian.state");
+    s = portHeistCivilianState((int) luaL_checkinteger(L, 1));
+    if (s < 0 || s > 2) lua_pushnil(L); else lua_pushstring(L, names[s]);
+    return 1;
+}
+
+static int civKilled(lua_State *L)
+{
+    needStage(L, "civilian.killed");
+    lua_pushinteger(L, portHeistCivilianKilled());
+    return 1;
+}
+
+/* civilian.tune{range=, aim=, threat=, cower=}: aim distance (units, 800), seconds aimed before it surrenders (0.5), seconds aimed while
+ * surrendered before it drops what it carries (2), seconds it cowers after gunfire (4) */
+static int civTune(lua_State *L)
+{
+    float v[4] = { 0, 0, 0, 0 };
+    static const char *const keys[4] = { "range", "aim", "threat", "cower" };
+    int i;
+
+    luaL_checktype(L, 1, LUA_TTABLE);
+    for (i = 0; i < 4; i++)
+    {
+        lua_getfield(L, 1, keys[i]);
+        if (!lua_isnil(L, -1)) v[i] = (float) luaL_checknumber(L, -1);
+        lua_pop(L, 1);
+    }
+    portHeistCivilianTune(v[0], v[1], v[2], v[3]);
+    return 0;
+}
+
+static int spawnDown(lua_State *L)
+{
+    needStage(L, "spawn.down");
+    lua_pushboolean(L, portHeistChrDown((int) luaL_checkinteger(L, 1)));
+    return 1;
+}
+
+static int bodiesFound(lua_State *L)
+{
+    needStage(L, "bodies.found");
+    lua_pushinteger(L, portHeistBodiesFound());
+    return 1;
+}
+
+static int modeBodyCheck(lua_State *L)
+{
+    portHeistBodyCheck(lua_isnone(L, 1) ? 1 : lua_toboolean(L, 1));
+    return 0;
+}
+
+/* bond.test_noise(p, noise): test helper, Bond p "fires" a shot of that loudness (alerts every chr within hearingscale * noise * 100 units) */
+static int bondTestNoise(lua_State *L)
+{
+    needStage(L, "bond.test_noise");
+    lua_pushboolean(L, portHeistTestNoise((int) luaL_checkinteger(L, 1), (float) luaL_checknumber(L, 2)));
+    return 1;
+}
+
+/* spawn.heard(chr [, clear]) -> bool: the chr is in the "heard Bond" state (set by a shot within its hearing); nil = no such chr */
+static int spawnHeard(lua_State *L)
+{
+    int r;
+
+    needStage(L, "spawn.heard");
+    r = portHeistChrHeard((int) luaL_checkinteger(L, 1), lua_toboolean(L, 2));
+    if (r < 0) lua_pushnil(L); else lua_pushboolean(L, r);
+    return 1;
+}
+
+/* bond.face(p, x, z): test helper, turn Bond p's view onto (x, z) */
+static int bondFace(lua_State *L)
+{
+    needStage(L, "bond.face");
+    lua_pushboolean(L, portHeistFaceBond((int) luaL_checkinteger(L, 1), (float) luaL_checknumber(L, 2), (float) luaL_checknumber(L, 3), 0.0f));
+    return 1;
+}
+
 static void addTo(lua_State *L, const char *lib, const luaL_Reg *reg)
 {
     lua_getglobal(L, lib);
@@ -304,9 +391,11 @@ void portLuaHeistRegister(lua_State *L)
     static const luaL_Reg alarmLib[] = { { "start", alarmStart }, { "stop", alarmStop }, { "active", alarmActive }, { NULL, NULL } };
     static const luaL_Reg cctvLib[] = { { "list", cctvList }, { "get", cctvGet }, { "disable", cctvDisable }, { "enable", cctvEnable },
         { "set_alarm_time", cctvSetAlarmTime }, { "alarm_on_spot", cctvAlarmOnSpot }, { NULL, NULL } };
-    static const luaL_Reg spawnAdd[] = { { "key", spawnKey }, { "key_at", spawnKeyAt }, { "key_alive", spawnKeyAlive }, { NULL, NULL } };
-    static const luaL_Reg bondAdd[] = { { "has_key", bondHasKey }, { "keys", bondKeys }, { "test_gadget", bondTestGadget }, { NULL, NULL } };
-    static const luaL_Reg modeAdd[] = { { "per_player_keys", modePerPlayerKeys }, { NULL, NULL } };
+    static const luaL_Reg spawnAdd[] = { { "key", spawnKey }, { "key_at", spawnKeyAt }, { "key_alive", spawnKeyAlive }, { "down", spawnDown }, { "heard", spawnHeard }, { NULL, NULL } };
+    static const luaL_Reg bondAdd[] = { { "has_key", bondHasKey }, { "keys", bondKeys }, { "test_gadget", bondTestGadget }, { "face", bondFace }, { "test_noise", bondTestNoise }, { NULL, NULL } };
+    static const luaL_Reg modeAdd[] = { { "per_player_keys", modePerPlayerKeys }, { "body_check", modeBodyCheck }, { NULL, NULL } };
+    static const luaL_Reg civLib[] = { { "state", civState }, { "killed", civKilled }, { "tune", civTune }, { NULL, NULL } };
+    static const luaL_Reg bodiesLib[] = { { "found", bodiesFound }, { NULL, NULL } };
     static const luaL_Reg hudAdd[] = { { "countdown", hudCountdown }, { "countdown_left", hudCountdownLeft }, { NULL, NULL } };
 
     luaL_newlib(L, doorLib);
@@ -315,6 +404,10 @@ void portLuaHeistRegister(lua_State *L)
     lua_setglobal(L, "alarm");
     luaL_newlib(L, cctvLib);
     lua_setglobal(L, "cctv");
+    luaL_newlib(L, civLib);
+    lua_setglobal(L, "civilian");
+    luaL_newlib(L, bodiesLib);
+    lua_setglobal(L, "bodies");
     addTo(L, "spawn", spawnAdd);
     addTo(L, "bond", bondAdd);
     addTo(L, "mode", modeAdd);

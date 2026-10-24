@@ -500,6 +500,10 @@ static const struct { const char *name; int type; int nargs; } sEvents[] = {
     { "cctv_spotted", PORT_EV_CCTV_SPOTTED, 2 }, /* camera setup index, player */
     { "use", PORT_EV_USE, 4 },                   /* player, PROP_TYPE_* of the target, target setup index (-1), PROPDEF_* type */
     { "gadget_used", PORT_EV_GADGET_USED, 4 },   /* player, ITEM_* id, target setup index (-1), PROPDEF_* type */
+    { "body_found", PORT_EV_BODY_FOUND, 2 },     /* guard chr that found it, body chr (dead) */
+    { "civilian_killed", PORT_EV_CIVILIAN_KILLED, 2 },   /* civilian chr, killer player index (-1 unknown) */
+    { "civilian_surrendered", PORT_EV_CIVILIAN_SURRENDERED, 2 },   /* civilian chr, player index that aimed at it */
+    { "civilian_robbed", PORT_EV_CIVILIAN_ROBBED, 2 },   /* civilian chr, player index; it dropped its key / concealed items */
     { "objective_changed", PORT_EV_OBJECTIVE_CHANGED, 2 },   /* index, status (0 incomplete, 1 complete, 2 failed) */
     { "tick", LUA_EV_TICK, 1 },                  /* seconds since the last tick event */
     { "test_key", LUA_EV_TESTKEY, 1 },           /* name of a test hotkey: "next" "back" "next+" "back+" (PageDown, PageUp, with Shift = +) */
@@ -665,7 +669,7 @@ static int portLuaOn(lua_State *L)
     if (k == LUA_EV_N)
     {
         return luaL_error(L, "unknown event '%s' (chr_died zone_enter zone_leave stage_start bond_died "
-                             "hostage_follow hostage_wait damage chr_spawned item_pickup objective_changed alarm cctv_spotted use gadget_used tick test_key)", name);
+                             "hostage_follow hostage_wait damage chr_spawned item_pickup objective_changed alarm cctv_spotted use gadget_used body_found civilian_killed civilian_surrendered civilian_robbed tick test_key)", name);
     }
     type = sEvents[k].type;
     lua_getfield(L, LUA_REGISTRYINDEX, LUA_HANDLERS_KEY);

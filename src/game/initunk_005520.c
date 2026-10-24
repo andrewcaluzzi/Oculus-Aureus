@@ -68,7 +68,9 @@ void modelmgrAllocateAnimModelSlots(s32 numanimated)
         extern s32 portArenaExtraSlots(void);
         extern s32 portFlatlandExtraSlots(void);
         g_MaxAnimModelSlots += portArenaExtraSlots();
+        extern s32 portHeistExtraSlots(void);
         g_MaxAnimModelSlots += portFlatlandExtraSlots(); /* PORT: Flatland has no guards of its own */
+        g_MaxAnimModelSlots += portHeistExtraSlots();    /* PORT: heist / GE_MODE_SLOTS: a crowd of guards on a stock stage */
     }
 #endif
 
