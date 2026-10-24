@@ -105,10 +105,28 @@ skipped once objective N is complete or not needed at this difficulty, `diff=A-B
 objectives, tags, and the AI lines that set each completion flag with the conditions before them - that is how the
 plans were written. Note the AI macros store flags and pads byte-swapped (the tool converts them).
 
-## Plug-in point for game modes
+## Game modes (Lua) and the Bank Heist
 
-`portPlayerBotSetPlanner(fn)` (port_playerbot.h) replaces the plan file with a function that hands the bot one step at
-a time. A mode such as Bank Heist registers one to steer the bot through its own goals.
+With a mode active (`GE_MODE=...`), the bot loads `Data/BotPlans/<mode>.plan` if there is one; otherwise it follows the
+steps the mode script feeds it through the Lua `bot` library:
+
+| Function | Does |
+|---|---|
+| `bot.active()` | 0 off, 1 driving, 2 watching |
+| `bot.push(line)` | append one plan step (same language as the plan files); `nil, message` on a syntax error |
+| `bot.clear()` | drop the current and every later step (the situation changed) |
+| `bot.step()` | the running step's number and the number of steps (`s > n` = idle) |
+
+`tools/bot/heist_bot.lua` is the Bank Heist driver: `GE_MODE=heist_bot GE_STAGE=bunker2 GE_PLAYERBOT=1`. It includes the
+real heist unchanged and pushes: walk to the vault antechamber (the bot's door logic fetches the RED / BLUE / GREEN cards
+from their carriers on the way), face vault door A and press use (starts the cracker), hold the zone and fight, restart
+the cracker when it jams, loot the bars when the vault opens, leave by the van. A mode's own `mission.win/fail` writes the
+RESULT line. From C, `portPlayerBotSetPlanner(fn)` does the same job without Lua.
+
+Status (2026-10-25): it runs - card fetched, alarm at 48 s, 89 guards down - and dies at about 3 minutes in the loud
+firefight, before the vault. Missing for a real heist: knocking card carriers out and searching them instead of shooting
+them (staff carriers count as civilians), staying quiet (cameras, alarm raisers), and the crack/jam/loot phases have not
+been reached yet, so they are untested.
 
 ## Known limits
 
