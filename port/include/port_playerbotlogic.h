@@ -100,6 +100,9 @@ enum PblOp {
                          * instead of shooting them when they have not seen Bond; 0 = off */
     PBL_KEY,            /* a = key flags: fetch a key with any of them (lying, on a guard: knock out / kill and search, on a
                          * civilian: aim at it until it hands it over); done once Bond has it */
+    PBL_RUSH,           /* a = 1: keep walking the route while fighting (strafe-walk, the look on the target); 0 = stop and
+                         * fight (the default) */
+    PBL_AVOID,          /* a = pad: keep routes out of that pad's room from here on (a room that ends the mission) */
     PBL_COUNT_
 };
 

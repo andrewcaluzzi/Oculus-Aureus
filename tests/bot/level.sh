@@ -45,8 +45,10 @@ blocked=$(echo "$res" | sed -n 's/.*blocked=//p')
 
 rep="-"
 if [ "$REPLAY" = 1 ] && [ -s "$OUT/$TAG.rec" ]; then
-    # replay without rendering at all (the record run rendered 1 tick in 60: sim-only must not change the sim)
-    ( cd "$OUT/$TAG.shots" && env $(common) GE_SIMONLY_TEST=2,100000000 GE_INPUTPLAY="$OUT/$TAG.rec" GE_PLAYERBOT=watch "$BIN" ) \
+    # replay drawing the same ticks as the record run (1 in 60). The photo objective is not render-free: it reads the
+    # object's render matrices (objective_status.c, objGetOnscreenRenderBounds), so a replay that never draws can miss a
+    # picture the record run took (bunker1 / silo drifted that way). REPLAYSIM=2,100000000 = the strict no-draw replay.
+    ( cd "$OUT/$TAG.shots" && env $(common) GE_SIMONLY_TEST=${REPLAYSIM:-2,59,60} GE_INPUTPLAY="$OUT/$TAG.rec" GE_PLAYERBOT=watch "$BIN" ) \
         > "$OUT/$TAG.replay.log" 2>&1
     rres=$(grep -a "ge: playerbot: RESULT" "$OUT/$TAG.replay.log" | tail -1)
     a=$(echo "$res" | sed 's/.*outcome=\([^ ]*\).*mission_time=\([^ ]*\).*objectives=\([^ ]*\).*/\1 \2 \3/')

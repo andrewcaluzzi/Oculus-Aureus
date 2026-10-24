@@ -157,7 +157,8 @@ typedef struct {
     s32 lastDoorTap;
     s32 lastNoRouteLog;
     PropRecord *doorProp;      /* the shut door being opened */
-    s32 doorTaps, doorSince, doorOpened;
+    s32 doorTaps, doorSince, doorOpened, doorOpenTick;
+    f32 doorOpenPos;
     PropRecord *blockedDoors[16];
     s32 blockedAt[16];
     s32 nBlockedDoors;
@@ -166,6 +167,8 @@ typedef struct {
     s32 huntSkipAt[8], huntSkipN;
     ObjectRecord *photoObj;    /* the object being photographed, and since when */
     s32 photoSince;
+    ObjectRecord *photoSpotObj;   /* ...and the tile chosen to photograph it from (-1 none) */
+    s32 photoSpotNode;
     ObjectRecord *shootObj;    /* the object being shot at, and since when */
     s32 shootSince;
     PropRecord *lootProp;      /* a detour: walk over a pick-up */
@@ -197,7 +200,19 @@ typedef struct {
     PropRecord *threats[6];
     AIRecord *raiserList;      /* the stock alarm raiser list: those guards are shot first */
     s32 coverNode, coverUntil, coverSince, lastCoverScan, noCover;
-    f32 aimY;                  /* aim this far above a chr's prop (its origin is at the chest; ~40 is the head) */
+    s32 kiteSince, kiteBlockedUntil, noKite, glassTest;
+    s32 avoidRoom[8], nAvoid;  /* rooms the routes keep out of (the `avoid` step) */
+    ChrRecord *civExempt;      /* a civilian carrier being shot on purpose (not a bystander for the line-of-fire check) */
+    s32 rush, moveOnly;        /* rush: keep walking the route while shooting (the `rush` step); moveOnly: steerTo
+                                * moves without turning (the look is on a target) */
+    PropRecord *armourProp;
+    s32 armourSince, armourGiveUpUntil;
+    s32 crIsR1, strafeCal, calTick, calLast;   /* strafe direction, learnt from Bond's own motion (strafeCalibrate) */
+    u16 calBtn;
+    f32 calX, calZ, calTheta;
+    f32 kiteX, kiteZ;
+    f32 aimY;                  /* aim this far above a chr's prop (its origin is ~110 above the floor; +52 is the head:
+                                * the heist A/B gave 2-3x the head hits of +15..38 for the same shots) */
     f32 lastTX, lastTY, lastTZ;
     s32 quiet;                 /* the `quiet` step: stealth until the alarm sounds */
     /* the key detour's carrier handling: knock-out from behind, search, rob */
@@ -538,8 +553,9 @@ static s32 bestGun(void)
 {
     s32 i;
 
-    if (B.quiet && !alarmIsActive())
-    {   /* stealth: a silenced gun is heard ~100 units away, a KF7 2000 */
+    if (B.quiet)
+    {   /* stealth: a silenced gun is heard ~100 units away, a KF7 2000. Even once the alarm sounds: the alarm brings the
+         * reinforcement waves, but the guards on post elsewhere only come for what they hear or see */
         if (bondinvItemAvailable(ITEM_MP5KSIL) && weaponHasAmmo(ITEM_MP5KSIL))
         {
             return ITEM_MP5KSIL;
@@ -792,6 +808,21 @@ static s32 graphApplyLocks(void)
     s32 a, nd = 0;
 
     pblGraphClearMarks(&B.g);
+    if (B.nAvoid > 0)
+    {   /* rooms a plan said to keep out of */
+        for (a = 0; a < B.g.n; a++)
+        {
+            s32 k;
+
+            for (k = 0; k < B.nAvoid; k++)
+            {
+                if ((s32) B.tiles[a]->room == B.avoidRoom[k])
+                {
+                    B.g.npen[a] += 100000.0f;
+                }
+            }
+        }
+    }
     for (p = chrpropGetActiveTail(); p != NULL; p = p->prev)
     {   /* the gas of a burst gas tank hurts: keep routes out of it */
         if (p->type == PROP_TYPE_OBJ && p->obj != NULL && p->obj->type == PROPDEF_GAS_RELEASING && !objIsHealthy(p->obj))
@@ -1126,13 +1157,30 @@ static s32 doorHandle(f32 gx, f32 gy, f32 gz, StandTile *goalTile)
     dx = d->pos.x - p->prop->pos.x;
     dz = d->pos.z - p->prop->pos.z;
     dist = sqrtf(dx * dx + dz * dz);
-    if (d->door->openstate == DOORSTATE_OPENING || d->door->openstate == DOORSTATE_WAITING)
-    {   /* it is coming: wait facing it */
+    if ((d->door->openstate == DOORSTATE_OPENING || d->door->openstate == DOORSTATE_WAITING) && B.tick - B.doorSince <= 1200)
+    {   /* it is coming: wait facing it - unless it has not moved for 2 s (Bond, or a body, in its swing): step back.
+         * 20 s of this and the door counts as one that will not open (below) */
+        if (d->door->openPosition > B.doorOpenPos + 0.01f || B.doorOpenTick == 0)
+        {
+            B.doorOpenPos = d->door->openPosition;
+            B.doorOpenTick = B.tick;
+        }
         B.doorOpened = 1;
         lookAt(d->pos.x, p->prop->pos.y, d->pos.z, 15.0f);
         B.stuck.lastGain = B.tick;
+        if (B.tick - B.doorOpenTick > 120)
+        {
+            B.sy = -60;
+            if (B.tick - B.doorOpenTick > 150)
+            {
+                B.doorOpenTick = B.tick;   /* and wait again */
+                B.btn |= BTN_B;
+            }
+        }
         return 1;
     }
+    B.doorOpenTick = 0;
+    B.doorOpenPos = 0.0f;
     if (dist > 120.0f)
     {
         steerTo(d->pos.x, d->pos.y, d->pos.z, 200.0f);
@@ -1216,11 +1264,28 @@ static void steerTo(f32 x, f32 y, f32 z, f32 slowRadius)
     struct player *p = bond();
     f32 dx = x - p->prop->pos.x, dz = z - p->prop->pos.z;
     f32 dist = sqrtf(dx * dx + dz * dz);
-    f32 err = lookToward(pblYawTo(dx, dz), 0.0f, 20.0f);
-    f32 ae = fabsf(err);
+    f32 err, ae;
     s32 sp = 80;
 
     B.lastSteerYaw = pblYawTo(dx, dz);
+    if (B.moveOnly)
+    {   /* moving while the look is on a target: walk the heading with the stick (forward/back) and the C strafe
+         * buttons, view-relative. forward(theta + rel) ~ forward(theta) - rel * r1, so a heading to the left of the
+         * view (rel > 0) is a step against r1 = (cos theta, sin theta) */
+        f32 rel = pblWrap180(B.lastSteerYaw - p->vv_theta) * 3.14159265f / 180.0f;
+        f32 fw = cosf(rel), lat = sinf(rel);
+
+        B.sy = (s8) pblClamp(fw * 90.0f, -80.0f, 80.0f);
+        if (fabsf(lat) > 0.38f)
+        {
+            B.btn |= ((lat > 0.0f ? -1 : 1) * B.crIsR1 > 0) ? BTN_CR : BTN_CL;
+        }
+        (void) y;
+        (void) slowRadius;
+        return;
+    }
+    err = lookToward(B.lastSteerYaw, 0.0f, 20.0f);
+    ae = fabsf(err);
 
     (void) y;
     if (ae > 70.0f)
@@ -1430,8 +1495,10 @@ static s32 quietSpare(ChrRecord *c, f32 dist)
                                          bond()->prop->pos.z) > 120.0f;
 }
 
-/* a civilian near the line of fire from Bond toward (x, z), `dist` away (the shot would go along yaw) */
-static s32 civilianInLineYaw(f32 yaw, f32 dist)
+/* a civilian near the line of fire from Bond toward (x, z), `dist` away (the shot would go along yaw). frontOnly: only
+ * one between Bond and the target counts (for an alarm raiser at his panel - the alarm costs more than the risk of a
+ * miss carrying on past his head) */
+static s32 civilianInLineYawEx(f32 yaw, f32 dist, s32 frontOnly)
 {
     struct player *p = bond();
     s32 n = get_numguards(), i;
@@ -1440,16 +1507,108 @@ static s32 civilianInLineYaw(f32 yaw, f32 dist)
     {
         ChrRecord *c = &g_ChrSlots[i];
 
-        if (!chrIsCivilian(c) || fabsf(c->prop->pos.y - p->prop->pos.y) > 300.0f)
+        if (!chrIsCivilian(c) || c == B.civExempt || fabsf(c->prop->pos.y - p->prop->pos.y) > 300.0f)
         {
             continue;
         }
-        if (pblInLineOfFire(p->prop->pos.x, p->prop->pos.z, yaw, dist, c->prop->pos.x, c->prop->pos.z))
+        if (pblInLineOfFire(p->prop->pos.x, p->prop->pos.z, yaw, frontOnly ? dist - 40.0f - 500.0f : dist, c->prop->pos.x,
+                            c->prop->pos.z))
         {
             return 1;
         }
     }
     return 0;
+}
+
+static s32 civilianInLineYaw(f32 yaw, f32 dist)
+{
+    return civilianInLineYawEx(yaw, dist, 0);
+}
+
+/* Which way should Bond step so no civilian stands in a guard's line of fire at him (between them, or just behind Bond
+ * where the misses go)? +1 along r1 = (cos theta, sin theta), -1 the other way, 0 = nobody exposed. */
+static s32 civilianExposureSide(void)
+{
+    struct player *p = bond();
+    s32 n = get_numguards(), i, k;
+    f32 mx = 0.0f, mz = 0.0f, th;
+
+    for (k = 0; k < B.nThreats; k++)
+    {
+        PropRecord *t = B.threats[k];
+        f32 ux = p->prop->pos.x - t->pos.x, uz = p->prop->pos.z - t->pos.z;
+        f32 len = sqrtf(ux * ux + uz * uz);
+
+        if (len < 1.0f || t->chr == NULL || chrIsDead(t->chr))
+        {
+            continue;
+        }
+        ux /= len;
+        uz /= len;
+        for (i = 0; i < n; i++)
+        {
+            ChrRecord *c = &g_ChrSlots[i];
+            f32 cx, cz, proj, lat;
+
+            if (!chrIsCivilian(c) || fabsf(c->prop->pos.y - p->prop->pos.y) > 300.0f)
+            {
+                continue;
+            }
+            cx = c->prop->pos.x - t->pos.x;
+            cz = c->prop->pos.z - t->pos.z;
+            proj = cx * ux + cz * uz;
+            lat = ux * cz - uz * cx;
+            if (proj < 30.0f || proj > len + 400.0f || fabsf(lat) > 50.0f + 0.03f * proj)
+            {
+                continue;
+            }
+            /* it is on the +lat side of the line (toward n = (-uz, ux)): Bond moves the other way */
+            mx += (lat > 0.0f ? 1.0f : -1.0f) * uz;
+            mz -= (lat > 0.0f ? 1.0f : -1.0f) * ux;
+        }
+    }
+    if (mx == 0.0f && mz == 0.0f)
+    {
+        return 0;
+    }
+    th = p->vv_theta * 3.14159265f / 180.0f;
+    return (mx * cosf(th) + mz * sinf(th)) > 0.0f ? 1 : -1;
+}
+
+/* Which strafe button moves Bond along r1 = (cos theta, sin theta)? Measured once from his own motion while a strafe is
+ * held (20 ticks, theta steady): B.crIsR1 = +1 if C-right does, -1 if C-left does. */
+static void strafeCalibrate(void)
+{
+    struct player *p = bond();
+    u16 sb = B.btn & (BTN_CL | BTN_CR);
+
+    if (B.strafeCal || (sb != BTN_CL && sb != BTN_CR))
+    {
+        B.calTick = 0;
+        return;
+    }
+    if (B.calTick == 0 || sb != B.calBtn || B.tick != B.calLast + 1 || fabsf(pblWrap180(p->vv_theta - B.calTheta)) > 10.0f)
+    {
+        B.calTick = B.tick;
+        B.calBtn = sb;
+        B.calX = p->prop->pos.x;
+        B.calZ = p->prop->pos.z;
+        B.calTheta = p->vv_theta;
+    }
+    else if (B.tick - B.calTick >= 20)
+    {
+        f32 th = B.calTheta * 3.14159265f / 180.0f;
+        f32 s = (p->prop->pos.x - B.calX) * cosf(th) + (p->prop->pos.z - B.calZ) * sinf(th);
+
+        if (fabsf(s) > 25.0f)
+        {
+            B.crIsR1 = ((sb == BTN_CR) == (s > 0.0f)) ? 1 : -1;
+            B.strafeCal = 1;
+            portConLogf("ge: playerbot: strafe calibrated: C-right moves %s (cos t, sin t)\n", B.crIsR1 > 0 ? "along" : "against");
+        }
+        B.calTick = 0;
+    }
+    B.calLast = B.tick;
 }
 
 /* The armed hostile to shoot: every one in a straight line within range, ranked by pblThreatScore (raisers first, then
@@ -1493,7 +1652,7 @@ static PropRecord *pickTarget(f32 range)
             }
         }
         if (!botLine(bondTile(), p->prop->pos.x, p->prop->pos.z, c->prop->pos.x, c->prop->pos.z, c->prop->stan,
-                     CDTYPE_OBJS | CDTYPE_DOORS | CDTYPE_PATHBLOCKER | CDTYPE_AIOPAQUE))
+                     CDTYPE_OBJS | ((B.glassTest && chrIsRaiser(c)) ? 0 : CDTYPE_DOORS) | CDTYPE_PATHBLOCKER | CDTYPE_AIOPAQUE))
         {
             continue;
         }
@@ -1514,7 +1673,7 @@ static PropRecord *pickTarget(f32 range)
         {
             sc = pblThreatScore(d, chrAttacking(c), 0, hurt && chrAttacking(c));
         }
-        if (civilianInLineYaw(pblYawTo(dx, dz), d))
+        if (civilianInLineYawEx(pblYawTo(dx, dz), d, chrIsRaiser(c) && chrAlert(c)))
         {
             continue;   /* a bystander in the way: not a target from here (standing still holding fire got Bond shot) */
         }
@@ -1528,25 +1687,13 @@ static PropRecord *pickTarget(f32 range)
 }
 
 /* a civilian near the line of fire toward a target `dist` away: hold the trigger */
+static s32 civilianInLineYawEx(f32 yaw, f32 dist, s32 frontOnly);
+
+/* a civilian near the current line of fire (the view), the target `dist` away */
 static s32 civilianInLine(f32 dist)
 {
-    struct player *p = bond();
-    s32 n = get_numguards(), i;
-
-    for (i = 0; i < n; i++)
-    {
-        ChrRecord *c = &g_ChrSlots[i];
-
-        if (!chrIsCivilian(c) || fabsf(c->prop->pos.y - p->prop->pos.y) > 300.0f)
-        {
-            continue;
-        }
-        if (pblInLineOfFire(p->prop->pos.x, p->prop->pos.z, p->vv_theta, dist, c->prop->pos.x, c->prop->pos.z))
-        {
-            return 1;
-        }
-    }
-    return 0;
+    return civilianInLineYawEx(bond()->vv_theta, dist, B.target != NULL && B.target->chr != NULL && chrIsRaiser(B.target->chr) &&
+                                                       chrAlert(B.target->chr));
 }
 
 /* aim at the prop and fire when lined up; `aimY` = height offset to aim at */
@@ -1559,9 +1706,9 @@ static void shootAt(f32 x, f32 y, f32 z, f32 width)
     f32 tol = pblPitchTo(width, dist) * 1.5f;
     s32 w = getCurrentPlayerWeaponId(GUNRIGHT);
 
-    if (tol < 2.5f)
+    if (tol < 1.2f)
     {
-        tol = 2.5f;
+        tol = 1.2f;   /* the look lands on the exact angle each tick: far heads need it tight */
     }
     if (fabsf(err) < tol && civilianInLine(dist))
     {   /* a bystander in the way: hold fire (and keep the strafe going, the line opens) */
@@ -1662,7 +1809,7 @@ static s32 coverFind(f32 maxd)
 
 static s32 wantCover(f32 hp)
 {
-    return (hp < 0.6f && B.nThreats >= 2) || (hp < 0.35f && B.nThreats >= 1) || B.nThreats >= 4;
+    return (hp < 0.7f && B.nThreats >= 2) || (hp < 0.35f && B.nThreats >= 1) || B.nThreats >= 3;
 }
 
 /* fight the current target if any; returns 1 when the bot is busy fighting this tick */
@@ -1806,25 +1953,64 @@ static s32 combatTick(f32 range)
         portConLogf("ge: playerbot: fight chr %d at %.0f,%.0f,%.0f (bond %.0f,%.0f,%.0f)\n", t->chr->chrnum, t->pos.x, t->pos.y,
                     t->pos.z, bond()->prop->pos.x, bond()->prop->pos.y, bond()->prop->pos.z);
     }
+    if (B.rush && B.goalValid)
+    {   /* rush: keep walking the route (moves only; the look stays on the target) */
+        B.moveOnly = 1;
+        navTo(B.goalX, B.goalY, B.goalZ, 30.0f, NULL);
+        B.moveOnly = 0;
+        shootAt(t->pos.x, t->pos.y + B.aimY, t->pos.z, 20.0f);
+        return 1;
+    }
     shootAt(t->pos.x, t->pos.y + B.aimY, t->pos.z, 20.0f);
-    /* keep a little lateral motion so we are harder to hit (holding fire for a bystander: one way, to open the line) */
-    if (B.tick - B.holdFire < 10 ? ((B.holdFire / 240) & 1) != 0 : ((B.tick / 45) & 1) != 0)
-    {
-        B.btn |= BTN_CL;
+    {   /* a civilian in a guard's line of fire at Bond (his misses carry on): step aside so the line clears it;
+         * otherwise keep a little lateral motion (holding fire for a bystander: one way, to open the line) */
+        s32 side = civilianExposureSide();
+
+        if (side != 0)
+        {
+            B.btn |= (side * B.crIsR1 > 0) ? BTN_CR : BTN_CL;
+        }
+        else if (B.tick - B.holdFire < 10 ? ((B.holdFire / 240) & 1) != 0 : ((B.tick / 45) & 1) != 0)
+        {
+            B.btn |= BTN_CL;
+        }
+        else
+        {
+            B.btn |= BTN_CR;
+        }
+        strafeCalibrate();
     }
-    else
-    {
-        B.btn |= BTN_CR;
-    }
-    {   /* hurt and the enemy close: give ground while shooting (back away from him); badly hurt: crouch too (C-down
-         * is look in 1.1, so crouching is not available - backing off is the cover we have) */
+    {   /* keep them at range: a guard's aim builds up per shot by 0.48 x min(1, 300 / distance) (chraction.c), so one
+         * at 1500 hits five times less often than one at 300 - and Bond's movement does not matter to it. Back away
+         * from an alert guard inside 450 (or 700 when hurt), unless that is blocked (then hold for 2 s). */
         struct player *p = bond();
         f32 hp = p->bondhealth + p->bondarmour;
         f32 dx = t->pos.x - p->prop->pos.x, dz = t->pos.z - p->prop->pos.z;
+        f32 keep = hp < 0.5f ? 700.0f : 450.0f;
 
-        if (hp < 0.5f && dx * dx + dz * dz < 700.0f * 700.0f && B.tick - B.lastHurtTick < 90 && B.nThreats <= 1)
+        if (dx * dx + dz * dz < keep * keep && chrAlert(t->chr) && B.nThreats <= 2 && B.tick >= B.kiteBlockedUntil && !B.noKite)
         {
             B.sy = -70;
+            if (B.kiteSince == 0)
+            {
+                B.kiteSince = B.tick;
+                B.kiteX = p->prop->pos.x;
+                B.kiteZ = p->prop->pos.z;
+            }
+            else if (B.tick - B.kiteSince > 30)
+            {
+                f32 mx = p->prop->pos.x - B.kiteX, mz = p->prop->pos.z - B.kiteZ;
+
+                if (mx * mx + mz * mz < 25.0f * 25.0f)
+                {
+                    B.kiteBlockedUntil = B.tick + 120;   /* a wall behind us */
+                }
+                B.kiteSince = 0;
+            }
+        }
+        else
+        {
+            B.kiteSince = 0;
         }
     }
     return 1;
@@ -1852,6 +2038,14 @@ static s32 isLoot(PropRecord *p)
 
     if (p->type == PROP_TYPE_WEAPON && p->weapon != NULL)
     {
+        s32 gun = bestGun();
+
+        if (gun != ITEM_UNARMED && currentPlayerGetAmmoCount(get_ammo_type_for_weapon(gun)) >= 60 &&
+            (bondinvItemAvailable(p->weapon->weaponnum) || B.quiet) &&
+            get_ammo_type_for_weapon(p->weapon->weaponnum) != get_ammo_type_for_weapon(gun))
+        {
+            return 0;   /* armed and stocked: a gun we have (or, quiet, a loud one) is only worth its ammo for ours */
+        }
         for (i = 0; i < (s32) (sizeof(sGunPrefs) / sizeof(sGunPrefs[0])); i++)
         {
             if (p->weapon->weaponnum == sGunPrefs[i])
@@ -2194,6 +2388,82 @@ static ChrRecord *findChr(s32 byAi, s32 id)
     return NULL;
 }
 
+extern void modelGetAxisExtents(Model *model, f32 *max, f32 *min, s32 axis);   /* chrprop.c (reads only) */
+
+/* The photo objective counts a picture only when the object's whole screen box is inside the screen
+ * (objective_status.c). An object's origin can be its corner or its foot, so aim at the middle of its box: the model's
+ * view-space extents (its render matrices, as the objective test reads them) less its origin, turned back into a world
+ * offset (view +x is the world's -(cos t, sin t), view +y is up). *frac = the box's width over the distance (0.9+
+ * will not fit the picture: back off). 0 when it is not drawn this frame. */
+static s32 photoAim(ObjectRecord *obj, f32 *x, f32 *y, f32 *z, f32 *frac)
+{
+    struct player *p = bond();
+    PropRecord *op = obj->prop;
+    Mtxf *m;
+    f32 xmax, xmin, ymax, ymin, cx, cy, th, depth;
+
+    if (!(op->flags & PROPFLAG_ONSCREEN) || obj->model == NULL || obj->model->render_pos == NULL ||
+        (m = getsubmatrix(obj->model)) == NULL ||
+        !(m->m[3][2] < -1.0f && m->m[3][2] > -1e6f) || !(fabsf(m->m[3][0]) < 1e6f) || !(fabsf(m->m[3][1]) < 1e6f))
+    {
+        return 0;   /* not drawn (behind, or a stale matrix) */
+    }
+    xmax = xmin = ymax = ymin = 1e9f;   /* (left as they are when the model has no bounding box node) */
+    modelGetAxisExtents(obj->model, &xmax, &xmin, 0);
+    modelGetAxisExtents(obj->model, &ymax, &ymin, 1);
+    if (!(fabsf(xmax) < 1e6f && fabsf(xmin) < 1e6f && fabsf(ymax) < 1e6f && fabsf(ymin) < 1e6f))
+    {
+        return 0;
+    }
+    cx = (xmax + xmin) * 0.5f - m->m[3][0];
+    cy = (ymax + ymin) * 0.5f - m->m[3][1];
+    th = p->vv_theta * 3.14159265f / 180.0f;
+    depth = -m->m[3][2];
+    *x = op->pos.x - cx * cosf(th);
+    *y = op->pos.y + cy;
+    *z = op->pos.z - cx * sinf(th);
+    *frac = depth > 1.0f ? fabsf(xmax - xmin) / depth : 9.0f;
+    if (fabsf(ymax - ymin) / (depth > 1.0f ? depth : 1.0f) > *frac)
+    {
+        *frac = fabsf(ymax - ymin) / (depth > 1.0f ? depth : 1.0f);
+    }
+    return 1;
+}
+
+/* a floor tile 350..850 from the object with a clear line to just this side of it: where to take its picture from
+ * (the nearest such tile to Bond; -1 if none) */
+static s32 photoSpot(ObjectRecord *obj)
+{
+    struct player *p = bond();
+    PropRecord *op = obj->prop;
+    s32 a, best = -1;
+    f32 bd = 1e30f;
+
+    for (a = 0; a < B.g.n; a++)
+    {
+        f32 dx = op->pos.x - B.g.x[a], dz = op->pos.z - B.g.z[a], d2 = dx * dx + dz * dz, d, bx, bz;
+
+        if (d2 < 350.0f * 350.0f || d2 > 850.0f * 850.0f || op->pos.y - B.g.y[a] < -100.0f || op->pos.y - B.g.y[a] > 500.0f)
+        {
+            continue;
+        }
+        bx = B.g.x[a] - p->prop->pos.x;
+        bz = B.g.z[a] - p->prop->pos.z;
+        if (bx * bx + bz * bz >= bd)
+        {
+            continue;
+        }
+        d = sqrtf(d2);
+        if (botLine(B.tiles[a], B.g.x[a], B.g.z[a], op->pos.x - dx / d * 40.0f, op->pos.z - dz / d * 40.0f, NULL,
+                    CDTYPE_DOORS | CDTYPE_PATHBLOCKER))
+        {
+            bd = bx * bx + bz * bz;
+            best = a;
+        }
+    }
+    return best;
+}
+
 /* photograph an object: camera in hand, a clear view from up to ~900 away (a big screen high on a wall cannot be
  * walked to), then pictures. Returns the number of pictures taken so far (B.count). */
 static s32 doPhoto(ObjectRecord *obj)
@@ -2204,6 +2474,39 @@ static s32 doPhoto(ObjectRecord *obj)
     f32 d = sqrtf(dx * dx + dz * dz);
 
     B.wantWeapon = ITEM_CAMERA;
+    {   /* on screen: centre its box, and back off if it does not fit (about 0.8 rad across fits the 60-degree view) */
+        f32 ax, ay, az, frac;
+
+        if (d < 1600.0f && photoAim(obj, &ax, &ay, &az, &frac))
+        {
+            f32 err = lookAt(ax, ay, az, 10.0f);
+
+            if (frac > 0.75f)
+            {
+                B.sy = -60;
+            }
+            else if (getCurrentPlayerWeaponId(GUNRIGHT) == ITEM_CAMERA && fabsf(err) < 2.0f && fabsf(B.pitchErr) < 2.0f &&
+                     ((B.tick - B.stepTick) % 40) == 39)
+            {
+                B.btn |= BTN_Z;
+                B.count++;
+            }
+            if (B.photoObj != obj)
+            {
+                B.photoObj = obj;
+                B.photoSince = B.tick;
+            }
+            if (B.verbose >= 2 && ((B.tick - B.photoSince) % 120) == 0)
+            {
+                portConLogf("ge: playerbot: photo: %.0f away, box %.2f of the distance, aim %.0f,%.0f,%.0f (origin %.0f,%.0f,%.0f)\n",
+                            d, frac, ax, ay, az, op->pos.x, op->pos.y, op->pos.z);
+            }
+            if (frac <= 0.75f || B.tick - B.photoSince < 900)
+            {
+                return B.count;
+            }
+        }
+    }
     if (B.photoObj != obj)
     {
         B.photoObj = obj;
@@ -2227,6 +2530,24 @@ static s32 doPhoto(ObjectRecord *obj)
     {
         B.sy = -60;   /* back away to get it all in */
         lookAt(op->pos.x, op->pos.y, op->pos.z, 10.0f);
+        return B.count;
+    }
+    if (B.photoSpotObj != obj)
+    {   /* walk to a tile that has a clear line to it (the object itself can be on a wall, its tile on the far side) */
+        B.photoSpotObj = obj;
+        B.photoSpotNode = photoSpot(obj);
+        portConLogf("ge: playerbot: photo spot for the object at %.0f,%.0f,%.0f: %s %.0f,%.0f,%.0f\n", op->pos.x, op->pos.y,
+                    op->pos.z, B.photoSpotNode >= 0 ? "tile at" : "none, walking at it", B.photoSpotNode >= 0 ? B.g.x[B.photoSpotNode] : 0.0f,
+                    B.photoSpotNode >= 0 ? B.g.y[B.photoSpotNode] : 0.0f, B.photoSpotNode >= 0 ? B.g.z[B.photoSpotNode] : 0.0f);
+    }
+    if (B.photoSpotNode >= 0)
+    {
+        s32 n = B.photoSpotNode;
+
+        if (navTo(B.g.x[n], B.g.y[n], B.g.z[n], 40.0f, B.tiles[n]))
+        {
+            lookAt(op->pos.x, op->pos.y, op->pos.z, 10.0f);
+        }
         return B.count;
     }
     navTo(op->pos.x, op->pos.y, op->pos.z, 400.0f, NULL);
@@ -2437,6 +2758,17 @@ static s32 stepRun(PblStep *s)
         case PBL_QUIET:
             B.quiet = s->a;
             return 1;
+        case PBL_RUSH:
+            B.rush = s->a;
+            return 1;
+        case PBL_AVOID:
+            pad = padGet(s->a);
+            if (pad != NULL && pad->stan != NULL && B.nAvoid < 8)
+            {
+                B.avoidRoom[B.nAvoid++] = (s32) pad->stan->room;
+                portConLogf("ge: playerbot: avoiding room %d (pad %d)\n", (s32) pad->stan->room, s->a);
+            }
+            return 1;
         case PBL_KEY:
         {
             ChrRecord *holder = NULL;
@@ -2539,6 +2871,21 @@ static s32 stepRun(PblStep *s)
             if (s->condObj >= 0 && !objectiveOpen(s->condObj))
             {
                 return 1;
+            }
+            {   /* stand in front of him: a chr's AI "sees" Bond only inside its view cone (chrCanSeeBond), and a
+                 * contact that waits for that never starts if Bond walks up behind (Statue's Valentin) */
+                f32 face = getsubroty(c->model), fr = s->r > 60.0f ? s->r * 0.6f : 40.0f;
+                f32 fx = c->prop->pos.x + sinf(face) * fr, fz = c->prop->pos.z + cosf(face) * fr;
+                f32 ddx = c->prop->pos.x - p->prop->pos.x, ddz = c->prop->pos.z - p->prop->pos.z;
+
+                if (ddx * ddx + ddz * ddz > (s->r + 400.0f) * (s->r + 400.0f) ||
+                    pblOffFacing(face, c->prop->pos.x, c->prop->pos.z, p->prop->pos.x, p->prop->pos.z) > 60.0f)
+                {
+                    if (!navTo(fx, c->prop->pos.y, fz, 40.0f, NULL) && B.stuck.level < 2)
+                    {
+                        return 0;   /* (cannot get round in front of him: walk up to him as he is) */
+                    }
+                }
             }
             if (navTo(c->prop->pos.x, c->prop->pos.y, c->prop->pos.z, s->r, c->prop->stan))
             {
@@ -2672,12 +3019,27 @@ static void stageBegin(void)
     B.step = 0;
     B.peace = 0;
     B.quiet = 0;
+    B.rush = getenv("GE_PLAYERBOT_RUSH") != NULL;
+    B.moveOnly = 0;
+    B.nAvoid = 0;
     B.target = NULL;
     B.stuckEvents = 0;
     B.coverNode = -1;
     B.lastCoverScan = -1000;
     B.noCover = getenv("GE_PLAYERBOT_NOCOVER") != NULL;
-    B.aimY = getenv("GE_PLAYERBOT_AIMY") != NULL ? (f32) atof(getenv("GE_PLAYERBOT_AIMY")) : 38.0f;
+    B.noKite = getenv("GE_PLAYERBOT_NOKITE") != NULL;
+    B.glassTest = getenv("GE_PLAYERBOT_GLASSTEST") != NULL;   /* experiment: shoot raisers through closed doors */
+    B.kiteSince = 0;
+    B.kiteBlockedUntil = 0;
+    B.crIsR1 = 1;
+    B.strafeCal = 0;
+    B.calTick = 0;
+    B.armourProp = NULL;
+    B.armourSince = 0;
+    B.armourGiveUpUntil = 0;
+    B.photoSpotObj = NULL;
+    B.photoObj = NULL;
+    B.aimY = getenv("GE_PLAYERBOT_AIMY") != NULL ? (f32) atof(getenv("GE_PLAYERBOT_AIMY")) : 52.0f;
     B.raiserList = ailistFindById(GAILIST_SIMPLE_GUARD_ALARM_RAISER);
     B.koChr = NULL;
     B.koPhase = 0;
@@ -2978,6 +3340,84 @@ static void koConePenalty(void)
     }
 }
 
+/* ---- body armour: when hurt, a lying vest within ~1500 is worth a detour (it doubles what Bond can take) ---------- */
+
+static s32 armourDash(void)
+{
+    struct player *p = bond();
+    f32 hp = p->bondhealth + p->bondarmour;
+    PropRecord *q;
+
+    if (hp >= 0.6f || p->bondarmour >= 0.9f || B.noLoot || B.tick < B.armourGiveUpUntil)
+    {
+        B.armourSince = 0;
+        return 0;
+    }
+    if (B.armourProp == NULL || (B.tick % 15) == 0)
+    {
+        f32 bd = 1500.0f * 1500.0f;
+
+        if (B.armourProp != NULL && !propActive(B.armourProp))
+        {
+            portConLogf("ge: playerbot: armour picked up (health %.2f armour %.2f)\n", p->bondhealth, p->bondarmour);
+        }
+        B.armourProp = NULL;
+        for (q = chrpropGetActiveTail(); q != NULL; q = q->prev)
+        {
+            f32 dx, dz;
+
+            if (q->type != PROP_TYPE_OBJ || q->obj == NULL || q->obj->type != PROPDEF_ARMOUR || q->stan == NULL ||
+                fabsf(q->pos.y - p->prop->pos.y) > 300.0f)
+            {
+                continue;
+            }
+            dx = q->pos.x - p->prop->pos.x;
+            dz = q->pos.z - p->prop->pos.z;
+            if (dx * dx + dz * dz < bd)
+            {
+                bd = dx * dx + dz * dz;
+                B.armourProp = q;
+            }
+        }
+    }
+    q = B.armourProp;
+    if (q == NULL)
+    {
+        B.armourSince = 0;
+        return 0;
+    }
+    if (B.armourSince == 0)
+    {
+        B.armourSince = B.tick;
+        portConLogf("ge: playerbot: hurt (%.2f): going for the body armour at %.0f,%.0f,%.0f\n", hp, q->pos.x, q->pos.y, q->pos.z);
+        navReset();
+    }
+    if (B.tick - B.armourSince > 1800)
+    {
+        portConLogf("ge: playerbot: could not get to the armour in 30 s\n");
+        B.armourGiveUpUntil = B.tick + 3600;
+        B.armourProp = NULL;
+        navReset();
+        return 0;
+    }
+    if (B.target != NULL && B.target->chr != NULL && chrHostile(B.target->chr))
+    {
+        f32 dx = B.target->pos.x - p->prop->pos.x, dz = B.target->pos.z - p->prop->pos.z;
+
+        if (dx * dx + dz * dz < 350.0f * 350.0f)
+        {
+            return 0;   /* one right on us: fight him first */
+        }
+    }
+    if ((B.tick % 4) == 0)
+    {
+        B.target = pickTarget(1600.0f);   /* keep the target fresh: a close one stops the dash (above) */
+    }
+    B.coverNode = -1;
+    navTo(q->pos.x, q->pos.y, q->pos.z, 8.0f, q->stan);
+    return 1;
+}
+
 /* ---- per-tick drive ------------------------------------------------------------------------------------------- */
 
 static void drive(void)
@@ -3015,8 +3455,13 @@ static void drive(void)
         stepNext("skipped");
     }
     s = (B.step < B.plan.n) ? &B.plan.s[B.step] : NULL;
+    if (armourDash())
+    {   /* hurt, and body armour lies close by: it comes first (fights only at close range on the way) */
+        B.stuck.lastGain = B.tick;
+        return;
+    }
     /* fight first in every step except the ones that hold the buttons themselves (and gadget steps once they act) */
-    if (s == NULL || (s->op != PBL_PRESS && s->op != PBL_WALK && s->op != PBL_EXIT && s->op != PBL_KILL &&
+    if (s == NULL || (s->op != PBL_PRESS && s->op != PBL_WALK && s->op != PBL_KILL &&
                       !((s->op == PBL_GADGET_OBJ || s->op == PBL_THROW_OBJ) && B.phase == 1)))
     {
         busy = combatTick(1600.0f);
@@ -3064,8 +3509,9 @@ static void drive(void)
                 searchTick(holder);
                 return;
             }
-            if (chrIsCivilian(holder) || portHeistCivilianState(holder->chrnum) >= 0)
-            {   /* staff: never shoot - hold a gun on it until it hands the key over */
+            if (portHeistCivilianState(holder->chrnum) >= 0)
+            {   /* heist staff: never shoot - hold a gun on it until it hands the key over (a stock civilian carrier, a
+                 * Facility scientist, is handled as before: walked up to and shot, which only Secret Agent up counts) */
                 robTick(holder);
                 return;
             }
@@ -3073,7 +3519,9 @@ static void drive(void)
             {   /* an unarmed carrier: walk up and shoot it anyway (the key is the mission) */
                 if (navTo(holder->prop->pos.x, holder->prop->pos.y, holder->prop->pos.z, 250.0f, holder->prop->stan))
                 {
+                    B.civExempt = holder;   /* (it is the target, not a bystander) */
                     shootAt(holder->prop->pos.x, holder->prop->pos.y + 20.0f, holder->prop->pos.z, 25.0f);
+                    B.civExempt = NULL;
                 }
                 return;
             }

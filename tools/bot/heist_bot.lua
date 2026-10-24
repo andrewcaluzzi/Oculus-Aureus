@@ -162,12 +162,18 @@ local function hall_alive()
   return n
 end
 
--- returns true when the breach is over
+-- The breach: hold a spot in the blast-door passage (room 1, ~400 north of the glass doors) and let the hall come to it: the
+-- guards come through the doors one or two at a time (a run that sat there killed 71 for 0.3 health). When nobody comes for a
+-- while, provoke: step up to the doors (they open), shoot what shows (the alarm raiser by the panel first), and fall back. Over
+-- when the hall's posted guards are down to a few, or after breach_max seconds.
+local HOLD = { -60, 167, -950 }
+local DOORS_AT = { 0, 167, -620 }
+local provokes = 0
 tick_breach = function()
   if state == "start" then
     push("quiet " .. ((CFG.quiet == false) and "0" or "1"))
-    if not CFG.breach then return true end   -- off by default: the tunnel is a shooting gallery (guards hit from 2000 down it)
-    push("goto pad 25 80")
+    if not CFG.breach then return true end   -- off by default: 0/12 either way, and room 8 overlooks the spot
+    push(string.format("goto %d %d %d 40", HOLD[1], HOLD[2], HOLD[3]))
     go("breach")
     hold_quiet_since = H.elapsed
     return false
@@ -175,14 +181,21 @@ tick_breach = function()
   if idle() then
     local alive = hall_alive()
     if hold_batch and H.elapsed - hold_batch > 4 then hold_quiet_since = H.elapsed end   -- that batch had a fight in it
-    if H.elapsed - since > (CFG.breach_max or 90) or (H.elapsed - hold_quiet_since > 12 and H.elapsed - since > 20) or alive == 0 then
-      log("breach over: %d hall guard(s) left after %.0f s", alive, H.elapsed - since)
+    if H.elapsed - since > (CFG.breach_max or 150) or alive <= (CFG.breach_left or 3) then
+      log("breach over: %d hall guard(s) left after %.0f s, %d provoke(s)", alive, H.elapsed - since, provokes)
       return true
     end
     hold_batch = H.elapsed
+    if H.elapsed - hold_quiet_since > 10 then
+      provokes = provokes + 1
+      hold_quiet_since = H.elapsed
+      push(string.format("goto %d %d %d 40", DOORS_AT[1], DOORS_AT[2], DOORS_AT[3]))
+      push("wait 45")
+      push("kill 2500")
+    end
+    push(string.format("goto %d %d %d 40", HOLD[1], HOLD[2], HOLD[3]))
     push("kill 2500")
-    push("goto pad 25 120")
-    push("wait 60")
+    push("wait 30")
   end
   return false
 end

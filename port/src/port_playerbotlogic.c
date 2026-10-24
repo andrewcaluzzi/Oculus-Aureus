@@ -170,6 +170,8 @@ static const struct { const char *name; int op; } sOps[] = {
     { "hunt", PBL_HUNT },
     { "quiet", PBL_QUIET },
     { "key", PBL_KEY },        /* key FLAGS (0x2, 4, ...) */
+    { "rush", PBL_RUSH },
+    { "avoid", PBL_AVOID },    /* avoid pad N */
 };
 
 const char *pblOpName(int op)
@@ -423,8 +425,18 @@ int pblParsePlan(const char *text, PblPlan *plan, char *err, int errlen)
             case PBL_LOOK:
             case PBL_PEACE:
             case PBL_QUIET:
+            case PBL_RUSH:
                 NEED(1);
                 st.a = (int) num(tok[k]);
+                break;
+            case PBL_AVOID:
+                NEED(2);
+                if (strcmp(tok[k], "pad") != 0)
+                {
+                    snprintf(err, errlen, "line %d: want 'avoid pad N'", lineno);
+                    return -1;
+                }
+                st.a = (int) num(tok[k + 1]);
                 break;
             case PBL_KEY:
                 NEED(1);
