@@ -99,7 +99,9 @@ Chr ids are chrnums. Globals: `CHR_BOND = -2` (player 0; `bond.id(p)` gives the 
 | `spawn.remove(chr)`, `spawn.alive(chr)`, `spawn.kill(chr)` | Remove, test, kill. |
 | `spawn.free()`, `spawn.pools()` | Free chr slots; weapon and prop pool usage. |
 | `spawn.where(chr)` | `x, z, actiontype`. |
-| `spawn.anim(chr, name [, force])` | One-shot idle animation: yawn, flies, scratch_leg, scratch_butt, adjust, sneeze, chat, listen, cough, laugh, startled, surrender, dance, look. Without `force` it starts only on an idle chr. |
+| `spawn.anim(chr, name [, force])` | One-shot idle animation: yawn, flies, scratch_leg, scratch_butt, adjust, sneeze, chat, listen, cough, laugh, startled, surrender, dance, look, fists, cross_arms. Without `force` it starts only on an idle chr. It returns to the idle pose. |
+| `spawn.idle(chr)` | True when standing, or a one-shot animation has run out; nil when gone or dead. |
+| `spawn.headshot(chr)` | True when the arena enemy's last damaging hit was to the head (ask in `chr_died`). `spawn.kill(chr, "head")` counts as one (test helper). |
 | `spawn.hostage(pad)` | A hostage chrnum (max 16 a stage). |
 | `spawn.guard(pad [, {patrol = path_id, weapon = "ak47"}])` | A guard that holds position (max 40 a stage). |
 | `spawn.skins()`, `spawn.bodies()`, `spawn.weapons()` | The accepted names. |
@@ -141,6 +143,7 @@ Chr ids are chrnums. Globals: `CHR_BOND = -2` (player 0; `bond.id(p)` gives the 
 - `weapon.set(item, field, value)`, `weapon.get(item, field)`, `weapon.reset()`, `weapon.items()`, `weapon.fields()`. Items are lowercase `ITEM_*` names (`ak47`, `wppk`, `goldengun`, `throwknife`, ...) plus `pp7 pp7sil dd44 klobb kf7 zmg ar33 rcp90`. Fields: integers `magsize firerate singlerate penetration sound ammotype`; numbers `damage inaccuracy zoom crosshairspeed aimlockspeed sway recoilback recoilup boltrecoil loudnessmin loudnessmax noiseshot impact`. Edits last until the next stage start.
 - `mods.get(name)`, `mods.set(name, v)`, `mods.list()`: the modifier registry (the Mods menu page rows: invincibility, damage scales, one-hit kills, enemy knives, level music, ...). `mods.set` is not written to `midas.ini`.
 - `music.set(name)`, `music.play(name)`, `music.list()`, `music.current()`: choose the level music. `set` must be called from a top-level script, before the music starts; from `stage_start` use `play`.
+- `sound.play_file(name [, volume [, duck]])` plays `Data/Sounds/<name>.wav` over the game's audio and returns a voice id (nil when the file is missing or unreadable). `sound.play_any(base [, volume [, duck]])` plays a random existing one of `base.wav`, `base1.wav` ... `base16.wav` and returns its file name. `sound.variants(base)` counts (and loads) them; `sound.file_exists(name)`, `sound.stop(id [, fade_seconds])`, `sound.playing()`. Volume is 0..1 times the game's sound effects volume; `duck` (0..1) lowers the other playing sounds to that level for 1.5 s. Any WAV format, converted to the output's 22050 Hz stereo; 6 heard at once. Presentation only and different on every machine (each has its own files): never steer the game with what these return. Works anywhere. See arena.md, Crowd sounds.
 - `menu.add_toggle(label, get, set)`, `menu.add_number(label, min, max, step, get, set)`: add a row to the Mods page (max 24, labels 39 characters). Use from `Data/Scripts/boot/*.lua`.
 
 The stage-touching tables (`bond`, `spawn`, `zone`, `hud`, `mission`, `hostages`, `pads`) are inert outside a mode (nil, 0 or false) and raise in the menus. `mode`, `mods`, `weapon` and `menu` work anywhere.

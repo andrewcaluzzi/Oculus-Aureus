@@ -33,6 +33,14 @@
 --                 no chr slots, no sim cost, one draw call. crowd.cheer() raises their arms (wave clear, boss down)
 --   crowd         real spectators in the stands, front rows first (150; crowd_real is the same setting); they appear crowd_rate a second (200: the mode ticks 4 times a second, so 50 a tick),
 --                 so a big crowd does not hitch the start. The stage needs the chr slots: GE_COLOSSEUM_SLOTS=<n> (default 600) on a PC that can take 1000+
+--   reactions     the crowd cheers and boos (true; false = only the old wave-clear / boss reactions, no sounds). REACT below has, per
+--                 trigger: level (a stronger reaction may cut in on a weaker one inside react_gap), frac (share of the impostors that
+--                 raise their arms; a boo lowers them instead: the atlas has no boo pose), secs (how long), real (share of the real
+--                 spectators that play an animation: cheer = arms up / dance / laugh, boo = fists / folded arms / laugh), sound (a
+--                 Data/Sounds name, see modding/arena.md), vol, duck (the other crowd sounds drop to this) and cooldown (seconds).
+--                 multikill_n kills inside multikill_window seconds = a multi-kill; big_hit = Bond losing this much of a bar (health +
+--                 armour) inside 1 s; low_health = his health falling under this (again once it has been back above it + 0.15);
+--                 crowd_volume scales every crowd sound (the game's FX volume applies on top)
 --   corpse_keep   seconds before a dead enemy is removed: -1 (default) = keep every body; 4 = the stock fade-out; above 4 the bodies stay whole until then
 --   corpse_limit  when more than this many corpses are kept, the oldest go (400); also the oldest go first whenever chr slots run low, so a wave never starves
 --   first_wave    test hook: start at this wave;  debug_track / debug_clear_after: test hooks
@@ -56,6 +64,26 @@ local S = {
   crowd       = 150,
   crowd_impostors = 1000,
   crowd_rate  = 200,
+
+  -- crowd reactions (presentation: the impostors and the sounds; the real spectators' animations follow the same sim events)
+  reactions        = true,
+  multikill_n      = 3,
+  multikill_window = 2.0,
+  big_hit          = 0.10,     -- a wave-3 squad shooting Bond takes about 0.06 to 0.10 a second
+  low_health       = 0.25,
+  react_gap        = 1.0,      -- seconds after a reaction before another of the same or a lower level
+  crowd_volume     = 1.0,
+  REACT = {
+    kill       = { level = 1, frac = 0.12, secs = 1.5, real = 0.05, sound = "cheer_small", vol = 0.45, cooldown = 0.8 },
+    headshot   = { level = 2, frac = 0.30, secs = 2.5, real = 0.15, sound = "cheer_big",   vol = 0.65, cooldown = 1.5 },
+    multikill  = { level = 3, frac = 0.50, secs = 3.0, real = 0.30, sound = "cheer_big",   vol = 0.80, cooldown = 3.0 },
+    wave_clear = { level = 4, frac = 0.80, secs = 4.0, real = 0.60, sound = "cheer_big",   vol = 0.90, cooldown = 0 },
+    boss_kill  = { level = 5, frac = 1.00, secs = 5.0, real = 0.75, sound = "cheer_huge",  vol = 1.00, cooldown = 0, duck = 0.5 },
+    big_hit    = { level = 2, boo = true, secs = 2.0, real = 0.15, sound = "jeer",    vol = 0.55, cooldown = 4.0 },
+    low_health = { level = 3, boo = true, secs = 3.0, real = 0.35, sound = "boo",     vol = 0.75, cooldown = 10.0 },
+    bond_died  = { level = 6, boo = true, secs = 5.0, real = 0.85, sound = "boo_big", vol = 1.00, cooldown = 0, duck = 0.25 },
+  },
+
   corpse_keep  = -1,
   corpse_limit = 400,
   test_keys   = false,
@@ -118,9 +146,21 @@ local S = {
   turbo_knife_lo  = 1.60,
   turbo_knife_hi  = 1.80,
 }
+local REACT_DEFAULT = S.REACT
 if type(ARENA_SETTINGS) == "table" then
   for k, v in pairs(ARENA_SETTINGS) do S[k] = v end
   if ARENA_SETTINGS.crowd_real then S.crowd = ARENA_SETTINGS.crowd_real end
+end
+-- ARENA_SETTINGS.REACT may give just some triggers, or some fields of one: the rest come from the defaults
+if S.REACT ~= REACT_DEFAULT then
+  local mine = type(S.REACT) == "table" and S.REACT or {}
+  S.REACT = {}
+  for name, d in pairs(REACT_DEFAULT) do
+    local r = {}
+    for k, v in pairs(d) do r[k] = v end
+    if type(mine[name]) == "table" then for k, v in pairs(mine[name]) do r[k] = v end end
+    S.REACT[name] = r
+  end
 end
 
 -- toughness tiers: hp = x the type's base health, armour = extra stock armour in units of the base 4 damage (grows with the wave
@@ -364,15 +404,108 @@ local function crowd_react(kinds, spread)
   end
 end
 
+local react_anims = 0                   -- reaction animations started (log)
+
 local function crowd_tick()
   for _, s in ipairs(crowd) do
     if s.react and elapsed >= s.react_at then
-      spawn.anim(s.chr, s.react, true)
+      if spawn.anim(s.chr, s.react, true) then
+        react_anims = react_anims + 1
+        s.last_react, s.last_react_at = s.react, elapsed   -- (tests watch it return to idle)
+      end
       s.react = nil
       s.next = elapsed + 6 + math.random() * 8
     elseif elapsed >= s.next then
       if spawn.anim(s.chr, pick(FIDGETS)) then s.next = elapsed + 5 + math.random() * 12
       else s.next = elapsed + 1 end
+    end
+  end
+end
+
+-- ------------------------------------------------------- crowd reactions --
+-- The triggers are sim events (kills, the waves, Bond's vitals and death) and the timing is the mode's own clock, so in co-op and
+-- netplay every machine makes the same choices, and the real spectators (sim chrs) play the same animations: math.random here is
+-- the session's. The impostors and the sounds are presentation only (the C side picks with its own RNG) and nothing they return
+-- steers the game.
+local SOUND = sound                     -- the engine's sound table (sound.play_any ...); nil on builds without it
+local CHEER_ANIMS = { { "surrender", 0.5 }, { "dance", 0.3 }, { "laugh", 0.2 } }       -- arms up, dance, laugh
+local BOO_ANIMS   = { { "fists", 0.55 }, { "cross_arms", 0.25 }, { "laugh", 0.2 } }    -- fists up at the pit, arms folded, a mocking laugh
+local SOUND_FALLBACK = { cheer_huge = "cheer_big", boo_big = "boo", jeer = "boo" }
+local SOUND_NAMES = { "cheer_small", "cheer_big", "cheer_huge", "jeer", "boo", "boo_big" }
+local sound_have = {}                   -- sound name -> variants in Data/Sounds
+local react_cur, react_until = 0, -1    -- the level of the reaction under way, and until when it holds weaker ones off
+local react_last, react_n = {}, {}      -- trigger -> when it last fired; how many times
+local kill_times = {}                   -- recent kills (multi-kill window)
+local vit_hist, low_armed = {}, {}      -- per Bond: health + armour over the last second; low-health jeer armed
+
+local function crowd_sound(name, vol, duck)
+  if not SOUND or not name then return nil end
+  local n = name
+  while n do
+    if sound_have[n] == nil then sound_have[n] = SOUND.variants(n) end
+    if sound_have[n] > 0 then break end
+    n = SOUND_FALLBACK[n]
+  end
+  if not n then return nil end
+  return SOUND.play_any(n, vol * (S.crowd_volume or 1), duck or 1)
+end
+local react_voice                       -- the sound of the reaction under way (a stronger one cutting in fades it out)
+
+-- one reaction: false when its cooldown runs, or a stronger one is under way
+local function react(trigger)
+  local r = S.reactions and S.REACT[trigger]
+  if not r then return false end
+  local last = react_last[trigger]
+  if last and elapsed - last < (r.cooldown or 0) then return false end
+  if elapsed < react_until and (r.level or 1) <= react_cur then return false end
+  if elapsed < react_until and react_voice and SOUND then SOUND.stop(react_voice, 0.25) end   -- cut in: the weaker one fades
+  react_last[trigger] = elapsed
+  react_cur, react_until = r.level or 1, elapsed + math.max(S.react_gap or 0, 0)
+  react_n[trigger] = (react_n[trigger] or 0) + 1
+  if (r.real or 0) > 0 then   -- the real spectators: each rolls once, a share `real` of them plays one of the animations
+    local kinds = {}
+    for i, k in ipairs(r.boo and BOO_ANIMS or CHEER_ANIMS) do kinds[i] = { k[1], k[2] * r.real } end
+    crowd_react(kinds, math.min(1.5, (r.secs or 2) * 0.4))
+  end
+  if r.boo then cheer(0, 1)   -- the atlas has no boo pose: the impostors still cheering lower their arms
+  elseif (r.frac or 0) > 0 then cheer(r.secs or 2, r.frac) end
+  local played, voice = crowd_sound(r.sound, r.vol or 1, r.duck)
+  react_voice = voice
+  print(string.format("ge: arena: crowd %s: %s (level %d, impostors %.2f, spectators %.2f, %.1f s) at t=%.2f, sound %s",
+    r.boo and "boo" or "cheer", trigger, r.level or 1, r.boo and 0 or (r.frac or 0), r.real or 0, r.secs or 2, elapsed, played or "none"))
+  return true
+end
+
+-- an arena enemy died: a boss, a multi-kill, a headshot or an ordinary kill, the strongest that is not cooling down
+local function react_kill(victim, boss)
+  if boss and react("boss_kill") then return end
+  local keep = {}
+  for _, t in ipairs(kill_times) do if elapsed - t <= S.multikill_window then keep[#keep + 1] = t end end
+  keep[#keep + 1] = elapsed
+  kill_times = keep
+  if #kill_times >= S.multikill_n and react("multikill") then kill_times = {}; return end
+  if spawn.headshot and spawn.headshot(victim) and react("headshot") then return end
+  react("kill")
+end
+
+-- every tick: a big hit (health + armour down by big_hit inside a second) and low health, per Bond
+local function react_vitals()
+  for p = 0, bond.count() - 1 do
+    local h, a
+    if not bond.dead(p) then h, a = bond.vitals(p) end
+    if h then
+      local tot, hist = h + (a or 0), vit_hist[p] or {}
+      local peak = tot
+      for _, v in ipairs(hist) do if v > peak then peak = v end end
+      if peak - tot >= S.big_hit then react("big_hit"); hist = {} end
+      hist[#hist + 1] = tot
+      if #hist > 4 then table.remove(hist, 1) end
+      vit_hist[p] = hist
+      if low_armed[p] == nil then low_armed[p] = h >= S.low_health end
+      if low_armed[p] and h < S.low_health then low_armed[p] = false; react("low_health")
+      elseif h > S.low_health + 0.15 then low_armed[p] = true end
+    else
+      vit_hist[p] = nil
     end
   end
 end
@@ -876,8 +1009,8 @@ local function wave_cleared()
     print(string.format("ge: arena: pools wave %d: loose drops %d, held %d, free weapon slots %d (min %d of 30), free props %d (min %d); peak loose %d",
       wave, pool_last[1], pool_last[2], pool_last[3], min_slots, pool_last[4], min_props, peak_loose))
   end
-  crowd_react({ { "dance", 0.3 }, { "laugh", 0.3 }, { "surrender", 0.15 } }, 1.5)   -- the crowd cheers
-  cheer(4, 0.8)
+  if S.reactions then react("wave_clear")   -- the crowd cheers (a boss kill just before covers it)
+  else crowd_react({ { "dance", 0.3 }, { "laugh", 0.3 }, { "surrender", 0.15 } }, 1.5); cheer(4, 0.8) end
   if final_wave() then finish(true); return end
   phase, phase_t = "breather", 0
   local sup = give_supplies()
@@ -935,6 +1068,11 @@ ARENA_HOOKS = {
   cheer = cheer,
   say = say,
   counts = function() return #crowd, corpse_n, alive_count(), crowd_fail, crowd_retry end,
+  -- crowd reactions: react(trigger) fires one now (false = cooling down / held off); reactions() = trigger -> count, animations started;
+  -- spectators() = the spectator records ({ chr=, last_react=, last_react_at= }; read only)
+  react = react,
+  reactions = function() return react_n, react_anims end,
+  spectators = function() return crowd end,
   -- live enemies by what they are doing: attacking (ACT_ATTACK, ATTACKWALK, ATTACKROLL), moving (SIDESTEP, RUNPOS, PATROL, GOPOS), other
   acts = function()
     local att, mov, oth = 0, 0, 0
@@ -1014,6 +1152,11 @@ on("stage_start", function(stage)
     for _, p in ipairs(crowd_pads) do seats_planned[p] = true end
     local nimp = (S.crowd_impostors or 0) > 0 and impostors_set(S.crowd_impostors) or 0
     print(string.format("ge: arena: crowd %d of %d seats, %d impostors", #crowd_pads, #seats, nimp))
+    if SOUND and S.reactions then   -- load the crowd recordings now (none is fine), so the first cheer does not read the disk
+      local parts = {}
+      for _, n in ipairs(SOUND_NAMES) do sound_have[n] = SOUND.variants(n); parts[#parts + 1] = n .. " " .. sound_have[n] end
+      print("ge: arena: crowd sounds in Data/Sounds: " .. table.concat(parts, ", "))
+    end
     say(string.format("GET READY - WAVE 1 IN %d", S.start_delay), S.start_delay)
   end)
   if not ok then print("ge: arena: setup error:", err); ended = true end
@@ -1026,8 +1169,11 @@ on("chr_died", function(victim, killer)
       kills = kills + 1
       local ok, err = pcall(kill_heal, victim, killer, e)
       if not ok then print("ge: arena: kill heal error:", err) end
-      if e.boss then
-        say("BOSS DOWN!", 4)
+      if e.boss then say("BOSS DOWN!", 4) end
+      if S.reactions then
+        local ok2, err2 = pcall(react_kill, victim, e.boss)
+        if not ok2 then print("ge: arena: crowd reaction error:", err2) end
+      elseif e.boss then
         crowd_react({ { "dance", 0.5 }, { "surrender", 0.2 } }, 1.0)
         cheer(5, 1.0)
       end
@@ -1037,13 +1183,23 @@ on("chr_died", function(victim, killer)
 end)
 
 on("bond_died", function(killer, player)
+  local ok, err = pcall(react, "bond_died")   -- the crowd boos (each Bond that falls, in co-op)
+  if not ok then print("ge: arena: crowd reaction error:", err) end
   if bond.all_down() then finish(false) end
 end)
 
 local hud_acc, track_acc = 0, 0
+local crowd_err = false
+local debug_kills = 0
 on("tick", function(dt)
-  if ended then return end
+  if ended then   -- the crowd keeps reacting (a boo for the fall) while the stage is still up
+    elapsed = elapsed + dt
+    local ok, err = pcall(crowd_tick)
+    if not ok and not crowd_err then crowd_err = true; print("ge: arena: crowd tick error:", err) end
+    return
+  end
   elapsed = elapsed + dt
+  if S.reactions then react_vitals() end
   phase_t = phase_t + dt
   if flash_t > 0 then
     flash_t = flash_t - dt
@@ -1068,7 +1224,8 @@ on("tick", function(dt)
     for _, e in ipairs(E) do
       if not e.dead_at and e.born and elapsed - e.born > S.debug_kill and (not e.kill_at or elapsed - e.kill_at > 2) then
         e.kill_at = elapsed
-        spawn.kill(e.chr)
+        debug_kills = debug_kills + 1   -- debug_headshot = n: every n'th of these kills counts as a headshot
+        spawn.kill(e.chr, (S.debug_headshot and debug_kills % S.debug_headshot == 0) and "head" or nil)
       end
     end
   end

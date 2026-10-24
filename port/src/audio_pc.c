@@ -1147,6 +1147,11 @@ void portAudioPump(void)
                 memset(frameBuf, 0, samples * 4);
             }
         }
+        { /* the WAV voices (port_soundfile.c: the arena crowd), on top of the synth */
+            extern void portSoundFileMix(s16 *buf, u32 frames);
+
+            portSoundFileMix(frameBuf, samples);
+        }
 
         { /* always-on: digital proof of synthesis - report the first frame
            * that contains a nonzero sample */

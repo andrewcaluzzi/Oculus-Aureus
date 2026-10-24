@@ -34,7 +34,7 @@ PRES_PORT = {
     'animdata.c', 'romdata.c', 'romfile_model.c', 'romfile_setup.c', 'romfile_stan.c', 'asset_bin_stubs.c', 'audio_pc.c', 'audio_stubs.c', 'headless_stubs.c', 'hitchlog.c', 'input_pc.c',
     'libultra_shim.c', 'main.c', 'model_audit.c', 'motor_stub.c', 'n64_stubs.c', 'pcsched.c', 'port_console.c', 'port_modmenu.c',
     'port_bench.c', 'port_crowd.c', 'port_music.c', 'port_net.c', 'port_netcmd.c', 'port_nethash.c', 'port_netlock.c', 'port_netmsg.c', 'port_netstats.c',
-    'port_profiles.c', 'port_simcfg.c', 'port_simonly.c', 'port_snap.c', 'port_snapshot.c', 'port_snaptable.c', 'port_textures.c',
+    'port_profiles.c', 'port_simcfg.c', 'port_simonly.c', 'port_snap.c', 'port_snapshot.c', 'port_snaptable.c', 'port_soundfile.c', 'port_textures.c',
     'port_watchpages.c', 'printf_port.c', 'raphnet.c', 'roc_hooks.c', 'romfile_bg.c',
     'segments.c', 'sysstubs.c', 'ucode_dl_stubs.c', 'video.c',
 }

@@ -339,6 +339,7 @@ endif()
 if(GE_HEADLESS)
     list(REMOVE_ITEM PORT_SRC
         ${CMAKE_SOURCE_DIR}/port/src/audio_pc.c
+        ${CMAKE_SOURCE_DIR}/port/src/port_soundfile.c
         ${CMAKE_SOURCE_DIR}/port/src/video.c
         ${CMAKE_SOURCE_DIR}/port/src/input_pc.c
         ${CMAKE_SOURCE_DIR}/port/src/raphnet.c)
@@ -531,6 +532,9 @@ if(GE_VIDEO)
         COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:ge>/Data
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/tools/shaders_base.txt $<TARGET_FILE_DIR:ge>/Data/shaders_base.txt
+        COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:ge>/Data/Sounds
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/tools/Sounds_README.txt $<TARGET_FILE_DIR:ge>/Data/Sounds/README.txt
         COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:ge>/Data/Scripts
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/tools/scripts_example.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/example.lua
