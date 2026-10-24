@@ -46,6 +46,9 @@ objectives and with no position drift; `failure_point` says where it died or got
 | `GE_PLAYERBOT_EXIT=0` | do not exit the process after the result line |
 | `GE_PLAYERBOT_LOG` | 0 quiet, 1 status every 5 s (default), 2 + door / stuck details, 3 + a line per tick |
 | `GE_PLAYERBOT_NOLOOT` | do not detour for dropped guns, ammo and armour |
+| `GE_PLAYERBOT_AIMY` | aim height over a chr's origin (default 52, the head) |
+| `GE_PLAYERBOT_NOCOVER`, `GE_PLAYERBOT_NOKITE`, `GE_PLAYERBOT_RUSH` | A/B switches: no cover, no backing away, `rush 1` from the start |
+| `GE_PLAYERBOT_SPAREALL`, `GE_PLAYERBOT_GLASSTEST` | experiments (quiet: shoot only guards that noticed Bond; shoot raisers through closed doors) |
 
 For speed and determinism the harness also sets `GE_FIXEDTICK=1` (one 60 Hz field per sim tick, so a run does not
 depend on how fast the machine is), `GE_NOSLEEP=1` (no frame pacing), `GE_CLOCKSCALE=20` (the N64 clock runs 20x so
@@ -69,9 +72,20 @@ The bot exits the process with status 0 (completed), 1 (failed) or 2 (timeout) a
 * **Stuck**: no progress for 1.5 s -> back off and walk off at an angle (45, 75, 105 degrees, alternating sides); 4 s
   -> the link is made expensive and the route planned again; 12 s -> reported (`STUCK ...`) and counted against the
   step.
-* **Combat**: the nearest armed, non-civilian, non-ally chr in a straight line within 1600 units; when Bond is hurt
-  by someone the line test cannot see (catwalks, windows), the nearest guard in an attack action. It turns to the
-  target, fires when lined up (auto-aim does the rest; semi-automatics are tapped), and strafes a little.
+* **Combat**: every armed, non-civilian, non-ally chr in a straight line within 1600 units is ranked: alarm raisers
+  first, then guards shooting at Bond (more so if they hurt him lately), then the nearest; a guard with a civilian
+  near the line of fire is not a target from where Bond stands. When Bond is hurt by someone the line test cannot see
+  (catwalks, windows), the nearest guard in an attack action. It aims at the head (+52 over a chr's origin), fires
+  when the yaw and the pitch are both on (semi-automatics are tapped), and:
+  * keeps guards at range: a guard's aim builds per shot by 0.48 x min(1, 300 / distance) (chraction.c; Bond's own
+    movement does not enter it), so it backs away from an alert guard inside 450 (700 when hurt);
+  * takes cover when outnumbered or hurt: the nearest tile (breadth first, same floor) that none of the guards with a
+    line on Bond can see, held while they come round to it;
+  * steps aside when a civilian stands in a guard's line of fire at Bond (the strafe direction is learnt from Bond's
+    own motion the first time he strafes: C-right moves him against (cos t, sin t));
+  * goes for lying body armour within 1500 when hurt (below 0.6);
+  * with no gun at all (Bunker 2, Archives) closes in and punches, then picks up the guard's gun;
+  * gives up on a target it has not had a shot at for 8 s (left alone for 10 s).
 * **Weapons**: the best gun it has ammo for (RC-P90 ... PP7), cycled to with A; plan steps can ask for a gadget.
 * **Pick-ups**: dropped guns, ammo boxes and body armour within reach are walked over.
 * **Objectives**: `auto` handles every open destroy / collect / photograph objective by itself. Everything else
@@ -89,7 +103,7 @@ skipped once objective N is complete or not needed at this difficulty, `diff=A-B
 | `use obj T [r]` / `use pad N` | walk up, face it, press B three times |
 | `collect obj T` | walk onto it until it is in the inventory |
 | `destroy obj T` | get a line on it and shoot it (from range: many objects explode) |
-| `photo obj T` | equip the camera, face it, take pictures |
+| `photo obj T` | equip the camera, walk to a tile with a clear line to it (350-850 away), centre its box (the objective wants the whole box on screen), take pictures |
 | `gadget <item> obj T` / `throw <item> obj T` | equip the item, face the object, fire |
 | `meet chr N [r] [ticks]` / `meet ai ID [r] [ticks]` | walk up to a chr (by number, or by the AI list it runs) and stay |
 | `equip <item>` | cycle to that item (`wppk`, `ak47`, `camera`, `keyanalysercase`, ... - the ITEM_ names in lower case) |
@@ -98,6 +112,10 @@ skipped once objective N is complete or not needed at this difficulty, `diff=A-B
 | `walk ticks stickY [stickX]` | raw stick |
 | `face X Y Z` / `look pitch` | turn |
 | `wait ticks` / `kill [radius]` / `peace 1|0` | wait / fight everything visible / stop shooting |
+| `quiet 1|0` | stealth: silenced guns preferred; unaware guards facing away (beyond 250) are left alone; unaware guard key carriers are knocked out from behind (heist modes) |
+| `key FLAGS` | fetch a key with any of these flags: lying (walk over it), on a guard (knock out and search, or shoot), on heist staff (hold a gun on it until it hands it over) |
+| `rush 1|0` | keep walking the route while fighting (the stick and the C strafe buttons move, the look stays on the target) |
+| `avoid pad N` | keep routes out of that pad's room from here on (a room that ends the mission early); `avoid pad -1` opens them all again |
 | `auto` | the generic objective handlers until none is left |
 | `exit` | stand still and tap A until the mission ends (end cut-scenes wait for a button) |
 
@@ -118,15 +136,16 @@ steps the mode script feeds it through the Lua `bot` library:
 | `bot.step()` | the running step's number and the number of steps (`s > n` = idle) |
 
 `tools/bot/heist_bot.lua` is the Bank Heist driver: `GE_MODE=heist_bot GE_STAGE=bunker2 GE_PLAYERBOT=1`. It includes the
-real heist unchanged and pushes: walk to the vault antechamber (the bot's door logic fetches the RED / BLUE / GREEN cards
-from their carriers on the way), face vault door A and press use (starts the cracker), hold the zone and fight, restart
-the cracker when it jams, loot the bars when the vault opens, leave by the van. A mode's own `mission.win/fail` writes the
-RESULT line. From C, `portPlayerBotSetPlanner(fn)` does the same job without Lua.
+real heist unchanged and pushes, as the heist moves on: `quiet 1`, `key 0x2` (GREEN: the head teller is held at gunpoint
+until she drops it, the lobby captain is knocked out from behind if unaware, else shot and searched), `key 0x4` (BLUE),
+the security console (cameras off 90 s), `key 0x8` (RED), then the vault antechamber: face vault door A and press use
+(starts the cracker), hold the zone and fight, restart the cracker when it jams, loot the bars nearest first until the
+klaxon, out by the nearer exit. `GE_MODE=heist_bot_cells` (tools/bot/heist_bot_cells.lua) is the small job: the body armour
+in the west wing, the floor key, the deposit cell's cash, out by the loading dock. A mode's own `mission.win/fail` writes
+the RESULT line. From C, `portPlayerBotSetPlanner(fn)` does the same job without Lua. `sh tests/bot/heist.sh [mode]
+[first_seed] [count] [parallel]` plays seeds and prints each run's result and the heist's own verdict.
 
-Status (2026-10-25): it runs - card fetched, alarm at 48 s, 89 guards down - and dies at about 3 minutes in the loud
-firefight, before the vault. Missing for a real heist: knocking card carriers out and searching them instead of shooting
-them (staff carriers count as civilians), staying quiet (cameras, alarm raisers), and the crack/jam/loot phases have not
-been reached yet, so they are untested.
+Status: see modding/bot-notes.md ("Bank Heist") - no win yet.
 
 ## Known limits
 

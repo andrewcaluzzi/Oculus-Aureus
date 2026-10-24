@@ -1494,6 +1494,13 @@ static void portLuaRandReseed(void)
 {
     unsigned seed = portLuaGameRandomSeed();
 
+    const char *env = getenv("GE_SEED");
+
+    if (seed == 0u && env != NULL && env[0] != '\0')
+    {   /* solo with GE_SEED (tests, the player bot's record/replay runs): the mode's draws must repeat too, or a recorded
+         * heist replays with other guards in other places (modding/bot-notes.md) */
+        seed = (unsigned) strtoul(env, NULL, 0) * 2654435761u + 1u;
+    }
     if (seed != 0u)
     {
         sRandState = (uint64_t) seed * 0x2545F4914F6CDD1DULL + 0x1234567ULL;

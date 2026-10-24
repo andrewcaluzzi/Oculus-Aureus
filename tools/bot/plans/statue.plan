@@ -9,5 +9,6 @@ name statue
 avoid pad 22
 obj=0 meet ai 0x412 150 4000
 auto
+avoid pad -1
 goto pad 22 80
 exit

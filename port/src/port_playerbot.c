@@ -200,7 +200,7 @@ typedef struct {
     PropRecord *threats[6];
     AIRecord *raiserList;      /* the stock alarm raiser list: those guards are shot first */
     s32 coverNode, coverUntil, coverSince, lastCoverScan, noCover;
-    s32 kiteSince, kiteBlockedUntil, noKite, glassTest;
+    s32 kiteSince, kiteBlockedUntil, noKite, glassTest, spareAll;
     s32 avoidRoom[8], nAvoid;  /* rooms the routes keep out of (the `avoid` step) */
     ChrRecord *civExempt;      /* a civilian carrier being shot on purpose (not a bystander for the line-of-fire check) */
     s32 rush, moveOnly;        /* rush: keep walking the route while shooting (the `rush` step); moveOnly: steerTo
@@ -818,7 +818,7 @@ static s32 graphApplyLocks(void)
             {
                 if ((s32) B.tiles[a]->room == B.avoidRoom[k])
                 {
-                    B.g.npen[a] += 100000.0f;
+                    B.g.nbad[a] = 1;   /* closed: a route never enters it (Statue's exit room ends the mission) */
                 }
             }
         }
@@ -1472,6 +1472,10 @@ static s32 navTo(f32 x, f32 y, f32 z, f32 radius, StandTile *goalTile)
             }
         }
     }
+    if (B.pathN == 0 && B.nAvoid > 0)
+    {
+        return 0;   /* no route: walking straight could take Bond into a room the plan keeps out of - stay put */
+    }
     steerTo(x, y, z, radius + 60.0f);
     doorTick();
     return 0;
@@ -1490,6 +1494,10 @@ static s32 quietSpare(ChrRecord *c, f32 dist)
     if (!B.quiet || alarmIsActive() || chrAlert(c))
     {
         return 0;
+    }
+    if (B.spareAll)
+    {
+        return 1;   /* experiment: shoot only guards that have noticed Bond */
     }
     return dist > 250.0f && pblOffFacing(getsubroty(c->model), c->prop->pos.x, c->prop->pos.z, bond()->prop->pos.x,
                                          bond()->prop->pos.z) > 120.0f;
@@ -1952,6 +1960,39 @@ static s32 combatTick(f32 range)
     {
         portConLogf("ge: playerbot: fight chr %d at %.0f,%.0f,%.0f (bond %.0f,%.0f,%.0f)\n", t->chr->chrnum, t->pos.x, t->pos.y,
                     t->pos.z, bond()->prop->pos.x, bond()->prop->pos.y, bond()->prop->pos.z);
+    }
+    if (bestGun() == ITEM_UNARMED)
+    {   /* no gun (Bunker 2 and Archives start unarmed): close in and punch, the look on him; his gun drops when he
+         * goes down and the loot logic picks it up */
+        f32 dx = t->pos.x - bond()->prop->pos.x, dz = t->pos.z - bond()->prop->pos.z;
+        f32 d = sqrtf(dx * dx + dz * dz);
+
+        B.moveOnly = 1;
+        if (d > 55.0f)
+        {
+            navTo(t->pos.x, t->pos.y, t->pos.z, 50.0f, t->stan);
+        }
+        B.moveOnly = 0;
+        lookAt(t->pos.x, t->pos.y + 10.0f, t->pos.z, 20.0f);
+        if (d < 110.0f && (B.tick % 12) < 2)
+        {
+            B.btn |= BTN_Z;
+        }
+        return 1;
+    }
+    if (chrIsRaiser(t->chr) && chrAlert(t->chr) && !alarmIsActive())
+    {   /* an alarm raiser on his way to the panel (or at it): close in while shooting - far shots miss and the alarm
+         * brings the waves and the response squads */
+        f32 dx = t->pos.x - bond()->prop->pos.x, dz = t->pos.z - bond()->prop->pos.z;
+
+        if (dx * dx + dz * dz > 450.0f * 450.0f)
+        {
+            B.moveOnly = 1;
+            navTo(t->pos.x, t->pos.y, t->pos.z, 300.0f, t->stan);
+            B.moveOnly = 0;
+            shootAt(t->pos.x, t->pos.y + B.aimY, t->pos.z, 20.0f);
+            return 1;
+        }
     }
     if (B.rush && B.goalValid)
     {   /* rush: keep walking the route (moves only; the look stays on the target) */
@@ -2762,6 +2803,11 @@ static s32 stepRun(PblStep *s)
             B.rush = s->a;
             return 1;
         case PBL_AVOID:
+            if (s->a < 0)
+            {
+                B.nAvoid = 0;   /* `avoid pad -1`: every room open again (the way out) */
+                return 1;
+            }
             pad = padGet(s->a);
             if (pad != NULL && pad->stan != NULL && B.nAvoid < 8)
             {
@@ -3029,6 +3075,7 @@ static void stageBegin(void)
     B.noCover = getenv("GE_PLAYERBOT_NOCOVER") != NULL;
     B.noKite = getenv("GE_PLAYERBOT_NOKITE") != NULL;
     B.glassTest = getenv("GE_PLAYERBOT_GLASSTEST") != NULL;   /* experiment: shoot raisers through closed doors */
+    B.spareAll = getenv("GE_PLAYERBOT_SPAREALL") != NULL;
     B.kiteSince = 0;
     B.kiteBlockedUntil = 0;
     B.crIsR1 = 1;

@@ -383,6 +383,7 @@ static void test_combat_geometry(void)
     CHECK(pblParsePlan("rush 1\navoid pad 22\n", &plan, err, sizeof(err)) == 2);
     CHECK(plan.s[0].op == PBL_RUSH && plan.s[0].a == 1 && plan.s[1].op == PBL_AVOID && plan.s[1].a == 22);
     CHECK(pblParsePlan("avoid 22\n", &plan, err, sizeof(err)) == -1);
+    CHECK(pblParsePlan("avoid pad -1\n", &plan, err, sizeof(err)) == 1 && plan.s[0].a == -1);
     CHECK(pblParsePlan("key 0\n", &plan, err, sizeof(err)) == -1);
     CHECK(pblParsePlan("key\n", &plan, err, sizeof(err)) == -1);
 }
