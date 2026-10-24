@@ -347,8 +347,46 @@ static void test_stuck(void)
     CHECK(pblStuckFeed(&s, t, 300.0f, 0.0f, 600.0f) == 0);   /* progress again */
 }
 
+static void test_combat_geometry(void)
+{
+    float fwd, lat;
+    static PblPlan plan;
+    char err[160];
+
+    /* yaw 0 faces +z: a point 100 ahead and 30 to the side */
+    pblRaySplit(0.0f, 0.0f, 0.0f, 30.0f, 100.0f, &fwd, &lat);
+    CHECK(NEAR(fwd, 100.0f, 0.01f) && NEAR(lat, 30.0f, 0.01f));
+    /* yaw 90 faces -x */
+    pblRaySplit(0.0f, 0.0f, 90.0f, -200.0f, 10.0f, &fwd, &lat);
+    CHECK(NEAR(fwd, 200.0f, 0.01f) && NEAR(lat, 10.0f, 0.01f));
+    /* a bystander right in front of a target 500 away is in danger; one well off the line, or behind the shooter, is not */
+    CHECK(pblInLineOfFire(0.0f, 0.0f, 0.0f, 500.0f, 20.0f, 300.0f));
+    CHECK(pblInLineOfFire(0.0f, 0.0f, 0.0f, 500.0f, 40.0f, 800.0f));     /* behind the target: a miss carries on */
+    CHECK(!pblInLineOfFire(0.0f, 0.0f, 0.0f, 500.0f, 200.0f, 300.0f));
+    CHECK(!pblInLineOfFire(0.0f, 0.0f, 0.0f, 500.0f, 0.0f, -100.0f));
+    CHECK(!pblInLineOfFire(0.0f, 0.0f, 0.0f, 500.0f, 0.0f, 1200.0f));    /* far past the target */
+    /* a chr facing +z (rotation 0): a point ahead is 0 off, behind is 180, to the +x side 90 */
+    CHECK(NEAR(pblOffFacing(0.0f, 0.0f, 0.0f, 0.0f, 100.0f), 0.0f, 0.01f));
+    CHECK(NEAR(pblOffFacing(0.0f, 0.0f, 0.0f, 0.0f, -100.0f), 180.0f, 0.01f));
+    CHECK(NEAR(pblOffFacing(0.0f, 0.0f, 0.0f, 100.0f, 0.0f), 90.0f, 0.01f));
+    /* facing +x (pi/2): +x is ahead; the game's atan2 range [0, 2pi) is handled */
+    CHECK(NEAR(pblOffFacing(1.5707963f, 50.0f, 50.0f, 150.0f, 50.0f), 0.0f, 0.05f));
+    CHECK(NEAR(pblOffFacing(6.2831853f - 0.1f, 0.0f, 0.0f, 0.0f, 100.0f), 5.73f, 0.05f));
+    /* threat order: an alarm raiser beats a nearer shooter; a shooter beats a nearer idle guard */
+    CHECK(pblThreatScore(1200.0f, 0, 1, 0) < pblThreatScore(400.0f, 1, 0, 1));
+    CHECK(pblThreatScore(600.0f, 1, 0, 0) < pblThreatScore(400.0f, 0, 0, 0));
+    CHECK(pblThreatScore(300.0f, 0, 0, 0) < pblThreatScore(600.0f, 0, 0, 0));
+    /* the plan steps that go with them */
+    CHECK(pblParsePlan("quiet 1\nkey 0x2\nkey 12\n", &plan, err, sizeof(err)) == 3);
+    CHECK(plan.s[0].op == PBL_QUIET && plan.s[0].a == 1);
+    CHECK(plan.s[1].op == PBL_KEY && plan.s[1].a == 2 && plan.s[2].a == 12);
+    CHECK(pblParsePlan("key 0\n", &plan, err, sizeof(err)) == -1);
+    CHECK(pblParsePlan("key\n", &plan, err, sizeof(err)) == -1);
+}
+
 int main(void)
 {
+    test_combat_geometry();
     test_astar_straight();
     test_astar_wall_gap();
     test_astar_unreachable_and_bad();

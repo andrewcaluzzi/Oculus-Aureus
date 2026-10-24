@@ -57,6 +57,20 @@ float pblYawTo(float dx, float dz);            /* the vv_theta that faces direct
 float pblPitchTo(float dy, float dh);          /* degrees above the horizon of a target dy up and dh away */
 float pblClamp(float v, float lo, float hi);
 
+/* ---- combat geometry ------------------------------------------------------------------------------------------------ */
+/* Where q lies relative to a ray from p along the view yaw (degrees, GE convention): *fwd ahead along it, *lat to the side
+ * (unsigned). */
+void  pblRaySplit(float px, float pz, float yawDeg, float qx, float qz, float *fwd, float *lat);
+/* 1 when a bystander at q is in danger from a shot fired from p along yawDeg at a target `range` away: ahead of p, not
+ * far beyond the target, and within a body width plus the spread (4% of its distance) of the line of fire */
+int   pblInLineOfFire(float px, float pz, float yawDeg, float range, float qx, float qz);
+/* The angle (degrees, 0..180) between where a chr faces and the direction to the point (x, z): 0 = straight ahead. The
+ * chr's facing is the model's y rotation in radians (getsubroty: forward = (sin r, cos r) in x/z). Guards see within 110. */
+float pblOffFacing(float facingRad, float cx, float cz, float x, float z);
+/* Threat ranking for target choice, lower = shoot first: distance, less for a guard who is shooting at Bond, much less for
+ * one running to raise the alarm or one that hurt Bond lately. */
+float pblThreatScore(float dist, int attacking, int alarmRaiser, int hurtUsLately);
+
 /* ---- plans ------------------------------------------------------------------------------------------------------------ */
 enum PblOp {
     PBL_GOTO_PAD = 1,   /* a = pad number, r = radius */
@@ -82,6 +96,10 @@ enum PblOp {
     PBL_HUNT,           /* walk to the nearest live armed hostile and fight, until none is left (or obj= completes) */
     PBL_MEET,           /* a = 0 chr number / 1 AI list id, b = the number: walk up to that chr (r) and stay c ticks
                          * (or until the step's obj= objective completes) - e.g. a double agent who talks first */
+    PBL_QUIET,          /* a = 1: stealth - prefer silenced guns while no alarm sounds, knock key carriers out from behind
+                         * instead of shooting them when they have not seen Bond; 0 = off */
+    PBL_KEY,            /* a = key flags: fetch a key with any of them (lying, on a guard: knock out / kill and search, on a
+                         * civilian: aim at it until it hands it over); done once Bond has it */
     PBL_COUNT_
 };
 

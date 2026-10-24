@@ -63,6 +63,57 @@ float pblClamp(float v, float lo, float hi)
     return v < lo ? lo : (v > hi ? hi : v);
 }
 
+/* ---- combat geometry ------------------------------------------------------------------------------------------------ */
+
+void pblRaySplit(float px, float pz, float yawDeg, float qx, float qz, float *fwd, float *lat)
+{
+    float th = yawDeg * 3.14159265f / 180.0f;
+    float fx = -sinf(th), fz = cosf(th);
+    float dx = qx - px, dz = qz - pz;
+
+    *fwd = dx * fx + dz * fz;
+    *lat = fabsf(dx * -fz + dz * fx);
+}
+
+int pblInLineOfFire(float px, float pz, float yawDeg, float range, float qx, float qz)
+{
+    float fwd, lat;
+
+    pblRaySplit(px, pz, yawDeg, qx, qz, &fwd, &lat);
+    if (fwd < -20.0f || fwd > range + 500.0f)
+    {
+        return 0;
+    }
+    return lat < 45.0f + 0.04f * (fwd > 0.0f ? fwd : 0.0f);
+}
+
+float pblOffFacing(float facingRad, float cx, float cz, float x, float z)
+{
+    float to = atan2f(x - cx, z - cz) * 180.0f / 3.14159265f;
+    float f = facingRad * 180.0f / 3.14159265f;
+
+    return fabsf(pblWrap180(to - f));
+}
+
+float pblThreatScore(float dist, int attacking, int alarmRaiser, int hurtUsLately)
+{
+    float s = dist;
+
+    if (attacking)
+    {
+        s *= 0.6f;
+    }
+    if (hurtUsLately)
+    {
+        s *= 0.7f;
+    }
+    if (alarmRaiser)
+    {
+        s = s * 0.3f - 400.0f;
+    }
+    return s;
+}
+
 /* ---- plans --------------------------------------------------------------------------------------------------------- */
 
 static const char *const sItemNames[] = {
@@ -117,6 +168,8 @@ static const struct { const char *name; int op; } sOps[] = {
     { "peace", PBL_PEACE },
     { "meet", PBL_MEET },      /* meet chr N [r] [ticks] | meet ai ID [r] [ticks] */
     { "hunt", PBL_HUNT },
+    { "quiet", PBL_QUIET },
+    { "key", PBL_KEY },        /* key FLAGS (0x2, 4, ...) */
 };
 
 const char *pblOpName(int op)
@@ -369,8 +422,18 @@ int pblParsePlan(const char *text, PblPlan *plan, char *err, int errlen)
             case PBL_WAIT:
             case PBL_LOOK:
             case PBL_PEACE:
+            case PBL_QUIET:
                 NEED(1);
                 st.a = (int) num(tok[k]);
+                break;
+            case PBL_KEY:
+                NEED(1);
+                st.a = (int) strtoul(tok[k], NULL, 0);
+                if (st.a == 0)
+                {
+                    snprintf(err, errlen, "line %d: 'key' needs non-zero key flags", lineno);
+                    return -1;
+                }
                 break;
             case PBL_KILL:
                 st.a = (nt - k >= 1) ? (int) num(tok[k]) : 1500;

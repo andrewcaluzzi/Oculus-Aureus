@@ -1,0 +1,7 @@
+name statue
+# Statue Park. Valentin (AI list 0x412) talks first: once he has seen Bond, walking more than ~2000 away fails every
+# objective (his list sets flags 0x1000 + 0x2000: the "ends at 10 s" of the first campaign), more than ~800 gets a warning.
+# Stay by him until objective 0 completes (his 30 s timer), then he walks off.
+obj=0 meet ai 0x412 250 4000
+auto
+exit
