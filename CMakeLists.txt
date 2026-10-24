@@ -548,7 +548,11 @@ if(GE_VIDEO)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/tools/mode_arena_bench_live.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/arena-bench-live.lua
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            ${CMAKE_SOURCE_DIR}/tools/mode_probe.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/probe.lua)
+            ${CMAKE_SOURCE_DIR}/tools/mode_probe.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/probe.lua
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/tools/mode_heist.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/heist.lua
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/tools/heist_lib.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/heist_lib.lua)
     if(WIN32)
         # the arena launchers (set GE_MODE / GE_STAGE, then start the exe), next to the exe
         add_custom_command(TARGET ge POST_BUILD
@@ -558,6 +562,7 @@ if(GE_VIDEO)
                 "${CMAKE_SOURCE_DIR}/launchers/Play Arena (Test Keys).bat"
                 "${CMAKE_SOURCE_DIR}/launchers/Arena Benchmark.bat"
                 "${CMAKE_SOURCE_DIR}/launchers/Arena Benchmark (Live).bat"
+                "${CMAKE_SOURCE_DIR}/launchers/Play Heist.bat"
                 "$<TARGET_FILE_DIR:ge>"
             VERBATIM)
     endif()

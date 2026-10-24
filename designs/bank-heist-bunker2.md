@@ -134,6 +134,18 @@ So a camera view is a third camera for the same render-walk slot: when the local
 
 **Effort: M (about 3-5 days).** About a day for the matrix/fov/start-room override in solo plus the Lua binding; 1-2 days for the chr/prop freshness and read-back checks (the unknown); about a day for static/black, input lock, HUD/gun hiding and a co-op soak. If chr freshness turns out to need impostors, add the T2 effort (M-L) to that slice. Not traced: the exact function that builds the view matrix (the `bondviewSetupCamera`-style entry point); finding it is the first hour.
 
+## 7b. Room graph and where the keyed doors sit (job 6)
+
+From the BG portal table (`assets/obseg/bg/bg_sevb_all_p.c`, `portal_data_table`: room pairs) and the waypoint graph (`UsetupsevbZ.c`, `path_table_*` by waypoint, `pathwaypoints` for their pads); stan rooms and BG rooms are the same numbers.
+
+- North tunnel: 68 -(door 72, key 0x1)- 4 - 3 - 2 - 1 (blast doors 80-85, key 0x4) - 6 (the hall). 6 also joins 5, 7, 8; 5 - 15 - 16.
+- Central: 16 - 13 - 14 - 59 - 60 - 61 (west wing); 16 - 17 - 18 - 19 - 20 - 21 - 48 (east loop). Offices: 13 -(48/49)- 12 -(46/47)- 11. Security: 14 -(50/51)- 44 - 46 - 43 -(52/53)- 18; 46 also joins 42, 45; doors 78/79 sit inside 46.
+- East loop: 48 - 49 - 50 -(**58/59, key 0x8**)- 51 -(**68/69, key 0x8**)- 56; 56 - 55 - 57 - 58 - 47 (the vault rooms, crates in 55); 47 -(**70/71, key 0x8**)- 54 -(**60/61, key 0x8**)- 53 - 52 - 23/24 - 22 - 48. So the four stock 0x8 pairs are two antechamber doors and two vault doors.
+- South / west: 52 - 24 -(64/65, key 0x4)- 25 - 30 -(62/63)- 39 (cells: 40 behind cell door 75, 41 behind 77; 40 - 41 also share a portal); 25 - 28 - 27 (safe room, safe in 26), 27 - 29; 30 - 31 - 32 - 33 - 34 - 63 - 64 - 67 - 66 - 65 - 61 (west wing loop), 35 - 36 -(54/55)- 10, 36 - 37 -(66/67, key 0x4)- 59.
+- Rooms 24 and 37 have no pads (short passages behind the 0x4 doors 64/65 and 66/67); rooms 50 and 53 have none either (the antechamber corridors between 49/51 and 52/54). The waypoint edge 50-62 (tunnel to hall) passes through the blast doors in room 1.
+
+A tool for this: a throwaway script read the probe log's `PAD` lines (rooms) and the setup's path tables and printed every waypoint edge with the doors whose two rooms match it.
+
 ## 8. P0 plan changes from this probe
 
 1. **Key flag 1 is a floor pickup, not in the safe.** The safe door needs keys 0x10 and 0x20 together (chr 11 and chr 6) and holds two ammo-class collectables and one prop.
