@@ -235,7 +235,12 @@ unsigned portCctvViewHash(void)
 
     for (i = 0; i < 4; i++)
     {
+        union { f32 f; unsigned u; } hp;
+
+        hp.f = sViewHp[i];
         h = h * 16777619u + (unsigned) (sView[i] + 1) * 7u + (unsigned) sMaskBtn[i];
+        h = h * 16777619u + (unsigned) sPrevBtn[i] * 3u + (unsigned) (u8) sPrevStick[i] * 5u + (unsigned) sViewTicks[i] * 11u
+            + (sView[i] >= 0 ? hp.u : 0u);
     }
     return h;
 }
@@ -452,9 +457,20 @@ int portCctvExtraChrs(void)
 #define CV_CHR_MAX   40
 #define CV_CHR_RANGE 6000.0f
 
+static Gfx *cctvDrawChrsLoop(Gfx *gdl, s32 *pn, u8 *top);
+#define CV_POOL_TOP  (512 * 1024)   /* the feed's own corner at the top of the frame's pool half (dyn.c adds it in a heist) */
+#define CV_POOL_CHR  (24 * 1024)    /* room one more chr (matrices, skinned vertices, its gun) needs at most */
+
+/* dyn.c, the vertex / matrix pool size: the feed's corner, in a mode that has the feeds (a heist mode) */
+s32 portCctvPoolExtra(void)
+{
+    extern s32 portHeistExtraSlots(void);
+
+    return portHeistExtraSlots() > 0 ? CV_POOL_TOP : 0;
+}
+
 Gfx *portCctvDrawChrs(Gfx *gdl)
 {
-    PropRecord *prop;
     s32 n = 0;
 
     static s32 off = -1;
@@ -471,6 +487,81 @@ Gfx *portCctvDrawChrs(Gfx *gdl)
     }
     gdl = bgScissorCurrentPlayerViewDefault(gdl);
     modelSetDistanceDisabled(1);   /* full detail: the LOD distance is Bond's, not the camera's */
+    /* The model draw takes numbers from the SIM RNG (model.c: a gun's muzzle flash, its size and spin), and this draw happens only on the
+     * watching Bond's machine: put both generators and their draw counts back afterwards, or a co-op / netplay partner desyncs the moment
+     * a guard fires on the feed (heist P3 determinism test, view 0 vs view 1). */
+    {
+        extern u64 g_randomSeed;
+        extern u64 g_chrObjRandomSeed;
+        extern u32 g_portSimRandDraws;
+        extern u32 g_portChrObjRandDraws;
+        extern s32 g_portRandDrawCount;
+        extern s32 g_portRngTrace;
+        const u64 seed = g_randomSeed, cseed = g_chrObjRandomSeed;
+        const u32 draws = g_portSimRandDraws, cdraws = g_portChrObjRandDraws;
+        const s32 dcount = g_portRandDrawCount, trace = g_portRngTrace;
+
+        /* and the frame's matrix / vertex pool (dyn.c, one linear pointer per frame half): the posed chrs' matrices and vertices go to the
+         * top of the half, so every allocation the sim's own draw makes after this lands where it lands on a machine with no feed (the
+         * layout of that pool is read back through stale pointers two frames later: a view-dependent autoaim, heist P3) */
+        extern u8 *g_VtxBuffers[3];
+        extern u8 *g_GfxMemPos;
+        extern u8 g_GfxActiveBufferIndex;
+        u8 *mem = g_GfxMemPos;
+        u8 *top = g_VtxBuffers[g_GfxActiveBufferIndex + 1];
+
+        g_portRngTrace = 0;
+        if (top != NULL && top - CV_POOL_TOP > mem)
+        {
+            g_GfxMemPos = top - CV_POOL_TOP;
+            gdl = cctvDrawChrsLoop(gdl, &n, top);
+        }
+        g_GfxMemPos = mem;
+        g_portRngTrace = trace;
+        g_randomSeed = seed;
+        g_chrObjRandomSeed = cseed;
+        g_portSimRandDraws = draws;
+        g_portChrObjRandDraws = cdraws;
+        g_portRandDrawCount = dcount;
+    }
+    modelSetDistanceDisabled(0);
+    g_PortCctvExtraChrs = n;
+    return gdl;
+}
+
+/* a model's rw data (Model.datas: numRecords words), saved before the feed poses it and put back after: the matrix calc writes the root
+ * node's runtime position and angles there, which the sim's own next render of that chr reads (a view-dependent autoaim, heist P3) */
+#define CV_RW_MAX 8192
+static u8 *sRwChr, *sRwGun;   /* (heap, CV_RW_MAX each: presentation scratch, kept out of the snapshot's statics) */
+
+static void rwSave(Model *m, u8 *buf, s32 *len)
+{
+    s32 n = (m->datas != NULL && m->obj != NULL) ? m->obj->numRecords : 0;
+
+    if (m->rwdatalen > 0 && n > m->rwdatalen) n = m->rwdatalen;
+    n *= 4;
+    if (buf == NULL || n < 0 || n > CV_RW_MAX) n = 0;
+    if (n > 0) memcpy(buf, m->datas, (size_t) n);
+    *len = n;
+}
+
+static void rwRestore(Model *m, const u8 *buf, s32 len)
+{
+    if (len > 0 && m->datas != NULL) memcpy(m->datas, buf, (size_t) len);
+}
+
+static Gfx *cctvDrawChrsLoop(Gfx *gdl, s32 *pn, u8 *top)
+{
+    extern u8 *g_GfxMemPos;
+    PropRecord *prop;
+    s32 n = 0, rwChr = 0, rwGun = 0;
+
+    if (sRwChr == NULL)
+    {
+        sRwChr = (u8 *) malloc(CV_RW_MAX);
+        sRwGun = (u8 *) malloc(CV_RW_MAX);
+    }
+
     for (prop = chrpropGetActiveTail(); prop != NULL && n < CV_CHR_MAX; prop = prop->prev)
     {
         ChrRecord *chr;
@@ -497,8 +588,13 @@ Gfx *portCctvDrawChrs(Gfx *gdl)
         {
             continue;
         }
+        if (top - g_GfxMemPos < CV_POOL_CHR)
+        {
+            break;   /* the feed's corner of the pool is full: the rest are not drawn this frame */
+        }
         msave = *model;   /* the whole model goes back afterwards: render_pos and the animation frames subcalcmatrices loads */
         saved = model->render_pos;
+        rwSave(model, sRwChr, &rwChr);   /* and its rw data (the root node's position / angle, LOD, toggles): the matrix calc writes it */
         rd = D_8002CCBC;
         rd.basemtx = camGetWorldToScreenMtxf();
         rd.mtxlist = (Mtxf *) dynAllocate(model->obj->numMatrices * (s32) sizeof(Mtxf));
@@ -509,6 +605,7 @@ Gfx *portCctvDrawChrs(Gfx *gdl)
         {
             wmsave = *wmodel;
             wsaved = wmodel->render_pos;
+            rwSave(wmodel, sRwGun, &rwGun);
             rd.basemtx = modelFindNodeMtx(model, wmodel->attachedto_objinst, 0);
             rd.mtxlist = (Mtxf *) dynAllocate(wmodel->obj->numMatrices * (s32) sizeof(Mtxf));
             instcalcmatrices(&rd, wmodel);
@@ -533,14 +630,15 @@ Gfx *portCctvDrawChrs(Gfx *gdl)
             bondviewTransformManyPosToViewMatrix(wmodel->render_pos, wmodel->obj->numMatrices);
             *wmodel = wmsave;
             wmodel->render_pos = wsaved;
+            rwRestore(wmodel, sRwGun, rwGun);
         }
         gdl = rd.gdl;
         *model = msave;
         model->render_pos = saved;
+        rwRestore(model, sRwChr, rwChr);
         n++;
     }
-    modelSetDistanceDisabled(0);
-    g_PortCctvExtraChrs = n;
+    *pn = n;
     return gdl;
 }
 
@@ -585,14 +683,20 @@ int portCctvRenderInfo(int *cam, int *start, int *rooms, int max, int *geom, int
     return n;
 }
 
-/* ---- test helper: cctv.test_press(button) holds raw N64 buttons on pad 0 for a few polls (input_pc.c), the real input path ---- */
+/* ---- test helper: cctv.test_press(button) holds raw N64 buttons on pad 0 for a few sim ticks (input_pc.c), the real input path ---- */
 u16 g_PortTestButtons;
-s32 g_PortTestButtonPolls;
+s32 g_PortTestButtonPolls;   /* sim ticks left (input_pc.c counts them down once per tick; it was 6 polls: a wall-clock-dependent hold) */
+s32 g_PortTestUse[4];        /* cctv.test_use(p): one Port use-action tap in Bond p's next tick (joy_port.c portJoyPortUseTap) */
 
 void portCctvTestPress(int mask)
 {
     g_PortTestButtons = (u16) mask;
-    g_PortTestButtonPolls = 6;
+    g_PortTestButtonPolls = 4;
+}
+
+void portCctvTestUse(int p)
+{
+    if (p >= 0 && p < 4) g_PortTestUse[p] = 1;
 }
 
 /* cctv.test_shot(): a GE_SHOT capture of the next presented frame (gfx_sdl2.cpp; none in a headless build) */

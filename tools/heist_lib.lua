@@ -8,6 +8,8 @@
 --     The wave guards are tagged: r.is_wave(chr). One reinforcement controller per call; the alarm event restarts the first-wave timer.
 --     Optional: `active = function() return hot end` replaces alarm.active() as the "waves run" test (a mode's own latch: the stock siren
 --     times out after ~30 s); `opts` may be a function returning a fresh spawn.chr table per guard (variety); r.wave_now() spawns a wave at once.
+--     A pad whose spot is taken (a guard posted on it, the last arrival) is tried a step aside (`offsets`, default 0 and 110 units each
+--     way) before the next pad: the heist's hall pads all have posted guards, and its waves never came in before.
 heist = heist or {}
 
 function heist.reinforce(cfg)
@@ -17,6 +19,7 @@ function heist.reinforce(cfg)
   local max_alive = cfg.max_alive or 16
   local reserve = cfg.reserve or 12
   local opts = cfg.opts or { weapon = "ak47", behaviour = "chase" }
+  local offsets = cfg.offsets or { { 0, 0 }, { 110, 0 }, { -110, 0 }, { 0, 110 }, { 0, -110 } }
   local r = { spawned = 0, waves = 0, mine = {}, running = true }
   local clock, nextwave, ring = 0, nil, 0
   local was_active = false
@@ -37,11 +40,15 @@ function heist.reinforce(cfg)
     for _ = 1, per_wave do
       if alive + made >= max_alive or spawn.free() < reserve or #pads == 0 then break end
       local chr
-      for _ = 1, #pads do   -- a pad whose spot is still occupied by the last arrival fails: try the next one
+      for _ = 1, #pads do   -- a pad whose spot is still occupied (the last arrival, a guard posted there) fails: a step aside, then the next pad
         ring = ring % #pads + 1
         local o = {}
         if type(opts) == "function" then o = opts(r.spawned + made + 1) else for k, v in pairs(opts) do o[k] = v end end
-        chr = spawn.chr(pads[ring], o)
+        for _, off in ipairs(offsets) do
+          o.offset = (off[1] ~= 0 or off[2] ~= 0) and { off[1], off[2] } or nil
+          chr = spawn.chr(pads[ring], o)
+          if chr then break end
+        end
         if chr then break end
       end
       if chr then r.mine[chr] = true; made = made + 1; r.spawned = r.spawned + 1 end

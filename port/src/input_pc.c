@@ -7873,13 +7873,14 @@ void portInputPadMerge(s32 idx, OSContPad *pad)
                 pad->stick_y = (s8) g_PortGotoStickY;
             }
         }
-        { /* cctv.test_press (port_cctvview.c, tests): raw N64 buttons held on slot 0 for a few polls */
+        { /* cctv.test_press (port_cctvview.c, tests): raw N64 buttons held on slot 0 for a few SIM TICKS (counted down in
+           * portInputMouseTickConsume: polls per tick follow the wall clock, so a poll count made the press land on a different
+           * tick from run to run) */
             extern u16 g_PortTestButtons;
             extern s32 g_PortTestButtonPolls;
             if (idx == 0 && g_PortTestButtonPolls > 0)
             {
                 pad->button |= g_PortTestButtons;
-                g_PortTestButtonPolls--;
             }
         }
         if (idx == 0)
@@ -7915,14 +7916,26 @@ void portInputPadMerge(s32 idx, OSContPad *pad)
         if (s_SkipIntro && idx == 0)
         {   /* GE_SKIPINTRO=1: tap A through the mission intro cameras
              * (2-tick presses, one per ~2/3s, first 15s only). The window
-             * counts polls, not time, so also stop once Bond is in the
-             * player's hands, or the taps cycle his weapons. */
+             * counts SIM TICKS (it counted polls, whose number per tick
+             * follows the wall clock: the intro ended on a different tick
+             * in two runs of the same test, the heist determinism test),
+             * so also stop once Bond is in the player's hands, or the taps
+             * cycle his weapons. */
             extern s32 portStageRunning(void);
             extern s32 portP1ControlsLive(void);
-            static u32 sitick;
-            u32 t = sitick++;
-            if (t > 60u && t < 900u && (t % 40u) < 2u
-                && !(portStageRunning() && portP1ControlsLive()))
+            extern u32 g_PortSimTickNo;
+            static int sLive;   /* Bond was in the player's hands this stage: no more taps (a heist camera feed
+                                 * takes the controls away, and a tap there cycled the cameras) */
+            u32 t = g_PortSimTickNo;
+            if (!portStageRunning())
+            {
+                sLive = 0;
+            }
+            else if (portP1ControlsLive())
+            {
+                sLive = 1;
+            }
+            if (t > 60u && t < 900u && (t % 40u) < 2u && !sLive)
             {
                 pad->button |= CONT_A;
             }
@@ -8806,8 +8819,18 @@ void portInputMouseUpdate(void)
  * Every reader (portInputMouseLookDelta / ...Deg / the aim path) keeps
  * seeing one stable s_MouseDX/DY for the whole tick.
  */
+u32 g_PortSimTickNo;   /* sim ticks since boot (the GE_SKIPINTRO taps and cctv.test_press count these, not polls) */
+
 void portInputMouseTickConsume(void)
 {
+    g_PortSimTickNo++;
+    {
+        extern s32 g_PortTestButtonPolls;   /* cctv.test_press: held for this many sim ticks */
+        if (g_PortTestButtonPolls > 0)
+        {
+            g_PortTestButtonPolls--;
+        }
+    }
     s_MouseDX = s_MouseAccDX;
     s_MouseDY = s_MouseAccDY;
     s_MouseAccDX = s_MouseAccDY = 0;

@@ -313,14 +313,20 @@ int portLuaGameBondAllDown(void) { return portModeActive() && portBondAllDown() 
 int portLuaGameCoop(void) { return portCoopActive() ? 1 : 0; }
 
 /* A script's math.random in co-op comes from the session seed (port_luavm.c seeds its own generator from this at every stage start),
- * so both machines draw the same numbers. 0 = solo: any seed will do. */
+ * so both machines draw the same numbers. 0 = solo: any seed will do. A solo run with GE_SEED (headless tests, the determinism test)
+ * takes it from GE_SEED as well, so two runs with the same inputs draw the same numbers (it was the clock). */
 unsigned portLuaGameRandomSeed(void)
 {
     unsigned s;
 
     if (!portCoopActive())
     {
-        return 0u;
+        const char *e = getenv("GE_SEED");
+
+        if (e == NULL || e[0] == '\0')
+        {
+            return 0u;
+        }
     }
     s = portCoopSessionSeed() ^ 0x4D4F4445u;
     return s != 0u ? s : 1u;

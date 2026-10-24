@@ -83,6 +83,12 @@ void dynInitMemory(void) {
         g_GfxSizesByPlayerCount[portAllPlayerCount() - 1] += big * 1536;
         g_VtxSizesByPlayerCount[portAllPlayerCount() - 1] += big * 1536;
     }
+    {   /* PORT: heist: the camera feed's own corner at the top of each half (port_cctvview.c draws its posed chrs there, so the sim's
+         * draw allocates exactly as on a machine with no feed) */
+        extern s32 portCctvPoolExtra(void);
+
+        g_VtxSizesByPlayerCount[portAllPlayerCount() - 1] += portCctvPoolExtra();
+    }
 #endif
     g_GfxBuffers[0] = mempAllocBytesInBank(g_GfxSizesByPlayerCount[portAllPlayerCount() - 1] * 2, MEMPOOL_STAGE);
     g_GfxBuffers[1] = (g_GfxBuffers[0] + g_GfxSizesByPlayerCount[portAllPlayerCount() - 1]);
