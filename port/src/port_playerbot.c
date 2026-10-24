@@ -157,6 +157,8 @@ typedef struct {
     s32 blockedAt[16];
     s32 nBlockedDoors;
     ObjectRecord *subLock;     /* a detour: shoot this padlock off a door on the route */
+    ChrRecord *huntSkip[8];    /* guards the hunt step could not reach, and when */
+    s32 huntSkipAt[8], huntSkipN;
     ObjectRecord *photoObj;    /* the object being photographed, and since when */
     s32 photoSince;
     ObjectRecord *shootObj;    /* the object being shot at, and since when */
@@ -1974,8 +1976,12 @@ static s32 stepRun(PblStep *s)
             B.wantWeapon = s->a;
             if (B.phase == 0)
             {
-                if (navTo(obj->prop->pos.x, obj->prop->pos.y, obj->prop->pos.z, s->op == PBL_THROW_OBJ ? 300.0f : 110.0f,
-                          obj->prop->stan))
+                /* big targets (a helicopter) cannot be walked into: close enough, or as close as the bot gets */
+                if (navTo(obj->prop->pos.x, obj->prop->pos.y, obj->prop->pos.z, s->op == PBL_THROW_OBJ ? 300.0f : 250.0f,
+                          obj->prop->stan) ||
+                    (B.stuck.level >= 1 && B.goalValid &&
+                     (obj->prop->pos.x - p->prop->pos.x) * (obj->prop->pos.x - p->prop->pos.x) +
+                     (obj->prop->pos.z - p->prop->pos.z) * (obj->prop->pos.z - p->prop->pos.z) < 450.0f * 450.0f))
                 {
                     B.phase = 1;
                     B.stepTick = B.tick;
@@ -2112,6 +2118,18 @@ static s32 stepRun(PblStep *s)
                 {
                     continue;
                 }
+                {   /* skip a guard we could not get to lately */
+                    s32 k, skip = 0;
+
+                    for (k = 0; k < 8; k++)
+                    {
+                        skip |= B.huntSkip[k] == c && B.tick - B.huntSkipAt[k] < 3600;
+                    }
+                    if (skip)
+                    {
+                        continue;
+                    }
+                }
                 dx = c->prop->pos.x - p->prop->pos.x;
                 dy = c->prop->pos.y - p->prop->pos.y;
                 dz = c->prop->pos.z - p->prop->pos.z;
@@ -2127,6 +2145,14 @@ static s32 stepRun(PblStep *s)
                 return 1;
             }
             navTo(best->prop->pos.x, best->prop->pos.y, best->prop->pos.z, 250.0f, best->prop->stan);
+            if (B.stuck.level >= 2)
+            {   /* cannot get to this one: hunt the others for a minute */
+                B.huntSkip[B.huntSkipN & 7] = best;
+                B.huntSkipAt[B.huntSkipN & 7] = B.tick;
+                B.huntSkipN++;
+                B.stepFails = 0;
+                navReset();
+            }
             return 0;
         }
         case PBL_MEET:
@@ -2406,8 +2432,9 @@ static void drive(void)
         stepNext("skipped");
     }
     s = (B.step < B.plan.n) ? &B.plan.s[B.step] : NULL;
+    /* fight first in every step except the ones that hold the buttons themselves (and gadget steps once they act) */
     if (s == NULL || (s->op != PBL_PRESS && s->op != PBL_WALK && s->op != PBL_EXIT && s->op != PBL_KILL &&
-                      s->op != PBL_PHOTO_OBJ && s->op != PBL_GADGET_OBJ && s->op != PBL_THROW_OBJ))
+                      !((s->op == PBL_GADGET_OBJ || s->op == PBL_THROW_OBJ) && B.phase == 1)))
     {
         busy = combatTick(1600.0f);
     }
