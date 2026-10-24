@@ -154,7 +154,7 @@ void        portHeistCountdown(float seconds);                             /* < 
 float       portHeistCountdownLeft(void);                                  /* seconds, -1 = not running */
 /* guards and civilians (port_heist.c, heist jobs 3-4) */
 void        portHeistCivilianAdd(int chrnum);                              /* register a spawned chr as a civilian */
-int         portHeistCivilianState(int chrnum);                            /* 0 idle, 1 surrendered, 2 cowering, -1 not a civilian / gone */
+int         portHeistCivilianState(int chrnum);                            /* 0 idle, 1 surrendered, 2 cowering, 3 knocked out, -1 not a civilian / gone */
 void        portHeistCivilianTune(float range, float aim_sec, float threat_sec, float cower_sec);   /* <= 0 keeps */
 int         portHeistCivilianKilled(void);                                 /* civilians killed this stage */
 int         portHeistFaceBond(int player, float x, float z, float y);      /* test helper: turn Bond's view onto a point */
@@ -163,6 +163,18 @@ int         portHeistBodiesFound(void);
 int         portHeistTestNoise(int player, float noise);                   /* test helpers */
 int         portHeistChrHeard(int chrnum, int clear);
 void        portHeistBodyCheck(int on);                                   /* body discovery on/off (default on) */
+/* knock-out (port_heist.c, heist job 5) */
+int         portHeistKnockOut(int chrnum, int player);                     /* knock a chr out now (player -1 = a script); 1 ok */
+int         portHeistKoWake(int chrnum);                                   /* wake a knocked-out chr; 1 ok */
+int         portHeistKoIs(int chrnum);
+int         portHeistKoSlaps(int chrnum);                                  /* slaps counted toward its knock-out */
+void        portHeistKoCount(int *down, int *total, int *woken);           /* out now, knock-outs this stage, wakes this stage */
+int         portHeistKoWaker(int chrnum);                                  /* the guard on its way to wake it, -1 none */
+void        portHeistSetSlapsToKo(int n);                                  /* 0 = slaps are stock hits */
+int         portHeistSlapsToKo(void);
+void        portHeistSetGuardsWake(int on);
+int         portHeistKoSearch(int player);                                 /* Bond p searches the knocked-out chr next to him: chrnum, -1 none */
+int         portHeistTestSlap(int player, int chrnum);                     /* test hook: a slapper hit through the stock hit path */
 
 /* Mods menu items added by scripts (menu.add_toggle / menu.add_number), port_luavm.c.
  * Values are cached: Refresh calls the scripts' getters (never from a render path). */

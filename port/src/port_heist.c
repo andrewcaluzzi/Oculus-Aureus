@@ -12,12 +12,15 @@
 #include <ultra64.h>
 #include <bondtypes.h>
 #include <bondconstants.h>
+#include <bondaicommands.h>
 #include "game/chrai.h"
 #include "game/loadobjectmodel.h"
 #include "game/stan.h"
 #include "game/player.h"
 #include "game/chr.h"
 #include "game/chraction.h"
+#include "game/initanitable.h"
+#include "game/model.h"
 #include "game/gun.h"
 #include "game/bondview.h"
 #include "port_blocks.h"
@@ -310,10 +313,29 @@ int portHeistKeyState(int handle, float *x, float *z, int *held)
 
 /* ---- alarm ---- */
 
+extern void chrlvKneelingAnimationRelated7F023E48(ChrRecord *self);
+
+/* alarm.stop() sticks: a raiser whose alarm animation is past frame 60 (chrlvTickStartAlarm re-fires alarmActivate every tick from there
+ * to the end of the animation) is stopped as if the animation had ended (the stock end-of-animation step, chrStop); its list then goes on
+ * to "run to Bond" as it would have. A raiser still before frame 60 has not raised it yet and still will. Mode only. */
 void portHeistAlarm(int on)
 {
+    int i;
+
     if (!portModeActive()) return;
-    if (on) alarmActivate(); else alarmDeactivate();
+    if (on) { alarmActivate(); return; }
+    alarmDeactivate();
+    for (i = 0; g_ChrSlots != NULL && i < g_NumChrSlots; i++)
+    {
+        ChrRecord *c = &g_ChrSlots[i];
+
+        if (c->model != NULL && c->prop != NULL && c->actiontype == ACT_STARTALARM && modelGetAnimFrame(c->model) >= 60.0f)
+        {
+            printf("ge: heist: alarm.stop: raiser chr %d stopped at frame %.0f of %.0f\n", (int) c->chrnum, modelGetAnimFrame(c->model),
+                   modelGetAnimEndFrame(c->model));
+            chrlvKneelingAnimationRelated7F023E48(c);
+        }
+    }
 }
 
 int portHeistAlarmActive(void) { return alarmIsActive() ? 1 : 0; }
@@ -538,10 +560,12 @@ void portHeistPatrolLater(int chrnum, int path)
 int portHeistBodiesFound(void) { return sFoundN; }
 void portHeistBodyCheck(int on) { sBodyCheck = on ? 1 : 0; }
 
-/* hook for job 5 (KO): a knocked-out chr counts as a body to find. Dead today. */
+static int koIsDown(s32 chrnum);
+
+/* a body to find: dead, or knocked out (job 5) */
 static int chrIsBody(ChrRecord *c)
 {
-    return chrIsDead(c) ? 1 : 0;
+    return (chrIsDead(c) || koIsDown(c->chrnum)) ? 1 : 0;
 }
 
 int portHeistChrDown(int chrnum)
@@ -569,6 +593,7 @@ extern s32 g_GlobalTimer;
 extern s32 g_ClockTimer;
 
 static int isCivilian(s32 chrnum);
+static void koFoundBy(ChrRecord *body, ChrRecord *finder);
 
 /* every ~8 ticks: a living, non-civilian guard that stands within sight of a body (dead chr that is still lying there) notices it:
  * chrseedie is the stock "I saw someone die" field, so the guard's own AI list reacts (simple guard / alarm raiser run to Bond or the alarm pad,
@@ -607,8 +632,11 @@ static void bodyScan(void)
             }
             if (first >= 0 && sFoundN < BODY_MAX)
             {
+                int ko = koIsDown(b->chrnum);
+
                 sFound[sFoundN++] = b->chrnum;
-                portEventEmit(PORT_EV_BODY_FOUND, g_ChrSlots[first].chrnum, b->chrnum, 0, 0);
+                if (ko) koFoundBy(b, &g_ChrSlots[first]);   /* stretch: the finder walks over and wakes it */
+                portEventEmit(PORT_EV_BODY_FOUND, g_ChrSlots[first].chrnum, b->chrnum, ko, 0);
             }
         }
     }
@@ -651,6 +679,7 @@ int portHeistCivilianState(int chrnum)
 {
     HeistCiv *c = civFind(chrnum);
 
+    if (c != NULL && koIsDown(chrnum)) return 3;   /* knocked out */
     return c != NULL ? (int) c->state : -1;
 }
 
@@ -685,7 +714,7 @@ static int bondArmed(int p)
     set_cur_player(p);
     w = (int) getCurrentPlayerWeaponId(GUNRIGHT);
     set_cur_player(saved);
-    return w != 0 && w != ITEM_UNARMED;
+    return w != 0 && w != ITEM_UNARMED;   /* note: the slappers are ITEM_FIST, so they count as armed here (heist_guards relies on it) */
 }
 
 /* the first Bond (lowest index) whose crosshair is on `civ`: within sCivRange, ahead of him, and the view ray passes within 90 units of it */
@@ -766,6 +795,10 @@ static void civTick(HeistCiv *v, f32 dt)
     {
         return;   /* gone or dead: portHeistChrDied counts the death */
     }
+    if (koIsDown(v->chrnum))
+    {
+        return;   /* knocked out: the KO tick holds it down */
+    }
     by = aimedBy(c);
     if (v->state == 1)
     {   /* hands up: keep the pose; a sustained threat makes it hand over what it carries */
@@ -820,8 +853,422 @@ static void civTick(HeistCiv *v, f32 dt)
     }
 }
 
+/* ---- knock-out (job 5) ----
+ * Bond's slappers (ITEM_FIST) on a chr: the hit path (chraction.c handles_shot_actors) calls portHeistSlap first. Slaps below the KO count
+ * play the stock hit reaction with no damage; the slap that reaches it knocks the chr out: the soft face-down death animation, held at its last
+ * frame, no AI list, no collision box, no auto-aim. Not dead: no chr_died, no civilian casualty, no death counters; a gun still kills it (then it
+ * is an ordinary death). It never wakes by itself; a guard who finds it (the body scan) can walk over and wake it (mode.guards_wake), or a
+ * script calls ko.wake. What it carries stays on it until a Bond presses use next to it (ko.search: chrDropItems, as a robbed civilian). */
+
+#define KO_MAX        256
+#define KO_ANIM       ANIM_death_forward_face_down_soft
+#define KO_FLAGS      (CHRFLAG_00010000 | CHRFLAG_NO_AUTOAIM)   /* no collision box (chr.c chrUpdateCollisionBounds), no auto-aim */
+#define WAKE_REACH    90.0f      /* units: the waker stops this close */
+#define WAKE_GIVEUP   20.0f      /* seconds walking before it gives up (and just goes on alert) */
+#define WAKE_LOOK     1.5f       /* seconds it looks the body over before it gets up */
+#define SEARCH_RANGE  130.0f
+
+typedef struct
+{
+    s32 chrnum, byPlayer, downAt, waker;
+    u32 addedFlags;      /* the KO_FLAGS bits the KO set (cleared again on waking) */
+    f32 wT;
+    s16 wPlot;
+    u8 used, down, searched, slaps, wstate;   /* wstate: 0 nobody, 1 a guard walks over, 2 it looks the body over */
+    s8 wArghs;
+} HeistKo;
+
+static HeistKo sKo[KO_MAX];
+static int sKoN, sKoBusy, sKoTotal, sKoWoken;
+static int sSlapsToKo, sGuardsWake = 1;
+
+extern s32 portHostageIsHostage(ChrRecord *chr);
+extern s32 portBotIsBot(ChrRecord *chr);
+extern int portCoopChrIsBondBody(ChrRecord *chr);
+extern bool portChrGoToProp(ChrRecord *self, PropRecord *target, SPEED speed);
+extern void chrlvPerformAnimationForActor(ChrRecord *self, s32 animID, s32 startframe, s32 endframe, u8 bitfield, s32 interpol_time60);
+
+static HeistKo *koFind(s32 chrnum)
+{
+    int i;
+
+    for (i = 0; i < sKoN; i++)
+    {
+        if (sKo[i].used && sKo[i].chrnum == chrnum) return &sKo[i];
+    }
+    return NULL;
+}
+
+static HeistKo *koGet(s32 chrnum)
+{
+    HeistKo *e = koFind(chrnum);
+    int i;
+
+    if (e != NULL) return e;
+    for (i = 0; i < sKoN && sKo[i].used; i++) ;
+    if (i == sKoN)
+    {
+        if (sKoN >= KO_MAX) return NULL;
+        sKoN++;
+    }
+    e = &sKo[i];
+    memset(e, 0, sizeof(*e));
+    e->used = 1;
+    e->chrnum = chrnum;
+    e->waker = -1;
+    return e;
+}
+
+static int koIsDown(s32 chrnum)
+{
+    HeistKo *e = sKoN > 0 ? koFind(chrnum) : NULL;
+
+    return e != NULL && e->down;
+}
+
+static void bodyForget(s32 chrnum)
+{
+    int i;
+
+    for (i = 0; i < sFoundN; i++)
+    {
+        if (sFound[i] == chrnum) { sFound[i] = sFound[--sFoundN]; return; }
+    }
+}
+
+static void koPose(ChrRecord *c, int fall)
+{
+    chrlvPerformAnimationForActor(c, KO_ANIM, 0, -1, ANIM_UNKNOWN | ANIM_LOOP_HOLD_LAST_FRAME, fall ? 16 : 0);
+    if (!fall) modelSetAnimFrame(c->model, modelGetAnimEndFrame(c->model));   /* back down at once (after a hit reaction) */
+}
+
+static void koDown(ChrRecord *c, HeistKo *e, int player)
+{
+    e->down = 1;
+    e->byPlayer = player;
+    e->downAt = sNow;
+    e->searched = 0;
+    e->addedFlags = KO_FLAGS & ~c->chrflags;
+    c->chrflags |= KO_FLAGS;
+    koPose(c, 1);
+    sKoBusy++;
+    sKoTotal++;
+    bodyForget(c->chrnum);   /* knocked out again after a wake: it can be found again */
+    portEventEmit(PORT_EV_CHR_KNOCKED_OUT, c->chrnum, player, 0, 0);
+}
+
+static int koEligible(ChrRecord *c)
+{
+    return c != NULL && c->prop != NULL && c->model != NULL && c->prop->type == PROP_TYPE_CHR && !chrIsDead(c)
+        && !(c->chrflags & CHRFLAG_INVINCIBLE) && !portHostageIsHostage(c) && !portBotIsBot(c) && !portCoopChrIsBondBody(c);
+}
+
+/* chraction.c handles_shot_actors, a hit by Bond's slappers on `c` (the current player is the Bond): 0 = not a KO slap (stock hit),
+ * 1 = handled (knocked out now, or already out): skip the stock hit, 2 = a slap that counts but does not knock out: stock reaction, no damage */
+int portHeistSlap(ChrRecord *c)
+{
+    HeistKo *e;
+
+    if (sSlapsToKo <= 0 || !portModeActive() || !koEligible(c)) return 0;
+    e = koGet(c->chrnum);
+    if (e == NULL) return 0;
+    if (e->down) return 1;
+    if (e->slaps < 255) e->slaps++;
+    if ((int) e->slaps < sSlapsToKo) return 2;
+    koDown(c, e, (int) get_cur_playernum());
+    return 1;
+}
+
+/* the chr runs no AI list this tick (chraction.c): knocked out, or a guard walking over to wake one */
+int portHeistChrNoAi(ChrRecord *c)
+{
+    int i;
+
+    if (sKoBusy <= 0) return 0;
+    for (i = 0; i < sKoN; i++)
+    {
+        const HeistKo *e = &sKo[i];
+
+        if (e->used && ((e->down && e->chrnum == c->chrnum) || (e->wstate && e->waker == c->chrnum))) return 1;
+    }
+    return 0;
+}
+
+/* port_arenamode.c portArenaDirect: a waker keeps the stock route to the body (the arena route re-plots to Bond) */
+int portHeistChrWaking(const ChrRecord *c)
+{
+    int i;
+
+    if (sKoBusy <= 0 || c == NULL) return 0;
+    for (i = 0; i < sKoN; i++)
+    {
+        if (sKo[i].used && sKo[i].wstate && sKo[i].waker == c->chrnum) return 1;
+    }
+    return 0;
+}
+
+static void koWakerRelease(HeistKo *e, int forget)
+{
+    e->wstate = 0;
+    e->waker = -1;
+    if (forget) bodyForget(e->chrnum);   /* the waker is gone: the next guard to see it finds it again */
+}
+
+static void koWake(ChrRecord *b, HeistKo *e, ChrRecord *g)
+{
+    HeistCiv *v = civFind(b->chrnum);
+
+    e->down = 0;
+    e->slaps = 0;
+    koWakerRelease(e, 1);
+    b->chrflags &= ~e->addedFlags;
+    e->addedFlags = 0;
+    chrlvMergeKneelToStand(b, 30.0f);   /* blends up from the lying pose */
+    sKoWoken++;
+    if (v != NULL)
+    {
+        v->state = 2;   /* a woken civilian cowers */
+        v->cowerT = sCivCowerSec;
+        v->aimT = v->threatT = 0.0f;
+    }
+    else if (g != NULL)
+    {
+        b->chrseedie = (s16) g->chrnum;   /* on alert: the stock "saw someone die" reaction of its own list */
+    }
+    if (g != NULL) g->chrseedie = (s16) b->chrnum;
+    portEventEmit(PORT_EV_CHR_WOKEN, b->chrnum, g != NULL ? g->chrnum : -1, 0, 0);
+}
+
+/* bodyScan: guard `g` was the first to find knocked-out `b`: with mode.guards_wake on, it walks over to wake it */
+static void koFoundBy(ChrRecord *b, ChrRecord *g)
+{
+    HeistKo *e = koFind(b->chrnum);
+    int i;
+
+    if (!sGuardsWake || e == NULL || !e->down || e->wstate) return;
+    if (g->actiontype == ACT_ATTACK || g->actiontype == ACT_ATTACKWALK || g->actiontype == ACT_ATTACKROLL || !koEligible(g)) return;
+    for (i = 0; i < sKoN; i++)
+    {
+        if (sKo[i].used && sKo[i].wstate && sKo[i].waker == g->chrnum) return;   /* already on its way to another */
+    }
+    e->waker = g->chrnum;
+    e->wstate = 1;
+    e->wT = 0.0f;
+    e->wPlot = 0;
+    e->wArghs = g->numarghs;
+    g->chrseedie = CHR_FREE;   /* it reacts by coming over (its list runs again once the other is up) */
+    sKoBusy++;
+}
+
+static void koWakerTick(ChrRecord *b, HeistKo *e, f32 dt)
+{
+    ChrRecord *g = chrFindByLiteralId(e->waker);
+    f32 dx, dz;
+
+    if (g == NULL || g->prop == NULL || g->model == NULL || (g->hidden & CHRHIDDEN_REMOVE) || chrIsDead(g) || koIsDown(g->chrnum))
+    {
+        koWakerRelease(e, 1);
+        return;
+    }
+    if (g->numarghs != e->wArghs)
+    {   /* shot at on the way: back to its own list, alerted */
+        koWakerRelease(e, 0);
+        g->chrseedie = (s16) b->chrnum;
+        return;
+    }
+    e->wT += dt;
+    dx = b->prop->pos.x - g->prop->pos.x;
+    dz = b->prop->pos.z - g->prop->pos.z;
+    if (e->wstate == 1)
+    {
+        if (dx * dx + dz * dz <= WAKE_REACH * WAKE_REACH)
+        {
+            printf("ge: heist: chr %d reached knocked-out chr %d (%.0f units) after %.1f s\n", (int) g->chrnum, (int) b->chrnum,
+                   sqrtf(dx * dx + dz * dz), e->wT);
+            chrlvKneelingAnimationRelated7F023E48(g);   /* stop */
+            portLuaGameChrAnim(g->chrnum, "look", 1);
+            e->wstate = 2;
+            e->wT = 0.0f;
+            return;
+        }
+        if (e->wT > WAKE_GIVEUP)
+        {
+            koWakerRelease(e, 0);
+            g->chrseedie = (s16) b->chrnum;
+            return;
+        }
+        if (--e->wPlot <= 0)
+        {
+            if (g->actiontype != ACT_GOPOS && g->actiontype != ACT_RUNPOS) portChrGoToProp(g, b->prop, SPEED_RUN);
+            e->wPlot = 30;
+        }
+        return;
+    }
+    if (e->wT >= WAKE_LOOK) koWake(b, e, g);
+}
+
+static void koTick(f32 dt)
+{
+    int i, busy = 0;
+
+    for (i = 0; i < sKoN; i++)
+    {
+        HeistKo *e = &sKo[i];
+        ChrRecord *c;
+
+        if (!e->used) continue;
+        c = chrFindByLiteralId(e->chrnum);
+        if (c == NULL || c->prop == NULL || c->model == NULL || (c->hidden & CHRHIDDEN_REMOVE))
+        {
+            memset(e, 0, sizeof(*e));   /* removed */
+            e->waker = -1;
+            continue;
+        }
+        if (!e->down) continue;
+        if (chrIsDead(c))
+        {   /* shot while out: an ordinary death from here (counted by portHeistChrDied like any other) */
+            e->down = 0;
+            koWakerRelease(e, 0);
+            continue;
+        }
+        if (c->actiontype != ACT_ANIM || (s32) (intptr_t) c->model->anim != animation_table_ptrs1[KO_ANIM]) koPose(c, 0);   /* a hit reaction got it up */
+        c->chrflags |= KO_FLAGS;
+        if (e->wstate) koWakerTick(c, e, dt);
+    }
+    for (i = 0; i < sKoN; i++)
+    {
+        if (sKo[i].used && (sKo[i].down || sKo[i].wstate)) busy++;
+    }
+    sKoBusy = busy;
+}
+
+int portHeistKnockOut(int chrnum, int player)
+{
+    ChrRecord *c = chrFindByLiteralId(chrnum);
+    HeistKo *e;
+
+    if (!portModeActive() || !koEligible(c)) return 0;
+    e = koGet(chrnum);
+    if (e == NULL) return 0;
+    if (!e->down) koDown(c, e, player);
+    return 1;
+}
+
+int portHeistKoWake(int chrnum)
+{
+    ChrRecord *c = chrFindByLiteralId(chrnum);
+    HeistKo *e = koFind(chrnum);
+
+    if (!portModeActive() || c == NULL || e == NULL || !e->down || chrIsDead(c)) return 0;
+    koWake(c, e, NULL);
+    return 1;
+}
+
+int portHeistKoIs(int chrnum) { return portModeActive() && koIsDown(chrnum); }
+
+int portHeistKoSlaps(int chrnum)
+{
+    HeistKo *e = koFind(chrnum);
+
+    return e != NULL ? (int) e->slaps : 0;
+}
+
+void portHeistKoCount(int *down, int *total, int *woken)
+{
+    int i, n = 0;
+
+    for (i = 0; i < sKoN; i++)
+    {
+        if (sKo[i].used && sKo[i].down) n++;
+    }
+    *down = n;
+    *total = sKoTotal;
+    *woken = sKoWoken;
+}
+
+/* -1 = no guard is on its way */
+int portHeistKoWaker(int chrnum)
+{
+    HeistKo *e = koFind(chrnum);
+
+    return (e != NULL && e->down && e->wstate) ? (int) e->waker : -1;
+}
+
+void portHeistSetSlapsToKo(int n) { sSlapsToKo = n < 0 ? 0 : (n > 255 ? 255 : n); }
+int portHeistSlapsToKo(void) { return sSlapsToKo; }
+void portHeistSetGuardsWake(int on) { sGuardsWake = on ? 1 : 0; }
+
+/* Bond `player` presses use: the nearest knocked-out chr within reach that has not been searched drops what it carries.
+ * Returns its chrnum, -1 none. */
+int portHeistKoSearch(int player)
+{
+    struct player *pl;
+    HeistKo *best = NULL;
+    ChrRecord *bc = NULL;
+    f32 bestd = SEARCH_RANGE * SEARCH_RANGE;
+    int i;
+
+    if (!portModeActive() || sKoBusy <= 0 || player < 0 || player >= (int) portBondCount() || !portBondInPlay(player)
+        || (pl = g_playerPointers[player]) == NULL || pl->prop == NULL) return -1;
+    for (i = 0; i < sKoN; i++)
+    {
+        HeistKo *e = &sKo[i];
+        ChrRecord *c;
+        f32 dx, dy, dz, d;
+
+        if (!e->used || !e->down || e->searched) continue;
+        c = chrFindByLiteralId(e->chrnum);
+        if (c == NULL || c->prop == NULL) continue;
+        dx = c->prop->pos.x - pl->prop->pos.x;
+        dy = c->prop->pos.y - pl->prop->pos.y;
+        dz = c->prop->pos.z - pl->prop->pos.z;
+        d = dx * dx + dz * dz;
+        if (d <= bestd && dy < 200.0f && dy > -200.0f) { bestd = d; best = e; bc = c; }
+    }
+    if (best == NULL) return -1;
+    best->searched = 1;
+    chrDropItems(bc);
+    portEventEmit(PORT_EV_CHR_SEARCHED, best->chrnum, player, 0, 0);
+    return best->chrnum;
+}
+
+/* bondview2.c: the current Bond's use tap; 1 = it searched a knocked-out chr (the tap is consumed) */
+s32 portHeistKoUse(void)
+{
+    return portHeistKoSearch((int) get_cur_playernum()) >= 0 ? 1 : 0;
+}
+
+/* test hook: Bond `player`'s slappers hit `chrnum` through the stock hit path (handles_shot_actors, ITEM_FIST, chest) */
+int portHeistTestSlap(int player, int chrnum)
+{
+    ChrRecord *c = chrFindByLiteralId(chrnum);
+    struct player *pl;
+    coord3d dir;
+    s32 saved;
+    int r;
+
+    if (!portModeActive() || c == NULL || c->prop == NULL || c->model == NULL || player < 0 || player >= (int) portBondCount()
+        || !portBondInPlay(player) || (pl = g_playerPointers[player]) == NULL || pl->prop == NULL) return 0;
+    dir.x = c->prop->pos.x - pl->prop->pos.x;
+    dir.y = 0.0f;
+    dir.z = c->prop->pos.z - pl->prop->pos.z;
+    saved = get_cur_playernum();
+    set_cur_player(player);
+    r = handles_shot_actors(c, HIT_CHEST, &dir, ITEM_FIST, TRUE) ? 1 : 0;
+    set_cur_player(saved);
+    return r;
+}
+
 void portHeistGuardsReset(void)
 {
+    {
+        const char *m = portModeChoice();
+
+        sSlapsToKo = (m != NULL && strncmp(m, "heist", 5) == 0) ? 2 : 0;   /* heist modes KO with 2 slaps; other modes keep stock slaps */
+    }
+    sGuardsWake = 1;
+    sKoN = sKoBusy = sKoTotal = sKoWoken = 0;
+    memset(sKo, 0, sizeof(sKo));
     sPatrolN = 0;
     sFoundN = 0;
     sBodyCheck = 1;
@@ -839,6 +1286,7 @@ void portHeistAiTick(void)
 
     sNow += g_ClockTimer;
     sAcc += g_ClockTimer;
+    if (sKoN > 0) koTick(dt);
     for (i = 0; i < sCivN; i++)
     {
         if (sCiv[i].used) civTick(&sCiv[i], dt);
@@ -881,6 +1329,15 @@ unsigned portHeistStateHash(void)
     h += (unsigned) sPerPlayerKeys * 0x9E3779B1u + (unsigned) sCctvAllTicks * 31u + (unsigned) sCctvAlarmOnSpot * 7u;
     for (i = 0; i < sCctvOvN; i++) h = h * 16777619u + (unsigned) sCctvTicks[i];
     for (i = 0; i < (int) sizeof(sCctvOff); i++) h = h * 16777619u + sCctvOff[i];
+    h = h * 16777619u + (unsigned) sSlapsToKo * 97u + (unsigned) sGuardsWake + (unsigned) sKoTotal * 389u + (unsigned) sKoWoken * 1543u;
+    for (i = 0; i < sKoN; i++)
+    {
+        const HeistKo *e = &sKo[i];
+
+        if (!e->used) continue;
+        h = h * 16777619u + (unsigned) e->chrnum * 3u + (unsigned) e->slaps * 5u + (unsigned) e->down * 11u + (unsigned) e->searched * 13u
+            + (unsigned) e->wstate * 17u + (unsigned) e->waker * 19u + (unsigned) (e->wT * 100.0f);
+    }
     if (countdownTimerIsRunning()) h = h * 16777619u + (unsigned) countdownTimerGetValue();
     return h;
 }

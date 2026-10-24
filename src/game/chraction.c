@@ -2517,8 +2517,21 @@ bool handles_shot_actors(ChrRecord *self, s32 hitpart, coord3d *vector, s32 weap
     s32 hattype;                     //sp78
     PropRecord *myprop = self->prop; //sp60
     s32 padd;
+#ifndef TARGET_N64
+    s32 portSlap = 0;   /* PORT: heist KO (port_heist.c portHeistSlap): 2 = a counted slap, stock reaction with no damage */
+#endif
 
 #ifndef TARGET_N64
+    if (isPlayer && weaponid == ITEM_FIST) /* PORT: heist KO: Bond's slappers count slaps; the last one knocks the chr out instead of the hit */
+    {
+        extern int portHeistSlap(ChrRecord *chr);
+
+        portSlap = portHeistSlap(self);
+        if (portSlap == 1)
+        {
+            return TRUE;
+        }
+    }
     if (isPlayer) /* PORT: mode: Bond's shot, for the CHR_DIED killer */
     {
         extern int portModeActive(void);
@@ -2697,6 +2710,10 @@ bool handles_shot_actors(ChrRecord *self, s32 hitpart, coord3d *vector, s32 weap
             { /* PORT: modifier enemy_health scales the damage taken (1.0f at the default) */
                 extern f32 portModChrDamageScale(ChrRecord *chr);
                 damageToCause *= portModChrDamageScale(self);
+                if (portSlap == 2)
+                {
+                    damageToCause = 0.0f;   /* PORT: heist KO: a slap that counts toward the knock-out does no damage */
+                }
             }
 #endif
 #    ifdef XBLA
@@ -10187,11 +10204,15 @@ void chrlvActionTick(ChrRecord *self)
             extern void portHostageChrTick(ChrRecord *self);
             /* PORT: arena: a kept body runs no AI list (a guard list looks for Bond every tick, forever) */
             extern s32 portArenaChrDormant(const ChrRecord *chr);
+            /* PORT: heist: a knocked-out chr, and a guard walking over to wake one, run no AI list (port_heist.c) */
+            extern int portHeistChrNoAi(ChrRecord *chr);
             if (portBotIsBot(self))
                 portBotChrTick(self);
             else if (portHostageIsHostage(self))
                 portHostageChrTick(self);
             else if (self->actiontype == ACT_DEAD && portArenaChrDormant(self))
+                ;
+            else if (portHeistChrNoAi(self))
                 ;
             else if (!portAiGovDefer(self))
 #endif

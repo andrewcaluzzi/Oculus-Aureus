@@ -500,7 +500,10 @@ static const struct { const char *name; int type; int nargs; } sEvents[] = {
     { "cctv_spotted", PORT_EV_CCTV_SPOTTED, 2 }, /* camera setup index, player */
     { "use", PORT_EV_USE, 4 },                   /* player, PROP_TYPE_* of the target, target setup index (-1), PROPDEF_* type */
     { "gadget_used", PORT_EV_GADGET_USED, 4 },   /* player, ITEM_* id, target setup index (-1), PROPDEF_* type */
-    { "body_found", PORT_EV_BODY_FOUND, 2 },     /* guard chr that found it, body chr (dead) */
+    { "body_found", PORT_EV_BODY_FOUND, 3 },     /* guard chr that found it, body chr, 1 knocked out / 0 dead */
+    { "chr_knocked_out", PORT_EV_CHR_KNOCKED_OUT, 2 },   /* chr, player index of the Bond who slapped it out (-1 script) */
+    { "chr_woken", PORT_EV_CHR_WOKEN, 2 },       /* chr, the guard chr that woke it (-1 script) */
+    { "chr_searched", PORT_EV_CHR_SEARCHED, 2 }, /* knocked-out chr, player index; it dropped what it carried */
     { "civilian_killed", PORT_EV_CIVILIAN_KILLED, 2 },   /* civilian chr, killer player index (-1 unknown) */
     { "civilian_surrendered", PORT_EV_CIVILIAN_SURRENDERED, 2 },   /* civilian chr, player index that aimed at it */
     { "civilian_robbed", PORT_EV_CIVILIAN_ROBBED, 2 },   /* civilian chr, player index; it dropped its key / concealed items */

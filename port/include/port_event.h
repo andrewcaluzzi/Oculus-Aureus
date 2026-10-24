@@ -37,10 +37,13 @@ typedef enum PortEventType
     PORT_EV_CCTV_SPOTTED,   /* a = camera setup index (the probe's idx), b = player index of the Bond it saw for a full alarm time */
     PORT_EV_USE,            /* a = player, b = PROP_TYPE_* of the target, c = target setup index (-1 none), d = PROPDEF_* type of the target */
     PORT_EV_GADGET_USED,    /* a = player, b = ITEM_* id of the gadget, c = target setup index (-1 none), d = PROPDEF_* type of the target */
-    PORT_EV_BODY_FOUND,     /* a = guard chrnum that found it, b = body chrnum (dead, or KO'd once job 5 lands); once per body (port_heist.c) */
+    PORT_EV_BODY_FOUND,     /* a = guard chrnum that found it, b = body chrnum, c = 1 knocked out / 0 dead; once per body (port_heist.c) */
     PORT_EV_CIVILIAN_KILLED, /* a = civilian chrnum, b = killer player index (-1 unknown / not a Bond) */
     PORT_EV_CIVILIAN_SURRENDERED, /* a = civilian chrnum, b = the player index that aimed at it */
     PORT_EV_CIVILIAN_ROBBED, /* a = civilian chrnum, b = player index; it dropped what it carried (a key from spawn.key) after the threat */
+    PORT_EV_CHR_KNOCKED_OUT, /* a = chrnum, b = player index of the Bond whose slap did it (-1 a script); port_heist.c */
+    PORT_EV_CHR_WOKEN,       /* a = chrnum, b = chrnum of the guard that woke it (-1 a script) */
+    PORT_EV_CHR_SEARCHED,    /* a = knocked-out chrnum, b = player index; it dropped what it carried */
     PORT_EV_COUNT
 } PortEventType;
 

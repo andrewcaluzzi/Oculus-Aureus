@@ -121,7 +121,8 @@ const char *portEventName(int type)
     static const char *const names[PORT_EV_COUNT] = { "NONE", "CHR_DIED", "ZONE_ENTER", "ZONE_LEAVE", "STAGE_START", "BOND_DIED",
                                                        "HOSTAGE_FOLLOW", "HOSTAGE_WAIT", "DAMAGE", "CHR_SPAWNED",
                                                        "ITEM_PICKUP", "OBJECTIVE_CHANGED", "ALARM", "CCTV_SPOTTED", "USE", "GADGET_USED",
-                                                       "BODY_FOUND", "CIVILIAN_KILLED", "CIVILIAN_SURRENDERED", "CIVILIAN_ROBBED" };
+                                                       "BODY_FOUND", "CIVILIAN_KILLED", "CIVILIAN_SURRENDERED", "CIVILIAN_ROBBED",
+                                                       "CHR_KNOCKED_OUT", "CHR_WOKEN", "CHR_SEARCHED" };
 
     return (type > 0 && type < PORT_EV_COUNT) ? names[type] : "?";
 }

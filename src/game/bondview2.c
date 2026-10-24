@@ -8052,7 +8052,10 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
         if (moveData.btap)
         {
             extern s32 portHostageUse(void);
+            extern s32 portHeistKoUse(void);   /* PORT: heist: a tap next to a knocked-out chr searches it (port_heist.c) */
             if (portHostageUse())
+                moveData.btap = 0;
+            else if (portHeistKoUse())
                 moveData.btap = 0;
         }
     }

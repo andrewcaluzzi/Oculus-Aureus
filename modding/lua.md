@@ -78,6 +78,8 @@ Registers a handler (at most 16 per event; an unknown event name raises).
 | `use` | `(player, proptype, idx, objtype)`: Bond `player` pressed use on a door or object. `proptype` is `PROP_TYPE_*` (1 object, 2 door, 4 weapon), `idx` the target's setup index (-1 for a prop made at run time), `objtype` its `PROPDEF_*` number. Fires before the interaction runs, locked or not |
 | `gadget_used` | `(player, item, idx, objtype)`: Bond `player` used a gadget (`item` is the `ITEM_*` number: door decoder 38, bomb defuser, data thief, floppy, data tape, safe cracker case, lock/door exploder, credit card, gas keyring) once, on the first frame of its use animation; `idx`/`objtype` as in `use`, for what the use prompt points at (-1 if nothing) |
 | `objective_changed` | `(index, status)`: 0 incomplete, 1 complete, 2 failed |
+| `body_found` | `(guard, body, ko)`: a guard found a body; `ko` is 1 for a knocked-out chr, 0 for a dead one (see "Heist guards") |
+| `chr_knocked_out`, `chr_woken`, `chr_searched` | `(chr, player)`, `(chr, waker)`, `(chr, player)`: see "Knock-outs" |
 | `test_key` | `(name)`: a test hotkey, `"next"` (PageDown), `"back"` (PageUp), `"next+"`, `"back+"` (with Shift), or the console `arena <name>`. Never from the keyboard in co-op or netplay. |
 
 Chr ids are chrnums. Globals: `CHR_BOND = -2` (player 0; `bond.id(p)` gives the id of other Bonds) and `CHR_NONE = -1`. `damage`, `chr_spawned`, `item_pickup` and `objective_changed` also fire on an ordinary solo stage, not only in a mode. The heist events (`alarm`, `cctv_spotted`, `use`, `gadget_used`) fire wherever the game does the thing, but a script only runs in a mode.
@@ -189,25 +191,54 @@ Job 3 and 4 of designs/bank-heist.md. Test mode: `tests/heist/heist_guards.lua` 
 
 **Reinforcement waves.** `include("heist_lib")` (`tools/heist_lib.lua`, copy it next to the mode scripts) gives `heist.reinforce{pads = {...}, interval = 25, per_wave = 3, max_alive = 16, opts = {weapon = "ak47", behaviour = "chase"}, first = 0, reserve = 12}`: while `alarm.active()` it spawns `per_wave` guards every `interval` seconds at the entrance pads (round robin, a busy pad is skipped), never above `max_alive` alive and never when `spawn.free()` is below `reserve`. Returns `r` with `r.alive()`, `r.spawned`, `r.waves`, `r.is_wave(chr)`, `r.stop()`. The alarm event restarts the first-wave timer. The latch (the siren times out after about 30 s) is the mode's job: call `alarm.start()` again, or run waves from your own flag.
 
-**Bodies.** Every ~8 ticks each living, non-civilian chr that is in the same room as a dead chr and within its sight range (capped at 1500 units, and within 150 units in height) notices it: its `chrseedie` is set, the stock "I saw someone die" field, so its own AI list reacts (simple guard and alarm raiser: run to Bond or to the alarm pad; the arena lists already hunt). The first one to notice a body fires `body_found(guard, body)`, once per body. Stock only alerts guards while the victim is still dying (and only setup guards, `get_numguards()`); this covers corpses and spawned guards. No facing test. Bodies must still be there: stock removes corpses about 1.5 s after death, so call `spawn.keep_bodies(true)` (or keep the body yourself). `mode.body_check(on)` turns the scan off (default on), `bodies.found()` counts bodies found this stage, `spawn.down(chr)` says whether a chr counts as a body. KO'd chrs plug into the same check (`chrIsBody` in `port_heist.c`) when job 5 lands.
+**Bodies.** Every ~8 ticks each living, non-civilian chr that is in the same room as a dead chr and within its sight range (capped at 1500 units, and within 150 units in height) notices it: its `chrseedie` is set, the stock "I saw someone die" field, so its own AI list reacts (simple guard and alarm raiser: run to Bond or to the alarm pad; the arena lists already hunt). The first one to notice a body fires `body_found(guard, body)`, once per body. Stock only alerts guards while the victim is still dying (and only setup guards, `get_numguards()`); this covers corpses and spawned guards. No facing test. Bodies must still be there: stock removes corpses about 1.5 s after death, so call `spawn.keep_bodies(true)` (or keep the body yourself). `mode.body_check(on)` turns the scan off (default on), `bodies.found()` counts bodies found this stage, `spawn.down(chr)` says whether a chr counts as a body. A knocked-out chr counts as a body too (`chrIsBody` in `port_heist.c`): `body_found(guard, body, 1)`, and see "Knock-outs" below for the guard who comes to wake it.
 
 **Civilians.** `spawn.chr(pad, {behaviour = "civilian", body = "Civilian_1_Female"})`: unarmed (any `weapon` is ignored), idles at its post, in the hostage faction (guards and bots never target it, but any shot or knife that physically hits it hurts it), flagged `CHRFLAG_COUNT_DEATH_AS_CIVILIAN` (the stock casualty counter, `get_civilian_casualties()`, counts it too). Behaviour, driven per sim tick for every Bond (never the local player):
 
 - Aimed at: a Bond who holds a gun and whose view ray passes within 90 units of it, within the aim range (default 800 units), for `aim` seconds (0.5) makes it surrender (hands up, the `surrender` animation, not the stock `GUARD_SURRENDERS` which would drop its items at once). Event `civilian_surrendered(chr, player)`.
 - Still aimed at for `threat` seconds (2) while surrendered: it drops everything it carries (`chrDropItems`, the stock `CHR_DROP_ALL_CONCEALED_ITEMS`): a key from `spawn.key(civ, flags)` falls where it stands and is picked up like a guard's. Event `civilian_robbed(chr, player)`, once. Nobody aiming for 3 s: it lowers its hands.
 - Gunfire nearby (any shot whose noise reaches it, the stock hearing check) makes it cower for `cower` seconds (4): `"cowering"`, the `startled` animation held. Aiming at a cowering civilian surrenders it as above.
-- Death: `civilian_killed(chr, killer_player)` (-1 when the killer was not a Bond), and `civilian.killed()` counts them. Failing after N is the mode's job. A KO (job 5) will not be a death: it plugs in beside `portHeistChrDied`.
+- Death: `civilian_killed(chr, killer_player)` (-1 when the killer was not a Bond), and `civilian.killed()` counts them. Failing after N is the mode's job. A knock-out is not a death (below); killing a knocked-out civilian is.
 
 | Call | Notes |
 | --- | --- |
-| `civilian.state(chr)` | `"idle"`, `"surrendered"`, `"cowering"`, or nil (not a civilian). |
+| `civilian.state(chr)` | `"idle"`, `"surrendered"`, `"cowering"`, `"knocked_out"`, or nil (not a civilian). |
 | `civilian.killed()` | Civilians killed this stage. |
 | `civilian.tune{range=, aim=, threat=, cower=}` | Aim distance in units, and the three times above. Unset keeps the current value. |
 | `bond.test_noise(p, loudness)`, `spawn.heard(chr [, clear])`, `bond.face(p, x, z)` | Test helpers: Bond `p` fires a shot of that loudness (same code as a real shot); whether the chr heard a shot in the last half second; turn Bond's view onto a point. |
 
-Known limits. `bond.face` is a test helper: turning the view onto a point and then away again hung the Xvfb test build once (it was not investigated; the test avoids it). An `alarm_pad` or `patrol` chr keeps the stock waypoint routes; every other spawned enemy still uses the arena's straight route toward Bond (so only those two kinds can reach a pad). Spawning needs a clear spot: a busy pad (a held guard still standing on it) makes `spawn.chr` return nil. The siren is re-triggered every tick while a raiser's alarm animation plays past frame 60, so `alarm.stop()` in that window is undone; remove the chr first.
+Known limits. `bond.face` is a test helper: turning the view onto a point and then away again hung the Xvfb test build once (it was not investigated; the test avoids it). An `alarm_pad` or `patrol` chr keeps the stock waypoint routes; every other spawned enemy still uses the arena's straight route toward Bond (so only those two kinds can reach a pad). Spawning needs a clear spot: a busy pad (a held guard still standing on it) makes `spawn.chr` return nil. A civilian's "holds a gun" test counts the slappers (`ITEM_FIST`) as armed, so aiming bare fists at one also makes it surrender.
 
-Events: `body_found(guard, body)`, `civilian_killed(chr, player)`, `civilian_surrendered(chr, player)`, `civilian_robbed(chr, player)`. The civilian table, found-body list and counters are in the co-op state hash.
+`alarm.stop()` sticks: the stock raiser re-fires the siren every tick from frame 60 of its alarm animation to the end, so `alarm.stop()` ends that animation for any raiser past frame 60 (the stock end-of-animation step; its list then runs at Bond as it would have) and logs `ge: heist: alarm.stop: raiser chr N stopped at frame F`. A raiser still before frame 60 has not raised it yet, and still will.
+
+Events: `body_found(guard, body, ko)`, `civilian_killed(chr, player)`, `civilian_surrendered(chr, player)`, `civilian_robbed(chr, player)`. The civilian table, found-body list and counters are in the co-op state hash.
+
+### Knock-outs
+
+Job 5 of designs/bank-heist.md. Test mode: `tests/heist/heist_ko.lua` (run with `tests/heist/run_ko.sh`).
+
+**Slaps.** In a mode whose name starts with `heist`, Bond's slappers (`ITEM_FIST`, the punch that goes through the stock hit path, `handles_shot_actors`) knock a chr out on the second slap. The first slap plays the stock hit reaction but does **no damage**; the second does not hit at all: the chr falls (the stock `death_forward_face_down_soft` animation, about 4 s, which carries the body about 100 units forward) and holds the last frame. `mode.slaps_to_ko(n)` sets the count (0 = slaps are ordinary stock hits; the default is 2 in a `heist*` mode and 0 in any other mode, so the arena keeps stock slaps); reset at each stage start. Guns, knives and blasts are never slaps. Hostages, the co-op bot, invincible chrs (spectators) and the Bonds' bodies cannot be knocked out.
+
+**Knocked out.** Not dead: no `chr_died`, no `civilian_killed`, not counted by `civilian.killed()` or the stock casualty counter, `spawn.alive` stays true and the chr keeps its slot. It runs no AI list, has no collision box (Bond walks over it) and no auto-aim. It **never wakes by itself**. A further slap does nothing; a gun still kills it, and that is an ordinary death (a killed knocked-out civilian counts). A hit reaction that gets it up is undone the next tick (it goes straight back to the lying pose). `spawn.down(chr)` is true, so `heist.reinforce` does not count it as alive.
+
+**What it carries** (a key from `spawn.key`, its gun) stays on it. A Bond who presses use within about 1.3 m of it searches it: it drops what it carries (`chrDropItems`, as a robbed civilian) and `chr_searched(chr, player)` fires, once per knock-out. The use press is consumed only when it searched someone (hostages take the press first).
+
+**Found and woken.** The body scan treats it as a body: the first guard to see it fires `body_found(guard, body, 1)`. With `mode.guards_wake(on)` (default on) that guard walks over (stock route, never the arena's route to Bond), stops about 90 units away, looks it over for 1.5 s and wakes it: it blends back up to standing, both go on alert (the stock "saw someone die" reaction of their own lists; a woken civilian cowers instead) and `chr_woken(chr, guard)` fires. A guard already fighting (attack actions) does not go. If the waker is killed, knocked out or removed on the way, the body can be found again by the next guard; if it is shot at, or walks 20 s without arriving, it gives up and goes on alert instead. Every other guard who sees the body reacts as to a corpse. With `mode.guards_wake(false)` a knocked-out chr stays down until a script wakes it.
+
+| Call | Notes |
+| --- | --- |
+| `spawn.ko(chr [, p])` | Knock a chr out now (as if Bond `p` slapped it; omitted = a script, the event's player is -1). False if it cannot be knocked out. |
+| `ko.is(chr)` | True while it is knocked out. |
+| `ko.count()` | `down, total, woken`: knocked out now, knock-outs this stage, wakes this stage. |
+| `ko.slaps(chr)` | Slaps counted toward its knock-out (back to 0 when it wakes). |
+| `ko.wake(chr)` | A script wakes it (no guard; `chr_woken(chr, -1)`). |
+| `ko.waker(chr)` | The guard on its way to wake it, or nil. |
+| `ko.search(p)` | Bond `p` presses use where he stands: the chr searched, or nil. Same code as the use key. |
+| `ko.test_slap(p, chr)` | Test hook: Bond `p`'s slappers hit `chr` through the stock hit path, wherever he is. |
+| `mode.slaps_to_ko([n])` | Set (and return) the slap count; 0 = off. |
+| `mode.guards_wake(on)` | A guard who finds a knocked-out chr comes to wake it (default true). |
+
+Co-op: every slap names the Bond whose punch landed; the knock-out table (slaps, state, searched, waker and its timer) and both options are in the co-op state hash. Limits: the fall is always the one stock soft death animation, with none of the stock death code's wall checks, so a chr knocked out facing a wall may clip into it (not seen in the test); the woken chr blends up from lying (there is no stock get-up animation); the waker's "look it over" is the stock look-around animation, not a kneel.
 
 ### Weapons, modifiers, music, menus
 

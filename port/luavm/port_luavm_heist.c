@@ -9,6 +9,8 @@
  *   alarm.start() / alarm.stop() / alarm.active()
  *   cctv.list() / cctv.get(i) / cctv.disable(i) / cctv.enable(i) / cctv.set_alarm_time(seconds [, i]) / cctv.alarm_on_spot(on)
  *   hud.countdown(seconds | nil) / hud.countdown_left()
+ *   spawn.ko(chr [, p]) / ko.is / ko.count / ko.slaps / ko.wake / ko.waker / ko.search(p) / ko.test_slap(p, chr)
+ *   mode.slaps_to_ko([n]) / mode.guards_wake(on)   (knock-outs, job 5)
  * Door and camera indices are the setup-record indices the probe logs. */
 #include <string.h>
 #include <stdio.h>
@@ -295,12 +297,12 @@ static int hudCountdownLeft(lua_State *L)
 /* civilian.state(chr) -> "idle" | "surrendered" | "cowering" | nil (not a civilian) */
 static int civState(lua_State *L)
 {
-    static const char *const names[] = { "idle", "surrendered", "cowering" };
+    static const char *const names[] = { "idle", "surrendered", "cowering", "knocked_out" };
     int s;
 
     needStage(L, "civilian.state");
     s = portHeistCivilianState((int) luaL_checkinteger(L, 1));
-    if (s < 0 || s > 2) lua_pushnil(L); else lua_pushstring(L, names[s]);
+    if (s < 0 || s > 3) lua_pushnil(L); else lua_pushstring(L, names[s]);
     return 1;
 }
 
@@ -377,6 +379,78 @@ static int bondFace(lua_State *L)
     return 1;
 }
 
+/* ---- knock-out (job 5) ---- */
+
+/* spawn.ko(chr [, p]): knock a chr out now, as if Bond p's last slap had (p omitted = a script: the event's player is -1) */
+static int spawnKo(lua_State *L)
+{
+    needStage(L, "spawn.ko");
+    lua_pushboolean(L, portHeistKnockOut((int) luaL_checkinteger(L, 1), (int) luaL_optinteger(L, 2, -1)));
+    return 1;
+}
+
+static int koIs(lua_State *L) { needStage(L, "ko.is"); lua_pushboolean(L, portHeistKoIs((int) luaL_checkinteger(L, 1))); return 1; }
+static int koSlaps(lua_State *L) { needStage(L, "ko.slaps"); lua_pushinteger(L, portHeistKoSlaps((int) luaL_checkinteger(L, 1))); return 1; }
+static int koWake(lua_State *L) { needStage(L, "ko.wake"); lua_pushboolean(L, portHeistKoWake((int) luaL_checkinteger(L, 1))); return 1; }
+
+/* ko.count() -> knocked out now, knock-outs this stage, wakes this stage */
+static int koCount(lua_State *L)
+{
+    int down, total, woken;
+
+    needStage(L, "ko.count");
+    portHeistKoCount(&down, &total, &woken);
+    lua_pushinteger(L, down);
+    lua_pushinteger(L, total);
+    lua_pushinteger(L, woken);
+    return 3;
+}
+
+/* ko.waker(chr) -> the guard walking over to wake it, or nil */
+static int koWaker(lua_State *L)
+{
+    int g;
+
+    needStage(L, "ko.waker");
+    g = portHeistKoWaker((int) luaL_checkinteger(L, 1));
+    if (g < 0) lua_pushnil(L); else lua_pushinteger(L, g);
+    return 1;
+}
+
+/* ko.search(p) -> chr | nil: Bond p presses use where he stands (the use key does the same): the nearest knocked-out chr within reach drops what it carries */
+static int koSearch(lua_State *L)
+{
+    int c;
+
+    needStage(L, "ko.search");
+    c = portHeistKoSearch((int) luaL_checkinteger(L, 1));
+    if (c < 0) lua_pushnil(L); else lua_pushinteger(L, c);
+    return 1;
+}
+
+/* ko.test_slap(p, chr): test hook, Bond p's slappers hit chr through the stock hit path -> true if the hit landed */
+static int koTestSlap(lua_State *L)
+{
+    needStage(L, "ko.test_slap");
+    lua_pushboolean(L, portHeistTestSlap((int) luaL_checkinteger(L, 1), (int) luaL_checkinteger(L, 2)));
+    return 1;
+}
+
+/* mode.slaps_to_ko([n]) -> n: slaps that knock a chr out (0 = slaps are stock hits). Default 2 in a mode named heist*, 0 otherwise; reset each stage */
+static int modeSlapsToKo(lua_State *L)
+{
+    if (!lua_isnoneornil(L, 1)) portHeistSetSlapsToKo((int) luaL_checkinteger(L, 1));
+    lua_pushinteger(L, portHeistSlapsToKo());
+    return 1;
+}
+
+/* mode.guards_wake(on): a guard who finds a knocked-out chr walks over and wakes it (default true) */
+static int modeGuardsWake(lua_State *L)
+{
+    portHeistSetGuardsWake(lua_isnone(L, 1) ? 1 : lua_toboolean(L, 1));
+    return 0;
+}
+
 static void addTo(lua_State *L, const char *lib, const luaL_Reg *reg)
 {
     lua_getglobal(L, lib);
@@ -391,9 +465,13 @@ void portLuaHeistRegister(lua_State *L)
     static const luaL_Reg alarmLib[] = { { "start", alarmStart }, { "stop", alarmStop }, { "active", alarmActive }, { NULL, NULL } };
     static const luaL_Reg cctvLib[] = { { "list", cctvList }, { "get", cctvGet }, { "disable", cctvDisable }, { "enable", cctvEnable },
         { "set_alarm_time", cctvSetAlarmTime }, { "alarm_on_spot", cctvAlarmOnSpot }, { NULL, NULL } };
-    static const luaL_Reg spawnAdd[] = { { "key", spawnKey }, { "key_at", spawnKeyAt }, { "key_alive", spawnKeyAlive }, { "down", spawnDown }, { "heard", spawnHeard }, { NULL, NULL } };
+    static const luaL_Reg spawnAdd[] = { { "key", spawnKey }, { "key_at", spawnKeyAt }, { "key_alive", spawnKeyAlive }, { "down", spawnDown }, { "heard", spawnHeard },
+        { "ko", spawnKo }, { NULL, NULL } };
     static const luaL_Reg bondAdd[] = { { "has_key", bondHasKey }, { "keys", bondKeys }, { "test_gadget", bondTestGadget }, { "face", bondFace }, { "test_noise", bondTestNoise }, { NULL, NULL } };
-    static const luaL_Reg modeAdd[] = { { "per_player_keys", modePerPlayerKeys }, { "body_check", modeBodyCheck }, { NULL, NULL } };
+    static const luaL_Reg modeAdd[] = { { "per_player_keys", modePerPlayerKeys }, { "body_check", modeBodyCheck }, { "slaps_to_ko", modeSlapsToKo },
+        { "guards_wake", modeGuardsWake }, { NULL, NULL } };
+    static const luaL_Reg koLib[] = { { "is", koIs }, { "count", koCount }, { "slaps", koSlaps }, { "wake", koWake }, { "waker", koWaker },
+        { "search", koSearch }, { "test_slap", koTestSlap }, { NULL, NULL } };
     static const luaL_Reg civLib[] = { { "state", civState }, { "killed", civKilled }, { "tune", civTune }, { NULL, NULL } };
     static const luaL_Reg bodiesLib[] = { { "found", bodiesFound }, { NULL, NULL } };
     static const luaL_Reg hudAdd[] = { { "countdown", hudCountdown }, { "countdown_left", hudCountdownLeft }, { NULL, NULL } };
@@ -408,6 +486,8 @@ void portLuaHeistRegister(lua_State *L)
     lua_setglobal(L, "civilian");
     luaL_newlib(L, bodiesLib);
     lua_setglobal(L, "bodies");
+    luaL_newlib(L, koLib);
+    lua_setglobal(L, "ko");
     addTo(L, "spawn", spawnAdd);
     addTo(L, "bond", bondAdd);
     addTo(L, "mode", modeAdd);

@@ -258,8 +258,11 @@ s32 portArenaDirect(const ChrRecord *chr)
 {
     ArenaInfo *a = (chr != NULL) ? infoGet((s32)chr->chrnum) : NULL;
 
-    /* heist: an alarm raiser or a patroller keeps the stock routes (it must reach ITS pad, not walk to Bond) */
-    return !legacyAI() && portArenaChrIsEnemy(chr) && !(a != NULL && a->stockroute);
+    /* heist: an alarm raiser or a patroller keeps the stock routes (it must reach ITS pad, not walk to Bond); so does a guard walking over
+     * to wake a knocked-out chr (port_heist.c) */
+    extern int portHeistChrWaking(const ChrRecord *c);
+
+    return !legacyAI() && portArenaChrIsEnemy(chr) && !(a != NULL && a->stockroute) && !portHeistChrWaking(chr);
 }
 
 /* range = farthest throw (units), cooldownTicks = ticks between throws (60 Hz); the arena defaults for a chr without an entry */
