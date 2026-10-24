@@ -88,6 +88,7 @@ extern u8             list_of_tilesizes[];
 #define BTN_CR    0x0001
 
 #define MAXPATH 4096
+#define PORTACT_NEXT_INV_INDEX 8   /* joy_port.c PORTACT_NEXT_INV ("next_inventory"; input_pc.c PM_PORT_NEXT_INV) */
 
 /* ---- state ------------------------------------------------------------------------------------------------------- */
 
@@ -152,6 +153,8 @@ typedef struct {
     s32 blockedAt[16];
     s32 nBlockedDoors;
     ObjectRecord *subLock;     /* a detour: shoot this padlock off a door on the route */
+    ObjectRecord *photoObj;    /* the object being photographed, and since when */
+    s32 photoSince;
     ObjectRecord *shootObj;    /* the object being shot at, and since when */
     s32 shootSince;
     PropRecord *lootProp;      /* a detour: walk over a pick-up */
@@ -176,6 +179,8 @@ typedef struct {
 
     /* weapon */
     s32 wantWeapon;
+    s32 keepWant;
+    s32 actNextInv;            /* this tick: press the port action PORTACT_NEXT_INV */
     s32 lastCycleTick;
 
     /* output for this tick */
@@ -401,6 +406,7 @@ static void outClear(void)
     B.sy = 0;
     B.yaw = 0.0f;
     B.pitch = 0.0f;
+    B.actNextInv = 0;
 }
 
 static f32 fovRatio(void)
@@ -489,7 +495,8 @@ static s32 bestGun(void)
 static void weaponTick(void)
 {
     s32 cur = getCurrentPlayerWeaponId(GUNRIGHT);
-    s32 want = B.wantWeapon > 0 ? B.wantWeapon : bestGun();
+    /* a fight always gets the best gun, whatever gadget a step wants */
+    s32 want = (B.wantWeapon > 0 && B.target == NULL) ? B.wantWeapon : bestGun();
 
     if (want < 0 || !bondinvItemAvailable(want) || cur == want)
     {
@@ -497,7 +504,15 @@ static void weaponTick(void)
     }
     if (B.tick - B.lastCycleTick >= 24)
     {
-        B.btn |= BTN_A;
+        if (want >= ITEM_BOMBCASE)
+        {   /* A only cycles guns; gadgets come round with the port's "next inventory item" action (a key / pad bind,
+             * recorded like any input) */
+            B.actNextInv = 1;
+        }
+        else
+        {
+            B.btn |= BTN_A;
+        }
         B.lastCycleTick = B.tick;
     }
 }
@@ -968,6 +983,10 @@ static s32 doorHandle(f32 gx, f32 gy, f32 gz, StandTile *goalTile)
     PropRecord *d;
     f32 dx, dz, dist;
 
+    if (B.subLock != NULL)
+    {
+        return 0;   /* walking up to shoot a padlock off: its door is shut, that is the point */
+    }
     if (B.doorProp == NULL && (B.tick % 10) == 0)
     {
         B.doorProp = routeDoor();
@@ -1148,6 +1167,14 @@ static void steerTo(f32 x, f32 y, f32 z, f32 slowRadius)
     B.sy = (s8) sp;
 }
 
+/* the floor under Bond (his prop sits at eye height, ~150 above it): the centre height of his tile */
+static f32 bondGroundY(void)
+{
+    s32 i = bondTile() != NULL ? tileIndex(bondTile()) : -1;
+
+    return i >= 0 ? B.g.y[i] : bond()->prop->pos.y - 150.0f;
+}
+
 static f32 navMetric(f32 dist)
 {
     return B.pathN > B.pathAt ? (f32) (B.pathN - B.pathAt) * 100.0f + 1000.0f : dist;
@@ -1157,11 +1184,12 @@ static f32 navMetric(f32 dist)
 static s32 navTo(f32 x, f32 y, f32 z, f32 radius, StandTile *goalTile)
 {
     struct player *p = bond();
-    f32 dx = x - p->prop->pos.x, dz = z - p->prop->pos.z, dy = y - p->prop->pos.y;
+    f32 dx = x - p->prop->pos.x, dz = z - p->prop->pos.z, dy = y - bondGroundY();
     f32 dist = sqrtf(dx * dx + dz * dz);
     s32 lvl;
 
-    if (dist <= radius && fabsf(dy) < 260.0f)
+    /* arrived: close in x/z and on the same floor (goal heights are floor-ish: pads, objects, doors) */
+    if (dist <= radius && dy > -120.0f && dy < 200.0f)
     {
         navReset();
         return 1;
@@ -1665,7 +1693,14 @@ static void stepBegin(void)
     B.phase = 0;
     B.count = 0;
     B.stepFails = 0;
-    B.wantWeapon = 0;
+    if (B.keepWant > 0)
+    {
+        B.keepWant--;   /* an `equip` holds the item for the steps right after it (press z, wait) */
+    }
+    else
+    {
+        B.wantWeapon = 0;
+    }
     navReset();
 }
 
@@ -1675,6 +1710,10 @@ static void stepNext(const char *why)
     {
         portConLogf("ge: playerbot: step %d '%s' %s at t=%.1fs\n", B.step + 1, B.plan.s[B.step].text, why,
                     (f32) B.tick / 60.0f);
+    }
+    if (B.step < B.plan.n && B.plan.s[B.step].op == PBL_EQUIP && B.wantWeapon > 0)
+    {
+        B.keepWant = 2;
     }
     B.step++;
     stepBegin();
@@ -1738,14 +1777,16 @@ static s32 doShootObj(ObjectRecord *obj)
     {
         B.shootSince = B.tick;
     }
-    /* line of sight to a point just this side of it (a padlock sits on its door, a camera on its wall) */
-    if (d < 1400.0f && d > 1.0f &&
+    /* line of sight to a point just this side of it (a padlock sits on its door, a camera on its wall), from the
+     * same floor (the tile line test is flat: from a roof it would "see" a padlock under it) */
+    if (d < 1400.0f && d > 1.0f && op->pos.y - bondGroundY() > -100.0f && op->pos.y - bondGroundY() < 400.0f &&
         botLine(bondTile(), p->prop->pos.x, p->prop->pos.z, op->pos.x - dx / d * 40.0f, op->pos.z - dz / d * 40.0f, NULL,
                 (obj == B.subLock ? 0 : CDTYPE_OBJS) | CDTYPE_DOORS | CDTYPE_PATHBLOCKER))   /* a padlock hangs on stuff */
     {
         /* aim a little above the prop's origin (most sit on the floor); keep some range so the shots land on it */
-        shootAt(op->pos.x, op->pos.y + 35.0f, op->pos.z, 15.0f);
-        if (d < (obj->type == PROPDEF_GAS_RELEASING ? 650.0f : 450.0f))
+        /* padlocks: their own origin (a hatch's locks lie on the floor); floor objects: a little above it */
+        shootAt(op->pos.x, op->pos.y + (obj == B.subLock ? 0.0f : 35.0f), op->pos.z, obj == B.subLock ? 6.0f : 15.0f);
+        if (obj != B.subLock && d < (obj->type == PROPDEF_GAS_RELEASING ? 650.0f : 450.0f))
         {   /* many of these explode or gas the room (bottling tanks, barrels): shoot from range */
             B.btn &= ~BTN_Z;
             B.sy = -60;
@@ -1788,6 +1829,45 @@ static ChrRecord *findChr(s32 byAi, s32 id)
         }
     }
     return NULL;
+}
+
+/* photograph an object: camera in hand, a clear view from up to ~900 away (a big screen high on a wall cannot be
+ * walked to), then pictures. Returns the number of pictures taken so far (B.count). */
+static s32 doPhoto(ObjectRecord *obj)
+{
+    struct player *p = bond();
+    PropRecord *op = obj->prop;
+    f32 dx = op->pos.x - p->prop->pos.x, dz = op->pos.z - p->prop->pos.z;
+    f32 d = sqrtf(dx * dx + dz * dz);
+
+    B.wantWeapon = ITEM_CAMERA;
+    if (B.photoObj != obj)
+    {
+        B.photoObj = obj;
+        B.photoSince = B.tick;
+    }
+    /* alternate: 4 s trying from here (in range: look at it, shoot when the game has it on screen), then 3 s walking
+     * closer; the whole object must fit in the picture, so not from right under it */
+    if (d < 900.0f && d > 250.0f && ((B.tick - B.photoSince) % 420) < 240)
+    {
+        f32 err = lookAt(op->pos.x, op->pos.y, op->pos.z, 10.0f);
+
+        if (getCurrentPlayerWeaponId(GUNRIGHT) == ITEM_CAMERA && fabsf(err) < 3.0f && (op->flags & PROPFLAG_ONSCREEN) &&
+            ((B.tick - B.stepTick) % 40) == 39)
+        {
+            B.btn |= BTN_Z;
+            B.count++;
+        }
+        return B.count;
+    }
+    if (d <= 250.0f)
+    {
+        B.sy = -60;   /* back away to get it all in */
+        lookAt(op->pos.x, op->pos.y, op->pos.z, 10.0f);
+        return B.count;
+    }
+    navTo(op->pos.x, op->pos.y, op->pos.z, 400.0f, NULL);
+    return B.count;
 }
 
 /* run one plan step; returns 1 when the step is done */
@@ -1892,29 +1972,19 @@ static s32 stepRun(PblStep *s)
             {
                 return 1;
             }
-            B.wantWeapon = ITEM_CAMERA;
-            if (B.phase == 0)
-            {
-                if (navTo(obj->prop->pos.x, obj->prop->pos.y, obj->prop->pos.z, 250.0f, obj->prop->stan))
-                {
-                    B.phase = 1;
-                    B.stepTick = B.tick;
-                }
-                return 0;
-            }
-            lookAt(obj->prop->pos.x, obj->prop->pos.y, obj->prop->pos.z, 10.0f);
-            if (getCurrentPlayerWeaponId(GUNRIGHT) == ITEM_CAMERA && ((B.tick - B.stepTick) % 40) == 39)
-            {
-                B.btn |= BTN_Z;
-                B.count++;
-            }
-            return B.count >= 4;
+            return doPhoto(obj) >= 6;
         case PBL_WAIT:
             return B.tick - B.stepTick >= s->a;
         case PBL_EQUIP:
             B.wantWeapon = s->a;
-            if (getCurrentPlayerWeaponId(GUNRIGHT) == s->a || B.tick - B.stepTick > 400)
+            if (getCurrentPlayerWeaponId(GUNRIGHT) == s->a)
             {
+                return 1;   /* keep wanting it: the next steps use it (gadget / press z) */
+            }
+            if (B.tick - B.stepTick > 600)
+            {
+                portConLogf("ge: playerbot: equip %d failed (in inventory: %d, in hand: %d)\n", s->a, bondinvItemAvailable(s->a),
+                            getCurrentPlayerWeaponId(GUNRIGHT));
                 B.wantWeapon = 0;
                 return 1;
             }
@@ -1952,7 +2022,12 @@ static s32 stepRun(PblStep *s)
             {   /* a new objective target */
                 if (B.verbose)
                 {
-                    portConLogf("ge: playerbot: auto: %s obj %d\n", pblOpName(op), tag);
+                    ObjectRecord *ao = objByTag(tag);
+
+                    portConLogf("ge: playerbot: auto: %s obj %d at %.0f,%.0f,%.0f\n", pblOpName(op), tag,
+                                ao != NULL && ao->prop != NULL ? ao->prop->pos.x : 0.0f,
+                                ao != NULL && ao->prop != NULL ? ao->prop->pos.y : 0.0f,
+                                ao != NULL && ao->prop != NULL ? ao->prop->pos.z : 0.0f);
                 }
                 B.count = tag * 16 + op;
                 B.phase = 0;
@@ -1969,12 +2044,7 @@ static s32 stepRun(PblStep *s)
             }
             else
             {
-                B.wantWeapon = ITEM_CAMERA;
-                if (navTo(obj->prop->pos.x, obj->prop->pos.y, obj->prop->pos.z, 250.0f, obj->prop->stan))
-                {
-                    lookAt(obj->prop->pos.x, obj->prop->pos.y, obj->prop->pos.z, 10.0f);
-                    tap(BTN_Z, 40);
-                }
+                doPhoto(obj);
             }
             return 0;
         }
@@ -2380,7 +2450,19 @@ static void drive(void)
             navReset();
             return;
         }
-        doShootObj(B.subLock);
+        {
+            s32 shooting = doShootObj(B.subLock);
+
+            if (B.verbose >= 2 && ((B.tick - B.subSince) % 120) == 0)
+            {
+                PropRecord *lp = B.subLock->prop;
+                f32 ddx = lp->pos.x - p->prop->pos.x, ddz = lp->pos.z - p->prop->pos.z;
+
+                portConLogf("ge: playerbot: padlock: %.0f away, %s, ground %.0f lock y %.0f, verta %.1f theta %.0f btn %04x\n",
+                            sqrtf(ddx * ddx + ddz * ddz), shooting ? "shooting" : "walking", bondGroundY(), lp->pos.y,
+                            p->vv_verta, p->vv_theta, B.btn);
+            }
+        }
         return;
     }
     if (B.subSwitch != NULL)
@@ -2598,6 +2680,10 @@ void portPlayerBotActions(u8 *down, s32 count)
         for (i = 0; i < count; i++)
         {
             down[i] = 0;
+        }
+        if (B.actNextInv && count > PORTACT_NEXT_INV_INDEX)
+        {
+            down[PORTACT_NEXT_INV_INDEX] = 1;
         }
     }
 }
