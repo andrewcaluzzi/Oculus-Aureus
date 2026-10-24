@@ -9,6 +9,39 @@
 -- never a shot at a civilian) -> GREEN card -> BLUE card -> the security console (cameras off 90 s) -> RED card -> the vault
 -- antechamber: start the cracker, hold the zone, restart it when it jams -> the vault opens: grab bars until the klaxon ->
 -- out by the nearer exit. The alarm does not stop it: the bot fights (cover, raisers first) and carries on.
+--
+-- Easy tunings (the heist's defaults are AC's to tune; these only set HEIST_SETTINGS before the include, like the tests do, and are a
+-- difficulty ladder for measuring the bot): GE_HEIST_TUNE1 .. GE_HEIST_TUNE4 (the highest one set wins; none = the defaults).
+--   1  no posted guards, raisers, vault guards, squads, waves or response; guards (the card carriers) at stock accuracy; jams 50%
+--   2  20 posted, 3 raisers, 2 vault guards, 1 crack squad, response at 300 s, stock accuracy
+--   3  45 posted, 6 raisers, 4 vault guards, 2 crack squads, response at 180 s, stock accuracy
+--   4  the default counts and timers, stock accuracy (the defaults' only difference: heist accuracy 10 at Agent = 2x stock)
+-- `acc` is the accuracy rating given to every armed chr the heist spawns (the mode's own is 10/20/30/40 by difficulty).
+local OFF = 1e9
+local TUNES = {
+  { guards_post = 0, guards_raiser = 0, guards_vault = 0, crack_squads = 0, wave_first = OFF, response_after = OFF, jam_chance = 0.5, acc = 0 },
+  { guards_post = 20, guards_raiser = 3, guards_vault = 2, crack_squads = 1, response_after = 300, acc = 0 },
+  { guards_post = 45, guards_raiser = 6, guards_vault = 4, crack_squads = 2, response_after = 180, acc = 0 },
+  { acc = 0 },
+}
+local tune_n
+for n = 1, #TUNES do if mode.env_flag("GE_HEIST_TUNE" .. n) then tune_n = n end end
+HEIST_TUNE = tune_n
+if tune_n then
+  HEIST_SETTINGS = HEIST_SETTINGS or {}
+  local acc
+  for k, v in pairs(TUNES[tune_n]) do
+    if k == "acc" then acc = v else HEIST_SETTINGS[k] = v end
+  end
+  if acc then
+    local real_chr = spawn.chr
+    spawn.chr = function(pad, o)
+      if type(o) == "table" and o.accuracy ~= nil then o.accuracy = acc end
+      return real_chr(pad, o)
+    end
+  end
+  print(string.format("ge: heist_bot: easy tuning %d", tune_n))
+end
 include("heist")
 local H = HEIST
 local CFG = HEIST_BOT or {}

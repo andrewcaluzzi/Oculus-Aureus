@@ -3279,8 +3279,8 @@ static void robTick(ChrRecord *c)
         B.wantWeapon = 0;
     }
     if (!los || d > 450.0f)
-    {
-        navTo(c->prop->pos.x, c->prop->pos.y, c->prop->pos.z, 200.0f, c->prop->stan);
+    {   /* (no line: walk right up - "within 200" was met through a shut door and the bot stood there for good) */
+        navTo(c->prop->pos.x, c->prop->pos.y, c->prop->pos.z, los ? 200.0f : 50.0f, c->prop->stan);
         B.robSince = B.tick;
         return;
     }

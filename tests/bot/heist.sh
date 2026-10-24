@@ -11,7 +11,9 @@ COUNT=${3:-10}
 PAR=${4:-4}
 DIFF=${DIFF:-0}
 OUTROOT=$ROOT/build_tests/bot/heist
-NAME=$MODE.d$DIFF${RUNTAG:+.$RUNTAG}       # RUNTAG: keep parallel batches (A/B settings) apart
+NAME=$MODE.d$DIFF${TUNE:+.t$TUNE}${RUNTAG:+.$RUNTAG}       # RUNTAG: keep parallel batches (A/B settings) apart
+# TUNE=1..4: one of heist_bot.lua's easy tunings (GE_HEIST_TUNE<n>); unset = the heist's defaults
+[ -n "$TUNE" ] && EXTRA="GE_HEIST_TUNE$TUNE=1 $EXTRA"
 mkdir -p "$OUTROOT"
 SUMMARY=$OUTROOT/$NAME.summary.txt
 : > "$SUMMARY"
