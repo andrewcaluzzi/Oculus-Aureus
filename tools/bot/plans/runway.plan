@@ -1,0 +1,10 @@
+# Runway. Objectives (tools/bot/objectives.py assets/obseg/setup/UsetuprunZ.c):
+#   0 insert the plane's ignition key: collect the key (tag 2) (all)
+#   1 destroy the drone guns (tags 0, 4, 5; 00)   2 destroy the heavy gun emplacement (tag 1; SA+)
+#   3 escape in the plane: ai_19 sets 0x800 when the aircraft (tag 3) is activated with the key held (all)
+name runway
+obj=0 collect obj 2
+obj=1 auto
+obj=2 auto
+use obj 3 200
+exit

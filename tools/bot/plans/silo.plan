@@ -1,0 +1,8 @@
+# Silo. Objectives (tools/bot/objectives.py assets/obseg/setup/u/UsetupsiloZ.c):
+#   0 plant bombs in fuel rooms (00)   1 photograph the satellite (all; auto)   2 retrieve the telemetric data (SA+)
+#   3 collect the circuit boards (SA+)  4 minimise scientist casualties / escape: 0x8000 once Bond is in the room
+#     with pad 232 (fails on 0x4000, more than 2 civilians killed - the bot never targets civilians)
+name silo
+auto
+goto pad 232 40
+exit

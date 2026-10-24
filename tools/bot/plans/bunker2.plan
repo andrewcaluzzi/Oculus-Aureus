@@ -1,0 +1,8 @@
+# Bunker 2 (Severnaya). Objectives (tools/bot/objectives.py assets/obseg/setup/UsetupsevbZ.c):
+#   0 (SA+, flag 0x200)   1 collect tag 2 (all; fails on 0x1000, it destroyed)   2 CCTV tags 28-33 (SA+)
+#   3 collect tag 34 (00)   4 escape with Natalya: flag 0x800 (ai_12) and enter the room with pad 51 (all)
+name bunker2
+obj=1 collect obj 2
+auto
+goto pad 51 40
+exit

@@ -1,0 +1,10 @@
+# Surface 1 (Severnaya). Objectives (tools/bot/objectives.py assets/obseg/setup/UsetupsevxZ.c):
+#   0 power down the communications dish: activate the console (tag 1) - ai_40 sets 0x100 (all; fails on 0x800)
+#   1 collect the bunker key (tag 0; SA+)   2 collect the safe's contents (tag 2; SA+)
+#   3 enter the bunker: ai_44 sets 0x8000 once Bond is in the room with pad 46 (all) - the mission ends there
+name surface
+obj=1 collect obj 0
+obj=2 collect obj 2
+obj=0 use obj 1 120
+goto pad 46 40
+exit

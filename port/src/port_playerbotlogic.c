@@ -115,6 +115,8 @@ static const struct { const char *name; int op; } sOps[] = {
     { "look", PBL_LOOK },
     { "walk", PBL_WALK },
     { "peace", PBL_PEACE },
+    { "meet", PBL_MEET },      /* meet chr N [r] [ticks] | meet ai ID [r] [ticks] */
+    { "hunt", PBL_HUNT },
 };
 
 const char *pblOpName(int op)
@@ -397,6 +399,18 @@ int pblParsePlan(const char *text, PblPlan *plan, char *err, int errlen)
                 st.x = (float) atof(tok[k]);
                 st.y = (float) atof(tok[k + 1]);
                 st.z = (float) atof(tok[k + 2]);
+                break;
+            case PBL_MEET:
+                NEED(2);
+                if (strcmp(tok[k], "chr") != 0 && strcmp(tok[k], "ai") != 0)
+                {
+                    snprintf(err, errlen, "line %d: want 'meet chr N' or 'meet ai ID'", lineno);
+                    return -1;
+                }
+                st.a = tok[k][0] == 'a';
+                st.b = (int) num(tok[k + 1]);
+                st.r = (nt - k >= 3) ? (float) atof(tok[k + 2]) : 150.0f;
+                st.c = (nt - k >= 4) ? (int) num(tok[k + 3]) : 1200;
                 break;
             case PBL_WALK:
                 NEED(2);
