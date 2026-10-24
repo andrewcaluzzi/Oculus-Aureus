@@ -1,6 +1,6 @@
 # Bank Heist: design
 
-Status: P0 (the Bunker 2 prototype) is built: the playable mode is section 9. The rest is still design. Every "stock" claim below cites the code it was read from, so it can be checked. Where something was read but not yet run, it says **verify in P0**.
+Status: P0 (the Bunker 2 prototype) is built: the playable mode is section 9; P1 (camera feeds, intel) is section 10; P3 (co-op hardening, determinism) is section 11. The rest is still design. Every "stock" claim below cites the code it was read from, so it can be checked. Where something was read but not yet run, it says **verify in P0**.
 
 ---
 
@@ -291,4 +291,28 @@ Cards come off a carrier when he is robbed (a civilian: aim until it surrenders 
 
 **Limits.** The lens is a fixed 62-degree fov tilted onto the camera's look pad, turning with its live sweep. A chr standing right under a camera can fill the frame. Static room lighting and environment mapping follow Bond's camera (cosmetic). The guard counts are per area the guard was posted to, not where he is now. Rooms the camera sees are loaded as the co-op render walk's margin rooms are. Not yet: in-world monitor textures (T3).
 
-**Tests.** `tests/heist/run_cctv.sh` (35 checks: a real B press at the screens, the walk starting in the camera's room, the hold, A / C-left / C-right, posed chrs, static, the damage kick-out, B out and no re-entry, the API, the intel box in and out of room 6 and on a feed, coverage) and its screenshots in `build_pc/heist_cctv_shots/`.
+**Tests.** `tests/heist/run_cctv.sh` (35 checks at P1: a real B press at the screens, the walk starting in the camera's room, the hold, A / C-left / C-right, posed chrs, static, the damage kick-out, B out and no re-entry, the API, the intel box in and out of room 6 and on a feed, coverage) and its screenshots in `build_pc/heist_cctv_shots/`.
+
+**After P1 (playtest fixes).** Only the use action (the Port use bind) at a hall screen opens the feeds: B is use *and* reload, and a reload next to the screens kept opening them (`bond.use_key(p)` in the `use` handler; B still leaves a feed). The mode's own HUD lines (JANUS BANK $... / the objective / the flash line) are cleared while a Bond watches and come back when he leaves; the feed overlay and the intel box stay.
+
+## 11. P3: co-op hardening and determinism (built)
+
+**Determinism first.** Two identical headless runs used to part by the time the setup finished. Causes found and fixed, in the order the test met them:
+
+1. **`GE_SKIPINTRO` counted polls, not sim ticks** (`input_pc.c`). Its A taps through the intro landed on a wall-clock-dependent tick, so the stage's first-person play (and with it `stage_start`, the spawns, everything) began on a different tick from run to run. It counts sim ticks now (`g_PortSimTickNo`), and stops for the stage once Bond is in the player's hands (a camera feed takes the controls away, and a later tap there cycled the cameras). `cctv.test_press` had the same bug (6 polls); it holds for 4 sim ticks now. Test-harness bugs, not netplay ones (netplay feeds the input per tick), but they made every test run differ.
+2. **A solo mode's `math.random` was seeded from the clock** (`port_lua.c`). With `GE_SEED` set (every headless test) a solo run takes the seed from it, as co-op takes the session's. Without `GE_SEED` solo play still gets a fresh clock seed.
+3. **The camera feed drew from the sim RNG.** The posed chrs' draw (`port_cctvview.c`) runs the model draw, which takes numbers from the SIM RNG for a gun's muzzle flash (`model.c`). It happens only on the watching Bond's machine: in co-op / netplay the two machines' RNGs parted the moment a guard fired on the feed (view 0 vs view 1 at tick 1052). The feed now puts both generators and their draw counts back.
+4. **The feed's allocations moved the sim's.** The posed chrs took their matrices and vertices from the frame's linear pool (`dyn.c`), so every allocation the sim's own draw made after them landed elsewhere on the watching machine, and that pool's layout is read back through stale pointers: Bond 1's autoaim differed in its last bits (tick 3469). The feed now draws from its own corner at the top of the pool (512 KB more pool in a heist mode) and puts the pointer back, and also restores the posed models' rw data.
+
+The test: `tests/heist/run_determinism.sh` runs the scripted heist `tests/heist/heist_determinism.lua` (the feeds opened with the use action, cycled and left, two real slaps and a `spawn.ko`, the alarm with its lockdown and waves, the crack with a forced jam and the restart, the vault open, loot, the vault sealing, a feed kept open while the waves come) with `GE_TICKHZ=60 GE_FIXEDTICK=1 GE_SEED=7` and `GE_HASHLOG` (new, `port_coop.c`: the state hash and its 12 fields every sim tick, solo or co-op; `GE_HASHLOG_DUMP=<from>-<to>` adds the text dump, and `GE_NET_RNGTRACE` now works in such a local run). Cases: solo twice; local co-op twice and with the local player switched (`GE_COOP_VIEW=1`, the netplay condition); lockstep netplay, a host and a guest process on loopback. Each pair must be hash-identical tick for tick for over 3000 ticks (netplay: no DESYNC either).
+
+**Co-op rules.**
+
+| Mechanic | Now |
+|---|---|
+| CCTV | With more than one Bond a camera tests every living Bond, each on his own sight timer (`portHeistCctvAllBonds`, propobj.c's stock test stays for solo); `cctv_spotted` names the Bond whose time ran out. |
+| Threaten | Each Bond's aim at a civilian has its own timer (`aimP` / `threatP`): the first Bond to aim long enough makes it surrender, and the first to keep it up robs it. Two Bonds half-aiming do not add up. |
+| Cards | Per player (`mode.per_player_keys`, unchanged); each Bond's cards are in the state hash. |
+| Exits | Every living Bond must stand in an exit, whatever `coop_exits` says (AC's answer 8). |
+| State hash | Besides the KO table, the civilians (now with each Bond's timers), loot, the countdown, camera overrides and the feed state (which camera, the held and edge buttons, ticks on the camera, the hit baseline), the script's own state goes in through `mode.state(text)`: phase, crack progress and jam schedule, who cracks, the vault clock, the trap, loot per Bond, squads, the wave and response counters, the camera switch-off, the spawn queue. The text is in the desync dump. |
+| Waves | `heist.reinforce` tries a busy pad a step aside before the next one: every hall pad has a guard posted on it, so the waves never came in at all (the determinism test found it: 0 waves). |
