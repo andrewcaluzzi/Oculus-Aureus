@@ -1,5 +1,8 @@
--- The Janus bank v2's headless test (designs/bank-heist.md section 17, modding/levelgen.md). Run: tests/levelgen/run_bank.sh, with
--- tools/levelgen/janus_bank.json generated onto the slot (python3 tools/gen_level.py tools/levelgen/janus_bank.json, then build).
+-- The Janus bank's headless test, on v3 (designs/bank-v3.md; v2: designs/bank-heist.md section 17, modding/levelgen.md). Run:
+-- tests/levelgen/run_bank.sh, with tools/levelgen/janus_bank_v3.json generated onto the slot (python3 tools/gen_level.py
+-- tools/levelgen/janus_bank_v3.json, then build). v3 adds: the safe-deposit department on the route, the roof terraces round the
+-- hall's lantern (and the hall seen through the clerestory), the day gate, the vault's inspection ring and the goods-lift shaft (route
+-- B), the staff entrance mantrap on the way out, a guard up the safe-deposit stair, the v3 interface pads (patrols, vents, grapples).
 --   1 the layout: counts (rooms, doorways, openings, cameras ...), every double door's two leaves linked, the heist map resolving
 --   2 a double door: one leaf opened opens both and shows the room behind; closed, it culls it again
 --   3 openings: from the hall the galleries and the upper windows are drawn through the hall's walls, and from a gallery the hall;
@@ -137,33 +140,44 @@ local function D(a, b, n) return { "door", a, b, n } end
 -- the building, top to bottom, on foot
 local ROUTE_A = {
   D("street", "vestibule"), D("vestibule", "hall", 1),
-  { "pad", "cust_4" }, { "pad", "hall_mid" }, { "pad", "cust_2" }, { "pad", "flap_s" }, { "pad", "flap_n" },
+  { "pad", "cust_4" },
+  D("hall", "aisle_w", 1), D("aisle_w", "deposit_stair"), D("deposit_stair", "sd_reception"), D("sd_reception", "booth_1"),
+  D("booth_1", "sd_reception"), D("sd_reception", "deposit_boxes"), { "pad", "boxes_2" }, D("deposit_boxes", "sd_reception"),
+  D("sd_reception", "deposit_stair"), D("deposit_stair", "aisle_w"), D("aisle_w", "hall", 3),
+  { "pad", "hall_mid" }, { "pad", "cust_2" }, { "pad", "flap_s" }, { "pad", "flap_n" },
   D("hall", "office_corr"), D("office_corr", "corr_w"), D("corr_w", "office_a"), { "pad", "office_a_mid" }, D("office_a", "corr_w"),
   D("corr_w", "office_corr"), D("office_corr", "back_corr_w"), D("back_corr_w", "stair_foot"), D("stair_foot", "stair_grand"),
   D("stair_grand", "mezz"), D("mezz", "corr1_rear_e"), D("corr1_rear_e", "corr1_e"), D("corr1_e", "corr1_ne"), D("corr1_ne", "stair_e"),
-  D("stair_e", "corr2_rear"), D("corr2_rear", "library"), { "at", 350, 4400 }, { "at", 350, 3550 }, D("library", "corr2_n", 2),
+  D("stair_e", "corr2_rear"), D("corr2_rear", "library"), { "at", 350, 4400 }, { "at", 350, 3550 }, { "at", -1200, 3550 }, D("library", "corr2_n"),
   D("corr2_n", "corr2_nw"),
   D("corr2_nw", "core_w_2a"), D("core_w_2a", "core_w_2l"), D("core_w_2l", "core_w_2b"), D("core_w_2b", "corr3"), D("corr3", "roof"),
-  { "at", 1300, 2500 }, { "pad", "roof_helipad" }, { "at", 1300, 2500 }, D("roof", "corr3"), D("corr3", "core_w_2b"), D("core_w_2b", "core_w_2l"), D("core_w_2l", "core_w_2a"),
+  D("roof", "roof_s"), D("roof_s", "roof_east"), { "pad", "roof_helipad" }, D("roof_east", "roof_s"), D("roof_s", "roof"), D("roof", "corr3"), D("corr3", "core_w_2b"), D("core_w_2b", "core_w_2l"), D("core_w_2l", "core_w_2a"),
   D("core_w_2a", "corr2_nw"), D("corr2_nw", "core_w_1b"), D("core_w_1b", "core_w_1l"), D("core_w_1l", "core_w_1a"), D("core_w_1a", "corr1_nw"),
   D("corr1_nw", "core_w_0b"), D("core_w_0b", "core_w_0l"), D("core_w_0l", "core_w_0a"), D("core_w_0a", "back_corr_w"),
   D("back_corr_w", "hall"), { "pad", "flap_n" }, { "pad", "flap_s" }, { "pad", "flap2_s" }, { "pad", "flap2_n" }, D("hall", "sec_office"), D("sec_office", "back_corr_e"), D("back_corr_e", "stairs"), D("stairs", "b1_lobby"),
-  D("b1_lobby", "vault_corr"), D("vault_corr", "ante_a"), { "pad", "crack" }, D("ante_a", "vault"), { "pad", "vault_g2" },
+  D("b1_lobby", "vault_corr"), D("vault_corr", "ante_a"), { "pad", "crack" }, D("ante_a", "vault_vest"), D("vault_vest", "vault"), { "pad", "vault_g2" },
   D("vault", "deposit"), D("deposit", "cell_1"), D("cell_1", "deposit"), D("deposit", "cash_processing"), { "at", 3800, 7050 }, D("cash_processing", "service_ramp"),
-  D("service_ramp", "dock"), D("dock", "alley"), D("alley", "street"), { "pad", "van" },
+  D("service_ramp", "dock"), D("dock", "staff_entry"), D("staff_entry", "alley"), D("alley", "street"), { "pad", "van" },
 }
-local WANT_A = "street>vestibule>hall>office_corr>corr_w>office_a>corr_w>office_corr>back_corr_w>stair_foot>stair_grand>mezz>" ..
-  "corr1_rear_e>corr1_e>corr1_ne>stair_e>corr2_rear>library>corr2_n>corr2_nw>core_w_2a>core_w_2l>core_w_2b>corr3>roof>corr3>" ..
+local WANT_A = "street>vestibule>hall>aisle_w>deposit_stair>sd_reception>booth_1>sd_reception>deposit_boxes>sd_reception>deposit_stair>" ..
+  "aisle_w>hall>office_corr>corr_w>office_a>corr_w>office_corr>back_corr_w>stair_foot>stair_grand>mezz>" ..
+  "corr1_rear_e>corr1_e>corr1_ne>stair_e>corr2_rear>library>corr2_n>corr2_nw>core_w_2a>core_w_2l>core_w_2b>corr3>roof>roof_s>" ..
+  "roof_east>roof_s>roof>corr3>" ..
   "core_w_2b>core_w_2l>core_w_2a>corr2_nw>core_w_1b>core_w_1l>core_w_1a>corr1_nw>core_w_0b>core_w_0l>core_w_0a>back_corr_w>hall>" ..
-  "sec_office>back_corr_e>stairs>b1_lobby>vault_corr>ante_a>vault>deposit>cell_1>deposit>cash_processing>service_ramp>dock>alley>street"
+  "sec_office>back_corr_e>stairs>b1_lobby>vault_corr>ante_a>vault_vest>vault>deposit>cell_1>deposit>cash_processing>service_ramp>dock>" ..
+  "staff_entry>alley>street"
 -- the plant level and the tunnel: from the vault corridor down to B2, out along the tunnel to the canal and up to the street; and back
 -- in by the maintenance stair to the canteen
 local ROUTE_B = {
+  D("vault_corr", "ring_w"), { "pad", "patrol_ring_2" }, { "pad", "patrol_ring_3" }, D("ring_w", "ring_n"), { "pad", "patrol_ring_6" },
+  D("ring_n", "ring_w"), D("ring_w", "vault_corr"), D("vault_corr", "lift_shaft"), { "pad", "grapple_liftshaft_low" },
+  D("lift_shaft", "vault_corr"),
   D("vault_corr", "stair_b2"), D("stair_b2", "b2_corr"), D("b2_corr", "power"), { "pad", "breaker_front" }, { "pad", "power_mid" }, D("power", "generator"),
   { "pad", "generator_front" }, D("generator", "power"), D("power", "b2_corr"), D("b2_corr", "tunnel_1"), D("tunnel_1", "tunnel_2"),
   D("tunnel_2", "canal"), { "pad", "canal_mid" }, D("canal", "embankment"), D("embankment", "street"),
 }
-local WANT_B = "vault_corr>stair_b2>b2_corr>power>generator>power>b2_corr>tunnel_1>tunnel_2>canal>embankment>street"
+local WANT_B = "vault_corr>ring_w>ring_n>ring_w>vault_corr>lift_shaft>vault_corr>stair_b2>b2_corr>power>generator>power>b2_corr>tunnel_1>" ..
+  "tunnel_2>canal>embankment>street"
 local ROUTE_C = { D("b2_corr", "maint_stair"), D("maint_stair", "canteen"), D("canteen", "back_corr_w") }
 local WANT_C = "b2_corr>maint_stair>canteen>back_corr_w"
 
@@ -266,7 +280,7 @@ local function body()
 
   -- 1: the layout
   local nopen = LEVEL.openings and #LEVEL.openings or 0
-  check("layout_counts", #LEVEL.room_name == 107 and #LEVEL.doors == 154 and nopen == 28 and #LEVEL.cameras == 27 and #LEVEL.alarms == 13 and
+  check("layout_counts", #LEVEL.room_name == 119 and #LEVEL.doors == 153 and nopen == 33 and #LEVEL.cameras == 31 and #LEVEL.alarms == 14 and
     #LEVEL.monitors == 11 and #LEVEL.safes == 2 and #LEVEL.padlocks == 2,
     string.format("rooms %d doorways %d openings %d cameras %d alarms %d monitors %d safes %d padlocks %d", #LEVEL.room_name, #LEVEL.doors,
       nopen, #LEVEL.cameras, #LEVEL.alarms, #LEVEL.monitors, #LEVEL.safes, #LEVEL.padlocks))
@@ -295,12 +309,32 @@ local function body()
     for _, a in ipairs(M.AREAS) do n_area_pads = n_area_pads + #a.pads end
     n_cams = count(M.CAM_LABEL)
   end
-  check("heist_map_resolves", okm and #M.AREAS == 14 and #M.DOORS.green >= 3 and #M.DOORS.red >= 3 and #M.DOORS.vault_a == 2 and
-    #M.P.monitors == 8 and n_cams == 27 and n_area_pads > 600 and M.P.crack_xz[1] ~= nil and M.P.breaker ~= nil and M.P.power_to ~= nil and
+  check("heist_map_resolves", okm and #M.AREAS == 15 and #M.DOORS.green >= 3 and #M.DOORS.red >= 3 and #M.DOORS.vault_a == 2 and
+    #M.P.monitors == 8 and n_cams == 31 and n_area_pads > 600 and M.P.crack_xz[1] ~= nil and M.P.breaker ~= nil and M.P.power_to ~= nil and
     M.AREA_CLASS.vault_ante == "restricted" and M.AREA_CLASS.hall == "public" and M.AREA_CLASS.offices == "staff",
     okm and string.format("areas %d, doors green %d blue %d red %d vault %d/%d, %d area pads (%d grid pads kept off), %d cameras, crack at (%.0f, %.0f), breaker %s",
       #M.AREAS, #M.DOORS.green, #M.DOORS.blue, #M.DOORS.red, #M.DOORS.vault_a, #M.DOORS.vault_b, n_area_pads, M.dropped or -1, n_cams,
       M.P.crack_xz[1], M.P.crack_xz[2], tostring(M.P.breaker and M.P.breaker[1])) or tostring(M))
+
+  -- v3: the interfaces (designs/bank-v3.md section 8): guard tours, watchclock stations, vents and grapple points all resolve to pads,
+  -- each pad standing in the room the design puts it in
+  local np, ns, nv, ng = 0, 0, 0, 0
+  if okm then
+    for _, ids in pairs(M.PATROLS) do np = np + #ids end
+    ns = #M.STATIONS
+    for _ in pairs(M.VENTS) do nv = nv + 1 end
+    for _ in pairs(M.GRAPPLES) do ng = ng + 1 end
+  end
+  local where = { grapple_lantern_w_high = "roof", grapple_lantern_w_low = "hall", grapple_liftshaft_low = "lift_shaft",
+                  grapple_liftshaft_high = "rear_corr", vent_sewer_a = "archive_vault", vent_sewer_b = "ring_n", vent_vault_b = "vault",
+                  patrol_ring_1 = "ring_w", grapple_facade_low = "street", grapple_facade_high = "gallery_s" }
+  local wrong = {}
+  for n, r in pairs(where) do
+    if not LEVEL.rooms[r].named[n] then wrong[#wrong + 1] = n end
+  end
+  table.sort(wrong)
+  check("v3_interfaces", okm and np == 36 and ns == 10 and nv == 6 and ng == 5 and #wrong == 0,
+    string.format("patrol pads %d in routes, stations %d, vents %d, grapples %d, misplaced %s", np, ns, nv, ng, table.concat(wrong, ",")))
 
   -- 2: a double door culls and shows the room behind; one leaf opened opens both
   local red = LEVEL.objects.red_stairs
@@ -356,6 +390,14 @@ local function body()
   wait(1.0)
   s = drawn()
   check("facade_window_sees_street", s[room_id("street")] == true, string.format("street drawn %s", tostring(s[room_id("street")] == true)))
+  -- v3: from the west roof terrace, through the lantern's clerestory, down into the hall (and across it to the east terrace)
+  bond.warp(0, LEVEL.pads.grapple_lantern_w_high)
+  face = { 0, 1500 }
+  wait(1.0)
+  s = drawn()
+  check("roof_sees_hall_lantern", s[room_id("hall")] == true, string.format("hall %s, roof_east %s (%d rooms drawn)",
+    tostring(s[room_id("hall")] == true), tostring(s[room_id("roof_east")] == true), count(s)))
+  shot("roof_lantern_over_hall")
 
   -- 4: blocks
   bond.warp(0, LEVEL.pads.cust_2)
@@ -386,6 +428,9 @@ guards = function()
   wait(0.5)
   local g = guard_route("guard_records_to_hall", "rec_1", "records>office_corr>hall", 60, function(gx, gz) return gz < 2200 end)
   if g then shot("hall_guard_arrived"); spawn.remove(g) end
+  door.unlock(LEVEL.objects.sd_gate.index)                -- v3: up the safe-deposit stair through the attendant's grille
+  g = guard_route("guard_up_the_deposit_stair", "sd_mid", "sd_reception>deposit_stair>aisle_w>hall", 60)
+  if g then spawn.remove(g) end
   door.unlock(LEVEL.objects.red_ramp.index)
   bond.warp(0, LEVEL.pads.dock_1)                       -- (3550, 4850): just inside the RED shutter (a shutter falls again behind him)
   wait(0.5)
