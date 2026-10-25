@@ -60,6 +60,8 @@ objectives and with no position drift; `failure_point` says where it died or got
 | `GE_PLAYERBOT=speedrun` | the speedrun mode (below): the stage's route, never stopping to turn, doors on the move |
 | `GE_PLAYERBOT_ROUTEDIR` | where the routes are (default `Data/BotRoutes`, filled from `tools/bot/routes`) |
 | `GE_PLAYERBOT_OPT=1` + `GE_PLAYERBOT_OPTSTATE=<file>` | speedrun: the segment optimiser (savestates); with only `OPTSTATE`, play the variants the file chose |
+| `GE_PLAYERBOT_OPTWIDE=1` | optimiser: `via` waypoints are also tried 160 off (14 variants instead of 10) |
+| `GE_SNAPSOLOTEST=T,N[,1]` | savestate fidelity test: save at T, run to T+N, restore, run again, compare (`modding/snapshot-fidelity.md`) |
 
 ## Speedrun mode
 
@@ -79,7 +81,9 @@ BOTMODE=speedrun sh tests/bot/level.sh dam 0     # one speedrun-mode run, no opt
 The optimiser plays every variant of each route step (strafe side, `fast` toggled, `via` moved 80 units) from a solo
 savestate (`port/src/port_snap.c`), each to the start of the exit sequence, keeps the earliest, and goes on to the next
 step. Its choices land in `opt.state`; the clean run replays them without savestates and `level.sh` verifies the
-recording without the bot. Details and results: `modding/bot-notes.md` "Round 6".
+recording without the bot. Since round 7 a trial in the optimiser's process and the clean run in a fresh process end on
+the same tick on all nine stages (the snapshot holds everything the sim reads: `modding/snapshot-fidelity.md`; and the
+poll a step begins in plays variant 0 in every mode). Details and results: `modding/bot-notes.md` "Round 6", "Round 7".
 
 For speed and determinism the harness also sets `GE_FIXEDTICK=1` (one 60 Hz field per sim tick, so a run does not
 depend on how fast the machine is), `GE_NOSLEEP=1` (no frame pacing), `GE_CLOCKSCALE=20` (the N64 clock runs 20x so

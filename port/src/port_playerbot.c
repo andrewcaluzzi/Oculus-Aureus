@@ -270,6 +270,7 @@ typedef struct {
     /* speedrun (GE_PLAYERBOT=speedrun): routes, never stopping, doors on the move, the segment optimiser */
     s32 speedrun, speedrunBase;
     PropRecord *lookDoor;     /* this tick: keep the view on this door while the digital move follows the route */
+    s32 stepBeganTick;        /* B.tick of the poll a step began in: it plays variant 0 (optVariant) */
     PropRecord *doorFastFor;   /* the door the moving presses are counted for */
     s32 doorFastTaps;
     s32 idleRun, idleWhy, idleStuck;   /* the current stop: ticks, why (B.idle index), stuck level when it began */
@@ -1771,7 +1772,7 @@ static s32 doorHandle(f32 gx, f32 gy, f32 gz, StandTile *goalTile)
  * them back - the clean run plays the chosen variants without savestates, and an optimiser run that hits the mission end
  * in a trial (the stage ends: no tick to put a savestate back at) exits with status 3 so its driver starts it again, and
  * it carries on from the file (tools/bot/speedrun_opt.sh). This state is never rewound (portSnapLive). */
-#define OPT_MAXV 10
+#define OPT_MAXV 14
 #define OPT_NOSCORE 0x3fffffff
 static s32 stepApplies(const PblStep *s);
 static s32 objectivesDone(s32 *needed);
@@ -1788,6 +1789,7 @@ typedef struct {
     s32 trials, steps;
     s32 bestEnd;               /* the best end tick so far in this step (the budget) */
     s32 carry;                 /* the kept rollout's score: the next optimised step's variant 0 (0 = unknown) */
+    s32 wide;                  /* GE_PLAYERBOT_OPTWIDE=1: `via` waypoints also tried 160 off (14 variants) */
     char path[256];
 } BotOpt;
 static BotOpt sOpt;
@@ -1848,6 +1850,7 @@ static void optInit(void)
         sOpt.fixed[i] = -1;
     }
     sOpt.on = getenv("GE_PLAYERBOT_OPT") != NULL && atoi(getenv("GE_PLAYERBOT_OPT")) != 0 && portSnapSoloAvailable();
+    sOpt.wide = getenv("GE_PLAYERBOT_OPTWIDE") != NULL && atoi(getenv("GE_PLAYERBOT_OPTWIDE")) != 0;
     snprintf(sOpt.path, sizeof(sOpt.path), "%s", e != NULL ? e : "");
     f = sOpt.path[0] ? fopen(sOpt.path, "r") : NULL;
     if (f != NULL)
@@ -1900,9 +1903,16 @@ static void optInit(void)
     }
 }
 
-/* the variant the running step plays */
+/* the variant the running step plays. The poll a step begins in plays variant 0, in every mode: the optimiser asks for
+ * the step's savestate in that poll and the save is taken at the next tick's start, after the pad sample of that poll -
+ * so every trial (and the kept variant's replay) starts with variant 0's output for one tick, and the clean run must
+ * too, or it parts from the trial it reproduces by one tick of input (Runway was 4 ticks off; modding/bot-notes.md). */
 static s32 optVariant(void)
 {
+    if (B.tick == B.stepBeganTick)
+    {
+        return 0;
+    }
     if (sOpt.phase == 1 && B.step == sOpt.step)
     {
         return sOpt.v;
@@ -1929,7 +1939,12 @@ static f32 optOffset(s32 axis)
     {
         return 0.0f;
     }
-    return axis == 0 ? (v == 6 ? 80.0f : v == 7 ? -80.0f : 0.0f) : (v == 8 ? 80.0f : v == 9 ? -80.0f : 0.0f);
+    {   /* 6-9: the waypoint 80 along +x -x +z -z; 10-13 (GE_PLAYERBOT_OPTWIDE=1): 160 */
+        const f32 d = v >= 10 ? 160.0f : 80.0f;
+        const s32 k = (v - 6) % 4;
+
+        return axis == 0 ? (k == 0 ? d : k == 1 ? -d : 0.0f) : (k == 2 ? d : k == 3 ? -d : 0.0f);
+    }
 }
 
 static s32 optStepCounts(const PblStep *s)
@@ -1950,7 +1965,7 @@ static void optStepBegin(void)
         return;
     }
     sOpt.step = k;
-    sOpt.nv = B.plan.s[k].op == PBL_VIA ? 10 : 6;
+    sOpt.nv = B.plan.s[k].op == PBL_VIA ? (sOpt.wide ? 14 : 10) : 6;
     sOpt.committing = 0;
     sOpt.startTick = B.tick;
     sOpt.startLost = B.hpLost;
@@ -3464,6 +3479,7 @@ static void planLoad(void)
 static void stepBegin(void)
 {
     B.stepTick = B.tick;
+    B.stepBeganTick = B.tick;
     B.phase = 0;
     B.count = 0;
     B.stepFails = 0;
