@@ -48,9 +48,24 @@ local function body()
   for _, o in pairs(LEVEL.objects) do
     if (o.type == "door" or o.type == "safe") and (o.keyflags or 0) ~= 0 and o.keyflags ~= 0x40000000 then keyed = keyed + 1 end
   end
-  for _, k in ipairs(D.keys) do listed = listed + #k.doors end
+  local on_card = {}                     -- (a two-card door is on both its cards: count each door once)
+  for _, k in ipairs(D.keys) do for _, d in ipairs(k.doors) do on_card[d.name] = (on_card[d.name] or 0) | k.flag end end
+  for _ in pairs(on_card) do listed = listed + 1 end
   check("every keyed door is on a key card", #D.unlisted == 0 and listed == keyed,
         string.format("%d keyed, %d listed, unlisted: %s", keyed, listed, table.concat(D.unlisted, ",")))
+  -- every card bit of every keyed door is on the matching card (bank v3: the box vault needs GREEN and the floor key)
+  local short = {}
+  for name, o in pairs(LEVEL.objects) do
+    local f = o.keyflags or 0
+    if (o.type == "door" or o.type == "safe") and f ~= 0 and f ~= 0x40000000 and on_card[name] ~= f then short[#short + 1] = name end
+  end
+  table.sort(short)
+  check("every card a door needs lists it", #short == 0, table.concat(short, ","))
+  if LEVEL.objects.boxes_door then
+    local cards = {}
+    for _, k in ipairs(D.keys) do for _, d in ipairs(k.doors) do if d.name == "boxes_door" then cards[#cards + 1] = k.name end end end
+    check("v3 box vault door on GREEN and the FLOOR KEY", #cards == 2, table.concat(cards, " + "))
+  end
   local summary = {}
   for _, k in ipairs(D.keys) do
     summary[#summary + 1] = k.name .. ":" .. #k.doors

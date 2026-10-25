@@ -112,13 +112,18 @@ function heist_intel(ctx)
                   safe = o.type == "safe" }
       D.doors[#D.doors + 1] = e
       if kind == "key" then
-        local k = key_by_flag[flag]
-        if k then
-          k.doors[#k.doors + 1] = e
-          if opens then k.rooms[opens] = true end
-        else
-          D.unlisted[#D.unlisted + 1] = oname
+        -- a door can need two cards at once (bank v3's box vault: GREEN and the floor key, keyflags 0x3): it goes on every card it needs
+        e.cards = {}
+        for _, k in ipairs(D.keys) do
+          if flag & k.flag ~= 0 then
+            e.cards[#e.cards + 1] = k.flag
+            k.doors[#k.doors + 1] = e
+            if opens then k.rooms[opens] = true end
+          end
         end
+        local all = 0
+        for _, f in ipairs(e.cards) do all = all | f end
+        if all ~= flag then D.unlisted[#D.unlisted + 1] = oname end   -- no card, or a bit no card stands for
       end
     end
   end
@@ -408,7 +413,7 @@ function heist_intel(ctx)
         local x, y = to_board(d.floor, d.x, d.z)
         if in_map(x, y) then
           intel.at(2, d.floor, false)
-          local col = d.kind == "timelock" and 0x101010FF or (d.kind == "padlock" and 0xB0B0B0FF or (DOORCOL[d.flag] or 0xFFFFFFFF))
+          local col = d.kind == "timelock" and 0x101010FF or (d.kind == "padlock" and 0xB0B0B0FF or (DOORCOL[d.flag] or DOORCOL[d.cards and d.cards[1] or 0] or 0xFFFFFFFF))
           intel.marker(x, y, "door", col, d.safe and 4 or 3)
         end
       end
@@ -756,8 +761,10 @@ function heist_intel(ctx)
             if d.kind == "key" and d.x and (d.x - x) ^ 2 + (d.z - z) ^ 2 < 190 * 190 and not bond.has_key(p, d.flag) then
               local g = door.get(d.idx)
               if g and g.open < 0.3 and (d.floor == nil or room_floor[bond.room(p) or -1] == d.floor) then
-                done = hint(p, "door" .. d.flag, string.format("This %s needs %s - %s (INTEL)", d.safe and "safe" or "door", CARD_WORD[d.flag] or "a key",
-                                                             SHORT_WHO[d.flag] or "see the board"))
+                local need = d.flag                                   -- a two-card door names the card he still lacks
+                for _, f in ipairs(d.cards or {}) do if not bond.has_key(p, f) then need = f; break end end
+                done = hint(p, "door" .. need, string.format("This %s needs %s - %s (INTEL)", d.safe and "safe" or "door", CARD_WORD[need] or "a key",
+                                                           SHORT_WHO[need] or "see the board"))
                 break
               end
             end
