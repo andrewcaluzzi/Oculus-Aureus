@@ -47,6 +47,7 @@ static RecEntry *sPlay[K_COUNT];
 static u32 sPlayN[K_COUNT], sPlayAt[K_COUNT];
 static RecEntry *sPlayLast[K_COUNT]; /* the last record handed out, for repeats */
 static s32 sPlayDoneLogged;
+static s32 sSkipLogged;
 
 static void inputRecInit(void)
 {
@@ -123,6 +124,22 @@ u32 portInputRecTickNow(void)
     return sTick;
 }
 
+/** joy_port.c: judge the staleness of a latched one-shot press in sim ticks, not wall time? Yes while recording or
+ * replaying, and under GE_FIXEDTICK=1 (the machine-independent mode the bot harness runs in): a wall-clock test makes
+ * the sim depend on how fast the machine ran that tick */
+int portInputRecTickClock(void)
+{
+    static int fixed = -1;
+
+    if (fixed < 0)
+    {
+        const char *e = getenv("GE_FIXEDTICK");
+
+        fixed = e != NULL && e[0] != '\0' && e[0] != '0';
+    }
+    return fixed || inputRecMode() != REC_OFF;
+}
+
 /** flush a recording before the process leaves through _exit (port_playerbot.c result) */
 void portInputRecFlush(void)
 {
@@ -144,8 +161,18 @@ extern void portPlayerBotActions(u8 *down, s32 count);
 static RecEntry *inputRecNext(s32 k, s32 repeat)
 {
     while (sPlayAt[k] < sPlayN[k] && sPlay[k][sPlayAt[k]].t < sTick)
-    {
-        sPlayLast[k] = &sPlay[k][sPlayAt[k]++]; /* a tick (or call) this run skipped */
+    {   /* a tick (or call) this run skipped: a pad record that was never handed out and differs from the one before it
+         * is input the replay lost (a tick with no controller poll here, where the recording had one) */
+        RecEntry *e = &sPlay[k][sPlayAt[k]++];
+
+        if (k == K_PAD && sPlayLast[k] != NULL && sPlayLast[k] != e && sSkipLogged < 20 &&
+            (e->a != sPlayLast[k]->a || e->b != sPlayLast[k]->b || e->c != sPlayLast[k]->c))
+        {
+            sSkipLogged++;
+            portConLogf("ge: inputrec: LOST pad record of tick %u (btn %x stick %d,%d) at tick %u: no poll in that tick\n",
+                        e->t, e->a, (s8) (u8) e->b, (s8) (u8) e->c, sTick);
+        }
+        sPlayLast[k] = e;
     }
     if (sPlayAt[k] < sPlayN[k] && sPlay[k][sPlayAt[k]].t == sTick)
     {

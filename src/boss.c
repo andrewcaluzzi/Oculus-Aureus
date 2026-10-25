@@ -151,6 +151,7 @@ static void bossSimStep(s32 portSimOnly)
  */
 extern int g_PortSimOnly;
 extern int g_PortResim;
+int g_PortTickPhase;   /* main loop: 0 waiting for the tick, 1 sim step, 2 the player passes / render, 3 tick done */
 extern s32 g_ContQueuesCreated;
 extern void joyPoll(void);
 extern unsigned int g_PortNetHoldBeat;
@@ -851,6 +852,9 @@ void bossMainloop(void)
                                 portSnapTickBegin();   /* rollback R2 (port_snap.c): save this tick's start state / restore and re-simulate (test drivers, env) */
                             }
 #endif
+#ifndef TARGET_N64
+                            g_PortTickPhase = 0;   /* (player bot: where in the tick a controller poll lands) */
+#endif
                             if (get_is_ramrom_flag())
                             {
                                 iterate_ramrom_entries_handle_camera_out();
@@ -900,7 +904,9 @@ void bossMainloop(void)
                             portSimOnly = (g_StageNum != LEVELID_TITLE) ? portSimOnlyBegin() : 0;
 #endif
 #ifndef TARGET_N64
+                            g_PortTickPhase = 1;
                             bossSimStep(portSimOnly);   /* the sim step (also run by rollback's re-simulation, portBossResim) */
+                            g_PortTickPhase = 2;
 #else
                             bossSimStep(0);
 #endif
@@ -918,6 +924,7 @@ void bossMainloop(void)
                                 memaSingleDefragPass();
                                 dynSwapBuffers();
                                 portSimOnlyEnd();
+                                g_PortTickPhase = 3;
                             }
                             else
 #endif
@@ -1002,6 +1009,9 @@ void bossMainloop(void)
                             }
 #endif
                             dynSwapBuffers();
+#ifndef TARGET_N64
+                            g_PortTickPhase = 3;
+#endif
                             video_related_8();
 
                             if ((get_debug_taskgrab_val())

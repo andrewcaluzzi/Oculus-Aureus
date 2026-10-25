@@ -528,6 +528,8 @@ void portJoyPortPadDown(s32 pad, s32 act)
 }
 
 extern int portCoopNetDriven(void);   /* port_coop.c: netplay lockstep drives pads 0 and 1 */
+extern int portInputRecTickClock(void);   /* inputrec.c: 1 = judge latch staleness in sim ticks (recording, replay, GE_FIXEDTICK) */
+extern u32 portInputRecTickNow(void);
 extern unsigned int portCoopNetTick(void);   /* port_coop.c: sim ticks since the stage began */
 static u32 sNetWin;                    /* netplay: OR of pad 0's live action downs since the last tick */
 static u32 sNetTick;                   /* netplay: ticks applied, the staleness clock under lockstep */
@@ -686,7 +688,7 @@ void portJoyPortPollCommit(void)
             if (sPortActs[i].oneshot) {
                 if (d && !sPrevDown[pad][i]) {
                     sLatchPoll[pad][i] = sPollCount;
-                    sLatchCount[pad][i] = osGetTime();
+                    sLatchCount[pad][i] = portInputRecTickClock() ? (OSTime) portInputRecTickNow() : osGetTime();
                     if (sLatchN[pad][i] < PORT_LATCH_MAX_PENDING) {
                         sLatchN[pad][i]++;
                     }
@@ -720,6 +722,11 @@ static s32 portJoyPortTake(s32 pad, s32 act)
      * from the newest edge: a burst is either fresh or dropped whole. */
     if (portCoopNetDriven()
             ? (sNetTick - (u32) sLatchCount[pad][act] > 15u)   /* lockstep: 15 ticks, not wall time (the machines differ) */
+            : portInputRecTickClock()
+            /* a recorded / replayed / fixed-tick run: 15 sim ticks. Wall time made a run depend on the machine's load:
+             * under GE_CLOCKSCALE=20 the 0.25 s are 12.5 ms of wall time, and a slow tick dropped a bot's "next inventory"
+             * press in one run and not in its replay (round 6: the Frigate speed-run replays that died at 231-289 s) */
+            ? (portInputRecTickNow() - (u32) sLatchCount[pad][act] > 15u)
             : (osGetTime() - sLatchCount[pad][act] > 250ull * 46875ull)) {
         sLatchPoll[pad][act] = 0;
         sLatchN[pad][act] = 0;

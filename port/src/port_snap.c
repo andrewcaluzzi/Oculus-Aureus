@@ -819,10 +819,81 @@ static void hashLine(unsigned int tick, const char *tag)
     {
         h[i] = 0x811C9DC5u;
     }
+    {   /* GE_SNAPHASHSKIP=a,b,...: the statics group hashed per table range, leaving out ranges whose name contains one of
+         * the strings (the player bot's own state, inputrec's file handles: they differ between a bot run and its replay
+         * by design); with GE_SNAPHASHRANGES=1 also one line per range that changed since the last hashed tick */
+        static const char *skip = (const char *) -1;
+        static u32 *prev;
+
+        if (skip == (const char *) -1)
+        {
+            skip = getenv("GE_SNAPHASHSKIP");
+        }
+        if (skip != NULL && sTableOk)
+        {
+            const PortSnapTable *t = &g_PortSnapTable;
+            const int ranges = getenv("GE_SNAPHASHRANGES") != NULL;
+            u32 x = 0x811C9DC5u, k;
+
+            if (ranges && prev == NULL)
+            {
+                prev = (u32 *) calloc(t->count + 1, sizeof(u32));
+            }
+            for (k = 0; k < t->count; k++)
+            {
+                const char *nm = t->str + t->ent[k].nameOff;
+                char buf[64];
+                const char *s = skip;
+                int skipit = 0;
+                u32 o, y = 0x811C9DC5u;
+
+                while (*s && !skipit)
+                {
+                    int l = 0;
+
+                    while (s[l] && s[l] != ',' && l < 63)
+                    {
+                        buf[l] = s[l];
+                        l++;
+                    }
+                    buf[l] = '\0';
+                    skipit = l > 0 && strstr(nm, buf) != NULL;
+                    s += l + (s[l] == ',');
+                }
+                if (skipit)
+                {
+                    continue;
+                }
+                for (o = 0; o + 4 <= t->ent[k].size; o += 4)
+                {
+                    u32 w;
+
+                    memcpy(&w, (const u8 *) (uintptr_t) t->ent[k].addr + o, 4);
+                    y = (y ^ w) * 0x9E3779B1u;
+                    y ^= y >> 15;
+                }
+                x = (x ^ y) * 0x9E3779B1u;
+                if (ranges && prev[k] != y)
+                {
+                    if (prev[k] != 0)
+                    {
+                        portConLogf("ge: snaphash: tick %u range %s changed\n", tick, nm);
+                    }
+                    prev[k] = y;
+                }
+            }
+            h[0] = x;
+        }
+    }
     for (i = 0; i < sNCur; i++)
     {
         const u8 *p = sCur[i].p;
         u32 n = sCur[i].n, o, x = h[sCur[i].grp];
+
+        if (sCur[i].grp == 0 && getenv("GE_SNAPHASHSKIP") != NULL && sTableOk)
+        {
+            continue;   /* (hashed per range above) */
+        }
 
         for (o = 0; o + 4 <= n; o += 4)
         {

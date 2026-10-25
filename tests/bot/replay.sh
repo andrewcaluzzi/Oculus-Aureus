@@ -17,4 +17,6 @@ DIR=$(mktemp -d)
 grep -a "ge: playerbot: RESULT" "$LOG" | tail -1
 echo "drift lines: $(grep -ac 'inputrec: DRIFT' "$LOG")"
 grep -a "inputrec: DRIFT" "$LOG" | head -2
+grep -a "inputrec: LOST" "$LOG" | head -5
+[ -n "$KEEP" ] && cp "$LOG" "$KEEP"    # KEEP=<file>: keep the replay's whole log
 rm -rf "$LOG" "$DIR"
