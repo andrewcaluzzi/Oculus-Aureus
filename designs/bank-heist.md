@@ -674,6 +674,16 @@ carrier with a key, a guard's meter filling with a drawn gun and his "HEY"); `GE
 holder's brackets, the diagnostics over the hall, the "?" filling, the "!" and the "HEY!" bubble). `proof` is the presentation proof
 above.
 
+**Results on the arhud build (2026-10-26):** `run_ar.sh` api 13/13, proof 4365 ticks hash-identical (AR off vs AR + diagnostics +
+radar, and the log shows the layer drew); heist determinism with `GE_DIAG=1` (the diagnostics on in every run): solo 3/3, co-op 5/5,
+netplay (run alone, `GE_FRAMES=8000`) host / guest hash-identical over all 3179 ticks both ran, scenario notes identical, every step
+reached, no DESYNC, but short of the runner's tick count (the known loopback-under-llvmpipe shortfall of section 16: 11 of 12 by the
+script's count, no difference anywhere); bindings 38, win path 59, trapped 17, civilian fail 5, quiet 11, count 2, cctv 40, ko 26, cover 11 of 12 runs (`doors`
+fails as expected), dam1 identical (453 lines), logic tests pass, levelgen bank `static` 14 (the walking parts not run: they do not
+load the heist). **guards 33 of 37, not from this branch:** the guards test sets no `GE_SEED`, so each run is a different game; with
+`GE_SEED=7` the develop baseline (aa33cf0) and this branch both score 33 (body found, bodies.found, the witness's alert, hold fire) and
+their state hashes are identical for all 5864 ticks; an unseeded develop run scored 36.
+
 **Limits.** No true silhouette outline: the renderer has no cheap stencil pass, so key holders get bracket corners and a tint over their
 projected box. Occlusion is the game's own chr visibility (rooms and frustum), so a guard behind a pillar in a room you can see still
 shows his "?". The head marker sits over the standing height (a crouching guard's floats a little). The camera cone is the camera's
