@@ -776,23 +776,25 @@ The gadgets find their points by pad name on any layout: `grapple_<id>_low` (whe
 
 ### 21d. Tests and limits
 
-`tests/heist/run_gadgets.sh` (`tests/heist/heist_gadgets.lua` as the mode `heist_gadgets_test`; one run per gadget, `GE_FIXEDTICK=1`, on the bank; `GE_GADGETS_SHOTS=1` for screenshots):
+`tests/heist/run_gadgets.sh` (`tests/heist/heist_gadgets.lua` as the mode `heist_gadgets_test`; one run per gadget, `GE_FIXEDTICK=1`; `GE_GADGETS_SHOTS=1` for screenshots). Results on **bank v3** after the merge of heist d95e05a (all also passed on v2 before it):
 
 | Run | Checks | What it shows |
 | --- | --- | --- |
-| piton | 16 | the real fire button fires the line (no grenade); street -> roof, 0 units from the pad; abseil back to the street; every other line (alley -> archive, canal -> embankment) to its high pad; unseen, nobody blows the cover; the hall line in a posted guard's view: an act, he sees through Bond |
-| lockpick | 11 | the BLUE back door of the security office picked by holding fire in 10.0 s, it opens, no noise; the GREEN maintenance door rushed by taps in well under its 6 s, with a door noise |
+| piton | 17 | the real fire button fires the facade line (no grenade): up to its high pad (0 units off), back down; unseen, no cover blown; the gallery line in a posted hall guard's view: an act, he sees through Bond (and the tellers' camera reports him); the lantern_e, lantern_w and liftshaft lines each to their high pads |
+| lockpick | 13 | the BLUE back door of the security office picked by holding fire in 10.0 s, it opens, no noise; the GREEN maintenance door rushed by taps in well under its 6 s, with a door noise |
 | pocket | 8 | the security chief's BLUE card lifted from behind, unnoticed; a posted guard facing Bond: no card, he sees through Bond |
-| coin | 9 | a coin 5 m from a hall guard: he walks over (176 units off his post), then walks back (114); throwing is not suspicious |
-| loop | 6 | the camera in the loop's aim; looped: an armed Bond in its view for 5 s, not seen; 8 s later (test loop time) it spots him |
-| disguise | 9 | a knocked-out hall guard searched (first use), changed into (second use, 4 s); in the security office in a guard's sight for 5 s: no suspicion; lingering next to him: "close" |
-| vent | 5 | every vent on the map crawled to its far pad (the vault's, on v3, refuses with the power on) |
+| coin | 9 | a coin 5 m from a hall guard: he walks over, then back to his post; throwing is not suspicious |
+| loop | 6 | the camera in the loop's aim; looped: an armed Bond in its view for 5 s, not seen; when the loop (8 s in the test) runs out it spots him |
+| disguise | 9 | a knocked-out hall guard searched (first use), changed into (second use, 4 s); in the security wing in a guard's sight for 5 s: no suspicion; lingering next to him: "close" |
+| vent | 9 | v3's records, lounge, plant, server and sewer vents each crawled to the far pad; the vault ventilator refuses with the power on |
 | gas | 4 | the canister thrown 4 m from a hall guard: 3 s later he is out cold |
 | thermal | 6 | on for 10 s, then recharging; a press while recharging does nothing |
 | safe | 6 | the director's safe: listening starts the dial; a press outside the window is a miss and rattles; three presses in the window open it (its loot appears) |
-| det | 4 | `run_gadgets.sh det`: a scripted run through the piton, coins, lockpicks and a vent, solo twice and in local co-op twice (the second view-switched: the netplay condition): 3866 / 3864 ticks hash-identical, the scenario's notes identical |
+| det | 4 | `run_gadgets.sh det`: a scripted run through the piton, coins, lockpicks and a vent, solo twice and in local co-op twice (the second view-switched: the netplay condition): 3841 / 3856 ticks hash-identical, the scenario's notes identical |
 
-**Limits.** The line is a straight path (up the wall at your spot, over the edge, onto the pad), not physics; you pass through a parapet or a rail for a frame. The uniform changes the cover's rules, not Bond's model (a partner in co-op still sees a banker). Pickpocket targets the bank's card carriers and any guard or staffer the heist placed; it needs no animation. The coin's fallback (no `noise.emit`) walks the nearest cover guards over with `spawn.go`: they do not search, they look and go back. The tape loop sets the camera's alarm time out of reach (its feed still shows live video with `[LOOP]` on its label): the intel box still reads it. The thermal imager draws every chr's box, whatever is between. Without the ai stream there is no hearing for coins beyond the walk-over. Some test runs name v2 rooms and doors (`sec_back`, `maint_door`, the roof and gallery lines); the piton and vent runs walk whatever lines and vents the layout has.
+Regression on v3: win path 59, trapped 17, civilian fail 5, quiet 11, 007 count 2; heist determinism solo 3/3 and co-op 5/5 (hash-identical, every step reached). On v2 before the merge also: bindings 38, cctv 40, ko 26, guards 36/37 (hold fire, the known open one), cover 11 of 12 runs (doors, known), dam1 IDENTICAL (453), logic tests all passed, levelgen bank static 14 with the window counted, guards 4; netplay host / guest hash-identical with no DESYNC but short of the tick count under CPU contention (2339 ticks; run it alone).
+
+**Limits.** The line is a straight path (up the wall at your spot, over the edge, onto the pad), not physics; you pass through a parapet or a rail for a frame. The uniform changes the cover's rules, not Bond's model (a partner in co-op still sees a banker). Pickpocket targets the bank's card carriers and any guard or staffer the heist placed; it needs no animation. The coin's fallback (no `noise.emit`) walks the nearest cover guards over with `spawn.go`: they do not search, they look and go back. The tape loop sets the camera's alarm time out of reach (its feed still shows live video with `[LOOP]` on its label): the intel box still reads it. The thermal imager draws every chr's box, whatever is between. Without the ai stream there is no hearing for coins beyond the walk-over. The test runs find the lines and vents by name; they name the bank's `sec_back` and `maint_door` doors, the `director_safe` and a few hall pads (v2 and v3 both have them).
 
 ## 22. Bank v3 (stream `bank3`, 2026-10-26)
 

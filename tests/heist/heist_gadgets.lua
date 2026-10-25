@@ -1,7 +1,8 @@
 -- The heist's gadgets (designs/bank-heist.md section 21, tools/heist_gadgets.lua) on the Janus bank with the real tools/mode_heist.lua.
 -- One scenario per run (tests/heist/run_gadgets.sh):
---   GE_GADGETS_PITON=1      the piton gun: street -> roof (the real fire button), abseil back down, the alley -> the archive window, the
---                           canal -> the embankment, and the hall floor -> the west gallery in the hall guards' view (cover blown)
+--   GE_GADGETS_PITON=1      the piton gun: the first line (v3's facade, v2's roof) with the real fire button, abseil back down, every
+--                           other line up to its high pad (any layout: by pad name), and the gallery line in a posted guard's view (an
+--                           act: cover blown)
 --   GE_GADGETS_LOCKPICK=1   a BLUE door picked by holding fire (about 10 s), a GREEN door rushed by taps (fast, noisy)
 --   GE_GADGETS_POCKET=1     the security chief's BLUE card lifted from behind; a guard facing Bond catches his hand (cover blown)
 --   GE_GADGETS_COIN=1       a coin pulls hall guards over to where it lands; they go back
@@ -140,59 +141,60 @@ end
 
 -- ------------------------------------------------------------------------------------------------------------------------------------
 
+-- the first line to test with the real button: v3's facade, else v2's roof, else the first by name
+local function first_line()
+  for _, want in ipairs({ "facade", "roof" }) do for _, gp in ipairs(G.pairs) do if gp.id == want then return gp end end end
+  return G.pairs[1]
+end
+
+-- Bond 0 next to door `idx` on the side of room `rname` (four tries round its middle), facing it
+local function stand_at_door(idx, rname)
+  local g = door.get(idx)
+  for _, o in ipairs({ { 0, 140 }, { 0, -140 }, { 140, 0 }, { -140, 0 } }) do
+    if warp_xz(0, g.x + o[1], g.z + o[2], g.y - 60) and bond.room(0) == room(rname) then face = { g.x, g.z }; return true end
+  end
+  return false
+end
+
 local function piton_path()
   bond.equip(0, "pitongun")
   check("the crew carries the piton gun", wait_for(3, function() return bond.weapon(0) == 36 end), tostring(bond.weapon(0)))
   check("the map has its grapple points and vents", #G.pairs >= 4 and #G.vents >= 2, string.format("%d pairs, %d vents", #G.pairs, #G.vents))
-  -- 1. street -> roof with the real fire button
-  bond.warp(0, pad("grapple_roof_low"))
-  local rx, _, rz = pads.pos(pad("grapple_roof_high"))
+  -- 1. the first line with the real fire button, then back down
+  local F = first_line()
+  bond.warp(0, F.lo)
+  local rx, rz = F.h[1], F.h[3]
   face = { rx, rz }
   wait(1)
   local t = G.grapple_target(0)
-  check("at the facade's foot the roof line is in reach", t ~= nil and t.up and t.pair.id == "roof", t and t.pair.id or "none")
+  check("at the " .. F.id .. " line's foot it is in reach", t ~= nil and t.up and t.pair.id == F.id, t and t.pair.id or "none")
   face = nil
   cctv.test_press("z")
   local started = wait_for(1.5, function() return (gadget.reeling(0)) end)
   check("the fire button fires the line (not the stock grenade)", started, string.format("reels %d", G.stats.grapples))
   wait(0.5)
-  bench.look(0, 0, 50)   -- (looking up the line for the screenshot)
+  bench.look(0, (gadget.aim(0)), 50)   -- (looking up the line for the screenshot)
   wait(0.4)
   local _, _, _, y = gadget.aim(0)
   print(string.format("HEIST   mid-climb: eye y %.0f, yaw %.0f", y or -1, (gadget.aim(0))))
-  shot("grapple_facade")
+  shot("grapple_" .. F.id)
   local done = reeled(0, 6)
-  local at, dist = near_pad(0, "grapple_roof_high")
-  check("the line carries him up to the roof", done and at and bond.room(0) == room("roof"),
-        string.format("room %s, %.0f from the pad", tostring(LEVEL.room_name[bond.room(0)]), dist))
-  shot("grapple_roof")
-  -- 2. abseil back down
-  face = { rx, rz - 500 }
+  local x, _, z = bond.pos(0)
+  check("the line carries him up to its high pad", done and x and d2(x, z, rx, rz) < 80 and bond.room(0) == F.hroom,
+        string.format("room %s, %.0f from the pad", tostring(LEVEL.room_name[bond.room(0) or 0]), x and d2(x, z, rx, rz) or -1))
+  shot("grapple_top")
+  -- abseil back down: face the low pad
+  face = { F.l[1], F.l[3] }
   wait(0.75)
   t = G.grapple_target(0)
-  check("on the roof's edge the line goes down", t ~= nil and not t.up, t and tostring(t.up) or "none")
+  check("at the top the line goes down", t ~= nil and not t.up, t and tostring(t.up) or "none")
   face = nil
   gadget.test_fire(0, 0, 1)
   done = reeled(0, 6)
-  check("abseiled down to the street", done and bond.room(0) == room("street") and near_pad(0, "grapple_roof_low"),
-        tostring(LEVEL.room_name[bond.room(0)]))
-  -- 3. every other line on the map but the gallery (found by name: any layout), up to its high pad
-  for _, gp in ipairs(G.pairs) do
-    if gp.id ~= "roof" and gp.id ~= "gallery" then
-      bond.warp(0, gp.lo)
-      face = { gp.h[1], gp.h[3] }
-      wait(1)
-      face = nil
-      gadget.test_fire(0, 0, 1)
-      done = reeled(0, 7)
-      local hx, _, hz = pads.pos(gp.hi)
-      local x, _, z = bond.pos(0)
-      check("the " .. gp.id .. " line: up to its high pad", done and x and d2(x, z, hx, hz) < 80 and bond.room(0) == gp.hroom,
-            tostring(LEVEL.room_name[bond.room(0) or 0]))
-    end
-  end
-  check("nobody saw any of it (no cover blown)", #blown == 0, #blown > 0 and blown[1].why or "")
-  -- 4. the hall floor -> the west gallery, in the hall guards' view: an act seen
+  x, _, z = bond.pos(0)
+  check("abseiled back down to its foot", done and x and d2(x, z, F.l[1], F.l[3]) < 80, tostring(LEVEL.room_name[bond.room(0) or 0]))
+  check("unseen on the " .. F.id .. " line: no cover blown", #blown == 0, #blown > 0 and blown[1].why or "")
+  -- 3. the hall floor -> the west gallery, in the hall guards' view: an act seen
   bond.warp(0, pad("grapple_gallery_low"))
   local lx, _, lz = pads.pos(pad("grapple_gallery_low"))
   local w = spawn.chr(pad("cust_5"), { post = { lx, lz }, weapon = "kf7", body = "St_Petersburg_Guard", offset = { 60, 0 } })
@@ -212,13 +214,28 @@ local function piton_path()
   check("the hall line: up to the gallery", done and gp and bond.room(0) == gp.hroom, tostring(LEVEL.room_name[bond.room(0)]))
   check("climbing in a hall guard's view blows the cover", #blown > 0 and blown[1].why == "act",
         string.format("watched=%s blown=%d %s", tostring(watched), #blown, blown[1] and blown[1].why or ""))
+  -- 4. every other line on the map but the gallery (found by name: any layout), up to its high pad
+  for _, gp in ipairs(G.pairs) do
+    if gp.id ~= F.id and gp.id ~= "gallery" then
+      bond.warp(0, gp.lo)
+      face = { gp.h[1], gp.h[3] }
+      wait(1)
+      face = nil
+      gadget.test_fire(0, 0, 1)
+      done = reeled(0, 7)
+      local hx, _, hz = pads.pos(gp.hi)
+      local x, _, z = bond.pos(0)
+      check("the " .. gp.id .. " line: up to its high pad", done and x and d2(x, z, hx, hz) < 80 and bond.room(0) == gp.hroom,
+            tostring(LEVEL.room_name[bond.room(0) or 0]))
+    end
+  end
+  print(string.format("HEIST   (seen on the other lines: %d cover blow(s); a line in a guard's or camera's view is an act)", #blown))
 end
 
 local function lockpick_path()
   local O = LEVEL.objects
   local blue = O.sec_back.index
-  bond.warp(0, pad("vent_sec_a"), -550, 0)   -- (1500, 3200): the staff corridor, in front of the security office's back door
-  face = { 1500, 2900 }
+  check("in the staff corridor at the security office's back door", stand_at_door(blue, "back_corr_e"))
   bond.equip(0, "gaskeyring")
   wait(2)
   check("lockpicks in hand", bond.weapon(0) == 54, tostring(bond.weapon(0)))
@@ -240,8 +257,7 @@ local function lockpick_path()
   wait(1)
   -- rushed: the GREEN maintenance door from the canteen, by taps
   local green = O.maint_door.index
-  warp_xz(0, -2640, 4440)
-  face = { -2640, 4700 }
+  check("in the canteen at the maintenance door", stand_at_door(green, "canteen"))
   wait(1.5)
   check("the GREEN maintenance door is in reach", G.pick_target(0) == green, tostring(G.pick_target(0)))
   t0 = HEIST.elapsed
@@ -492,13 +508,13 @@ end
 local function det_path()
   local n = bond.count()
   print("HEIST DET start " .. n)
-  bond.warp(0, pad("grapple_roof_low"))
+  local F = first_line()
+  bond.warp(0, F.lo)
   if n > 1 then bond.warp(1, pad("grapple_gallery_low")) end
   bond.equip(0, "pitongun")
   if n > 1 then bond.equip(1, "pitongun") end
   wait(2)
-  local rx, _, rz = pads.pos(pad("grapple_roof_high"))
-  face = { rx, rz }
+  face = { F.h[1], F.h[3] }
   wait(0.5)
   face = nil
   gadget.test_fire(0, 0, 1)
@@ -515,15 +531,17 @@ local function det_path()
   if n > 1 then gadget.test_fire(1, 0, 1) end
   wait(3)
   print(string.format("HEIST DET coin noises %d pulled %d", G.stats.noises, #G.pulled))
-  bond.warp(0, pad("vent_sec_a"), -550, 0)
+  stand_at_door(LEVEL.objects.sec_back.index, "back_corr_e")
   bond.equip(0, "gaskeyring")
   wait(2)
-  bond.face(0, 1500, 2900)
+  face = nil
   gadget.test_fire(0, 0, 4)
   gadget.test_fire(0, 60 * 3)
   wait(4)
   print(string.format("HEIST DET pick noises %d", G.stats.noises))
-  bond.warp(0, pad("vent_sec_a"))
+  local V = G.vents[1]
+  for _, v in ipairs(G.vents) do if v.id ~= "vault" then V = v; break end end
+  bond.warp(0, V.a)
   wait(0.5)
   cctv.test_use(0)
   reeled(0, 5)
