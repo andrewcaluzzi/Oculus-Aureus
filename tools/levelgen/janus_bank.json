@@ -153,7 +153,8 @@
                 { "name": "back_2", "at": [-200, 1095], "face": [-1700, 1095] },
                 { "name": "back_3", "at": [450, 1095], "face": [1860, 1095] },
                 { "name": "back_4", "at": [1300, 1095], "face": [-1700, 1095] },
-                { "name": "back_e", "at": [1760, 1095], "face": [-1700, 1095] } ],
+                { "name": "back_e", "at": [1760, 1095], "face": [-1700, 1095] },
+                { "name": "power_way", "at": [1500, 1095], "face": [1300, 1250] } ],
       "objects": [
         { "type": "camera", "name": "cam_corridor", "wall": "x1", "along": 1095, "y": 280, "watch": "back_3", "sweep": [12, -12] },
         { "type": "alarm", "name": "alarm_corridor", "wall": "z1", "along": 550, "y": 140 }
@@ -289,7 +290,18 @@
       "light": { "ambient": 0.36, "intensity": 0.8, "radius": 360 },
       "pads": [ { "name": "ramp_top", "at": [1900, 2220], "face": [1900, 3160] },
                 { "name": "ramp_mid", "at": [1900, 2630], "face": [1900, 2100] },
-                { "name": "ramp_bot", "at": [1900, 3050], "face": [1900, 2100] } ] }
+                { "name": "ramp_bot", "at": [1900, 3050], "face": [1900, 2100] } ] },
+
+    { "name": "power", "area": "power", "rect": [1140, 1290, 1460, 1900], "height": 320,
+      "floor_mat": "concrete", "wall_mat": "concrete_wall", "ceiling_mat": "dark_grid", "chr_light": 10,
+      "light": { "ambient": 0.32, "intensity": 0.8, "radius": 340 },
+      "pads": [ { "name": "power_mid", "at": [1300, 1420], "face": [1300, 1900] },
+                { "name": "breaker_front", "at": [1300, 1730], "face": [1300, 1900] },
+                { "name": "generator_front", "at": [1250, 1560], "face": [1460, 1560] } ],
+      "objects": [
+        { "type": "prop", "name": "breaker", "model": 30, "at": [1300, 1840], "face": [1300, 1290], "flags": "0x101" },
+        { "type": "prop", "name": "generator", "model": 48, "at": [1400, 1560], "face": [1140, 1560], "flags": "0x101" }
+      ] }
   ],
   "doors": [
     { "rooms": ["street", "alley"], "at": 2850, "width": 260, "height": 300 },
@@ -333,7 +345,9 @@
       "object": { "name": "cell_floor", "type": "slide", "model": "cell", "keyflags": "0x1" } },
     { "rooms": ["dock", "service_ramp"], "at": 1900, "width": 240, "height": 260, "frame": "steel_panels",
       "object": { "name": "red_ramp", "type": "shutter", "keyflags": "0x8" } },
-    { "rooms": ["service_ramp", "deposit"], "at": 1900, "width": 240, "height": 260 }
+    { "rooms": ["service_ramp", "deposit"], "at": 1900, "width": 240, "height": 260 },
+    { "rooms": ["back_corr", "power"], "at": 1300, "width": 160, "frame": "steel_panels",
+      "object": { "name": "power_door", "type": "slide" } }
   ],
   "start": { "room": "street", "at": [-100, -1150], "face": [700, -800] }
 }

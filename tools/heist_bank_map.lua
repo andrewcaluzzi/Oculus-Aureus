@@ -136,7 +136,14 @@ function heist_bank_map()
     screens_at = xz("screens"),                                  -- (tests) in front of the screen wall, facing it
     screens_face = { obj("screen_2").x, (obj("screen_2").z + obj("screen_3").z) / 2 },
     feed_cam = obj("cam_hall_s").index,                          -- (tests) the hall's customer-side camera
+    -- the power (section 16; optional: a layout without them has no power cut): the plant room's main breaker and backup generator
+    -- (props), the pad in front of the breaker the investigators walk to, and where they come from (in the staff corridor)
+    breaker = L.objects.breaker and { L.objects.breaker.x, L.objects.breaker.z } or nil,
+    generator = L.objects.generator and { L.objects.generator.x, L.objects.generator.z } or nil,
+    power_to = L.pads.breaker_front, power_way = L.pads.power_way, power_mid = L.pads.power_mid,
+    generator_front = L.pads.generator_front,
   }
+  M.power_room = L.rooms.power and L.rooms.power.id or nil
   M.MAP = { name = "bank", label = "the Janus bank", manager_area = "manager", vault_hint = "down the RED stairs",
             no_cams = "(records, deposit: no cams)" }
   M.dropped = dropped                                            -- grid pads kept off (blocks, props, doorways)

@@ -16,6 +16,7 @@ local QUIET = mode.env_flag("GE_HEIST_TEST_QUIET")
 local COUNT = mode.env_flag("GE_HEIST_TEST_COUNT")
 HEIST_SETTINGS = {
   test = true,
+  cover = false,   -- the stock sight, as before section 16: this test warps an armed Bond through restricted rooms (tests/heist/heist_cover.lua has the cover)
   crack_time = 12, jam_chance = 0, jam_every = 1000,     -- the jam is forced through HEIST.force_jam()
   vault_time = (TRAPPED or QUIET) and 14 or 45, klaxon_at = 5, recrack_time = 8,
 }

@@ -71,6 +71,13 @@ static int sKeyNext;
 void portHeistGuardsReset(void);
 static void cctvBondReset(void);
 static void holdFireReset(void);
+static void coverReset(void);
+static int coverActive(void);
+static int coverCamSuspect(int p);
+static void coverAct(int p);
+static void coverShot(int p);
+static void doorRulesReset(void);
+static void radioSfx(s32 chrnum, int relay);
 
 void portHeistStageReset(void)
 {
@@ -85,6 +92,7 @@ void portHeistStageReset(void)
     cctvBondReset();
     holdFireReset();
     portHeistGuardsReset();
+    coverReset();
     {
         extern void portHeistModeStateReset(void);   /* mode.state and the per-Bond use-key flags */
 
@@ -637,7 +645,7 @@ int portHeistCctvAllBonds(PropRecord *prop, void *rec, int stockFrames)
     CCTVRecord *cam = (CCTVRecord *) rec;
     int n = (int) portBondCount(), k, p, best = 0;
 
-    if (n <= 1) return 0;
+    if (n <= 1 && !coverActive()) return 0;   /* solo: the stock test, unless the heist cover gates what a camera times (then here) */
     for (k = 0; k < sCamBondN && sCamBondRec[k] != rec; k++)
     {
     }
@@ -653,7 +661,7 @@ int portHeistCctvAllBonds(PropRecord *prop, void *rec, int stockFrames)
         struct player *pl = g_playerPointers[p];
 
         if (!portBondInPlay(p) || pl == NULL || pl->prop == NULL || pl->bonddead) continue;
-        if (cctvSeesBond(prop, cam, pl->prop))
+        if (cctvSeesBond(prop, cam, pl->prop) && coverCamSuspect(p))
         {
             sCamBondT[k][p] += g_ClockTimer;
             if (sCamBondT[k][p] >= portHeistCctvAlarmFrames(rec, stockFrames))
@@ -661,6 +669,10 @@ int portHeistCctvAllBonds(PropRecord *prop, void *rec, int stockFrames)
                 if (cctvSpottedBy(rec, p)) alarmActivate();
                 sCamBondT[k][p] = 0;
             }
+        }
+        else if (coverActive())
+        {   /* cover: a staffer the camera has no reason to time (or out of its sight) lets the timer run back down */
+            sCamBondT[k][p] = sCamBondT[k][p] > g_ClockTimer ? sCamBondT[k][p] - g_ClockTimer : 0;
         }
         if (sCamBondT[k][p] > best) best = sCamBondT[k][p];
     }
@@ -1214,6 +1226,7 @@ int portHeistTestNoise(int player, float noise)
     if (!portModeActive() || player < 0 || player >= (int) portBondCount() || !portBondInPlay(player)) return 0;
     saved = get_cur_playernum();
     set_cur_player(player);
+    coverShot(player);   /* as bondview2.c's portHeistCoverFired does before the stock hearing check (a test shot: whatever is in hand) */
     chrCheckGuardsHeardSound(noise);
     set_cur_player(saved);
     return 1;
@@ -1255,6 +1268,7 @@ static void civTick(HeistCiv *v, f32 dt)
             {
                 v->dropped = 1;
                 chrDropItems(c);   /* CHR_DROP_ALL_CONCEALED_ITEMS: a key from spawn.key falls where it stands */
+                coverAct(by);      /* robbing staff in view blows the cover */
                 portEventEmit(PORT_EV_CIVILIAN_ROBBED, v->chrnum, by, 0, 0);
             }
         }
@@ -1425,6 +1439,7 @@ int portHeistSlap(ChrRecord *c)
     e = koGet(c->chrnum);
     if (e == NULL) return 0;
     if (e->down) return 1;
+    coverAct((int) get_cur_playernum());   /* slapping someone in view blows the cover */
     if (e->slaps < 255) e->slaps++;
     if ((int) e->slaps < sSlapsToKo) return 2;
     koDown(c, e, (int) get_cur_playernum());
@@ -1451,6 +1466,9 @@ int portHeistChrWaking(const ChrRecord *c)
 {
     int i;
 
+    extern int portHeistChrOnGo(const ChrRecord *c);
+
+    if (c != NULL && portHeistChrOnGo(c)) return 1;   /* a scripted walk (spawn.go) keeps the stock route to its pad too */
     if (sKoBusy <= 0 || c == NULL) return 0;
     for (i = 0; i < sKoN; i++)
     {
@@ -1681,6 +1699,7 @@ int portHeistKoSearch(int player)
     }
     if (best == NULL) return -1;
     best->searched = 1;
+    coverAct(player);   /* going through a body's pockets in view blows the cover */
     chrDropItems(bc);
     portEventEmit(PORT_EV_CHR_SEARCHED, best->chrnum, player, 0, 0);
     return best->chrnum;
@@ -1945,6 +1964,11 @@ void portHeistAiTick(void)
 
     sNow += g_ClockTimer;
     sAcc += g_ClockTimer;
+    {
+        extern void portHeistCoverTick(void);
+
+        portHeistCoverTick();   /* the disguise's suspicion scan and the scripted walks (below) */
+    }
     if (sKoN > 0) koTick(dt);
     if (sLootSerial > 0) lootTick();
     for (i = 0; i < sCivN; i++)
@@ -1972,6 +1996,828 @@ void portHeistAiTick(void)
         sAcc = 0;
         if (sBodyCheck) bodyScan();
     }
+}
+
+/* ---- cover: the banker disguise (designs/bank-heist.md section 16, AC's answers 2026-10-25) ----
+ * The crew starts as bank staff. A guard the mode registers (cover.guard) does not see a Bond whose cover holds with him: the stock sight
+ * test every guard list uses (chrCheckTargetInSight, IFISeeBond) asks portHeistCoverHides first and gets "not seen" (before its random
+ * roll). Instead this file keeps a suspicion meter per guard and per Bond (0..1), filled while the guard could see that Bond (in range,
+ * inside his cone, the stock guard-to-Bond stan line as chrCanSeeBond draws it) by what the Bond is doing: a gun or a knife in hand (fast),
+ * loot carried (instant), an act (a slap, a robbery, a search, a shot fired: instant for act seconds), the room he stands in (restricted:
+ * fast; staff-only: slow; public: nothing), running near the guard, or lingering right next to him. It drains while nothing is wrong.
+ * Full: that guard sees through him ("Hey!", cover_blown(guard, p, why)); only that guard: the hook stops hiding that Bond from him, his
+ * own list attacks. After `radio` seconds, if he is still up (not dead, not knocked out), he reports it (cover_report(guard, p)); the mode
+ * raises the alarm. A guard who hears a Bond fire, or is hit, sees through the shooter at once. cover.alert (the alarm, a body found) ends
+ * every disguise: the hook hides nobody. Cameras (portHeistCctvAllBonds) only time a Bond who looks wrong to a camera (a gun, loot, an
+ * act, a restricted room, or the alert). Per Bond in co-op. All of it reads sim state only (positions, facings, the synchronized input's
+ * results, never the local player) and is in the state hash. The power (power.set) and the scripted walks (spawn.go) live here too. */
+#define COVER_MAX   384
+#define COVER_SCAN  4          /* ticks between scans (15 Hz at 60) */
+#define COVER_HASH  1024       /* chrnum -> entry index (open addressing) */
+#define GO_MAX      32
+
+enum { CW_NONE, CW_ARMED, CW_LOOT, CW_ACT, CW_RESTRICTED, CW_STAFF, CW_RUNNING, CW_CLOSE, CW_HEARD, CW_HURT, CW_SCRIPT, CW_N };
+static const char *const sCoverWhy[CW_N] = { "none", "armed", "loot", "act", "restricted", "staff", "running", "close", "heard", "hurt", "script" };
+
+typedef struct
+{
+    s32 chrnum, heyAt[4], hear;
+    f32 susp[4], linger[4];
+    ChrRecord *slot;           /* a cache of where chrFindByLiteralId found it (not hashed: re-checked by chrnum) */
+    u8 role, witness, reported, sees, why[4];
+    s8 arghs;
+} HeistCover;
+
+static HeistCover sCov[COVER_MAX];
+static s16 sCovIdx[COVER_HASH];
+static int sCovN, sCoverOn, sCoverAlert, sPowerOut;
+static u8 sRoomClass[256];      /* 0 public, 1 staff only, 2 restricted (cover.room) */
+static u8 sCoverLoot[4];
+static s32 sCoverActUntil[4], sCoverShooter, sCoverShotAt, sCovAcc;
+static f32 sBondPX[4], sBondPZ[4], sBondSpeed[4];
+static u8 sBondPOk[4];
+static struct
+{   /* seconds to fill the meter from empty (armed, restricted, staff, run, close), units, degrees; cover.tune */
+    f32 range, cone, armed, restricted, staff, run, runSpeed, runRange, close, closeTime, linger, decay, radio, act;
+} sCt;
+static struct { s32 chrnum, pad, until; u8 used; } sGo[GO_MAX];
+static int sGoN;
+
+static int coverActive(void) { return sCoverOn && portModeActive(); }
+
+static void coverTuneDefaults(void)
+{
+    sCt.range = 1800.0f;      /* a guard notices staff conduct this far off (the hall is 2000 x 1280) */
+    sCt.cone = 75.0f;         /* either side of where he faces (the stock sight cone is 110: walking behind him is the point) */
+    sCt.armed = 0.4f;         /* a gun in hand: a glance */
+    sCt.restricted = 1.0f;    /* seen in the security wing or on the vault level */
+    sCt.staff = 5.0f;         /* staff-only rooms: a few seconds, then "Hey!" */
+    sCt.run = 4.0f;           /* running close past a guard */
+    sCt.runSpeed = 450.0f;    /* units/s counted as running (Bond at full stick: about 500; tests/heist/heist_cover.lua logs it) */
+    sCt.runRange = 400.0f;    /* (900 filled a hall walk at full stick to 0.81: full stick is how keyboard players always move) */
+    sCt.close = 150.0f;       /* "lingering": closer than this ... */
+    sCt.linger = 2.0f;        /* ... for longer than this ... */
+    sCt.closeTime = 4.0f;     /* ... then it fills in this long */
+    sCt.decay = 12.0f;        /* a full meter drains in this long while nothing is wrong */
+    sCt.radio = 5.0f;         /* a witness radios it in after this long (knock him out or kill him first) */
+    sCt.act = 1.5f;           /* a slap / a robbery / a search / a shot counts as seen for this long */
+}
+
+static void coverReset(void)
+{
+    memset(sCov, 0, sizeof(sCov));
+    memset(sCovIdx, 0, sizeof(sCovIdx));
+    sCovN = sCoverOn = sCoverAlert = sPowerOut = 0;
+    memset(sRoomClass, 0, sizeof(sRoomClass));
+    memset(sCoverLoot, 0, sizeof(sCoverLoot));
+    memset(sCoverActUntil, 0, sizeof(sCoverActUntil));
+    sCoverShooter = -1;
+    sCoverShotAt = sCovAcc = 0;
+    memset(sBondPX, 0, sizeof(sBondPX));
+    memset(sBondPZ, 0, sizeof(sBondPZ));
+    memset(sBondSpeed, 0, sizeof(sBondSpeed));
+    memset(sBondPOk, 0, sizeof(sBondPOk));
+    memset(sGo, 0, sizeof(sGo));
+    sGoN = 0;
+    doorRulesReset();
+    coverTuneDefaults();
+}
+
+static HeistCover *covFind(s32 chrnum)
+{
+    int h = (int) ((u32) chrnum & (COVER_HASH - 1)), k;
+
+    for (k = 0; k < COVER_HASH; k++)
+    {
+        int s = sCovIdx[(h + k) & (COVER_HASH - 1)];
+
+        if (s == 0) return NULL;
+        if (sCov[s - 1].chrnum == chrnum) return &sCov[s - 1];
+    }
+    return NULL;
+}
+
+static ChrRecord *covChr(HeistCover *e)
+{
+    ChrRecord *c = e->slot;
+
+    if (c == NULL || c->chrnum != e->chrnum || c->model == NULL)
+    {
+        c = chrFindByLiteralId(e->chrnum);
+        e->slot = c;
+    }
+    return c;
+}
+
+/* cover.guard(chr [, role]): this guard judges the disguise (role 1 = security staff: the mode's camera link needs one of them up) */
+int portHeistCoverGuard(int chrnum, int role)
+{
+    HeistCover *e = covFind(chrnum);
+    ChrRecord *c = chrFindByLiteralId(chrnum);
+    int h, k;
+
+    if (!portModeActive() || c == NULL || c->prop == NULL) return 0;
+    if (e == NULL)
+    {
+        if (sCovN >= COVER_MAX) return 0;
+        e = &sCov[sCovN];
+        memset(e, 0, sizeof(*e));
+        e->chrnum = chrnum;
+        e->arghs = c->numarghs;
+        e->hear = c->lastheartarget60;
+        h = (int) ((u32) chrnum & (COVER_HASH - 1));
+        for (k = 0; k < COVER_HASH && sCovIdx[(h + k) & (COVER_HASH - 1)] != 0; k++) ;
+        if (k == COVER_HASH) return 0;
+        sCovIdx[(h + k) & (COVER_HASH - 1)] = (s16) (sCovN + 1);
+        sCovN++;
+    }
+    e->role = (u8) role;
+    e->slot = c;
+    return 1;
+}
+
+void portHeistCoverSetOn(int on) { sCoverOn = on ? 1 : 0; }
+int portHeistCoverIsOn(void) { return sCoverOn; }
+void portHeistCoverSetAlert(int on) { sCoverAlert = on ? 1 : 0; }
+int portHeistCoverAlert(void) { return sCoverAlert; }
+void portHeistCoverRoom(int room, int cls) { if (room >= 0 && room < 256) sRoomClass[room] = (u8) (cls < 0 ? 0 : (cls > 2 ? 2 : cls)); }
+int portHeistCoverRoomClass(int room) { return (room >= 0 && room < 256) ? (int) sRoomClass[room] : 0; }
+void portHeistCoverCarrying(int p, int on) { if (p >= 0 && p < 4) sCoverLoot[p] = on ? 1 : 0; }
+const char *portHeistCoverWhyName(int why) { return (why >= 0 && why < CW_N) ? sCoverWhy[why] : "?"; }
+
+/* cover.tune{...}: < 0 keeps a value */
+void portHeistCoverTune(const float *v, int n)
+{
+    f32 *dst[] = { &sCt.range, &sCt.cone, &sCt.armed, &sCt.restricted, &sCt.staff, &sCt.run, &sCt.runSpeed, &sCt.runRange, &sCt.close,
+                   &sCt.closeTime, &sCt.linger, &sCt.decay, &sCt.radio, &sCt.act };
+    int i;
+
+    for (i = 0; i < n && i < (int) (sizeof(dst) / sizeof(dst[0])); i++)
+    {
+        if (v[i] >= 0.0f) *dst[i] = v[i] > 0.01f ? v[i] : 0.01f;
+    }
+}
+
+static void coverAct(int p)
+{
+    if (coverActive() && p >= 0 && p < 4) sCoverActUntil[p] = sNow + (s32) (sCt.act * 60.0f);
+}
+
+/* a shot by Bond p: an act for those who see it, and whoever hears it (the stock hearing check right after) sees through him */
+static void coverShot(int p)
+{
+    if (!coverActive() || p < 0 || p > 3) return;
+    sCoverShooter = p;
+    sCoverShotAt = g_GlobalTimer;
+    coverAct(p);
+}
+
+/* bondview2.c: the current Bond fires (before the stock hearing check). Slaps are counted in portHeistSlap, not here. */
+void portHeistCoverFired(void)
+{
+    int p = (int) get_cur_playernum();
+
+    if (!coverActive() || p < 0 || p > 3 || !bondArmed(p)) return;
+    coverShot(p);
+}
+
+/* cover.test_act(p): test hook, Bond p did something that blows the cover in view (a slap, a robbery, a shot) */
+int portHeistCoverTestAct(int p)
+{
+    if (!coverActive() || p < 0 || p >= (int) portBondCount()) return 0;
+    coverAct(p);
+    return 1;
+}
+
+static void coverHey(HeistCover *e, ChrRecord *g, int p, int why)
+{
+    struct player *pl;
+
+    if (p < 0 || p > 3 || (e->witness & (1 << p))) return;
+    e->witness |= (u8) (1 << p);
+    e->susp[p] = 1.0f;
+    e->heyAt[p] = sNow;
+    e->why[p] = (u8) why;
+    pl = g_playerPointers[p];
+    if (g != NULL && pl != NULL && pl->prop != NULL)
+    {   /* he has just seen Bond p: the stock "saw the target recently" (chrSawTargetRecently), so his next sight test goes straight to
+         * the stan line instead of the random roll */
+        g->lastseetarget60 = g_GlobalTimer;
+        g->lastknowntargetpos = pl->prop->pos;
+        g->targetTile = pl->prop->stan;
+    }
+    portEventEmit(PORT_EV_COVER_BLOWN, e->chrnum, p, why, 0);
+}
+
+/* cover.blow(chr, p): a script makes that guard see through Bond p now */
+int portHeistCoverBlow(int chrnum, int p)
+{
+    HeistCover *e = covFind(chrnum);
+
+    if (!coverActive() || e == NULL || p < 0 || p >= (int) portBondCount()) return 0;
+    coverHey(e, covChr(e), p, CW_SCRIPT);
+    return 1;
+}
+
+/* guard g could see Bond prop bp: within range and 350 units of height, inside his cone (anything within 100 units counts from any side),
+ * and the stock guard-to-Bond stan line (chrCanSeeBond's flags and heights) ending on Bond's tile */
+static int coverSees(ChrRecord *g, PropRecord *bp, f32 *dist)
+{
+    PropRecord *gp = g->prop;
+    f32 dx = bp->pos.x - gp->pos.x, dy = bp->pos.y - gp->pos.y, dz = bp->pos.z - gp->pos.z, d2 = dx * dx + dz * dz, a, h;
+    StandTile *st;
+    int ok;
+
+    *dist = sqrtf(d2);
+    if (dy > 350.0f || dy < -350.0f || d2 > sCt.range * sCt.range) return 0;
+    if (d2 > 100.0f * 100.0f)
+    {
+        a = atan2f(dx, dz) - getsubroty(g->model);
+        while (a > M_PI_F) a -= M_TAU_F;
+        while (a < -M_PI_F) a += M_TAU_F;
+        if (a > DegToRad(sCt.cone) || a < -DegToRad(sCt.cone)) return 0;
+    }
+    if (gp->stan == NULL || bp->stan == NULL) return 0;
+    st = gp->stan;
+    h = g->chrheight - 20.0f;
+    chrSetMoving(g, FALSE);
+    bondviewUpdateGuardTankFlagsRelated(bp, 0);
+    ok = stanTestLineUnobstructed(&st, gp->pos.x, gp->pos.z, bp->pos.x, bp->pos.z,
+                                  CDTYPE_OBJS | CDTYPE_DOORS | CDTYPE_CHRS | CDTYPE_PATHBLOCKER | CDTYPE_AIOPAQUE, h, h, 0.0f, 1.0f) != 0
+         && st == bp->stan;
+    bondviewUpdateGuardTankFlagsRelated(bp, 1);
+    chrSetMoving(g, TRUE);
+    return ok;
+}
+
+/* the Bond nearest guard g (an armed one first): who shot him */
+static int coverNearest(ChrRecord *g, const int *armed, const int *ok, int n)
+{
+    int p, best = -1, pass;
+    f32 bd = 1e18f;
+
+    for (pass = 0; pass < 2 && best < 0; pass++)
+    {
+        for (p = 0; p < n; p++)
+        {
+            struct player *pl = g_playerPointers[p];
+            f32 dx, dz, d;
+
+            if (!ok[p] || (pass == 0 && !armed[p])) continue;
+            dx = pl->prop->pos.x - g->prop->pos.x;
+            dz = pl->prop->pos.z - g->prop->pos.z;
+            d = dx * dx + dz * dz;
+            if (d < bd) { bd = d; best = p; }
+        }
+    }
+    return best;
+}
+
+static int coverGuardUp(ChrRecord *g)
+{
+    return g != NULL && g->prop != NULL && g->model != NULL && !(g->hidden & CHRHIDDEN_REMOVE) && !chrIsDead(g) && !koIsDown(g->chrnum)
+        && g->actiontype != ACT_DIE && g->actiontype != ACT_DEAD;
+}
+
+static void coverScan(f32 dt)
+{
+    int n = (int) portBondCount(), p, i;
+    int armed[4] = { 0, 0, 0, 0 }, cls[4] = { 0, 0, 0, 0 }, act[4] = { 0, 0, 0, 0 }, ok[4] = { 0, 0, 0, 0 };
+
+    if (n > 4) n = 4;
+    for (p = 0; p < n; p++)
+    {
+        struct player *pl = g_playerPointers[p];
+
+        if (!portBondInPlay(p) || pl == NULL || pl->prop == NULL || pl->prop->stan == NULL || pl->bonddead)
+        {
+            sBondPOk[p] = 0;
+            sBondSpeed[p] = 0.0f;
+            continue;
+        }
+        ok[p] = 1;
+        armed[p] = bondArmed(p);
+        cls[p] = sRoomClass[pl->prop->stan->room & 0xFF];
+        act[p] = sNow < sCoverActUntil[p];
+        if (sBondPOk[p] && dt > 0.0f)
+        {
+            f32 dx = pl->prop->pos.x - sBondPX[p], dz = pl->prop->pos.z - sBondPZ[p];
+
+            sBondSpeed[p] = sqrtf(dx * dx + dz * dz) / dt;
+        }
+        else
+        {
+            sBondSpeed[p] = 0.0f;
+        }
+        sBondPX[p] = pl->prop->pos.x;
+        sBondPZ[p] = pl->prop->pos.z;
+        sBondPOk[p] = 1;
+    }
+    for (i = 0; i < sCovN; i++)
+    {
+        HeistCover *e = &sCov[i];
+        ChrRecord *g = covChr(e);
+
+        e->sees = 0;
+        if (!coverGuardUp(g)) continue;
+        if (g->numarghs != e->arghs)
+        {   /* hit: he knows who shot him (the nearest armed Bond, else the nearest) */
+            int q = coverNearest(g, armed, ok, n);
+
+            e->arghs = g->numarghs;
+            if (q >= 0) coverHey(e, g, q, CW_HURT);
+        }
+        if (g->lastheartarget60 != e->hear)
+        {   /* heard a shot (the stock hearing check stamps it): he sees through the shooter */
+            e->hear = g->lastheartarget60;
+            if (e->hear > 0 && sCoverShooter >= 0 && sCoverShooter < n && ok[sCoverShooter] && g_GlobalTimer - sCoverShotAt < 30)
+            {
+                coverHey(e, g, sCoverShooter, CW_HEARD);
+            }
+        }
+        for (p = 0; p < n; p++)
+        {
+            f32 d, rate = 0.0f;
+            int why = CW_NONE, inst = 0, seen;
+
+            if (!ok[p]) continue;
+            seen = coverSees(g, g_playerPointers[p]->prop, &d);
+            if (seen) e->sees |= (u8) (1 << p);
+            if (e->witness & (1 << p)) continue;
+            if (!seen)
+            {
+                e->linger[p] = 0.0f;
+                e->susp[p] = e->susp[p] > dt / sCt.decay ? e->susp[p] - dt / sCt.decay : 0.0f;
+                continue;
+            }
+            if (sCoverLoot[p]) { inst = 1; why = CW_LOOT; }
+            else if (act[p]) { inst = 1; why = CW_ACT; }
+            else
+            {
+                if (armed[p]) { rate = 1.0f / sCt.armed; why = CW_ARMED; }
+                if (cls[p] == 2 && 1.0f / sCt.restricted > rate) { rate = 1.0f / sCt.restricted; why = CW_RESTRICTED; }
+                if (cls[p] == 1) { rate += 1.0f / sCt.staff; if (why == CW_NONE) why = CW_STAFF; }
+                if (sBondSpeed[p] > sCt.runSpeed && d < sCt.runRange) { rate += 1.0f / sCt.run; if (why == CW_NONE) why = CW_RUNNING; }
+                if (d < sCt.close)
+                {
+                    e->linger[p] += dt;
+                    if (e->linger[p] > sCt.linger) { rate += 1.0f / sCt.closeTime; if (why == CW_NONE) why = CW_CLOSE; }
+                }
+                else
+                {
+                    e->linger[p] = 0.0f;
+                }
+            }
+            if (inst) e->susp[p] = 1.0f;
+            else if (rate > 0.0f) e->susp[p] += rate * dt;
+            else e->susp[p] = e->susp[p] > dt / sCt.decay ? e->susp[p] - dt / sCt.decay : 0.0f;
+            if (e->susp[p] >= 1.0f) coverHey(e, g, p, why);
+        }
+        for (p = 0; p < 4; p++)
+        {   /* the radio: a witness still up after `radio` seconds reports it */
+            u8 bit = (u8) (1 << p);
+
+            if ((e->witness & bit) && !(e->reported & bit) && sNow - e->heyAt[p] >= (s32) (sCt.radio * 60.0f))
+            {
+                e->reported |= bit;
+                radioSfx(e->chrnum, 0);   /* the call is heard where he stands (presentation) */
+                portEventEmit(PORT_EV_COVER_REPORT, e->chrnum, p, 0, 0);
+            }
+        }
+    }
+}
+
+/* chraction.c chrCheckTargetInSight: 1 = the current Bond's cover holds with this guard (not seen) */
+int portHeistCoverHides(ChrRecord *self)
+{
+    HeistCover *e;
+    int p;
+
+    if (!sCoverOn || sCoverAlert || sCovN == 0 || !portModeActive() || self == NULL) return 0;
+    e = covFind(self->chrnum);
+    if (e == NULL) return 0;
+    p = (int) get_cur_playernum();
+    if (p < 0 || p > 3) return 0;
+    return (e->witness & (1 << p)) == 0;
+}
+
+/* a camera times Bond p (portHeistCctvAllBonds) only when he looks wrong to a camera; without the cover every Bond does (stock) */
+static int coverCamSuspect(int p)
+{
+    struct player *pl = (p >= 0 && p < 4) ? g_playerPointers[p] : NULL;
+
+    if (!coverActive() || sCoverAlert) return 1;
+    if (p < 0 || p > 3) return 1;
+    if (sCoverLoot[p] || sNow < sCoverActUntil[p]) return 1;
+    if (pl != NULL && pl->prop != NULL && pl->prop->stan != NULL && sRoomClass[pl->prop->stan->room & 0xFF] == 2) return 1;
+    return bondArmed(p);
+}
+
+/* cover.state(chr): the guard's meter. Returns 0 = not a cover guard. */
+int portHeistCoverState(int chrnum, float *susp, int *witness, int *reported, int *sees, int *role, int *why)
+{
+    HeistCover *e = covFind(chrnum);
+    int p;
+
+    if (e == NULL) return 0;
+    *susp = 0.0f;
+    *why = 0;
+    for (p = 0; p < 4; p++)
+    {
+        if (e->susp[p] > *susp) *susp = e->susp[p];
+        if ((e->witness & (1 << p)) && *why == 0) *why = e->why[p];
+    }
+    *witness = e->witness;
+    *reported = e->reported;
+    *sees = e->sees;
+    *role = e->role;
+    return 1;
+}
+
+float portHeistCoverSusp(int chrnum, int p)
+{
+    HeistCover *e = covFind(chrnum);
+
+    return (e != NULL && p >= 0 && p < 4) ? e->susp[p] : -1.0f;
+}
+
+/* cover.meter(p) and the HUD's eye: Bond p's cover as the guards see it. 0 off, 1 nobody watching, 2 watched (calm), 3 suspicious,
+ * 4 blown (a guard that is still up saw through him), 5 alert (the disguise is gone). *level = the highest meter of a guard still up,
+ * *chr = that guard (-1). Reads sim state; the HUD calls it for the local Bond (presentation). */
+int portHeistCoverMeter(int p, float *level, int *chr)
+{
+    int i, watched = 0, blown = 0;
+
+    *level = 0.0f;
+    *chr = -1;
+    if (!coverActive() || p < 0 || p > 3) return 0;
+    if (sCoverAlert) { *level = 1.0f; return 5; }
+    for (i = 0; i < sCovN; i++)
+    {
+        HeistCover *e = &sCov[i];
+        ChrRecord *g = e->slot;
+
+        if (g == NULL || g->chrnum != e->chrnum || !coverGuardUp(g)) continue;
+        if (e->witness & (1 << p)) { blown = 1; *level = 1.0f; *chr = e->chrnum; continue; }
+        if (e->sees & (1 << p)) watched = 1;
+        if (!blown && e->susp[p] > *level) { *level = e->susp[p]; *chr = e->chrnum; }
+    }
+    if (blown) return 4;
+    if (*level >= 0.04f) return 3;
+    return watched ? 2 : 1;
+}
+
+/* cover.seen(p): some cover guard that is up has Bond p in sight right now (the power-room work stops) */
+int portHeistCoverSeen(int p)
+{
+    int i;
+
+    if (!coverActive() || p < 0 || p > 3) return 0;
+    for (i = 0; i < sCovN; i++)
+    {
+        if ((sCov[i].sees & (1 << p)) && coverGuardUp(covChr(&sCov[i]))) return 1;
+    }
+    return 0;
+}
+
+int portHeistCoverCount(void) { return sCovN; }
+float portHeistCoverBondSpeed(int p) { return (p >= 0 && p < 4) ? sBondSpeed[p] : 0.0f; }
+
+/* ---- the power (power.set): the mains feed the alarm panels, the siren and the cameras ----
+ * Out: alarmActivate does nothing (propobj.c), so no panel, raiser, camera or script raises the alarm; the mode switches the cameras
+ * off and the siren down. Mode only. */
+void portHeistPowerSet(int on) { sPowerOut = on ? 0 : 1; }
+int portHeistPowerOn(void) { return !sPowerOut; }
+int portHeistAlarmBlocked(void) { return sPowerOut && portModeActive(); }
+
+/* ---- scripted walks (spawn.go): a chr walks (or runs) to a pad on the stock route, its own list still running ---- */
+int portHeistChrGo(int chrnum, int pad, int run)
+{
+    ChrRecord *c = chrFindByLiteralId(chrnum);
+    int i, slot = -1;
+
+    if (!portModeActive() || c == NULL || c->prop == NULL || c->model == NULL || chrIsDead(c) || pad < 0) return 0;
+    if (!chrGoToPad(c, pad, run ? SPEED_RUN : SPEED_WALK)) return 0;
+    for (i = 0; i < GO_MAX; i++)
+    {
+        if (sGo[i].used && sGo[i].chrnum == chrnum) { slot = i; break; }
+        if (!sGo[i].used && slot < 0) slot = i;
+    }
+    if (slot < 0) return 1;   /* it walks, but the arena route may re-aim it */
+    sGo[slot].used = 1;
+    sGo[slot].chrnum = chrnum;
+    sGo[slot].pad = pad;
+    sGo[slot].until = sNow + 60 * 60;
+    if (slot >= sGoN) sGoN = slot + 1;
+    return 1;
+}
+
+int portHeistChrOnGo(const ChrRecord *c)
+{
+    int i;
+
+    for (i = 0; i < sGoN; i++)
+    {
+        if (sGo[i].used && sGo[i].chrnum == c->chrnum) return 1;
+    }
+    return 0;
+}
+
+static void goTick(void)
+{
+    int i;
+
+    for (i = 0; i < sGoN; i++)
+    {
+        ChrRecord *c;
+
+        if (!sGo[i].used) continue;
+        c = chrFindByLiteralId(sGo[i].chrnum);
+        if (c == NULL || c->prop == NULL || chrIsDead(c) || sNow > sGo[i].until
+            || (sNow > sGo[i].until - 60 * 60 + 10 && c->actiontype != ACT_GOPOS && c->actiontype != ACT_RUNPOS))
+        {
+            sGo[i].used = 0;   /* arrived (stopped), gone, or a minute on the way */
+        }
+    }
+}
+
+/* ---- the radio (AC 2026-10-25): a witness's call and the security room's relay are heard where the guard is ----
+ * RADIO_MESSAGE_SFX (80) is the sound Caverns' level AI plays when Bond uses its radio (UsetupcaveZ.c: sfx_play(0x5000, 0) = sound 80);
+ * RADIO_SFX (94) a short squelch. Played through port_gamesfx.c (its own slots, never a game sound's place, its own RNG): presentation
+ * only, at a volume and pan from the guard's position relative to THIS machine's Bond. Nothing comes back into the sim. */
+static void radioSfx(s32 chrnum, int relay)
+{
+    extern int portGameSfxPlay(int sfx, float vol, float pitch, float delay, float pan);
+    extern int portLocalPlayer(void);
+    ChrRecord *c = chrFindByLiteralId(chrnum);
+    int lp = portLocalPlayer();
+    struct player *pl = (lp >= 0 && lp < 4) ? g_playerPointers[lp] : NULL;
+    f32 vol = 0.9f, pan = 0.0f;
+
+    if (c != NULL && c->prop != NULL && pl != NULL && pl->prop != NULL)
+    {
+        f32 dx = c->prop->pos.x - pl->prop->pos.x, dz = c->prop->pos.z - pl->prop->pos.z, d = sqrtf(dx * dx + dz * dz), th, rx;
+
+        vol = d < 300.0f ? 1.0f : (d > 3000.0f ? 0.25f : 1.0f - 0.75f * (d - 300.0f) / 2700.0f);   /* never silent: it is a cue */
+        th = pl->vv_theta * (3.14159265f / 180.0f);
+        rx = d > 1.0f ? (dx * cosf(th) + dz * sinf(th)) / d : 0.0f;   /* his right, for a view along (-sin, cos) */
+        pan = rx < -1.0f ? -1.0f : (rx > 1.0f ? 1.0f : rx);
+    }
+    if (relay)
+    {   /* the security room relays a camera's report: two quick squelches and the message */
+        portGameSfxPlay(RADIO_SFX, vol * 0.8f, 1.15f, 0.0f, pan);
+        portGameSfxPlay(RADIO_SFX, vol * 0.8f, 0.95f, 0.25f, pan);
+        portGameSfxPlay(RADIO_MESSAGE_SFX, vol, 1.05f, 0.45f, pan);
+    }
+    else
+    {
+        portGameSfxPlay(RADIO_MESSAGE_SFX, vol, 1.0f, 0.0f, pan);
+    }
+}
+
+/* cover.radio(chr [, "relay"]): the script plays the radio at that guard (the heist: the security room's relay) */
+int portHeistRadioSfx(int chrnum, int relay)
+{
+    if (!portModeActive()) return 0;
+    radioSfx(chrnum, relay);
+    return 1;
+}
+
+/* ---- guard door rules (AC 2026-10-25: guards who heard Bond in the vault walked over and opened the vault door) ----
+ * The stock route (chraction.c, the waypoint follower) opens any door a chr walks into, keyed or not. With mode.guard_doors(true) a door
+ * the script gave a rule (door.guard_access) opens only for a guard whose role (spawn.role) is in its allowed set: "never" (the vault
+ * doors) is the empty set; a door with no rule opens for anyone (stock). A refused guard walks into the shut door and waits there. Roles
+ * are names the script picks (the heist: a guard's area, "squad", "wave", "barracks" ...), up to 32. Mode only; in the hash. */
+#define ROLE_MAX      32
+#define ROLE_CHR_MAX  768
+#define DOOR_RULE_MAX 64
+static char sRoleName[ROLE_MAX][24];
+static int sRoleN;
+static struct { s32 chrnum; u32 bits; } sRoleChr[ROLE_CHR_MAX];
+static int sRoleChrN;
+static struct { s32 idx; u32 allow; u8 hadAiLock; } sDoorRule[DOOR_RULE_MAX];
+static int sDoorRuleN, sGuardDoors;
+static s32 sDoorRefused, sDoorOpened;
+
+static void doorRulesReset(void)
+{
+    memset(sRoleName, 0, sizeof(sRoleName));
+    sRoleN = sRoleChrN = sDoorRuleN = sGuardDoors = 0;
+    sDoorRefused = sDoorOpened = 0;
+}
+
+/* a role name's bit (registered on first use); -1 when the table is full */
+int portHeistRoleBit(const char *name)
+{
+    int i;
+
+    for (i = 0; i < sRoleN; i++)
+    {
+        if (strcmp(sRoleName[i], name) == 0) return i;
+    }
+    if (sRoleN >= ROLE_MAX) return -1;
+    snprintf(sRoleName[sRoleN], sizeof(sRoleName[0]), "%s", name);
+    return sRoleN++;
+}
+
+/* spawn.role(chr, roles): the chr's roles (replaces) */
+int portHeistSetChrRoles(int chrnum, unsigned bits)
+{
+    int i;
+
+    for (i = 0; i < sRoleChrN; i++)
+    {
+        if (sRoleChr[i].chrnum == chrnum) { sRoleChr[i].bits = bits; return 1; }
+    }
+    if (sRoleChrN >= ROLE_CHR_MAX) return 0;
+    sRoleChr[sRoleChrN].chrnum = chrnum;
+    sRoleChr[sRoleChrN++].bits = bits;
+    return 1;
+}
+
+unsigned portHeistChrRoles(int chrnum)
+{
+    int i;
+
+    for (i = 0; i < sRoleChrN; i++)
+    {
+        if (sRoleChr[i].chrnum == chrnum) return sRoleChr[i].bits;
+    }
+    return 0;
+}
+
+/* A ruled door also gets the stock "AI cannot operate" bit (flags2 0x20000000) while the rules are on: an on-screen chr's move test
+ * ignores ordinary doors (it opens them, chraction.c) and collides only with doors locked to AI (CDTYPE_DOORSLOCKEDTOAI,
+ * propDoorGetCdTypes), so without it a refused guard walked straight through the shut door. A role holder still finds the door on his
+ * path (the door finder looks for closed doors) and opens it; an open door lets anyone through, as it lets Bond. */
+static void doorRuleLock(int i, int on)
+{
+    DoorRecord *d = heistDoor(sDoorRule[i].idx);
+
+    if (d == NULL) return;
+    if (on) d->flags2 |= PROPFLAG2_20000000;
+    else if (!sDoorRule[i].hadAiLock) d->flags2 &= ~PROPFLAG2_20000000;
+}
+
+/* door.guard_access(i, ...): rule 1 sets the allowed role bits (0 = never), rule 0 removes the rule (anyone may open it) */
+int portHeistDoorGuardAccess(int idx, int rule, unsigned allow)
+{
+    DoorRecord *d = heistDoor(idx);
+    int i;
+
+    if (d == NULL) return 0;
+    for (i = 0; i < sDoorRuleN; i++)
+    {
+        if (sDoorRule[i].idx == idx) break;
+    }
+    if (!rule)
+    {
+        if (i < sDoorRuleN)
+        {
+            doorRuleLock(i, 0);
+            sDoorRule[i] = sDoorRule[--sDoorRuleN];
+        }
+        return 1;
+    }
+    if (i == sDoorRuleN)
+    {
+        if (sDoorRuleN >= DOOR_RULE_MAX) return 0;
+        sDoorRuleN++;
+        sDoorRule[i].hadAiLock = (d->flags2 & PROPFLAG2_20000000) ? 1 : 0;
+    }
+    sDoorRule[i].idx = idx;
+    sDoorRule[i].allow = allow;
+    doorRuleLock(i, sGuardDoors);
+    return 1;
+}
+
+void portHeistSetGuardDoors(int on)
+{
+    int i;
+
+    sGuardDoors = on ? 1 : 0;
+    for (i = 0; i < sDoorRuleN; i++) doorRuleLock(i, sGuardDoors);
+}
+int portHeistGuardDoorsOn(void) { return sGuardDoors; }
+/* chraction.c chrlvTravelTickMagic: an offscreen chr hops from pad to pad with no collision (stock), so a shut door is no obstacle.
+ * 1 = the hop to `to` passes within 90 units of a ruled door that is not open and this chr may not open: he does not hop (stock's
+ * "destination blocked" branch: he walks instead, and the door, locked to AI, stops him). */
+int portHeistHopBlocked(ChrRecord *self, coord3d *to)
+{
+    int i;
+
+    if (!sGuardDoors || sDoorRuleN == 0 || !portModeActive() || self == NULL || self->prop == NULL) return 0;
+    for (i = 0; i < sDoorRuleN; i++)
+    {
+        DoorRecord *d = heistDoor(sDoorRule[i].idx);
+        PropRecord *dp;
+        f32 ax, az, bx, bz, px, pz, len2, t, ex, ez;
+
+        if (d == NULL || (dp = ((ObjectRecord *) d)->prop) == NULL || d->openPosition >= 0.5f) continue;
+        if (sDoorRule[i].allow & portHeistChrRoles(self->chrnum)) continue;
+        if (dp->pos.y - self->prop->pos.y > 300.0f || dp->pos.y - self->prop->pos.y < -300.0f) continue;
+        ax = self->prop->pos.x; az = self->prop->pos.z;
+        bx = to->x - ax; bz = to->z - az;
+        px = dp->pos.x - ax; pz = dp->pos.z - az;
+        len2 = bx * bx + bz * bz;
+        t = len2 > 1.0f ? (px * bx + pz * bz) / len2 : 0.0f;
+        if (t < 0.0f) t = 0.0f;
+        if (t > 1.0f) t = 1.0f;
+        ex = px - t * bx;
+        ez = pz - t * bz;
+        if (ex * ex + ez * ez < 90.0f * 90.0f)
+        {
+            if (sDoorRefused < 0x7FFFFFF0) sDoorRefused++;
+            return 1;
+        }
+    }
+    return 0;
+}
+void portHeistDoorStats(int *refused, int *opened) { *refused = sDoorRefused; *opened = sDoorOpened; }
+
+/* chraction.c, the waypoint follower: chr `self` walks into door `door` (a DoorRecord); 0 = he may not open it */
+int portHeistChrMayOpenDoor(ChrRecord *self, void *door)
+{
+    int idx, i;
+
+    if (!sGuardDoors || sDoorRuleN == 0 || !portModeActive() || self == NULL || door == NULL) return 1;
+    idx = portHeistSetupIndex(door);
+    for (i = 0; i < sDoorRuleN; i++)
+    {
+        if (sDoorRule[i].idx == idx)
+        {
+            DoorRecord *d = (DoorRecord *) door;
+
+            if (sDoorRule[i].allow & portHeistChrRoles(self->chrnum))
+            {
+                if (d->openPosition <= 0.0f && d->openstate != DOORSTATE_OPENING) sDoorOpened++;
+                return 1;
+            }
+            if (sDoorRefused < 0x7FFFFFF0) sDoorRefused++;
+            if ((sDoorRefused & 63) == 1)
+            {
+                printf("ge: heist: guard %d may not open door %d (refused %d so far)\n", (int) self->chrnum, idx, (int) sDoorRefused);
+            }
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static unsigned doorRulesHash(void)
+{
+    unsigned h = (unsigned) sGuardDoors * 7u + (unsigned) sRoleN * 11u + (unsigned) sDoorRefused * 13u + (unsigned) sDoorOpened * 17u;
+    int i;
+
+    for (i = 0; i < sRoleChrN; i++) h = h * 16777619u + (unsigned) sRoleChr[i].chrnum + sRoleChr[i].bits * 3u;
+    for (i = 0; i < sDoorRuleN; i++) h = h * 16777619u + (unsigned) sDoorRule[i].idx + sDoorRule[i].allow * 5u;
+    return h;
+}
+
+/* portHeistAiTick */
+void portHeistCoverTick(void)
+{
+    if (sGoN > 0) goTick();
+    if (!sCoverOn || sCoverAlert || sCovN == 0) return;
+    sCovAcc += g_ClockTimer;
+    if (sCovAcc >= COVER_SCAN)
+    {
+        coverScan(sCovAcc / 60.0f);
+        sCovAcc = 0;
+    }
+}
+
+unsigned portHeistCoverHash(void)
+{
+    unsigned h = (unsigned) sCoverOn * 3u + (unsigned) sCoverAlert * 5u + (unsigned) sPowerOut * 7u + (unsigned) sCovN * 11u;
+    int i, p;
+
+    for (i = 0; i < 256; i++) h = h * 31u + sRoomClass[i];
+    for (p = 0; p < 4; p++)
+    {
+        h = h * 16777619u + sCoverLoot[p] + (unsigned) sCoverActUntil[p] * 3u + (unsigned) sBondPOk[p] * 5u
+            + (unsigned) (s32) (sBondSpeed[p] * 16.0f) * 7u + (unsigned) (s32) sBondPX[p] * 11u + (unsigned) (s32) sBondPZ[p] * 13u;
+    }
+    h = h * 16777619u + (unsigned) sCoverShooter + (unsigned) sCoverShotAt * 3u + (unsigned) sCovAcc * 5u;
+    h = h * 16777619u + (unsigned) (s32) (sCt.range + sCt.cone * 3.0f + sCt.armed * 50.0f + sCt.restricted * 70.0f + sCt.staff * 90.0f
+                                            + sCt.run * 110.0f + sCt.runSpeed + sCt.close + sCt.decay * 130.0f + sCt.radio * 170.0f);
+    for (i = 0; i < sCovN; i++)
+    {
+        const HeistCover *e = &sCov[i];
+
+        h = h * 16777619u + (unsigned) e->chrnum + (unsigned) e->role * 3u + (unsigned) e->witness * 5u + (unsigned) e->reported * 7u
+            + (unsigned) e->sees * 11u + (unsigned) (int) e->arghs * 13u + (unsigned) e->hear * 17u;
+        for (p = 0; p < 4; p++)
+        {
+            h = h * 16777619u + (unsigned) (s32) (e->susp[p] * 1000.0f) + (unsigned) (s32) (e->linger[p] * 100.0f) * 3u
+                + (unsigned) e->heyAt[p] * 5u + (unsigned) e->why[p] * 7u;
+        }
+    }
+    for (i = 0; i < sGoN; i++)
+    {
+        if (sGo[i].used) h = h * 16777619u + (unsigned) sGo[i].chrnum + (unsigned) sGo[i].pad * 3u + (unsigned) sGo[i].until * 5u;
+    }
+    return h * 16777619u + doorRulesHash();
 }
 
 /* mode.state(text): the mode script's own sim state as one string (the heist: phase, crack progress and jams, the vault timer, loot,
@@ -2049,8 +2895,10 @@ unsigned portHeistStateHash(void)
     }
     {
         extern unsigned portCctvViewHash(void);   /* port_cctvview.c: who watches which camera (sim state: it holds the Bond) */
+        extern unsigned portHeistCoverHash(void);   /* the disguise, the power, the scripted walks (below) */
 
         h = h * 16777619u + portCctvViewHash();
+        h = h * 16777619u + portHeistCoverHash();
     }
     return h;
 }

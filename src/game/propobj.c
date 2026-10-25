@@ -16020,6 +16020,16 @@ TICKOP propdoorInteract(PropRecord* doorprop)
 
 void alarmActivate(void)
 {
+#ifndef TARGET_N64
+    {   /* PORT: heist power cut (port_heist.c power.set): no mains, no panel, no siren */
+        extern int portHeistAlarmBlocked(void);
+
+        if (portHeistAlarmBlocked())
+        {
+            return;
+        }
+    }
+#endif
     if (alarm_timer < 1) {
         alarm_timer = 1;
 #ifndef TARGET_N64

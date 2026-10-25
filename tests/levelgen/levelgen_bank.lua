@@ -187,7 +187,7 @@ local function body()
 
   -- 1: the layout
   check("layout_counts", #LEVEL.cameras == 7 and #LEVEL.alarms == 6 and #LEVEL.monitors == 10 and #LEVEL.safes == 1 and
-    #LEVEL.padlocks == 1 and #LEVEL.room_name == 20 and #LEVEL.doors == 23,
+    #LEVEL.padlocks == 1 and #LEVEL.room_name == 21 and #LEVEL.doors == 24,   -- (+ the plant room `power` and its door, section 16)
     string.format("cameras %d alarms %d monitors %d safes %d padlocks %d rooms %d doorways %d", #LEVEL.cameras, #LEVEL.alarms,
       #LEVEL.monitors, #LEVEL.safes, #LEVEL.padlocks, #LEVEL.room_name, #LEVEL.doors))
   local pairs_ok, info = true, {}

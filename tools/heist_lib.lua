@@ -51,7 +51,10 @@ function heist.reinforce(cfg)
         end
         if chr then break end
       end
-      if chr then r.mine[chr] = true; made = made + 1; r.spawned = r.spawned + 1 end
+      if chr then
+        r.mine[chr] = true; made = made + 1; r.spawned = r.spawned + 1
+        if cfg.on_spawn then cfg.on_spawn(chr) end   -- (the heist: the guard's door role)
+      end
     end
     if made > 0 then r.waves = r.waves + 1 end
     return made

@@ -1785,6 +1785,63 @@ static Gfx *hudPanel(Gfx *gdl)
     return conSpaceEnd(gdl);
 }
 
+/* heist cover (port_heist.c, designs/bank-heist.md section 16): an eye at the top left for the local Bond's disguise. Closed and grey:
+ * no guard has him in sight; open: watched; the bar is the most suspicious guard's meter (white, yellow, orange); red: a guard saw through
+ * him ("HEY!") or everyone is on alert. Presentation only: it reads the sim's meter for portLocalPlayer(). Hidden on a camera feed. */
+static Gfx *coverEye(Gfx *gdl)
+{
+    extern int portHeistCoverMeter(int p, float *level, int *chr);
+    extern int portCctvOverlayGet(int *cam, char *name, int namelen, int *index, int *count, int *offline, int *seconds, int *ticks);
+    extern int portLocalPlayer(void);
+    static const char *const label[] = { "", "COVER", "WATCHED", "SUSPICIOUS", "HEY! COVER BLOWN", "ALERT: NO COVER" };
+    float level;
+    int chr, st, cam, idx, cnt, off, secs, ticks;
+    char name[8];
+    s32 cx, y = 6, bx, bw = 110, fill;
+    u32 col, eye;
+
+    st = portHeistCoverMeter(portLocalPlayer(), &level, &chr);
+    if (st <= 0 || st > 5 || portCctvOverlayGet(&cam, name, (int) sizeof(name), &idx, &cnt, &off, &secs, &ticks))
+    {
+        return gdl;
+    }
+    if (dynGetFreeGfx2(gdl) < 2 * CON_GFX_ROW + CON_GFX_SETUP + CON_GFX_TAIL + 96)
+    {
+        return gdl;
+    }
+    if (st == 1) col = 0x909090FFu;
+    else if (st == 2 && level < 0.04f) col = 0xF0F0F0FFu;
+    else if (st >= 4) col = 0xFF3030FFu;
+    else col = level < 0.5f ? 0xFFE040FFu : 0xFF9020FFu;
+    eye = st == 1 ? 0x909090FFu : (st >= 4 ? 0xFF3030FFu : 0xF0F0F0FFu);
+    ngHavePrim = 0;
+    gdl = conSpaceBegin(gdl);
+    cx = 100;   /* top left: the intel panel takes the top right and most of the top in the hall */
+    bx = cx - 40;
+    gDPSetRenderMode(gdl++, G_RM_XLU_SURF, G_RM_XLU_SURF2);
+    gDPSetCombineMode(gdl++, G_CC_PRIMITIVE, G_CC_PRIMITIVE);
+    gdl = ngRect(gdl, cx - 86, y - 3, cx + 86, y + 29, 0x00000090u);
+    if (st == 1)
+    {   /* closed: a lid line */
+        gdl = ngRect(gdl, cx - 78, y + 7, cx - 52, y + 9, eye);
+    }
+    else
+    {   /* an almond with a pupil */
+        gdl = ngRect(gdl, cx - 74, y + 1, cx - 56, y + 3, eye);
+        gdl = ngRect(gdl, cx - 78, y + 3, cx - 52, y + 13, eye);
+        gdl = ngRect(gdl, cx - 74, y + 13, cx - 56, y + 15, eye);
+        gdl = ngRect(gdl, cx - 69, y + 4, cx - 61, y + 12, 0x101010FFu);
+    }
+    fill = (s32) (level * (f32) bw);
+    if (fill < 0) fill = 0;
+    if (fill > bw) fill = bw;
+    gdl = ngRect(gdl, bx, y + 4, bx + bw, y + 11, 0x404040C0u);
+    if (fill > 0) gdl = ngRect(gdl, bx, y + 4, bx + fill, y + 11, col);
+    gDPSetCombineLERP(gdl++, 0, 0, 0, PRIMITIVE, TEXEL0, 0, PRIMITIVE, 0, 0, 0, 0, PRIMITIVE, TEXEL0, 0, PRIMITIVE, 0);
+    gdl = conDrawRow(gdl, cx - conTextWidth(label[st]) / 2, y + 16, label[st], col);
+    return conSpaceEnd(gdl);
+}
+
 Gfx *portConRender(Gfx *gdl)
 {
     s32 i;
@@ -1811,6 +1868,7 @@ Gfx *portConRender(Gfx *gdl)
     {
         gdl = cctvOverlay(gdl);   /* heist: a camera feed's labels and static (under every other line) */
         gdl = hudPanel(gdl);
+        gdl = coverEye(gdl);      /* heist: the disguise's eye */
     }
 
     gdl = portNetGraphRender(gdl);   /* job 6: net_graph 1-3 (a no-op at 0) */

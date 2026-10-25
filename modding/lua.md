@@ -81,6 +81,8 @@ Registers a handler (at most 16 per event; an unknown event name raises).
 | `objective_changed` | `(index, status)`: 0 incomplete, 1 complete, 2 failed |
 | `body_found` | `(guard, body, ko)`: a guard found a body; `ko` is 1 for a knocked-out chr, 0 for a dead one (see "Heist guards") |
 | `chr_knocked_out`, `chr_woken`, `chr_searched` | `(chr, player)`, `(chr, waker)`, `(chr, player)`: see "Knock-outs" |
+| `cover_blown` | `(guard, player, why)`: a cover guard saw through Bond `player`'s disguise; `why` is a number, `cover.why_name(why)` its name. See "The banker cover" |
+| `cover_report` | `(guard, player)`: that witness was still up (not dead, not knocked out) after the radio time: he reports it (the heist raises the alarm) |
 | `test_key` | `(name)`: a test hotkey, `"next"` (PageDown), `"back"` (PageUp), `"next+"`, `"back+"` (with Shift), or the console `arena <name>`. Never from the keyboard in co-op or netplay. |
 
 Chr ids are chrnums. Globals: `CHR_BOND = -2` (player 0; `bond.id(p)` gives the id of other Bonds) and `CHR_NONE = -1`. `damage`, `chr_spawned`, `item_pickup` and `objective_changed` also fire on an ordinary solo stage, not only in a mode. The heist events (`alarm`, `cctv_spotted`, `use`, `gadget_used`) fire wherever the game does the thing, but a script only runs in a mode.
@@ -286,6 +288,51 @@ Job 5 of designs/bank-heist.md. Test mode: `tests/heist/heist_ko.lua` (run with 
 | `spawn.fire_stats(chr)` | Test helper: `fired, held`, the shots the chr fired and the shots it held for a civilian in the line this stage (the first 64 chrs that tried to shoot). |
 
 Co-op: every slap names the Bond whose punch landed; the knock-out table (slaps, state, searched, waker and its timer) and both options are in the co-op state hash. Limits: the fall is always the one stock soft death animation, with none of the stock death code's wall checks, so a chr knocked out facing a wall may clip into it (not seen in the test); the woken chr blends up from lying (there is no stock get-up animation); the waker's "look it over" is the stock look-around animation, not a kneel.
+
+### The banker cover, the power, scripted walks
+
+designs/bank-heist.md section 16 (AC's answers): the crew starts as bank staff. `port/src/port_heist.c` "cover"; test mode `tests/heist/heist_cover.lua` (`tests/heist/run_cover.sh`).
+
+**The disguise.** With `cover.on(true)`, a guard registered with `cover.guard(chr)` does not see a Bond whose cover holds with him: the stock sight test every guard list uses (`chrCheckTargetInSight`, `IFISeeBond`) asks the port first and gets "not seen", before its random roll. Instead each cover guard has a suspicion meter per Bond (0..1), filled while he *could* see that Bond (within `range`, inside `cone` degrees either side of where he faces, or anywhere within 100 units; the stock guard-to-Bond stan line, as `chrCanSeeBond` draws it) by what the Bond is doing:
+
+| Conduct | Fills the meter in |
+| --- | --- |
+| loot carried (`cover.carrying(p, true)`), or an act seen: a slap (counted or knock-out), a civilian robbed, a body searched, a gun fired (each counts for `act` seconds) | at once |
+| a gun or a knife in hand (`ITEM_KNIFE` .. `ITEM_ROCKETLAUNCH`; the slappers and gadgets are fine) | `armed` (0.4 s) |
+| standing in a `"restricted"` room (`cover.room(id, class)`) | `restricted` (1 s) |
+| a `"staff"` room | `staff` (5 s), added to the rest |
+| moving faster than `run_speed` units/s within `run_range` of him | `run` (4 s), added |
+| closer than `close` for longer than `linger` | `close_time` (4 s), added |
+
+It drains in `decay` seconds while nothing is wrong. Full: that guard alone sees through him: `cover_blown(guard, p, why)`, the hook stops hiding Bond `p` from him (his `lastseetarget60` is set, so his next sight test goes straight to the stan line) and his own list attacks. A guard who hears a Bond fire (the stock hearing check) or is hit sees through the shooter at once (`heard`, `hurt`). After `radio` seconds (5), if he is still up, `cover_report(guard, p)` fires once; knock him out or kill him first and nothing is reported (until his body is found). `cover.alert(true)` ends every disguise: the hook hides nobody. A public room costs nothing.
+
+**Cameras.** With the cover on a camera (solo too: the per-Bond path, `portHeistCctvAllBonds`) times only a Bond who looks wrong to it: a gun in hand, loot, an act, a restricted room, or the alert; otherwise its timer runs back down. `cctv_spotted` as before.
+
+| Call | Notes |
+| --- | --- |
+| `cover.on([on])`, `cover.alert([on])` | Set and return. Both reset at a stage start (off). |
+| `cover.guard(chr [, "security"])` | Register a guard (up to 384). The role is for the mode (the heist's camera link needs a security guard up). |
+| `cover.room(room, "public" \| "staff" \| "restricted")`, `cover.room(room)` | A bg room's class (`LEVEL.rooms[name].id`; default public). |
+| `cover.carrying(p, on)` | Bond `p` carries loot. |
+| `cover.tune{range=1800, cone=75, armed=0.4, restricted=1, staff=5, run=4, run_speed=450, run_range=400, close=150, linger=2, close_time=4, decay=12, radio=5, act=1.5}` | Any subset. |
+| `cover.state(chr)` | `{susp, witness, reported, sees, role, why}` or nil: the highest meter, bit masks by player, the reason of the first witness. |
+| `cover.suspicion(chr, p)` | That guard's meter on Bond `p`. |
+| `cover.meter(p)` | `state, level, guard`: `"unseen"` (no cover guard has him in sight), `"watched"`, `"suspicious"`, `"blown"` (a guard still up saw through him), `"alert"`, `"off"`; the highest meter of a guard still up, and that guard. The HUD's eye (top left) draws this for the local Bond. |
+| `cover.seen(p)` | Some cover guard that is up has Bond `p` in sight now. |
+| `cover.blow(chr, p)` | A script makes that guard see through Bond `p` (`why` "script"). |
+| `cover.count()`, `cover.speed(p)`, `cover.why_name(n)` | Guards registered; Bond `p`'s speed at the last scan (units/s); `"armed" "loot" "act" "restricted" "staff" "running" "close" "heard" "hurt" "script"`. |
+| `cover.test_act(p)` | Test hook: Bond `p` did something that blows the cover in view. |
+| `cover.radio(chr [, "relay"])` | The radio sound at that guard (below). |
+
+The scan runs every 4 ticks for every cover guard and every Bond, reads only sim state (positions, facings, each Bond's canonical weapon and room, never the local player), and its whole table (meters, linger times, witnesses and reports, each Bond's speed, the act timers, the room classes) is in the co-op state hash.
+
+**The power.** `power.set(on)`, `power.on()`: while the power is out `alarmActivate` does nothing (mode only): no alarm box, raiser, camera or script raises the alarm and the siren cannot sound. Darkening the cameras is the script's job (`cctv.disable`; a disabled camera's feed is static). In the hash.
+
+**The radio.** `cover.radio(chr [, "relay"])`: the radio sound at that guard, heard on every machine at a volume and pan from its own Bond (presentation only; `port_gamesfx.c`). `"call"` (default) is `RADIO_MESSAGE_SFX`, the radio Caverns' level AI plays; `"relay"` two `RADIO_SFX` squelches and the message. A witness's report (`cover_report`) plays the call by itself.
+
+**Guard door rules.** The stock route opens any door a chr walks into, keyed or not. `mode.guard_doors(on)` (default off; reset each stage) makes a door with a rule open only for a guard whose role is allowed: `door.guard_access(i, "any" | "never" | role | {roles})` (`"any"` removes the rule), `spawn.role(chr, role | {roles})` (role names are the script's own, up to 32 a stage). A refused guard walks into the shut door and waits there. `door.guard_stats()` gives `refused, opened` (checks that kept a guard out; shut ruled doors a role holder opened). In the hash. `heist.reinforce{..., on_spawn = fn(chr)}` (heist_lib) runs for each guard it places (the heist gives waves their role there).
+
+**Scripted walks.** `spawn.go(chr, pad [, run])`: the chr walks (runs) to the pad on the stock waypoint route (`chrGoToPad`); its own list keeps running (a posted guard stays a posted guard), and the arena's direct route does not re-aim it while it is on the way (up to a minute).
 
 ### The heist mode
 

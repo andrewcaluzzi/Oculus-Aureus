@@ -216,6 +216,36 @@ void        portCctvTestPress(int mask);                                   /* te
 void        portCctvTestUse(int p);                                        /* test: one Port use-action tap in Bond p's next tick */
 int         portHeistUseKey(int p);                                        /* inside a use handler: the press is the use action, not B */
 void        portHeistModeState(const char *text);                          /* mode.state: the script's sim state, hashed and dumped */
+/* the banker disguise, the power, scripted walks (designs/bank-heist.md section 16; port_heist.c "cover") */
+int         portHeistCoverGuard(int chrnum, int role);                     /* this guard judges the disguise (role 1 = security staff) */
+void        portHeistCoverSetOn(int on);
+int         portHeistCoverIsOn(void);
+void        portHeistCoverSetAlert(int on);                                /* everyone alert: the disguise protects nobody */
+int         portHeistCoverAlert(void);
+void        portHeistCoverRoom(int room, int cls);                         /* 0 public, 1 staff only, 2 restricted */
+int         portHeistCoverRoomClass(int room);
+void        portHeistCoverCarrying(int p, int on);                         /* Bond p carries loot (seen = blown) */
+void        portHeistCoverTune(const float *v, int n);                     /* the sCt fields in order; < 0 keeps */
+int         portHeistCoverTestAct(int p);
+int         portHeistCoverBlow(int chrnum, int p);
+int         portHeistCoverState(int chrnum, float *susp, int *witness, int *reported, int *sees, int *role, int *why);
+float       portHeistCoverSusp(int chrnum, int p);                         /* -1 not a cover guard */
+int         portHeistCoverMeter(int p, float *level, int *chr);            /* 0 off .. 5 alert */
+int         portHeistCoverSeen(int p);
+int         portHeistCoverCount(void);
+float       portHeistCoverBondSpeed(int p);
+const char *portHeistCoverWhyName(int why);
+void        portHeistPowerSet(int on);
+int         portHeistPowerOn(void);
+int         portHeistChrGo(int chrnum, int pad, int run);                  /* spawn.go: walk / run to a pad on the stock route */
+int         portHeistRadioSfx(int chrnum, int relay);                      /* cover.radio: the radio sound at a guard (presentation) */
+int         portHeistRoleBit(const char *name);                            /* guard door rules: a role name's bit, -1 full */
+int         portHeistSetChrRoles(int chrnum, unsigned bits);
+unsigned    portHeistChrRoles(int chrnum);
+int         portHeistDoorGuardAccess(int idx, int rule, unsigned allow);   /* rule 0 = anyone (stock), 1 = these roles only (0 = never) */
+void        portHeistSetGuardDoors(int on);
+int         portHeistGuardDoorsOn(void);
+void        portHeistDoorStats(int *refused, int *opened);
 void        portCctvTestShot(void);                                        /* test: a GE_SHOT capture of the next frame */
 int         portCctvExtraChrs(void);                                       /* chrs the last feed pass posed and drew itself */
 int         portCctvOverlayGet(int *cam, char *name, int namelen, int *index, int *count, int *offline, int *seconds, int *ticks);
