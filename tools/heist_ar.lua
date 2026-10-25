@@ -79,6 +79,62 @@ function heist_ar.attach(H, S)
     point("DOCK", bx, by, bz, going and 0x50FF70FF or 0x50FF7060)
     ar.unpoint()
     for label, p in pairs(points) do ar.point(p[1], p[2], p[3], label, p[4]) end
+    for label, p in pairs(heist_ar.warn or {}) do ar.point(p[1], p[2], p[3], label, 0xFF3838FF) end
+  end
+
+  -- The camera warning. Searching a body or picking a pocket in a live camera's view is an act the camera reports (port_ai.c), and the
+  -- security room raises the alarm. A Bond within reach of an unsearched knocked-out body, or of a standing card carrier, while a
+  -- working camera sees him (on its floor, not off, not on a tape loop, someone in the security room) gets a red "CAMERA SEES YOU"
+  -- diamond on that camera. Presentation only: the points layer, so Shift+F3 hides it with the rest of the specs.
+  local searched, bodies = {}, {}   -- (bodies: every knocked-out chr, from the event; a search needs a knocked-out one)
+  on("chr_searched", function(c) searched[c] = true end)
+  on("chr_knocked_out", function(c) bodies[c] = true end)
+  on("chr_woken", function(c) bodies[c] = nil end)
+  on("stage_start", function() searched, bodies = {}, {}; heist_ar.warn = {} end)
+  heist_ar.warn = {}
+  local function cam_live(cam)
+    local g = cctv.get(cam)
+    if not g or g.disabled then return nil end
+    if tostring(cctv.name(cam) or ""):find("[LOOP]", 1, true) then return nil end   -- (the gadgets' tape loop renames the feed)
+    return g
+  end
+  local function about_to_act(p)
+    local x, y, z = bond.pos(p)
+    if not x or bond.dead(p) then return false end
+    local function near(c, r)
+      local cx, cz = spawn.where(c)
+      return cx and (cx - x) ^ 2 + (cz - z) ^ 2 <= r * r
+    end
+    for c in pairs(bodies) do
+      if not searched[c] and spawn.alive(c) and ko.is(c) and near(c, 170) then return true end
+    end
+    for _, cc in pairs(H.carriers or {}) do
+      if cc.chr and up(cc.chr) and near(cc.chr, 150) then return true end
+    end
+    return false
+  end
+  local function camera_warn()
+    local w = {}
+    if S.cover and not H.hot and not alarm.active() and (not H.security_up or H.security_up() > 0) then
+      local n = bond.count()
+      for p = 0, n - 1 do
+        if about_to_act(p) then
+          for _, cam in ipairs(cctv.list()) do
+            local g = cam_live(cam)
+            if g and cctv.sees(cam, bond.id(p)) then
+              w[n > 1 and ("CAMERA SEES P" .. (p + 1)) or "CAMERA SEES YOU"] = { g.x, g.y, g.z }
+              break
+            end
+          end
+        end
+      end
+    end
+    for label in pairs(heist_ar.warn) do if not w[label] then ar.unpoint(label) end end
+    for label, p in pairs(w) do
+      local o = heist_ar.warn[label]
+      if not o or o[1] ~= p[1] or o[3] ~= p[3] then ar.point(p[1], p[2], p[3], label, 0xFF3838FF) end
+    end
+    heist_ar.warn = w
   end
 
   on("stage_start", function()
@@ -119,10 +175,12 @@ function heist_ar.attach(H, S)
   end)
   pcall(on, "noise", function(x, y, z, radius, kind) if x and y and z then ar.noise(x, y, z, radius or 300, kind) end end)
 
-  local acc = 0
+  local acc, wacc = 0, 0
   on("tick", function(dt)
     if H.phase == "off" or not H.ready then return end
     acc = acc + dt
+    wacc = wacc + dt
+    if wacc >= 0.25 then wacc = 0; camera_warn() end
     -- "Huh?" as a guard's meter passes half way (read-only: cover.state)
     if S.cover and not cover.alert() then
       for _, g in ipairs(H.guards) do

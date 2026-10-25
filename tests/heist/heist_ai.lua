@@ -10,14 +10,17 @@
 --   GE_AI_CAMDOWN=1  the same body with every security guard knocked out: nothing
 --   GE_AI_PATROL=1   the patrol loops: each route's guard walks it (moves, and comes back round)
 --   GE_AI_CHECKIN=1  a guard knocked out where nobody sees: he misses his check-in and a colleague is sent to his post
+--   GE_AI_BACKUP=1   a backup call: a key-card carrier nearer the caller holds his post, a posted guard answers
+--   GE_AI_LURE=1     a coin 600 behind a guard draws him over; one at the edge of his hearing (860) only turns him
+--   GE_AI_CAMWARN=1  Bond at an unsearched body in a camera's view: the AR's red CAMERA warning; cameras off: none
 -- GE_AI_SHOTS=1 adds screenshots (cctv.test_shot). Prints "HEIST PASS|FAIL ..." and "HEIST DONE".
 local RUN = "hear"
-for _, r in ipairs({ "slap", "door", "giveup", "camko", "camact", "camdown", "checkin", "patrol" }) do
+for _, r in ipairs({ "slap", "door", "giveup", "camko", "camact", "camdown", "checkin", "patrol", "backup", "lure", "camwarn" }) do
   if mode.env_flag("GE_AI_" .. r:upper()) then RUN = r end
 end
 local SHOTS = mode.env_flag("GE_AI_SHOTS")
 HEIST_SETTINGS = {
-  test = true, station_late = 8, jam_chance = 0, jam_every = 1000, security_delay = 4, investigators = 0, generator_after = 0,
+  test = true, station_late = (RUN == "backup" or RUN == "lure" or RUN == "camwarn") and 900 or 8, jam_chance = 0, jam_every = 1000, security_delay = 4, investigators = 0, generator_after = 0,
   ai_tune = { search_time = (RUN == "giveup") and 14 or 30, look = 1.5, search_pads = 1, checkin = (RUN == "checkin") and 6 or 0 },
 }
 include("heist")
@@ -330,6 +333,114 @@ local function patrol_path()
   check("he misses his station: a colleague is sent to it", sent and tour.missed, tostring(tour.missed))
 end
 
+-- the AR camera warning (tools/heist_ar.lua): Bond next to an unsearched body in a live camera's view gets the red CAMERA diamond;
+-- with the cameras off, none
+local function camwarn_path()
+  mode.body_check(false)   -- (the camera would report the body itself before Bond gets there)
+  clear_area("hall")
+  local v = spawn_near("cust_1", { behaviour = "civilian", body = "Civilian_3" })
+  check("a teller at the counter", v ~= nil)
+  if not v then return end
+  check("the AR layer is loaded", heist_ar ~= nil and heist_ar.warn ~= nil)
+  if not heist_ar then return end
+  wait(1)
+  spawn.ko(v, 0)
+  wait(1)
+  check("away from her: no warning", next(heist_ar.warn) == nil)
+  local vx, vz = spawn.where(v)
+  local _, vy = pads.pos(pad("cust_1"))
+  warp_xz(0, vx + 60, vy, vz)
+  bond.face(0, vx, vz)
+  local w = wait_for(2, function() return next(heist_ar.warn) ~= nil end)
+  check("at the body in the camera's view: the CAMERA warning", w, tostring(next(heist_ar.warn)))
+  shot("ai_camwarn")
+  for _, cam in ipairs(cctv.list()) do cctv.disable(cam) end
+  local gone = wait_for(2, function() return next(heist_ar.warn) == nil end)
+  check("the cameras off: the warning goes", gone)
+  for _, cam in ipairs(cctv.list()) do cctv.enable(cam) end
+end
+
+-- backup: a guard calls it (ai.backup, as when he goes into combat); a key-card carrier nearer than the post guard holds his post,
+-- the post guard answers. The carrier himself may still call it.
+local function backup_path()
+  local a, x, y, z = hall_guard()
+  if not a then check("a test guard", false); return end
+  local b = guard_at(x + 200, y, z, x + 200, z + 500)
+  local c = guard_at(x - 350, y, z, x - 350, z + 500)
+  check("a caller, a card carrier 200 from him and a posted guard 350 from him", b ~= nil and c ~= nil)
+  if not (b and c) then return end
+  ai.guard(b, 3)   -- (kind 3: a key-card carrier, as mode_heist.lua registers them)
+  wait(1)
+  local bx, bz = spawn.where(b)
+  local cx, cz = spawn.where(c)
+  local n = ai.backup(a)
+  check("the caller calls backup and someone answers", n >= 1 and barked(a, "backup") ~= nil, tostring(n) .. " answered")
+  check("the posted guard answers (alert, on his way)", info(c).state >= 3 and info(c).sub == "go",
+        string.format("%s %s, %s", info(c).name, info(c).sub, barked(c) and barked(c).text or "no bark"))
+  check("the card carrier does not answer", barked(b) == nil and info(b).state < 3, string.format("%s %s, %s", info(b).name, info(b).sub,
+        barked(b) and barked(b).text or "no bark"))
+  wait(4)
+  local bx2, bz2 = spawn.where(b)
+  local cx2, cz2 = spawn.where(c)
+  check("... he holds his post", bx2 and d2(bx, bz, bx2, bz2) < 40 and info(b).sub ~= "go",
+        string.format("moved %.0f, %s %s", bx2 and d2(bx, bz, bx2, bz2) or -1, info(b).name, info(b).sub))
+  check("... while the posted guard moves up", cx2 and d2(cx, cz, cx2, cz2) > 100, string.format("moved %.0f", cx2 and d2(cx, cz, cx2, cz2) or -1))
+  check("the carrier can still call backup himself", ai.backup(b) >= 0 and barked(b, "backup") ~= nil)
+end
+
+-- a coin is a lure: inside `lure` of his hearing range (900 x hearing x rooms) a guard walks over; further out he only turns and looks
+local function lure_path()
+  local c, x, y, z = hall_guard()
+  if not c then check("a test guard", false); return end
+  -- the longest clear run inside the hall from hall_mid: the coin goes that way, behind his back
+  local rr = LEVEL.rooms.hall.rect
+  local dirs = { { 1, 0, rr[3] - x }, { -1, 0, x - rr[1] }, { 0, 1, rr[4] - z }, { 0, -1, z - rr[2] } }
+  table.sort(dirs, function(p, q) return p[3] > q[3] end)
+  local ux, uz, room = dirs[1][1], dirs[1][2], dirs[1][3]
+  print(string.format("HEIST   the hall runs %.0f from hall_mid along %d,%d", room, ux, uz))
+  spawn.remove(c)
+  wait(0.5)
+  -- a guard on a hall pad about 6 m from hall_mid (in the hall itself), his back to it; the coin lands at hall_mid
+  local hall = LEVEL.rooms.hall.id
+  c = nil
+  for _, p in ipairs(pads.far_from(x, z, 560, 640)) do
+    local px, py, pz = pads.pos(p)
+    if math.abs(py - y) < 60 then
+      local g = guard_at(px, py, pz, px + (px - x), pz + (pz - z))
+      if g then
+        wait(0.25)
+        if spawn.room(g) == hall then c = g; break end
+        spawn.remove(g)
+      end
+    end
+  end
+  check("a guard in the hall about 6 m from hall_mid", c ~= nil)
+  if not c then return end
+  wait(1.5)
+  local nx, nz = x, z
+  local gx0, gz0 = spawn.where(c)
+  local d = d2(gx0, gz0, nx, nz)
+  local heard = noise.emit(nx, y, nz, 900, "coin")
+  check("a coin " .. math.floor(d) .. " behind him is heard", heard >= 1, tostring(heard))
+  local went = wait_for(14, function() local gx, gz = spawn.where(c); return gx and d2(gx, gz, nx, nz) < 160 end)
+  local gx, gz = spawn.where(c)
+  check("... and he walks over to it (a lure)", went, string.format("%.0f from the coin, %s %s", gx and d2(gx, gz, nx, nz) or -1, info(c).name, info(c).sub))
+  spawn.remove(c)
+  wait(0.5)
+  c = guard_at(x, y, z, x - ux * 500, z - uz * 500)
+  wait(1.5)
+  local far = 860
+  local fx, fz = x + ux * far, z + uz * far
+  heard = noise.emit(fx, y, fz, 900, "coin")
+  local turned = wait_for(2.5, function() return info(c).state >= 1 end)
+  check("a faint coin (860 away) at the edge of his hearing: he turns (suspicious)", heard >= 1 and turned,
+        string.format("heard %d, %s %s level %.2f", heard, info(c).name, info(c).sub, info(c).level))
+  wait(6)
+  gx, gz = spawn.where(c)
+  check("... but stays where he is (looks from there)", gx and d2(gx, gz, x, z) < 100,
+        string.format("%.0f from his post, %s", gx and d2(gx, gz, x, z) or -1, info(c).sub))
+end
+
 local finished = false
 local function body()
   local ready = wait_for(25, function() return HEIST.ready end)
@@ -339,7 +450,8 @@ local function body()
   if RUN == "hear" then hear_path() elseif RUN == "slap" then slap_path() elseif RUN == "door" then door_path()
   elseif RUN == "giveup" then giveup_path() elseif RUN == "camko" then cam_body(false) elseif RUN == "camact" then camact_path()
   elseif RUN == "camdown" then cam_body(true)
-  elseif RUN == "checkin" then checkin_path() elseif RUN == "patrol" then patrol_path() end
+  elseif RUN == "checkin" then checkin_path() elseif RUN == "patrol" then patrol_path()
+  elseif RUN == "backup" then backup_path() elseif RUN == "lure" then lure_path() elseif RUN == "camwarn" then camwarn_path() end
   local c = ai.counts()
   print(string.format("HEIST   counts: barks %d searches %d giveups %d checkins %d backups %d cam acts %d cam bodies %d",
         c.barks, c.searches, c.giveups, c.checkins, c.backups, c.cam_acts, c.cam_bodies))

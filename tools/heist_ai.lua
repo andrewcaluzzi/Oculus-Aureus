@@ -12,7 +12,7 @@
 --   hearing_wall 0.1              ... through walls (the least a sound keeps between any two rooms)
 --   ai_tune = {}                  ai.tune{} overrides: turn, alert_turn, look, search_time, search_radius, search_pads, decay,
 --                                  susp_level, search_level, checkin, backup, backup_range, cover_noise, step_speed, run_speed,
---                                  attribute, near, weight_<kind>
+--                                  attribute, near, lure (0.25: a coin heard this loud draws a guard over), weight_<kind>
 --   patrols = true                some posted guards walk patrol routes (the layout's patrol_<route>_<n> pads, else the named
 --                                  routes below: patrols_named = false turns those off)
 --   station_late = 45            a patrol guard down this long since his last watchclock station (bank v3's M.STATIONS), or one

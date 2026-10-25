@@ -990,6 +990,24 @@ Screenshots of the merged build on v3 are on AC's machine, not in the repo, in `
   before the game: the stock pickup took every card it was put on. A sweep over other seeds was cut for time (`GE_SEED=n RUNS=win`).
 - **The co-op bot is stale.** `tools/bot/heist_bot.lua` still targets the retired Bunker 2 heist (`GE_STAGE=bunker2`). modding/lua.md's
   heist paragraph (Bunker 2, room 6, `run_shots.sh`) carries a stale note now.
+- ~~`cctv.sees` is x/z only~~ **Fixed (branch `polish-ai`).** `cctv.sees` (port_cctvview.c) and the AI layer's camera check for acts
+  and bodies (port_ai.c `camSees`) are floor-aware now. The stan line walks from the camera's own floor, so it must end on the target's
+  tile, or at least in his room. A chr straight above or below the cone is not seen. The Lua floor filters (the mode, the board, the
+  gadgets) stay as a second check; they agree.
+- ~~A coin's pull depends on the distance~~ **Fixed (`polish-ai`).** A coin is a lure now (`ai.tune{ lure = 0.25 }`). A guard who hears
+  it at least 0.25 loud walks over to look. Loudness is 1 at the coin and 0 at the edge of 900 x his hearing x the rooms and doors
+  between: about 6.7 m in the open, 4 m through an open doorway, 1.7 m through a shut door. Fainter, he only turns ("Huh?") and looks
+  from where he stands. Test: `run_ai.sh` `lure`.
+- **Fixed (`polish-ai`): backup calls pulled key-card carriers off their posts.** A carrier (ai kind 3) never answers a backup call;
+  the nearest other free guards do. He still calls backup himself when he is the one in combat. The watchclock and check-in dispatches
+  are unchanged. Test: `run_ai.sh` `backup` (`ai.backup(chr)` calls it from a script).
+- **Fixed (`polish-ai`): the camera rule is legible.** When a Bond is within reach of an unsearched knocked-out body or a standing card
+  carrier (about to search or pickpocket), and a live camera sees him, the AR specs put a red **CAMERA SEES YOU** diamond on that
+  camera ("CAMERA SEES P2" in co-op). A live camera is on, not on a tape loop, with someone in the security room. The diamond is
+  presentation only, on the points layer, so Shift+F3 hides it. Test: `run_ai.sh` `camwarn`. Body dragging has no mechanic yet, so it
+  has no warning.
+- **The Windows exe was not smoke-run on Windows**, because the port has no hidden-window option. The same source booted the heist
+  headless in the Linux build. `build_win_next`'s Lua scripts were refreshed after the fixes (they are copied only on a relink).
 
 ### 23d. The first-play guide (2026-10-26 polish)
 
@@ -1021,12 +1039,4 @@ specs off it still shows, because it is the mode's own HUD lines. `S.guide = fal
   confirmed). So a player in the hall has to search fast.
 - **Screenshots** (AC's machine): `polish-before-*.jpg` and `polish-after-*.jpg` in the overnight `img` folder. Before, line 2 said only
   "GREEN card: head teller or lobby captain", with no hint of how to get it or what Tab does.
-- **`cctv.sees` itself is still x/z only.** Every Lua caller now filters by floor or room (the mode, the board, the gadgets' camera
-  report). A new caller must do the same, or the C function should get the floor rule.
-- **A coin's pull depends on the distance.** Through the AI layer a coin is just a noise (radius 900, weight 0.8). A guard 4 m from
-  where it lands turns ("Huh?") but may not walk over: his level stays under the search threshold. A coin landing near him brings him
-  over. The fallback pull (no AI layer) always sent the 2 nearest guards. Tune `coin_noise` or the coin's weight if it should pull from
-  further.
-- **The Windows exe was not smoke-run on Windows**, because the port has no hidden-window option. The same source booted the heist
-  headless in the Linux build. `build_win_next`'s Lua scripts were refreshed after the fixes (they are copied only on a relink).
 

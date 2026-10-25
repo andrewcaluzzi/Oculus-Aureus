@@ -82,6 +82,8 @@ extern int portNoiseNearDoor(float x, float z, float r);
 #define ROUTE_PADS   12
 #define TAU          6.2831853f
 
+#define KIND_CARRIER 3              /* ai.guard kinds (tools/heist_ai.lua KIND_CODE): 3 = a key-card carrier */
+
 enum { AS_UNAWARE, AS_SUSPICIOUS, AS_SEARCHING, AS_ALERT, AS_COMBAT, AS_N };
 enum { SUB_NONE, SUB_TURN, SUB_GO, SUB_LOOK, SUB_RETURN, SUB_PATROL };
 enum { BK_HUH, BK_HEY, BK_INVESTIGATE, BK_LOST, BK_FOUND_BODY, BK_RADIO, BK_BACKUP, BK_SURRENDER, BK_N };
@@ -118,7 +120,7 @@ static int sRouteN;
 static struct
 {
     f32 turn, alertTurn, look, searchTime, searchRadius, decay, suspLevel, searchLevel, checkin, backupRange, coverNoise, stepSpeed,
-        runSpeed, stepEvery, attribute, near;
+        runSpeed, stepEvery, attribute, near, lure;
     f32 weight[NOISE_KIND_N];
     s32 searchPads, backupN;
 } sT;
@@ -144,6 +146,7 @@ static void tuneDefaults(void)
     sT.stepEvery = 0.5f;
     sT.attribute = 650.0f;     /* a slap / thud heard with the culprit in sight within this: the cover is blown */
     sT.near = 500.0f;          /* a staffer this close to a heard noise draws the suspicion */
+    sT.lure = 0.25f;           /* a coin heard at least this loud (0..1) draws him over to look; fainter, he turns and looks (0 = off) */
     sT.searchPads = 2;
     sT.backupN = 2;
 }
@@ -492,6 +495,12 @@ void portAiHear(int i, int kind, float loud, float x, float y, float z, int room
     if (!chrUp(c)) return;
     add = loud * sT.weight[kind];
     g->level += add;
+    if (kind == NOISE_COIN && sT.lure > 0.0f)
+    {   /* a distraction is meant to be followed: inside `lure` of his hearing range (loud = 1 at the noise, 0 at the edge of radius x
+         * his hearing x the rooms and doors between) he walks over; further out he still turns and looks from where he stands */
+        if (loud >= sT.lure && g->level < sT.searchLevel + 0.12f) g->level = sT.searchLevel + 0.12f;
+        else if (g->level < sT.suspLevel + 0.02f) g->level = sT.suspLevel + 0.02f;
+    }
     if (g->level > 1.0f) g->level = 1.0f;
     g->heardAt = sNow;
     close = (kind == NOISE_SLAP || kind == NOISE_THUD) && loud > 0.15f;
@@ -587,8 +596,9 @@ static void sendTo(AiG *g, ChrRecord *c, f32 x, f32 y, f32 z, int run, int st)
     startSearch(g, c, run);
 }
 
-/* the nearest free guards to (x, z) within range, best first; returns how many */
-static int nearestFree(f32 x, f32 y, f32 z, f32 range, int *out, int max, s32 exclude)
+/* the nearest free guards to (x, z) within range, best first; returns how many. holdCards: a key-card carrier holds his post (a
+ * backup call: the others answer it, so the card stays where the player cased it) */
+static int nearestFree(f32 x, f32 y, f32 z, f32 range, int *out, int max, s32 exclude, int holdCards)
 {
     int i, n = 0, k;
     f32 d[8];
@@ -600,7 +610,7 @@ static int nearestFree(f32 x, f32 y, f32 z, f32 range, int *out, int max, s32 ex
         ChrRecord *c;
         f32 dx, dz, dd;
 
-        if (!g->used || g->down || g->chrnum == exclude) continue;
+        if (!g->used || g->down || g->chrnum == exclude || (holdCards && g->kind == KIND_CARRIER)) continue;
         c = gChr(g);
         if (!freeGuard(g, c)) continue;
         dx = c->prop->pos.x - x; dz = c->prop->pos.z - z;
@@ -621,7 +631,7 @@ static void callBackup(AiG *g, ChrRecord *c)
     int who[8], n, k;
 
     g->backup = 1;
-    n = nearestFree(c->prop->pos.x, c->prop->pos.y, c->prop->pos.z, sT.backupRange, who, sT.backupN, g->chrnum);
+    n = nearestFree(c->prop->pos.x, c->prop->pos.y, c->prop->pos.z, sT.backupRange, who, sT.backupN, g->chrnum, 1);
     bark(g, c, BK_BACKUP, n > 0 ? "Contact! Need backup!" : "Contact!");
     for (k = 0; k < n; k++)
     {
@@ -638,12 +648,25 @@ static void callBackup(AiG *g, ChrRecord *c)
     }
 }
 
+/* ai.backup(chr) -> how many answered: a tracked guard calls for backup now, as when he goes into combat (scripts, tests). Once per
+ * guard, like the combat call. */
+int portAiBackup(int chrnum)
+{
+    AiG *g = gFind(chrnum);
+    ChrRecord *c;
+    s32 before = sBackupN;
+
+    if (!portAiOn() || g == NULL || !chrUp(c = gChr(g)) || g->backup) return 0;
+    callBackup(g, c);
+    return (int) (sBackupN - before);
+}
+
 /* ai.nearest_free(x, y, z [, range]) -> the nearest free tracked guard (up, his own list idle, not busy), -1 none */
 int portAiNearestFree(float x, float y, float z, float range, int exclude)
 {
     int who[1];
 
-    if (!portAiOn() || nearestFree(x, y, z, range > 0.0f ? range : 20000.0f, who, 1, exclude) != 1) return -1;
+    if (!portAiOn() || nearestFree(x, y, z, range > 0.0f ? range : 20000.0f, who, 1, exclude, 0) != 1) return -1;
     return sG[who[0]].chrnum;
 }
 
@@ -979,7 +1002,7 @@ static void checkins(void)
         g->missed = 1;
         if (found(g->chrnum) || alarmIsActive()) continue;
         sCheckinN++;
-        if (nearestFree(g->postx, 0.0f, g->postz, 20000.0f, who, 1, g->chrnum) == 1)
+        if (nearestFree(g->postx, 0.0f, g->postz, 20000.0f, who, 1, g->chrnum, 0) == 1)
         {
             AiG *h = &sG[who[0]];
             ChrRecord *hc = gChr(h);
@@ -1025,6 +1048,8 @@ static int camSees(CCTVRecord *cam, PropRecord *tp)
     if (tp->type == PROP_TYPE_CHR && tp->chr != NULL) chrSetMoving(tp->chr, FALSE);
     else bondviewUpdateGuardTankFlagsRelated(tp, 0);
     ok = stanTestLineUnobstructed(&st, prop->pos.x, prop->pos.z, tp->pos.x, tp->pos.z, 0x1B, 100.0f, 100.0f, 0.0f, 1.0f) != 0;
+    /* on the camera's floor only (as cctv.sees, port_cctvview.c): the stan line ends on his tile, or at least in his room */
+    if (ok && tp->stan != NULL && st != tp->stan && (st == NULL || (st->room & 0xFF) != (tp->stan->room & 0xFF))) ok = 0;
     if (tp->type == PROP_TYPE_CHR && tp->chr != NULL) chrSetMoving(tp->chr, TRUE);
     else bondviewUpdateGuardTankFlagsRelated(tp, 1);
     return ok;
@@ -1191,6 +1216,7 @@ int portAiTune(const char *name, float v)
         { "search_radius", &sT.searchRadius }, { "decay", &sT.decay }, { "susp_level", &sT.suspLevel }, { "search_level", &sT.searchLevel },
         { "checkin", &sT.checkin }, { "backup_range", &sT.backupRange }, { "cover_noise", &sT.coverNoise }, { "step_speed", &sT.stepSpeed },
         { "run_speed", &sT.runSpeed }, { "step_every", &sT.stepEvery }, { "attribute", &sT.attribute }, { "near", &sT.near },
+        { "lure", &sT.lure },
     };
     int i;
 

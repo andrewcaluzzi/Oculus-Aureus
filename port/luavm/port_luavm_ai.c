@@ -10,6 +10,7 @@
  *   ai.state_name(state)      ai.info(chr) -> {state, name, level, sub, x, z, post_x, post_z, looks, down, heard_ago} | nil
  *   ai.tune{turn = 1.2, look = 2.5, search_time = 30, checkin = 25, backup = 2, weight_slap = 1.2, ...}
  *   ai.nearest_free(x, y, z [, range [, exclude]]) -> chr | nil      ai.send(chr, x, y, z [, run [, radio text]]) -> bool
+ *   ai.backup(chr) -> answered    (a guard calls backup now, once; key-card carriers hold their posts and never answer)
  *   ai.bark(chr, kind, text)      ai.counts() -> {barks, searches, giveups, checkins, backups, cam_acts, cam_bodies}
  * Events (on(...)): noise(x, y, z, radius, kind, src), guard_bark(chr, kind, text). */
 #include <string.h>
@@ -40,6 +41,7 @@ extern float portAiFace(int chrnum);
 extern int portAiNearestFree(float x, float y, float z, float range, int exclude);
 extern int portAiSend(int chrnum, float x, float y, float z, int run, const char *text);
 extern int portAiBark(int chrnum, const char *kind, const char *text);
+extern int portAiBackup(int chrnum);
 extern int portAiBarkArgs(int *chr, const char **kind, const char **text);
 extern void portAiCounts(int *barks, int *searches, int *giveups, int *checkins, int *backups, int *camacts, int *cambodies);
 
@@ -204,6 +206,13 @@ static int aiSend(lua_State *L)
     return 1;
 }
 
+static int aiBackup(lua_State *L)
+{
+    needStage(L, "ai.backup");
+    lua_pushinteger(L, portAiBackup((int) luaL_checkinteger(L, 1)));
+    return 1;
+}
+
 static int aiBark(lua_State *L)
 {
     lua_pushboolean(L, portAiBark((int) luaL_checkinteger(L, 1), luaL_checkstring(L, 2), luaL_optstring(L, 3, "")));
@@ -263,7 +272,7 @@ void portLuaAiRegister(lua_State *L)
         { "last", noiseLast }, { NULL, NULL } };
     static const luaL_Reg aiLib[] = { { "enable", aiEnable }, { "on", aiIsOn }, { "guard", aiGuard }, { "patrol", aiPatrol },
         { "awareness", aiAwareness }, { "state_name", aiStateName }, { "info", aiInfo }, { "tune", aiTune }, { "bark", aiBark },
-        { "counts", aiCounts }, { "nearest_free", aiNearestFree }, { "send", aiSend }, { NULL, NULL } };
+        { "counts", aiCounts }, { "nearest_free", aiNearestFree }, { "send", aiSend }, { "backup", aiBackup }, { NULL, NULL } };
 
     luaL_newlib(L, noiseLib);
     lua_setglobal(L, "noise");
