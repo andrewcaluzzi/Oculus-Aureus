@@ -1,0 +1,15 @@
+# Dam, speedrun route (GE_PLAYERBOT=speedrun). Agent has one objective: the bungee jump off the end of the dam (flag
+# 0x1000, objective 3). The way: the road down from the start, the tunnel's two gates (paired: the second opens from the
+# console at 17448,7803 once the first has shut behind Bond - the bot goes straight to the console), the guard post and
+# its padlocked door, then the dam wall to the platform at pad 330. Waypoints are the bends of the bot's own completed
+# runs (they cut the run into segments for the optimiser); `via` = pass through at full speed.
+name dam
+via 13441 -52 16728 250
+via 15252 -53 13301 250
+via 16802 -53 8860 250
+via 16427 -53 6010 250
+via 14603 -52 2282 250
+via 9282 -52 -440 300
+via 2135 -53 -3143 300
+goto pad 330 30
+exit

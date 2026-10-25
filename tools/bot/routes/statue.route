@@ -1,0 +1,26 @@
+# Statue, speedrun route: the plan's chain (Valentin met from the front, Janus with the fist out and no shooting,
+# Natalya's captors spared, the flight recorder, the aircraft) - the contacts are fixed waits; the movement between
+# them is what the speedrun mode and the optimiser shorten.
+name statue
+avoid pad 22
+obj=0 meet ai 0x412 150 4000
+obj=1 goto pad 59 1000
+obj=1 peace 1
+obj=1 equip fist
+obj=1 goto pad 59 40
+obj=1 wait 2400
+spare ai 0x419
+spare ai 0x41c
+spare ai 0x41d
+peace 0
+equip unarmed
+flag 0x8000000 2400
+obj=3 meet ai 0x416 120 200
+obj=3 flag 0x20000000 600
+obj=3 goto -12650 154 141 150
+obj=3 flag 0x800 12000
+obj=2 goto pad 24 1500
+auto
+avoid pad -1
+goto pad 22 80
+exit

@@ -83,6 +83,9 @@ float pblAngleEma(float oldDeg, float sampleDeg, float k);
  * next corner, offRight = the yaw of Bond's motion off the view while strafing right. The strafe that pushes the motion
  * into the turn; on bends under 50 degrees the current side stays (a flip swings the view by twice the offset). */
 int   pblStrafeSide(int cur, float turnDeg, float offRight);
+/* The digital move (dmx, dmy: -1..1) that carries Bond closest to relDeg off his view, from the measured offsets of
+ * forward+left / forward+right; the fast diagonals win ties. Returns the motion offset of the pick (degrees). */
+float pblDigitalPick(float relDeg, float offLeft, float offRight, int *dmx, int *dmy);
 
 /* ---- plans ------------------------------------------------------------------------------------------------------------ */
 enum PblOp {
@@ -120,6 +123,7 @@ enum PblOp {
     PBL_SPARE,          /* a = AI list id: never shoot chrs running it (a hostage's captors whose death kills the hostage);
                          * 0 = shoot them all again */
     PBL_ESCORT,         /* a = AI list id (0 = off), r = distance: gotos wait while that chr is farther behind */
+    PBL_VIA,            /* a waypoint passed through at full speed (speedrun routes): b = 0 pad a / 1 x y z; r (default 120) */
     PBL_COUNT_
 };
 
@@ -130,6 +134,9 @@ typedef struct PblStep {
     float x, y, z, r;
     int   condObj;         /* -1 = always; else only when objective condObj is open (needed at this difficulty, not complete) */
     int   diffMin, diffMax;/* only on these difficulties (0 agent .. 3 007) */
+    int   side;            /* prefix side=l|r: the speed-strafe side on this step (0 = the bot picks per bend) */
+    int   fast;            /* prefix fast: speed-strafe through threats on this step (no drop to plain running) */
+    int   slow;            /* prefix slow: the normal bot's movement on this step (a scripted spot speed breaks) */
     int   line;            /* line in the plan file, for logs */
     char  text[64];        /* the source line, for logs */
 } PblStep;

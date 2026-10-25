@@ -1,0 +1,9 @@
+# Frigate, speedrun route. Agent: plant the tracker bug on the helicopter (objective 3), free the hostages (objective
+# 0: two escapes are needed on Agent - their captors, AI list 0x403, shot first), out by re-entering pad 153's room.
+name frigate
+obj=3 gadget bug obj 0
+obj=0 hunt ai 0x403
+obj=0 hunt
+auto
+goto pad 153 60
+exit

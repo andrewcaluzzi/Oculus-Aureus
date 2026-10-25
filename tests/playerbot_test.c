@@ -459,8 +459,49 @@ static void test_combat_geometry(void)
     CHECK(pblParsePlan("hunt ai\n", &plan, err, sizeof(err)) == -1);
 }
 
+/* round 6: the speedrun route language (via, side=, fast) and the any-direction digital move */
+static void test_speedrun_logic(void)
+{
+    static PblPlan plan;
+    char err[160];
+    int dmx, dmy;
+    float off;
+
+    CHECK(pblParsePlan("via pad 12\nside=l fast via 100 -50 200 300\nside=r goto pad 3 40\nobj=1 fast use obj 4\n", &plan, err,
+                       sizeof(err)) == 4);
+    CHECK(plan.s[0].op == PBL_VIA && plan.s[0].b == 0 && plan.s[0].a == 12 && NEAR(plan.s[0].r, 120.0f, 0.01f));
+    CHECK(plan.s[0].side == 0 && plan.s[0].fast == 0);
+    CHECK(plan.s[1].op == PBL_VIA && plan.s[1].b == 1 && NEAR(plan.s[1].x, 100.0f, 0.01f) && NEAR(plan.s[1].y, -50.0f, 0.01f) &&
+          NEAR(plan.s[1].z, 200.0f, 0.01f) && NEAR(plan.s[1].r, 300.0f, 0.01f));
+    CHECK(plan.s[1].side == -1 && plan.s[1].fast == 1);
+    CHECK(plan.s[2].op == PBL_GOTO_PAD && plan.s[2].side == 1 && plan.s[2].fast == 0);
+    CHECK(plan.s[3].op == PBL_USE_OBJ && plan.s[3].condObj == 1 && plan.s[3].fast == 1);
+    CHECK(strcmp(pblOpName(PBL_VIA), "via") == 0);
+    CHECK(pblParsePlan("via pad\n", &plan, err, sizeof(err)) < 0);   /* via needs a pad number or x y z */
+    CHECK(pblParsePlan("slow goto pad 99 20\nside=r slow wait 5\n", &plan, err, sizeof(err)) == 2);
+    CHECK(plan.s[0].slow == 1 && plan.s[0].side == 0 && plan.s[0].op == PBL_GOTO_PAD && plan.s[0].a == 99);
+    CHECK(plan.s[1].slow == 1 && plan.s[1].side == 1 && plan.s[1].op == PBL_WAIT);
+
+    /* measured offsets: forward+left -38, forward+right +38 */
+    off = pblDigitalPick(0.0f, -38.0f, 38.0f, &dmx, &dmy);
+    CHECK(dmx == 0 && dmy == 1 && NEAR(off, 0.0f, 0.01f));
+    off = pblDigitalPick(36.0f, -38.0f, 38.0f, &dmx, &dmy);
+    CHECK(dmx == 1 && dmy == 1 && NEAR(off, 38.0f, 0.01f));      /* a fast diagonal */
+    off = pblDigitalPick(-30.0f, -38.0f, 38.0f, &dmx, &dmy);
+    CHECK(dmx == -1 && dmy == 1);                                /* within 6 deg of the diagonal's error: the fast one */
+    pblDigitalPick(90.0f, -38.0f, 38.0f, &dmx, &dmy);
+    CHECK(dmx == 1 && dmy == 0);                                 /* a strafe alone */
+    pblDigitalPick(-175.0f, -38.0f, 38.0f, &dmx, &dmy);
+    CHECK(dmx == 0 && dmy == -1);                                /* behind: back */
+    off = pblDigitalPick(140.0f, -38.0f, 38.0f, &dmx, &dmy);
+    CHECK(dmx == 1 && dmy == -1 && NEAR(off, 142.0f, 0.01f));    /* back + strafe */
+    off = pblDigitalPick(200.0f, -38.0f, 38.0f, &dmx, &dmy);     /* (wraps: -160) */
+    CHECK(dmx == -1 && dmy == -1 && NEAR(off, -142.0f, 0.01f));
+}
+
 int main(void)
 {
+    test_speedrun_logic();
     test_combat_geometry();
     test_astar_straight();
     test_astar_wall_gap();

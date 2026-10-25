@@ -9,6 +9,7 @@
 #   SEED     GE_SEED (default 1)                              SCALE   GE_CLOCKSCALE (default 20)
 #   OUT      output dir (default build_tests/bot/<stage>.d<diff>)  BUILD build dir (default build_pc)
 #   TAG      run tag in file names (default "run")           EXTRA   extra KEY=VALUE env for both runs
+#   BOTMODE  GE_PLAYERBOT of the record run (default 1; `speedrun` = routes + the speedrun movement)
 # Writes $OUT/$TAG.log, $OUT/$TAG.rec, $OUT/$TAG.replay.log, screenshots in $OUT/$TAG.shots/ and one result line
 # (tab separated) to stdout:  stage diff outcome mission_s ticks health_lost kills objectives replay blocked
 # Exit: 0 = completed and (if checked) the replay matched; 1 = failed; 3 = completed but the replay differed.
@@ -28,11 +29,13 @@ rm -f "$OUT/$TAG.shots"/*.bmp "$OUT/$TAG.shots"/*.png "$OUT/$TAG.rec"
 common() {
     echo DISPLAY=${DISPLAY:-:99} GE_NOINISAVE=1 GE_TICKHZ=60 GE_STAGE=$ST GE_DIFF=$DIFF GE_SEED=$SEED \
         GE_NOSLEEP=1 GE_FIXEDTICK=1 GE_CLOCKSCALE=$SCALE GE_FRAMES=2000000000 \
-        GE_FULLHEIGHT=0 GE_EDGEINSET=1 GE_PLAYERBOT_PLANDIR=$ROOT/tools/bot/plans GE_PLAYERBOT_MAXSECS=$MAXSECS $EXTRA
+        GE_FULLHEIGHT=0 GE_EDGEINSET=1 GE_PLAYERBOT_PLANDIR=$ROOT/tools/bot/plans GE_PLAYERBOT_ROUTEDIR=$ROOT/tools/bot/routes \
+        GE_PLAYERBOT_MAXSECS=$MAXSECS $EXTRA
 }
 
 start=$(date +%s)
-( cd "$OUT/$TAG.shots" && env $(common) GE_SIMONLY_TEST=2,59,60 GE_PLAYERBOT=1 GE_INPUTREC="$OUT/$TAG.rec" "$BIN" ) \
+# BOTMODE: the record run's GE_PLAYERBOT (1 = the normal bot, speedrun = the speedrun mode)
+( cd "$OUT/$TAG.shots" && env $(common) GE_SIMONLY_TEST=2,59,60 GE_PLAYERBOT=${BOTMODE:-1} GE_INPUTREC="$OUT/$TAG.rec" "$BIN" ) \
     > "$OUT/$TAG.log" 2>&1
 rc=$?
 wall=$(( $(date +%s) - start ))

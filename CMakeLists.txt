@@ -579,6 +579,13 @@ if(GE_VIDEO)
             COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:ge>/Data/BotPlans
             COMMAND ${CMAKE_COMMAND} -E copy_if_different ${GE_BOT_PLANS} $<TARGET_FILE_DIR:ge>/Data/BotPlans)
     endif()
+    # ... and its speedrun routes (GE_PLAYERBOT=speedrun reads Data/BotRoutes/<stage>.route)
+    file(GLOB GE_BOT_ROUTES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/tools/bot/routes/*.route)
+    if(GE_BOT_ROUTES)
+        add_custom_command(TARGET ge POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:ge>/Data/BotRoutes
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different ${GE_BOT_ROUTES} $<TARGET_FILE_DIR:ge>/Data/BotRoutes)
+    endif()
     if(WIN32)
         # the arena launchers (set GE_MODE / GE_STAGE, then start the exe), next to the exe
         add_custom_command(TARGET ge POST_BUILD

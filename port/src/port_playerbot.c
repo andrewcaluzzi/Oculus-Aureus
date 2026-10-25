@@ -265,6 +265,15 @@ typedef struct {
     f32 pitchWant, pitchErr;
     s32 deadTicks;            /* ticks since Bond died */
     s32 outTicks;              /* polls outside a playable stage since the stage was left */
+    s32 pollPhase[8];          /* diagnosis: pad polls by main-loop phase (boss.c g_PortTickPhase); +4 = the tick's first */
+
+    /* speedrun (GE_PLAYERBOT=speedrun): routes, never stopping, doors on the move, the segment optimiser */
+    s32 speedrun, speedrunBase;
+    PropRecord *lookDoor;     /* this tick: keep the view on this door while the digital move follows the route */
+    PropRecord *doorFastFor;   /* the door the moving presses are counted for */
+    s32 doorFastTaps;
+    s32 idleRun, idleWhy, idleStuck;   /* the current stop: ticks, why (B.idle index), stuck level when it began */
+    f32 progX, progZ;          /* Bond's position last navTo tick (speedrun: running along the steer is progress) */
 } PlayerBot;
 
 static PlayerBot B;
@@ -288,6 +297,8 @@ static void botInit(void)
     if (e != NULL && e[0] != '\0' && e[0] != '0')
     {
         B.mode = (strcmp(e, "watch") == 0) ? 2 : 1;
+        B.speedrun = strcmp(e, "speedrun") == 0;   /* speedrun mode: routes, speed-strafe, doors on the move */
+        B.speedrunBase = B.speedrun;               /* (B.speedrun is off on a route's `slow` steps) */
     }
     if (B.mode == 1 && getenv("GE_INPUTPLAY") != NULL && getenv("GE_INPUTPLAY")[0] != '\0')
     {
@@ -542,6 +553,7 @@ static void outClear(void)
     B.yaw = 0.0f;
     B.pitch = 0.0f;
     B.actNextInv = 0;
+    B.lookDoor = NULL;
 }
 
 static f32 fovRatio(void)
@@ -1477,6 +1489,107 @@ static s32 doorHandle(f32 gx, f32 gy, f32 gz, StandTile *goalTile)
     dx = d->pos.x - p->prop->pos.x;
     dz = d->pos.z - p->prop->pos.z;
     dist = sqrtf(dx * dx + dz * dz);
+    if (B.doorFastFor != d)
+    {
+        B.doorFastFor = d;
+        B.doorFastTaps = 0;
+    }
+    if (B.speedrun && B.doorFastTaps == 0 && B.subSwitch == NULL && d->door->openstate != DOORSTATE_OPENING &&
+        d->door->openstate != DOORSTATE_WAITING)
+    {   /* speedrun: a door the setup links to a switch (Dam's tunnel gates) - go to the switch right away (the careful way
+         * below presses B three times first) */
+        LinkRecord *l;
+
+        for (l = (LinkRecord *) g_LevelLoadPropSwitch; l != NULL; l = l->next)
+        {
+            if (l->second == d && l->first != NULL)
+            {
+                B.doorFastTaps = 3;
+                B.doorTaps = 3;
+                break;
+            }
+        }
+    }
+    if (B.speedrun && d->door->openstate == DOORSTATE_WAITING && B.tick - B.doorSince <= 1200)
+    {   /* a paired gate waiting for its sibling to shut: walk up to it and hold there */
+        B.stuck.lastGain = B.tick;
+        if (dist < 70.0f + fabsf(d->door->frac) * 0.25f)
+        {
+            lookAt(d->pos.x, p->prop->pos.y, d->pos.z, 45.0f);
+            return 1;
+        }
+        return 0;
+    }
+    if (B.speedrun && B.doorFastTaps < 3 && doorInTheWay(d) == NULL && d->door->openstate != DOORSTATE_WAITING)
+    {   /* speedrun: open it on the move. The view goes onto the door from 450 out (steerTo keeps the digital move on the
+         * route), B as soon as the game's use test can take it (within 200, the door straddling the view), and Bond runs on
+         * while it swings - stopping short only when he would meet a leaf still in its swing. Two presses that do not
+         * start it and the careful way below takes over (walk up, face, press, switches, keys). */
+        f32 standoff = 70.0f + fabsf(d->door->frac) * 0.25f;
+
+        if (d->door->openstate == DOORSTATE_OPENING)
+        {
+            B.stuck.lastGain = B.tick;   /* (a door opening on the way is not being stuck) */
+            B.doorOpened = 1;
+            if (d->door->openPosition > B.doorOpenPos + 0.01f || B.doorOpenTick == 0)
+            {
+                B.doorOpenPos = d->door->openPosition;
+                B.doorOpenTick = B.tick;
+            }
+            if (B.tick - B.doorOpenTick > 60)
+            {   /* it has stopped (Bond, or a body, in its swing): the careful way */
+                if (B.verbose >= 2)
+                {
+                    portConLogf("ge: playerbot: door at %.0f,%.0f: stopped opening at %.2f/%.2f with Bond %.0f away - the careful way\n",
+                                d->pos.x, d->pos.z, d->door->openPosition, d->door->maxFrac, dist);
+                }
+                B.doorFastTaps = 3;
+                return 1;
+            }
+            if (dist < standoff && d->door->openPosition < d->door->maxFrac * 0.5f)
+            {   /* the leaf is still in the way: hold here, facing it, until it is half open */
+                lookAt(d->pos.x, p->prop->pos.y, d->pos.z, 45.0f);
+                return 1;
+            }
+            return 0;   /* run on: it is open by the time Bond is there */
+        }
+        B.doorOpenTick = 0;
+        B.doorOpenPos = 0.0f;
+        if (dist > 700.0f)
+        {   /* left behind (the route went another way): forget it, so the door finder looks again */
+            B.doorProp = NULL;
+            return 0;
+        }
+        if (B.stuck.level >= 1)
+        {   /* not getting to it (an obstacle, or the door is a gate worked from elsewhere): the careful way */
+            if (B.verbose >= 2)
+            {
+                portConLogf("ge: playerbot: door at %.0f,%.0f: stuck %.0f away (%d presses) - the careful way\n", d->pos.x,
+                            d->pos.z, dist, B.doorFastTaps);
+            }
+            B.doorFastTaps = 3;
+            return 0;
+        }
+        if (dist < 450.0f)
+        {
+            f32 ang = pblWrap180(pblYawTo(dx, dz) - p->vv_theta);
+
+            B.lookDoor = d;
+            if (((dist < 170.0f && fabsf(ang) < 15.0f) || (dist < 110.0f && fabsf(ang) < 30.0f)) && B.tick - B.lastDoorTap >= 12)
+            {
+                B.btn |= BTN_B;
+                B.lastDoorTap = B.tick;
+                B.doorFastTaps++;
+                B.doorTaps++;
+                if (B.verbose >= 2)
+                {
+                    portConLogf("ge: playerbot: door at %.0f,%.0f: B on the move, %.0f away, %.1f deg off (press %d)\n", d->pos.x,
+                                d->pos.z, dist, ang, B.doorFastTaps);
+                }
+            }
+        }
+        return 0;
+    }
     if ((d->door->openstate == DOORSTATE_OPENING || d->door->openstate == DOORSTATE_WAITING) && B.tick - B.doorSince <= 1200)
     {   /* it is coming: wait facing it - unless it has not moved for 2 s (Bond, or a body, in its swing): step back.
          * 20 s of this and the door counts as one that will not open (below) */
@@ -1624,6 +1737,315 @@ static s32 doorHandle(f32 gx, f32 gy, f32 gz, StandTile *goalTile)
     return 1;
 }
 
+/* the running step's speedrun knobs: the route file's `side=` / `fast` prefixes, unless the segment optimiser's variant
+ * for this step says otherwise (optKnob) */
+/* ---- the segment optimiser (GE_PLAYERBOT=speedrun with GE_PLAYERBOT_OPT=1) ----------------------------------------
+ * A segment is one route step. At the start of each movement step the bot asks for a solo savestate (port_snap.c), plays
+ * the step with variant 0, scores it (ticks to the step's end, + 1000 per 1.0 health lost; death or over the budget =
+ * no score), puts the savestate back and plays the next variant, then keeps the best (playing it once more if it was not
+ * the last one tried) and goes on to the next step. Variants: the speed-strafe side (left / right), `fast` toggled
+ * (speed-strafe through threats), and for `via` steps the waypoint moved 80 units along x or z.
+ * The decisions go to GE_PLAYERBOT_OPTSTATE ("fix <step> <variant>", "try <step> <variant> <score>"): a later run reads
+ * them back - the clean run plays the chosen variants without savestates, and an optimiser run that hits the mission end
+ * in a trial (the stage ends: no tick to put a savestate back at) exits with status 3 so its driver starts it again, and
+ * it carries on from the file (tools/bot/speedrun_opt.sh). This state is never rewound (portSnapLive). */
+#define OPT_MAXV 10
+#define OPT_NOSCORE 0x3fffffff
+static s32 stepApplies(const PblStep *s);
+static s32 objectivesDone(s32 *needed);
+typedef struct {
+    s32 on;                    /* GE_PLAYERBOT_OPT=1: optimise; else just play the variants in the state file */
+    s32 init;
+    s32 fixed[PBL_MAXSTEPS];   /* -1 = not decided */
+    s32 tried[PBL_MAXSTEPS][OPT_MAXV];   /* scores read back from the file for the step being resumed (0 = none) */
+    s32 phase;                 /* 0 idle, 1 trial running (sOpt.step, sOpt.v), 2 waiting for the restore */
+    s32 step, v, nv, committing;
+    s32 startTick;
+    f32 startLost;
+    s32 score[OPT_MAXV];
+    s32 trials, steps;
+    s32 bestEnd;               /* the best end tick so far in this step (the budget) */
+    s32 carry;                 /* the kept rollout's score: the next optimised step's variant 0 (0 = unknown) */
+    char path[256];
+} BotOpt;
+static BotOpt sOpt;
+
+extern int  portSnapSoloAvailable(void);
+extern void portSnapSoloRequest(int what);
+extern int  portSnapSoloPending(void);
+extern void portSnapLive(const char *name, const void *p, unsigned int n);
+extern void portSnapAddRange(const char *name, const void *p, unsigned int n);
+
+static void optLog(const char *line)
+{
+    FILE *f;
+
+    if (sOpt.path[0] == '\0')
+    {
+        return;
+    }
+    f = fopen(sOpt.path, "a");
+    if (f != NULL)
+    {
+        fputs(line, f);
+        fclose(f);
+    }
+}
+
+static void optInit(void)
+{
+    const char *e = getenv("GE_PLAYERBOT_OPTSTATE");
+    FILE *f;
+    s32 i, k;
+
+    if (sOpt.init)
+    {
+        return;
+    }
+    sOpt.init = 1;
+    portSnapLive("playerbot.opt", &sOpt, sizeof(sOpt));
+    for (i = 0; i < PBL_MAXSTEPS; i++)
+    {
+        sOpt.fixed[i] = -1;
+    }
+    sOpt.on = getenv("GE_PLAYERBOT_OPT") != NULL && atoi(getenv("GE_PLAYERBOT_OPT")) != 0 && portSnapSoloAvailable();
+    snprintf(sOpt.path, sizeof(sOpt.path), "%s", e != NULL ? e : "");
+    f = sOpt.path[0] ? fopen(sOpt.path, "r") : NULL;
+    if (f != NULL)
+    {
+        char line[128];
+
+        while (fgets(line, sizeof(line), f) != NULL)
+        {
+            s32 a, b, c;
+
+            if (sscanf(line, "fix %d %d", &a, &b) == 2 && a >= 0 && a < PBL_MAXSTEPS && b >= 0 && b < OPT_MAXV)
+            {
+                sOpt.fixed[a] = b;
+            }
+            else if (sscanf(line, "try %d %d %d", &a, &b, &c) == 3 && a >= 0 && a < PBL_MAXSTEPS && b >= 0 && b < OPT_MAXV)
+            {
+                sOpt.tried[a][b] = c > 0 ? c : 1;
+            }
+        }
+        fclose(f);
+    }
+    for (i = 0, k = 0; i < PBL_MAXSTEPS; i++)
+    {
+        k += sOpt.fixed[i] >= 0;
+    }
+    if (sOpt.on || k > 0)
+    {
+        portConLogf("ge: playerbot: optimiser %s (%d step(s) fixed from %s)\n", sOpt.on ? "on" : "off - playing the fixed variants",
+                    k, sOpt.path[0] ? sOpt.path : "-");
+    }
+}
+
+/* the variant the running step plays */
+static s32 optVariant(void)
+{
+    if (sOpt.phase == 1 && B.step == sOpt.step)
+    {
+        return sOpt.v;
+    }
+    return (B.step >= 0 && B.step < PBL_MAXSTEPS && sOpt.fixed[B.step] > 0) ? sOpt.fixed[B.step] : 0;
+}
+
+static s32 optKnob(s32 which, s32 dflt)
+{
+    s32 v = optVariant();
+
+    if (which == 0)
+    {   /* side */
+        return (v == 1 || v == 4) ? -1 : (v == 2 || v == 5) ? 1 : dflt;
+    }
+    return (v >= 3 && v <= 5) ? !dflt : dflt;   /* fast */
+}
+
+static f32 optOffset(s32 axis)
+{
+    s32 v = optVariant();
+
+    if (v < 6)
+    {
+        return 0.0f;
+    }
+    return axis == 0 ? (v == 6 ? 80.0f : v == 7 ? -80.0f : 0.0f) : (v == 8 ? 80.0f : v == 9 ? -80.0f : 0.0f);
+}
+
+static s32 optStepCounts(const PblStep *s)
+{   /* the steps worth varying: the ones that move */
+    return s->op == PBL_GOTO_PAD || s->op == PBL_GOTO_XYZ || s->op == PBL_VIA || s->op == PBL_COLLECT_OBJ ||
+           s->op == PBL_USE_OBJ || s->op == PBL_USE_PAD || s->op == PBL_AUTO || s->op == PBL_HUNT || s->op == PBL_GADGET_OBJ ||
+           s->op == PBL_MEET;
+}
+
+/* stepBegin: a new step - start optimising it if it is a movement step not decided yet */
+static void optStepBegin(void)
+{
+    s32 k = B.step, i;
+
+    if (!B.speedrun || !sOpt.on || sOpt.phase != 0 || k >= B.plan.n || k >= PBL_MAXSTEPS || sOpt.fixed[k] >= 0 ||
+        !optStepCounts(&B.plan.s[k]) || !stepApplies(&B.plan.s[k]))
+    {
+        return;
+    }
+    sOpt.step = k;
+    sOpt.nv = B.plan.s[k].op == PBL_VIA ? 10 : 6;
+    sOpt.committing = 0;
+    sOpt.startTick = B.tick;
+    sOpt.startLost = B.hpLost;
+    sOpt.bestEnd = OPT_NOSCORE;
+    if (sOpt.carry > 0 && sOpt.tried[k][0] == 0)
+    {   /* variant 0 here plays exactly the rollout the previous step kept */
+        char line[64];
+
+        sOpt.tried[k][0] = sOpt.carry;
+        snprintf(line, sizeof(line), "try %d 0 %d\n", k, sOpt.carry);
+        optLog(line);
+    }
+    sOpt.carry = 0;
+    for (i = 0; i < OPT_MAXV; i++)
+    {
+        sOpt.score[i] = sOpt.tried[k][i] > 0 ? sOpt.tried[k][i] : 0;
+        if (sOpt.score[i] > 0 && sOpt.score[i] < sOpt.bestEnd)
+        {
+            sOpt.bestEnd = sOpt.score[i];
+        }
+    }
+    for (sOpt.v = 0; sOpt.v < sOpt.nv && sOpt.score[sOpt.v] != 0; sOpt.v++)
+    {
+    }
+    if (sOpt.v >= sOpt.nv)
+    {
+        sOpt.v = 0;   /* (every variant scored by earlier runs: decide now, below, at the first end) */
+    }
+    sOpt.phase = 1;
+    portSnapSoloRequest(1);
+    sOpt.steps++;
+}
+
+/* the running trial is over (the step ended, Bond died, over budget, the mission ended): score it, then the next variant,
+ * or keep the best. Returns 1 when a savestate goes back at the next tick (the caller stops this tick's work). */
+static s32 optTrialEnd(s32 score, const char *why)
+{
+    char line[96];
+    s32 i, best = 0;
+
+    if (sOpt.phase != 1)
+    {
+        return 0;
+    }
+    if (sOpt.committing)
+    {
+        sOpt.phase = 0;
+        return 0;
+    }
+    sOpt.trials++;
+    sOpt.score[sOpt.v] = score;
+    snprintf(line, sizeof(line), "try %d %d %d\n", sOpt.step, sOpt.v, score);
+    optLog(line);
+    if (B.verbose)
+    {
+        portConLogf("ge: playerbot: opt: step %d '%s' variant %d: %s (%s)\n", sOpt.step + 1, B.plan.s[sOpt.step].text, sOpt.v,
+                    score >= OPT_NOSCORE ? "no score" : "scored", why);
+        if (score < OPT_NOSCORE)
+        {
+            portConLogf("ge: playerbot: opt:   %d ticks\n", score - sOpt.startTick);
+        }
+    }
+    if (score < sOpt.bestEnd)
+    {
+        sOpt.bestEnd = score;
+    }
+    for (i = sOpt.v + 1; i < sOpt.nv && sOpt.score[i] != 0; i++)
+    {
+    }
+    if (i < sOpt.nv)
+    {   /* the next variant, from the savestate */
+        sOpt.v = i;
+        sOpt.phase = 2;
+        portSnapSoloRequest(2);
+        return 1;
+    }
+    for (i = 1; i < sOpt.nv; i++)
+    {
+        if (sOpt.score[i] < sOpt.score[best])
+        {
+            best = i;
+        }
+    }
+    sOpt.fixed[sOpt.step] = best;
+    snprintf(line, sizeof(line), "fix %d %d\n", sOpt.step, best);
+    optLog(line);
+    portConLogf("ge: playerbot: opt: step %d '%s': variant %d kept (mission end at tick %d; variant 0: %d)\n", sOpt.step + 1,
+                B.plan.s[sOpt.step].text, best, sOpt.score[best] >= OPT_NOSCORE ? -1 : sOpt.score[best],
+                sOpt.score[0] >= OPT_NOSCORE ? -1 : sOpt.score[0]);
+    /* the next optimised step's variant 0 is this rollout again: its score is known */
+    sOpt.carry = sOpt.score[best] < OPT_NOSCORE ? sOpt.score[best] : 0;
+    /* back to the step's start and play the kept variant up to the step's end (the next step starts from there) */
+    sOpt.v = best;
+    sOpt.committing = 1;
+    sOpt.phase = 2;
+    portSnapSoloRequest(2);
+    return 1;
+}
+
+/* every bot tick while a trial runs: Bond dead or over the budget ends it */
+static s32 optTick(void)
+{
+    if (sOpt.phase == 2)
+    {
+        return 1;   /* a restore is coming: nothing this tick matters */
+    }
+    if (sOpt.phase != 1 || sOpt.committing)
+    {
+        return 0;
+    }
+    if (bond()->bonddead)
+    {
+        return optTrialEnd(OPT_NOSCORE, "Bond died");
+    }
+    if (B.tick > 0 && (lvlGetControlsLockedFlag() != 0 || bond()->cameramode != 0))
+    {   /* the exit sequence has begun (the end camera, the bungee jump): the mission's time is set - score the whole
+         * rollout and go back while the stage is still there */
+        s32 needed = 0, done = objectivesDone(&needed);
+
+        if (done == needed)
+        {
+            return optTrialEnd(B.tick + (s32) ((B.hpLost - sOpt.startLost) * 1000.0f), "the exit");
+        }
+    }
+    if (B.tick > (sOpt.bestEnd < OPT_NOSCORE ? sOpt.bestEnd + 60 : (B.maxSecs > 0 ? B.maxSecs * 60 - 120 : 60000)))
+    {
+        return optTrialEnd(OPT_NOSCORE, "over the budget");
+    }
+    return 0;
+}
+
+/* the restore went in: the trial that follows starts with phase 1 again (the bot's own state is the save's) */
+static void optAfterRestore(void)
+{
+    if (sOpt.phase == 2)
+    {
+        sOpt.phase = 1;
+    }
+}
+
+static s32 stepSide(void)
+{
+    s32 s = B.step < B.plan.n ? B.plan.s[B.step].side : 0;
+
+    return B.speedrun ? optKnob(0, s) : s;
+}
+
+static s32 stepFast(void)
+{
+    s32 f = B.step < B.plan.n ? B.plan.s[B.step].fast : 0;
+
+    return B.speedrun ? optKnob(1, f) : f;
+}
+
 /* steer toward (x,z) at full run, easing off on sharp turns */
 static void steerTo(f32 x, f32 y, f32 z, f32 slowRadius)
 {
@@ -1681,21 +2103,46 @@ static void steerTo(f32 x, f32 y, f32 z, f32 slowRadius)
             }
         }
     }
-    if (B.speedMode && slowRadius <= 0.0f && B.doorProp == NULL && dist > 30.0f && B.tick - B.ssThreatTick > 120)
+    if (B.speedrun && B.lookDoor != NULL)
+    {   /* speedrun, a door ahead: the view on the door (a B press works the door Bond faces), the digital move carries him
+         * along the route meanwhile, whatever way he looks */
+        f32 lerr = lookAt(B.lookDoor->pos.x, p->prop->pos.y, B.lookDoor->pos.z, 45.0f);
+        f32 rel = pblWrap180(B.lastSteerYaw - (p->vv_theta + pblClamp(lerr, -45.0f, 45.0f)));
+
+        pblDigitalPick(rel, B.ssOff[0], B.ssOff[1], &B.dmx, &B.dmy);
+        B.ssHeld = 0;
+        B.ssPrevX = p->prop->pos.x;
+        B.ssPrevZ = p->prop->pos.z;
+        return;
+    }
+    if (B.speedMode && (slowRadius <= 0.0f || B.speedrun) && (B.doorProp == NULL || B.speedrun) && dist > 30.0f &&
+        (B.tick - B.ssThreatTick > 120 || stepFast()))
     {   /* speed-strafe: bondview2.c scales the walk animation's forward root motion by speedforwards / maxspeed (maxspeed =
          * the largest of forward, sideways x MAX_SPEED_FACTOR, turn) and then ADDS the strafe (speedsideways / delta) to it
          * (bondhead.c bheadUpdate), not normalised: forward + strafe is faster than forward. Turn the view off the travel
          * direction by the learnt offset and hold both. */
         s32 si = B.ssSide > 0 ? 1 : 0;
         f32 mx = p->prop->pos.x - B.ssPrevX, mz = p->prop->pos.z - B.ssPrevZ;
+        s32 forced = stepSide();
 
-        B.ssSide = pblStrafeSide(B.ssSide, B.ssTurnHint, B.ssOff[1]);
+        B.ssSide = forced != 0 ? forced : pblStrafeSide(B.ssSide, B.ssTurnHint, B.ssOff[1]);
         if ((B.ssSide > 0 ? 1 : 0) != si)
         {
             si = B.ssSide > 0 ? 1 : 0;
             B.ssHeld = 0;
         }
-        err = lookToward(B.lastSteerYaw - B.ssOff[si], 0.0f, 20.0f);
+        err = lookToward(B.lastSteerYaw - B.ssOff[si], 0.0f, B.speedrun ? 45.0f : 20.0f);
+        if (B.speedrun && fabsf(err) >= 30.0f)
+        {   /* turning onto a new heading: never on the spot - move along the heading with whichever digital move points
+             * there from the view as it is after this tick's turn */
+            f32 rel = pblWrap180(B.lastSteerYaw - (p->vv_theta + pblClamp(err, -45.0f, 45.0f)));
+
+            pblDigitalPick(rel, B.ssOff[0], B.ssOff[1], &B.dmx, &B.dmy);
+            B.ssHeld = 0;
+            B.ssPrevX = p->prop->pos.x;
+            B.ssPrevZ = p->prop->pos.z;
+            return;
+        }
         if (fabsf(err) < 30.0f)
         {   /* the port's digital move: full forward and full sideways (the stick's gate would cut a diagonal to 65/65);
              * measured 11.0 u/tick 38 deg off the view, against 8.4 straight on the stick */
@@ -1732,6 +2179,23 @@ static void steerTo(f32 x, f32 y, f32 z, f32 slowRadius)
         B.ssPrevX = p->prop->pos.x;
         B.ssPrevZ = p->prop->pos.z;
         (void) y;
+        return;
+    }
+    if (B.speedrun)
+    {   /* speedrun, plain running (a threat close, or the last stretch): the view ahead, and still no turning on the spot */
+        f32 rel;
+
+        err = lookToward(B.lastSteerYaw, 0.0f, 45.0f);
+        rel = pblWrap180(B.lastSteerYaw - (p->vv_theta + pblClamp(err, -45.0f, 45.0f)));
+        pblDigitalPick(rel, B.ssOff[0], B.ssOff[1], &B.dmx, &B.dmy);
+        if (B.dmx != 0 && fabsf(rel) < 20.0f)
+        {   /* (straight on: the digital forward alone, the view on the way) */
+            B.dmx = 0;
+        }
+        B.ssHeld = 0;
+        B.ssPrevX = p->prop->pos.x;
+        B.ssPrevZ = p->prop->pos.z;
+        (void) slowRadius;
         return;
     }
     err = lookToward(B.lastSteerYaw, 0.0f, 20.0f);
@@ -1801,6 +2265,20 @@ static s32 navTo(f32 x, f32 y, f32 z, f32 radius, StandTile *goalTile)
     }
 
     /* stuck handling: progress = tiles of the route left (or the distance once off the graph) going down */
+    if (B.speedrun && B.tick >= B.recoverUntil && B.pathAt < B.pathN)
+    {   /* (on the route only: at its end the distance to the goal is the measure - a goal Bond cannot stand on, like
+         * Frigate's helicopter, must still read as "stuck" so the gadget step acts from where he is) */   /* speedrun: running fast along the way Bond steers is progress too - on Dam's road and wall one stan tile is
+         * longer than 1.5 s of running, so the tile count alone called a full-speed run "stuck" and detoured */
+        f32 mx = p->prop->pos.x - B.progX, mz = p->prop->pos.z - B.progZ;
+        f32 along = mx * -sinf(B.lastSteerYaw * 3.14159265f / 180.0f) + mz * cosf(B.lastSteerYaw * 3.14159265f / 180.0f);
+
+        if (along > 5.0f)
+        {
+            B.stuck.lastGain = B.tick;
+        }
+    }
+    B.progX = p->prop->pos.x;
+    B.progZ = p->prop->pos.z;
     lvl = pblStuckFeed(&B.stuck, B.tick, p->prop->pos.x, p->prop->pos.z, navMetric(dist));
     if (lvl == 0 && B.tick - B.stuck.lastGain < 30)
     {
@@ -1819,7 +2297,9 @@ static s32 navTo(f32 x, f32 y, f32 z, f32 radius, StandTile *goalTile)
         B.btn |= BTN_B;   /* a door or a switch in the way */
         if (B.verbose >= 2)
         {
-            portConLogf("ge: playerbot: stuck level %d: detour heading %+.0f deg\n", lvl, (f32) side * mag);
+            portConLogf("ge: playerbot: stuck level %d: detour heading %+.0f deg at t=%.1fs room %d pos %.0f,%.0f (route %d/%d, "
+                        "goal %.0f away, dy %.0f)\n", lvl, (f32) side * mag, (f32) B.tick / 60.0f, bondRoom(), p->prop->pos.x,
+                        p->prop->pos.z, B.pathAt, B.pathN, dist, dy);
         }
     }
     if (lvl >= 2 && B.tick - B.stuck.since == 0)
@@ -2346,11 +2826,15 @@ static s32 combatTick(f32 range)
     {
         return 0;
     }
-    if (B.target != NULL && B.target->chr != NULL && chrIsDead(B.target->chr) && B.verbose >= 2)
-    {
-        portConLogf("ge: playerbot: down: chr %d%s after %.1f s\n", (s32) B.target->chr->chrnum,
-                    B.target->chr->ailist == B.raiserList && B.raiserList != NULL ? " (alarm raiser)" : "",
-                    (f32) (B.tick - B.targetSince) / 60.0f);
+    if (B.target != NULL && B.target->chr != NULL && chrIsDead(B.target->chr) && (B.verbose >= 2 || B.speedrun))
+    {   /* (the normal bot only drops a dead target here at log level 2 - else at the next pick, up to 4 ticks later: the
+         * log level changed its play. Left as it is for the normal bot (its campaign results stand); speedrun always) */
+        if (B.verbose >= 2)
+        {
+            portConLogf("ge: playerbot: down: chr %d%s after %.1f s\n", (s32) B.target->chr->chrnum,
+                        B.target->chr->ailist == B.raiserList && B.raiserList != NULL ? " (alarm raiser)" : "",
+                        (f32) (B.tick - B.targetSince) / 60.0f);
+        }
         B.target = NULL;
     }
     if ((B.tick % 4) == 0 || B.target == NULL)
@@ -2807,6 +3291,25 @@ static void planLoad(void)
     {
         snprintf(path, sizeof(path), "%s/%s.plan", B.plandir, stageName(B.stage));
     }
+    if (B.speedrun && B.planfile[0] == '\0' && !portModeActive())
+    {   /* speedrun: the stage's route (tools/bot/routes/<stage>.route: the plan language plus `via`, `side=`, `fast`),
+         * else the plan */
+        const char *rd = getenv("GE_PLAYERBOT_ROUTEDIR");
+        char rpath[400];
+        FILE *rf;
+
+        snprintf(rpath, sizeof(rpath), "%s/%s.route", rd != NULL ? rd : "Data/BotRoutes", stageName(B.stage));
+        rf = fopen(rpath, "rb");
+        if (rf != NULL)
+        {
+            fclose(rf);
+            snprintf(path, sizeof(path), "%s", rpath);
+        }
+        else
+        {
+            portConLogf("ge: playerbot: speedrun: no route %s - using the plan\n", rpath);
+        }
+    }
     f = fopen(path, "rb");
     if (f == NULL && portModeActive())
     {   /* keep whatever the script already pushed (its stage_start can run before the bot's first tick) */
@@ -2865,10 +3368,16 @@ static void stepBegin(void)
         B.wantWeapon = 0;
     }
     navReset();
+    optStepBegin();
 }
 
 static void stepNext(const char *why)
 {
+    if (sOpt.phase == 1 && sOpt.committing && B.step == sOpt.step)
+    {   /* the kept variant has been played again up to the end of its step: the next step is the next to optimise */
+        sOpt.phase = 0;
+        sOpt.committing = 0;
+    }
     if (B.verbose && B.step < B.plan.n)
     {
         portConLogf("ge: playerbot: step %d '%s' %s at t=%.1fs\n", B.step + 1, B.plan.s[B.step].text, why,
@@ -2909,6 +3418,18 @@ static s32 doUse(f32 x, f32 y, f32 z, StandTile *tile, f32 radius, u16 button, s
             B.stepTick = B.tick;
         }
         return 0;
+    }
+    if (B.speedrun)
+    {   /* speedrun: turn fast, press as soon as the use test can take it (22.5 deg), then every 8 ticks */
+        f32 e = lookAt(x, y, z, 45.0f);
+
+        if (fabsf(e) < 12.0f && B.tick - B.lastDoorTap >= 8)
+        {
+            B.btn |= button;
+            B.lastDoorTap = B.tick;
+            B.count++;
+        }
+        return B.count >= taps;
     }
     lookAt(x, y, z, 15.0f);
     if (B.tick - B.stepTick > 10 && ((B.tick - B.stepTick) % 20) == 0)
@@ -3227,6 +3748,14 @@ static s32 stepRun(PblStep *s)
             return 1;
         case PBL_GOTO_XYZ:
             return navTo(s->x, s->y, s->z, s->r, NULL);
+        case PBL_VIA:
+            if (s->b == 0)
+            {
+                pad = padGet(s->a);
+                return pad == NULL || navTo(pad->pos.x + optOffset(0), pad->pos.y, pad->pos.z + optOffset(1), s->r,
+                                            (optOffset(0) == 0.0f && optOffset(1) == 0.0f) ? pad->stan : NULL);
+            }
+            return navTo(s->x + optOffset(0), s->y, s->z + optOffset(1), s->r, NULL);
         case PBL_USE_PAD:
             pad = padGet(s->a);
             if (pad == NULL)
@@ -3669,6 +4198,9 @@ static void result(const char *outcome, s32 code)
         portConLogf("ge: playerbot: idle: %d of %d ticks (fighting %d, at doors %d, stand-still steps %d, moving steps %d)\n",
                     B.idle[0] + B.idle[1] + B.idle[2] + B.idle[3], B.tick, B.idle[0], B.idle[1], B.idle[2], B.idle[3]);
     }
+    portConLogf("ge: playerbot: polls by phase (wait/sim/player+render/done): first of a tick %d/%d/%d/%d, others %d/%d/%d/%d\n",
+                B.pollPhase[4], B.pollPhase[5], B.pollPhase[6], B.pollPhase[7], B.pollPhase[0], B.pollPhase[1],
+                B.pollPhase[2], B.pollPhase[3]);
     portConLogf("ge: playerbot: RESULT stage=%s diff=%d outcome=%s time=%.1fs mission_time=%ds ticks=%d health_lost=%.2f "
                 "kills=%d fire_ticks=%d shots=%d hits=%d/%d/%d objectives=%d/%d step=%d/%d room=%d pos=%.0f,%.0f,%.0f blocked=%s\n",
                 stageName(B.stage), (s32) lvlGetSelectedDifficulty(), outcome, (f32) B.tick / 60.0f, getMissiontimer() / 60,
@@ -3695,6 +4227,24 @@ void portPlayerBotMissionEnd(s32 stage, s32 allcomplete)
         return;
     }
     (void) stage;
+    if (sOpt.on && sOpt.phase == 1 && !sOpt.committing)
+    {   /* the mission ended inside a trial: the stage is going, so no savestate can go back. Score it; if variants are
+         * left, exit 3 - the driver starts the optimiser again and it carries on from the state file */
+        s32 sc = allcomplete ? B.tick + (s32) ((B.hpLost - sOpt.startLost) * 1000.0f) : OPT_NOSCORE;
+        s32 i;
+
+        optTrialEnd(sc, allcomplete ? "the mission completed" : "the mission failed");
+        for (i = 0; i < sOpt.nv && sOpt.score[i] != 0; i++)
+        {
+        }
+        if (sOpt.fixed[sOpt.step] < 0 || sOpt.phase == 2)
+        {
+            portConLogf("ge: playerbot: opt: mission over inside a trial (step %d) - exit 3 to be started again\n", sOpt.step + 1);
+            fflush(stdout);
+            portInputRecFlush();
+            _exit(3);
+        }
+    }
     if (allcomplete)
     {
         result("COMPLETE", 0);
@@ -3778,6 +4328,12 @@ static void stageBegin(void)
         B.rush = 1;
         B.speedNoLoot = 1;
     }
+    if (B.speedrun)
+    {   /* GE_PLAYERBOT=speedrun: speed level 2 and the speedrun movement (steerTo / doorHandle) */
+        B.speedMode = 1;
+        B.rush = 1;
+        B.speedNoLoot = 1;
+    }
     B.ssSide = 1;
     B.ssHeld = 0;
     B.ssLearnN = 0;
@@ -3811,6 +4367,13 @@ static void stageBegin(void)
     B.flagsPrev = (u32) objectiveregisters1;
     B.nSpare = 0;
     graphBuild();
+    optInit();
+    if (sOpt.on && B.g.npen != NULL)
+    {   /* the graph's costs change during a run (stuck links, locked doorways): a savestate must take them back too */
+        portSnapAddRange("playerbot.npen", B.g.npen, (unsigned) B.g.cap * sizeof(float));
+        portSnapAddRange("playerbot.nbad", B.g.nbad, (unsigned) B.g.cap);
+        portSnapAddRange("playerbot.pen", B.g.pen, (unsigned) B.g.ecap * sizeof(float));
+    }
     if (getenv("GE_PLAYERBOT_DOORS") != NULL)
     {
         doorDump();
@@ -3868,16 +4431,36 @@ static void observe(void)
         }
     }
     B.hpPrev = hp;
-    if (!p->bonddead && B.mode == 1)
-    {   /* idle ticks (Bond moved under 1 unit), by what the bot was doing - for the speedrun round: where it stops */
+    if (!p->bonddead && B.mode == 1 && lvlGetControlsLockedFlag() == 0 && p->cameramode == 0)
+    {   /* idle ticks (Bond moved under 1 unit), by what the bot was doing - for the speedrun round: where it stops (play
+         * ticks only: the intro and exit cameras are not the bot standing still) */
         f32 mx = p->prop->pos.x - B.idleX, mz = p->prop->pos.z - B.idleZ;
 
         if (mx * mx + mz * mz < 1.0f)
         {
             s32 op = B.step < B.plan.n ? B.plan.s[B.step].op : PBL_EXIT;
+            s32 why = B.target != NULL ? 0 : B.doorProp != NULL ? 1 :
+                      (op == PBL_GOTO_PAD || op == PBL_GOTO_XYZ || op == PBL_VIA || op == PBL_COLLECT_OBJ || op == PBL_AUTO ||
+                       op == PBL_HUNT) ? 3 : 2;
 
-            B.idle[B.target != NULL ? 0 : B.doorProp != NULL ? 1 :
-                   (op == PBL_GOTO_PAD || op == PBL_GOTO_XYZ || op == PBL_COLLECT_OBJ || op == PBL_AUTO || op == PBL_HUNT) ? 3 : 2]++;
+            B.idle[why]++;
+            if (B.idleRun++ == 0)
+            {
+                B.idleWhy = why;
+                B.idleStuck = B.stuck.level;
+            }
+        }
+        else
+        {
+            if (B.idleRun >= 15 && B.verbose >= 2)
+            {   /* a stop worth looking at (speedrun round): how long, where, why */
+                static const char *const nm[4] = { "fighting", "door", "stand-still step", "moving step" };
+
+                portConLogf("ge: playerbot: stopped %d ticks at t=%.1fs room %d pos %.0f,%.0f (%s, stuck level %d, step %d, "
+                            "recovering %d)\n", B.idleRun, (f32) B.tick / 60.0f, bondRoom(), p->prop->pos.x, p->prop->pos.z,
+                            nm[B.idleWhy], B.idleStuck, B.step + 1, B.tick < B.recoverUntil);
+            }
+            B.idleRun = 0;
         }
         B.idleX = p->prop->pos.x;
         B.idleZ = p->prop->pos.z;
@@ -4291,6 +4874,11 @@ static void drive(void)
         stepNext("skipped");
     }
     s = (B.step < B.plan.n) ? &B.plan.s[B.step] : NULL;
+    if (B.speedrunBase)
+    {   /* a route's `slow` step: the normal bot's movement (Bunker 2's cell: the guard's visit wants Bond on pad 99) */
+        B.speedrun = !(s != NULL && s->slow);
+        B.speedMode = B.speedrun;
+    }
     if (armourDash())
     {   /* hurt, and body armour lies close by: it comes first (fights only at close range on the way) */
         B.stuck.lastGain = B.tick;
@@ -4437,8 +5025,8 @@ static void drive(void)
                 B.subGoalZ = gz;
                 B.subGoalSet = 1;   /* fixed once chosen, so the route does not wobble */
             }
-            if (navTo(B.subGoalX, bond()->prop->pos.y, B.subGoalZ, 40.0f, NULL) ||
-                (dd < 160.0f && B.stuck.level >= 1))
+            if (navTo(B.subGoalX, bond()->prop->pos.y, B.subGoalZ, B.speedrun ? 80.0f : 40.0f, NULL) ||
+                (dd < 160.0f && B.stuck.level >= 1) || (B.speedrun && dd < 170.0f))
             {
                 B.subPhase = 1;
                 B.stepTick = B.tick;
@@ -4449,7 +5037,7 @@ static void drive(void)
             ObjectRecord *so = sw->type == PROP_TYPE_OBJ ? sw->obj : NULL;
             f32 tx = so != NULL ? so->runtime_pos.x : sw->pos.x, tz = so != NULL ? so->runtime_pos.z : sw->pos.z;
             f32 ey = so != NULL ? so->runtime_pos.y : sw->pos.y;
-            f32 err = lookAt(tx, ey, tz, 15.0f);
+            f32 err = lookAt(tx, ey, tz, B.speedrun ? 45.0f : 15.0f);
             f32 ddx = tx - bond()->prop->pos.x, ddz = tz - bond()->prop->pos.z;
             f32 dd = sqrtf(ddx * ddx + ddz * ddz);
 
@@ -4457,8 +5045,13 @@ static void drive(void)
             {
                 steerTo(tx, ey, tz, 300.0f);   /* closer */
             }
-            if (((B.tick - B.stepTick) % 40) == 39 && fabsf(err) < 10.0f)
+            if (B.speedrun ? (fabsf(err) < 10.0f && dd < 190.0f && B.tick - B.lastDoorTap >= 12)
+                           : (((B.tick - B.stepTick) % 40) == 39 && fabsf(err) < 10.0f))
             {
+                if (B.speedrun)
+                {
+                    B.lastDoorTap = B.tick;
+                }
                 B.btn |= BTN_B;
                 B.subPhase++;
                 if (B.verbose >= 2)
@@ -4519,6 +5112,15 @@ static void botTick(void)
     {
         stageBegin();
     }
+    if (sOpt.phase == 2 && portSnapSoloPending() == 0)
+    {
+        optAfterRestore();   /* the savestate is back: B (and the whole sim) is at the step's start */
+    }
+    if (B.mode == 1 && optTick())
+    {
+        outClear();
+        return;   /* a savestate goes back at the next tick */
+    }
     B.ticksAll++;
     if (lvlGetControlsLockedFlag() == 0 && p->cameramode == 0)
     {
@@ -4548,6 +5150,11 @@ void portPlayerBotPad(OSContPad *pad)
         return;
     }
     t = portInputRecTickNow();
+    {
+        extern int g_PortTickPhase;   /* boss.c */
+
+        B.pollPhase[(g_PortTickPhase & 3) + (t != B.lastRecTick ? 4 : 0)]++;
+    }
     if (t != B.lastRecTick)
     {
         B.lastRecTick = t;

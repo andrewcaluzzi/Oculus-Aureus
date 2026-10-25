@@ -75,6 +75,7 @@ static int sCmp;
 static int sHashFrom, sHashTo;           /* GE_SNAPHASH */
 static Slot sRing[RING_MAX];
 static Slot sKeep, sPre;
+static int sSoloReq;                    /* solo savestates (below): 1 save, 2 restore at the next tick begin */
 
 /* ---- cost counters ---- */
 static unsigned long long sSaveSum, sSaveMax, sSaveN, sRestSum, sRestMax, sRestN, sResimSum, sResimTicks, sResimMax, sFrames;
@@ -729,6 +730,10 @@ int portSnapNeedIdle(void)
     {
         init();
     }
+    if (sSoloReq == 2)
+    {
+        return 1;   /* a solo savestate goes back at the next tick */
+    }
     if (!sOn)
     {
         return 0;
@@ -919,6 +924,62 @@ static void hashLine(unsigned int tick, const char *tag)
                 sNDyn > 0 ? sDyn[0].name : "-", h[4], sNDyn > 1 ? sDyn[1].name : "-", h[5], sNDyn > 2 ? sDyn[2].name : "-", h[6]);
 }
 
+/* ---- solo savestates (the player bot's segment optimiser, GE_PLAYERBOT_OPT) ----
+ * The bot asks between ticks (it decides at the controller poll after a tick); the save / restore runs here, at the start
+ * of the next tick, where the rollback ring saves too. A restore puts the whole sim state back - the bot's own statics are
+ * in it (port_playerbot.c is snapshotted) - plus this stage's tick count (port_simonly.c: which ticks draw), and then the
+ * tick simply runs: no re-simulation. sSolo* is presentation-side state, never rewound. */
+static Slot sSolo;
+static unsigned int sSoloCount;     /* port_simonly's tick count at the save */
+static unsigned sSoloSaves, sSoloRestores;
+extern void portSimOnlySetTickCount(unsigned int n);
+
+int portSnapSoloAvailable(void)
+{
+    if (!sInit)
+    {
+        init();
+    }
+    return sTableOk;
+}
+
+void portSnapSoloRequest(int what)
+{
+    sSoloReq = what;
+}
+
+int portSnapSoloPending(void)
+{
+    return sSoloReq;
+}
+
+static void soloTick(void)
+{
+    if (sSoloReq == 1)
+    {
+        sSoloCount = stageTicks();
+        slotSave(&sSolo, sSoloCount + 1u);
+        sSoloSaves++;
+        if (sSoloSaves <= 2)
+        {
+            portConLogf("ge: snap: solo save at tick %u: %u KB\n", sSoloCount + 1u, sSolo.size / 1024u);
+        }
+    }
+    else if (sSoloReq == 2 && sSolo.valid)
+    {
+        u32 dirty = slotRestore(&sSolo);
+
+        forgetDirty();
+        portSimOnlySetTickCount(sSoloCount);
+        sSoloRestores++;
+        if (sSoloRestores <= 2 || (sSoloRestores % 50u) == 0)
+        {
+            portConLogf("ge: snap: solo restore %u to tick %u (%u KB differed)\n", sSoloRestores, sSoloCount + 1u, dirty / 1024u);
+        }
+    }
+    sSoloReq = 0;
+}
+
 void portSnapTickBegin(void)
 {
     unsigned int tick;
@@ -927,6 +988,10 @@ void portSnapTickBegin(void)
     if (!sInit)
     {
         init();
+    }
+    if (sSoloReq != 0 && sTableOk)
+    {
+        soloTick();
     }
     if (!sOn)
     {

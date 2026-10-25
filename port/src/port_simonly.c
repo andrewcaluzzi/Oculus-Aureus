@@ -164,6 +164,12 @@ unsigned int portSimOnlyTickCount(void)
     return sCount;
 }
 
+/* port_snap.c, a solo savestate put back: the tick count goes back with it (which ticks draw follows the count) */
+void portSimOnlySetTickCount(unsigned int n)
+{
+    sCount = n;
+}
+
 /* boss.c retrace gate: will the NEXT tick be sim-only? (a sim-only tick swaps the display buffers without a gfx task, so
  * it must not start while a task of the previous frame is still in flight) */
 int portSimOnlyNext(int inStage)

@@ -211,6 +211,7 @@ static const struct { const char *name; int op; } sOps[] = {
     { "avoid", PBL_AVOID },    /* avoid pad N */
     { "spare", PBL_SPARE },    /* spare ai ID */
     { "escort", PBL_ESCORT },  /* escort ai ID [dist] | escort ai 0 */
+    { "via", PBL_VIA },        /* via pad N [r] | via x y z [r]: pass through at full speed */
 };
 
 const char *pblOpName(int op)
@@ -357,12 +358,25 @@ int pblParsePlan(const char *text, PblPlan *plan, char *err, int errlen)
             snprintf(plan->name, sizeof(plan->name), "%.*s", (int) sizeof(plan->name) - 1, tok[1]);
             continue;
         }
-        /* prefixes: obj=N (only while objective N is open), diff=A-B */
-        while (k < nt && (strncmp(tok[k], "obj=", 4) == 0 || strncmp(tok[k], "diff=", 5) == 0))
+        /* prefixes: obj=N (only while objective N is open), diff=A-B, side=l|r, fast */
+        while (k < nt && (strncmp(tok[k], "obj=", 4) == 0 || strncmp(tok[k], "diff=", 5) == 0 ||
+                          strncmp(tok[k], "side=", 5) == 0 || strcmp(tok[k], "fast") == 0 || strcmp(tok[k], "slow") == 0))
         {
             if (tok[k][0] == 'o')
             {
                 st.condObj = (int) num(tok[k] + 4);
+            }
+            else if (tok[k][0] == 's' && tok[k][1] == 'i')
+            {
+                st.side = (tok[k][5] == 'l' || tok[k][5] == 'L') ? -1 : (tok[k][5] == 'r' || tok[k][5] == 'R') ? 1 : 0;
+            }
+            else if (tok[k][0] == 'f')
+            {
+                st.fast = 1;
+            }
+            else if (tok[k][0] == 's' && tok[k][1] == 'l')
+            {
+                st.slow = 1;
             }
             else
             {
@@ -436,6 +450,31 @@ int pblParsePlan(const char *text, PblPlan *plan, char *err, int errlen)
                 {
                     snprintf(err, errlen, "line %d: want 'pad N' or 'obj T'", lineno);
                     return -1;
+                }
+                break;
+            case PBL_VIA:
+                NEED(2);
+                st.r = 120.0f;
+                if (strcmp(tok[k], "pad") == 0)
+                {
+                    st.a = (int) num(tok[k + 1]);
+                    st.b = 0;
+                    if (nt - k >= 3)
+                    {
+                        st.r = (float) atof(tok[k + 2]);
+                    }
+                }
+                else
+                {
+                    NEED(3);
+                    st.b = 1;
+                    st.x = (float) atof(tok[k]);
+                    st.y = (float) atof(tok[k + 1]);
+                    st.z = (float) atof(tok[k + 2]);
+                    if (nt - k >= 4)
+                    {
+                        st.r = (float) atof(tok[k + 3]);
+                    }
                 }
                 break;
             case PBL_DESTROY_OBJ:
@@ -576,6 +615,36 @@ int pblParsePlan(const char *text, PblPlan *plan, char *err, int errlen)
         plan->s[plan->n++] = st;
     }
     return plan->n;
+}
+
+/* ---- the digital move in any direction --------------------------------------------------------------------------- */
+
+/* Which digital move (dmx, dmy in -1..1) carries Bond closest to relDeg off his view (yaw degrees, + toward the side
+ * offRight is on), given the measured motion offsets of forward+left (offLeft) and forward+right (offRight): forward 0,
+ * the diagonals the offsets, a strafe alone 90 to its side, back 180, back+strafe 180 - |offset|. The diagonals are the
+ * fast ones (11 u/tick against ~8): they win ties and anything within 6 degrees. Returns the motion offset of the pick. */
+float pblDigitalPick(float relDeg, float offLeft, float offRight, int *dmx, int *dmy)
+{
+    const float sl = offLeft < 0.0f ? -1.0f : 1.0f, sr = offRight < 0.0f ? -1.0f : 1.0f;
+    const float off[8] = { offRight, offLeft, 0.0f, sr * 90.0f, sl * 90.0f, 180.0f, sr * (180.0f - fabsf(offRight)),
+                           sl * (180.0f - fabsf(offLeft)) };
+    static const int mx[8] = { 1, -1, 0, 1, -1, 0, 1, -1 }, my[8] = { 1, 1, 1, 0, 0, -1, -1, -1 };
+    int i, best = 0;
+    float bestE = 1e9f;
+
+    for (i = 0; i < 8; i++)
+    {
+        float e = fabsf(pblWrap180(relDeg - off[i])) + (i < 2 ? 0.0f : 6.0f);
+
+        if (e < bestE)
+        {
+            bestE = e;
+            best = i;
+        }
+    }
+    *dmx = mx[best];
+    *dmy = my[best];
+    return off[best];
 }
 
 /* ---- stuck detection ---------------------------------------------------------------------------------------------- */
