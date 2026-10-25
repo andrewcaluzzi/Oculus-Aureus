@@ -118,6 +118,10 @@ enum {
      * watch_next, injected as D-pad up / down edges while the watch is open. */
     PORTACT_WATCH_UP,
     PORTACT_WATCH_DOWN,
+    /* Appended: the heist INTEL board (port_intel.c), a local view only: portJoyPortPollCommit hands it to the board and clears
+     * it before the sim, the input recorder or the netplay window see the poll. Default Tab (shared with classic_toggle, which a
+     * mode with a board gives up) and Back / Select on a pad. */
+    PORTACT_INTEL,
     PORTACT_COUNT
 };
 
@@ -168,6 +172,7 @@ static const struct {
      * nothing outside the watch takes these presses. */
     [PORTACT_WATCH_UP]         = { "watch_up",         "Up",       1 },
     [PORTACT_WATCH_DOWN]       = { "watch_down",       "Down",     1 },
+    [PORTACT_INTEL]            = { "intel",            "Tab",      0 },
 };
 
 /* [input] detonate_use_reload (default ON): with remote mines in the right
@@ -313,6 +318,11 @@ s32 portJoyPortSetOption(const char *key, const char *value)
         sNoAimCrouch = atoi(value) != 0;
         return 1;
     }
+    if (strcmp(key, "intel_hold") == 0) {   /* the heist INTEL board: 1 = shown while held, 0 = a press toggles it (port_intel.c) */
+        extern void portIntelSetHold(int on);
+        portIntelSetHold(atoi(value) != 0);
+        return 1;
+    }
     /* padN_<the same two>: input_pc.c's padN_ arm is asked first and turns
      * these down (they are not pad controls), so they arrive here */
     if (strncmp(key, "pad", 3) == 0 && key[3] >= '1' && key[3] <= '4' && key[4] == '_') {
@@ -440,6 +450,11 @@ s32 portJoyPortOptionGet(const char *key, s32 *out)
         *out = sNoAimCrouch;
         return 1;
     }
+    if (strcmp(key, "intel_hold") == 0) {
+        extern int portIntelHold(void);
+        *out = portIntelHold();
+        return 1;
+    }
     return 0;
 }
 
@@ -459,6 +474,11 @@ s32 portJoyPortOptionSet(const char *key, s32 v)
     }
     if (strcmp(key, "no_aim_crouch") == 0) {
         sNoAimCrouch = v != 0;
+        return 1;
+    }
+    if (strcmp(key, "intel_hold") == 0) {
+        extern void portIntelSetHold(int on);
+        portIntelSetHold(v != 0);
         return 1;
     }
     return 0;
@@ -662,6 +682,37 @@ void portJoyPortPollCommit(void)
             sPending[0][sAutoAct[i]] = 1;
             if (joyPortDbg()) {
                 portConLogf("ge: joyport: AUTO press %s at poll %u\n", sPortActs[sAutoAct[i]].name, sPollCount);
+            }
+        }
+    }
+    { /* the heist INTEL board (port_intel.c): a local view, never sim input. Its key goes to the board and is cleared here; while
+       * the board is open the page / floor keys flip it instead of the guns; in a mode with a board, the INTEL key's other jobs on a
+       * shared key (Objectives on a pad's Back, Classic Mode) give way */
+        extern int portIntelInput(int intel, int prev, int next, int up, int down);
+        extern int portIntelAvailable(void);
+        static const s32 navAct[4][2] = { { PORTACT_WATCH_PREV, PORTACT_PREV_WEAPON }, { PORTACT_WATCH_NEXT, PORTACT_NEXT_WEAPON },
+                                          { PORTACT_WATCH_UP, PORTACT_NEXT_INV }, { PORTACT_WATCH_DOWN, PORTACT_PREV_INV } };
+        s32 intel = 0, nav[4] = { 0, 0, 0, 0 }, k;
+
+        for (pad = 0; pad < PORT_PADS; pad++) {
+            if (sPending[pad][PORTACT_INTEL]) {
+                intel = 1;
+                if (portIntelAvailable()) {
+                    sPending[pad][PORTACT_WATCH_OBJECTIVES] = 0;
+                    sPending[pad][PORTACT_CLASSIC_TOGGLE] = 0;
+                }
+            }
+            for (k = 0; k < 4; k++) {
+                nav[k] |= sPending[pad][navAct[k][0]] | sPending[pad][navAct[k][1]];
+            }
+            sPending[pad][PORTACT_INTEL] = 0;
+        }
+        if (portIntelInput(intel, nav[0], nav[1], nav[2], nav[3])) {
+            for (pad = 0; pad < PORT_PADS; pad++) {
+                for (k = 0; k < 4; k++) {
+                    sPending[pad][navAct[k][0]] = 0;
+                    sPending[pad][navAct[k][1]] = 0;
+                }
             }
         }
     }
@@ -871,6 +922,7 @@ f32 portJoyPortLevel(s32 act)
 /** video.c: which bind index is the mouse unlock key. */
 s32 portJoyPortActMouseUnlock(void) { return PORTACT_MOUSE_UNLOCK; }
 s32 portJoyPortActClassicToggle(void) { return PORTACT_CLASSIC_TOGGLE; }
+s32 portJoyPortActIntel(void) { return PORTACT_INTEL; }
 
 /** A PAD's classic_toggle press (input_pc.c padN_classic_toggle), taken. The
  * keyboard's Tab never reaches this latch: video.c zeroes it and keeps its own

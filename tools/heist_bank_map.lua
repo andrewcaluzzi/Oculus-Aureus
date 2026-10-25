@@ -73,6 +73,10 @@ local CAMS = {
 
 function heist_bank_map()
   local L = LEVEL
+  -- bank v3 (designs/bank-v3.md): the layout carries its own area and camera tables (LEVEL.script.heist, written by
+  -- tools/levelgen/build_janus_bank_v3.py); v2's tables above stay for a layout without them
+  local H = L.script and L.script.heist or {}
+  local AREA_DEF, CAMS = H.areas or AREA_DEF, H.cams or CAMS
   local function obj(n) return need(L.objects[n], "object " .. n) end
   local function leaves(n) local o = obj(n); return o.pair and { o.index, o.pair } or { o.index } end
   local function pad(n) return need(L.pads[n], "pad " .. n) end
@@ -153,6 +157,7 @@ function heist_bank_map()
   M.AREA_LABEL = { hall = "banking hall", mezzanine = "mezzanine", corridor = "staff corridors", offices = "offices", upper1 = "first floor",
                    upper2 = "second floor", executive = "executive floor", security = "security wing", dock = "loading dock", records = "records",
                    vault_ante = "vault level", deposit = "deposit hall", manager = "manager's office", vault = "vault", plant = "plant level" }
+  for k, v in pairs(H.area_label or {}) do M.AREA_LABEL[k] = v end
   M.VAULT_ROOMS = { [room("vault").id] = true }
   M.VAULT_PADS = area_pads({ "vault_in_a", "vault_in_b", "vault_captain", "vault_g1", "vault_g2", "vault_g3" }, { "vault" })
   M.VAULT_CRATE_PADS = {}   -- (the crates stand by the walls, off every pad)
@@ -166,6 +171,11 @@ function heist_bank_map()
     { "manager", { pad("mgr_1"), pad("mgr_desk") }, 2 },
     { "executive", { pad("secretary_1"), pad("director_1") }, 1 },
   }
+  for _, c in ipairs(H.civ_extra or {}) do                       -- v3: the safe-deposit attendant, an officer, the cash counters
+    local ps = {}
+    for _, n in ipairs(c.pads) do ps[#ps + 1] = pad(n) end
+    M.CIV_PLACES[#M.CIV_PLACES + 1] = { c.area, ps, c.n }
+  end
   -- the card carriers' candidate pads
   M.CARRIERS = {
     teller = { pad("teller_1"), pad("teller_2"), pad("teller_3") },
@@ -207,8 +217,19 @@ function heist_bank_map()
     generator_front = L.pads.generator_front,
   }
   M.power_room = L.rooms.power and L.rooms.power.id or nil
-  M.MAP = { name = "bank", label = "the Janus bank", manager_area = "manager", vault_hint = "down the RED stairs, a floor down",
-            no_cams = "(records, deposit: no cams)" }
+  M.MAP = { name = "bank", label = H.map_label or "the Janus bank", manager_area = "manager", vault_hint = "down the RED stairs, a floor down",
+            no_cams = H.no_cams or "(records, deposit: no cams)" }
+  -- v3: the interfaces other modules use (designs/bank-v3.md section 8): guard tours (route -> pad ids in walking order, a loop), the
+  -- watchclock stations (pad ids), vents (id -> { a, b }) and grapple points (id -> { low, high }); empty on a layout without them
+  M.PATROLS, M.STATIONS, M.VENTS, M.GRAPPLES = {}, {}, {}, {}
+  for r, names in pairs(H.patrols or {}) do
+    local ids = {}
+    for _, n in ipairs(names) do ids[#ids + 1] = pad(n) end
+    M.PATROLS[r] = ids
+  end
+  for _, n in ipairs(H.stations or {}) do M.STATIONS[#M.STATIONS + 1] = pad(n) end
+  for _, v in ipairs(H.vents or {}) do M.VENTS[v] = { pad("vent_" .. v .. "_a"), pad("vent_" .. v .. "_b") } end
+  for _, g in ipairs(H.grapples or {}) do M.GRAPPLES[g] = { pad("grapple_" .. g .. "_low"), pad("grapple_" .. g .. "_high") } end
   M.dropped = dropped                                            -- grid pads kept off (blocks, props, doorways)
   M.intel_room = room("hall").id                                 -- the hall shows the intel box (the screens are there)
   M.CAM_LABEL, M.CAM_AREA = {}, {}
@@ -216,7 +237,7 @@ function heist_bank_map()
     local i = obj(c[1]).index
     M.CAM_LABEL[i], M.CAM_AREA[i] = c[2], c[3]
   end
-  M.GUARD_AREAS = { "hall", "mezzanine", "security", "offices", "upper1", "upper2", "corridor", "dock", "vault_ante", "executive" }
+  M.GUARD_AREAS = H.guard_areas or { "hall", "mezzanine", "security", "offices", "upper1", "upper2", "corridor", "dock", "vault_ante", "executive" }
   -- v2: each room `area` tag's cover class from the layout's `zone` tags (public / staff / restricted; the strictest if a tag has two)
   local rank = { public = 1, staff = 2, restricted = 3 }
   M.AREA_CLASS = {}

@@ -30,6 +30,8 @@ include("heist_lib")
 include("levelgen_layout")                     -- LEVEL: the generated level's layout (include() works at the top level only)
 include("heist_bank_map")                      -- heist_bank_map(): the mode's tables from LEVEL by name
 include("heist_ai")                            -- HEIST_AI: the guards' hearing, awareness and barks (section 18)
+include("heist_intel")                         -- heist_intel(ctx): the INTEL board's content and the hints (section 19)
+pcall(include, "heist_ar")                     -- the AR specs and diagnostics (section 20; presentation only, optional)
 local STAGE_LEVELGEN = 52                      -- LEVELID_LEE: the generated level's slot
 
 local S = {
@@ -136,8 +138,13 @@ local S = {
     vault_a = "never", vault_b = "never",                                        -- the time-locked vault: nobody
     safe = "never", cell_green = "never", cell_floor = "never", dock_shutter = "never",
   },
+  -- the INTEL board (section 19; Tab / Back): the crew's plan, schematics, keys, personnel and notes. Presentation only.
+  intel           = true,    -- false: no board at all (the determinism proof compares the two)
+  hints           = true,    -- one-line contextual hints (a keyed door, the vault door, the breaker, the console, the screens)
+  briefing        = true,    -- open the board once at the start ("press INTEL to close"; skipped in automated runs)
   spawn_per_tick  = 24,      -- chrs placed per 0.25 s at the start (no hitch)
   test            = false,   -- test hooks on (HEIST.* below are always there; this only adds log lines)
+  ar              = true,    -- the Q-Branch specs (tools/heist_ar.lua, section 20): suspicion "?" / "!", bubbles, key brackets, waypoints
   -- difficulty (mission.difficulty(): 0 Agent .. 3 007). force: the share of the full force above (posted guards, raisers, vault
   -- guards, wave cap, squads, the response); acc: the guards' accuracy rating (0 = stock, 5 = 1.5x, 10 = 2x: the stock aim is scaled by
   -- 1 + acc / 10); wave: guards per wave. (AC delegated, Claude's call 2026-10-25, revisit: the player bot won 10/10 with the carriers
@@ -1231,6 +1238,8 @@ on("stage_start", function(stage)
         "JANUS BANK, ST PETERSBURG. Steal the gold. Hurt no staff.", 8)
   log("stage start: %s, %d Bond(s), difficulty %d", MAP.label, bond.count(), mission.difficulty())
   refresh_hud()
+  if S.intel ~= false then H.intel = heist_intel{ S = S, H = H, PW = PW, M = H.M, force = diff.force, flash_p = flash_p, money = money, security_up = security_up,
+                         keys = { GREEN = GREEN, BLUE = BLUE, RED = RED, GOLD = GOLD, FLOORKEY = FLOORKEY, VAULT = VAULT } } end
 end)
 
 -- the script's sim state for the co-op / netplay state hash (mode.state): a script-state desync shows at once, and the dump names it
@@ -1260,6 +1269,7 @@ on("tick", function(dt)
     local ok, err = pcall(job)
     if not ok then log("setup step failed: %s", tostring(err)) end
   end
+  if H.intel then H.intel.tick(dt) end   -- the INTEL board's content and the hints (presentation; tools/heist_intel.lua)
   if not H.ready then return end
   if H.hot and S.siren_latch and not alarm.active() then alarm.start() end
   if H.cam_off_until and H.elapsed >= H.cam_off_until then
@@ -1280,3 +1290,6 @@ on("tick", function(dt)
   hud_acc = hud_acc + dt
   if hud_acc >= 0.5 then hud_acc = 0; if not H.ended then refresh_hud(); intel_tick() end end
 end)
+
+-- the AR specs and diagnostics (tools/heist_ar.lua): after every handler above, so the map is loaded when its stage_start runs
+if heist_ar and heist_ar.attach then heist_ar.attach(H, S) end
