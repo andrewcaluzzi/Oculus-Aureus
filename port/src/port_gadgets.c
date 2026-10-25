@@ -50,6 +50,7 @@ extern int portHeistOffsetStan(coord3d *pos, StandTile **stan, float dx, float d
 extern void portConLogf(const char *fmt, ...);
 extern int portLocalPlayer(void);
 extern s32 g_ClockTimer;
+extern unsigned int portSimOnlyTickCount(void);   /* port_simonly.c: ticks this stage (the same on every machine) */
 
 typedef struct
 {
@@ -60,6 +61,8 @@ typedef struct
     u16 prevBtn;
     s32 testFire;         /* gadget.test_fire: ticks of a held fire still to give */
     s32 testTaps;         /* gadget.test_fire(p, 0, n): press edges to give */
+    u32 edgeTick;         /* the stage tick of the last press (the safe's dial is timed to the tick) */
+    s32 testDelay;        /* ticks before the test taps start */
     /* the reel */
     s32 reel;             /* 0 none, 1 carried */
     f32 pts[PATH_MAX][3]; /* feet positions */
@@ -81,6 +84,9 @@ static u32 sBarCol[GB_MAX];
 static s32 sMarkOn[GB_MAX];
 static f32 sMark[GB_MAX][3];
 static s32 sXray[GB_MAX];
+static s32 sDialOn[GB_MAX];
+static u32 sDialStart[GB_MAX];
+static f32 sDialPeriod[GB_MAX], sDialCenter[GB_MAX], sDialWidth[GB_MAX];
 
 void portGadgetsReset(void)
 {
@@ -88,7 +94,7 @@ void portGadgetsReset(void)
 
     memset(sG, 0, sizeof(sG));
     sItemN = 0;
-    for (p = 0; p < GB_MAX; p++) { sBar[p] = -1.0f; sMarkOn[p] = 0; sXray[p] = 0; }
+    for (p = 0; p < GB_MAX; p++) { sBar[p] = -1.0f; sMarkOn[p] = 0; sXray[p] = 0; sDialOn[p] = 0; }
 }
 
 static int isGadgetItem(s32 item)
@@ -248,12 +254,17 @@ void portGadgetsBondTick(int p, s8 *sx, s8 *sy, u16 *buttons)
     }
     fire = (*buttons & Z_TRIG) != 0;
     if (g->testFire > 0) { fire = 1; g->testFire--; }
-    if (g->testTaps > 0 && !(g->prevBtn & Z_TRIG))
+    if (g->testDelay > 0) g->testDelay--;
+    else if (g->testTaps > 0 && !(g->prevBtn & Z_TRIG))
     {   /* a test tap: a press this tick, released the next */
         fire = 1;
         g->testTaps--;
     }
-    if (fire && !(g->prevBtn & Z_TRIG)) g->edges++;
+    if (fire && !(g->prevBtn & Z_TRIG))
+    {
+        g->edges++;
+        g->edgeTick = portSimOnlyTickCount();
+    }
     g->held = fire;
     g->heldTicks = fire ? g->heldTicks + 1 : 0;
     g->prevBtn = (u16) ((*buttons & ~Z_TRIG) | (fire ? Z_TRIG : 0));
@@ -274,11 +285,12 @@ int portGadgetsTakeFire(int p, int *held, int *heldTicks)
     return n;
 }
 
-int portGadgetsTestFire(int p, int ticks, int taps)
+int portGadgetsTestFire(int p, int ticks, int taps, int delay)
 {
     if (p < 0 || p >= GB_MAX) return 0;
     sG[p].testFire = ticks;
     sG[p].testTaps = taps;
+    sG[p].testDelay = delay;
     return 1;
 }
 
@@ -449,7 +461,7 @@ unsigned portGadgetsHash(void)
         h = h * 16777619u + (unsigned) g->edges * 3u + (unsigned) g->held * 5u + (unsigned) g->heldTicks * 7u + (unsigned) g->prevBtn * 11u;
         h = h * 16777619u + (unsigned) g->reel * 13u + (unsigned) g->npts * 17u + (unsigned) (g->t * 600.0f) + (unsigned) (g->total * 600.0f) * 19u;
         h = h * 16777619u + (unsigned) g->padFrom * 23u + (unsigned) g->padTo * 29u + (unsigned) g->done * 31u + (unsigned) g->disguise * 37u
-            + (unsigned) g->testFire * 41u + (unsigned) g->testTaps * 43u;
+            + (unsigned) g->testFire * 41u + (unsigned) g->testTaps * 43u + g->edgeTick * 47u + (unsigned) g->testDelay * 53u;
         for (k = 0; k < g->npts; k++)
         {
             h = h * 16777619u + (unsigned) (s32) g->pts[k][0] + (unsigned) (s32) g->pts[k][1] * 3u + (unsigned) (s32) g->pts[k][2] * 7u;
@@ -466,6 +478,23 @@ void portGadgetsBar(int p, float frac, unsigned rgba)
     if (p < 0 || p >= GB_MAX) return;
     sBar[p] = frac;
     sBarCol[p] = rgba;
+}
+
+/* the safe's dial (presentation): a needle sweeping the bar once every `period` ticks from tick `start`, the click window round `center` */
+void portGadgetsDial(int p, int on, unsigned start, float period, float center, float width)
+{
+    if (p < 0 || p >= GB_MAX) return;
+    sDialOn[p] = on;
+    sDialStart[p] = start;
+    sDialPeriod[p] = period > 1.0f ? period : 1.0f;
+    sDialCenter[p] = center;
+    sDialWidth[p] = width;
+}
+
+unsigned portGadgetsNow(int p, unsigned *edgeTick)
+{
+    *edgeTick = (p >= 0 && p < GB_MAX) ? sG[p].edgeTick : 0;
+    return portSimOnlyTickCount();
 }
 
 void portGadgetsXray(int p, int on)
@@ -559,7 +588,7 @@ Gfx *portGadgetsOverlay(Gfx *gdl)
     rope = g->reel && g->npts >= 2;
     mark = sMarkOn[me] && !g->reel;
     bar = sBar[me] >= 0.0f;
-    if (!rope && !mark && !bar && !sXray[me]) return gdl;
+    if (!rope && !mark && !bar && !sXray[me] && !sDialOn[me]) return gdl;
     if (dynGetFreeGfx2(gdl) < 2400) return gdl;
     savedX = viGetX();
     savedY = viGetY();
@@ -619,9 +648,9 @@ Gfx *portGadgetsOverlay(Gfx *gdl)
             w[1] = c->prop->pos.y + 80.0f;
             w[2] = c->prop->pos.z;
             if (!project(w, &bx, &by)) continue;
-            sz = 9000.0f / (d + 1.0f);
-            hw = (s32) (sz * 0.45f) + 2;
-            hh = (s32) sz + 3;
+            sz = 26000.0f / (d + 1.0f);
+            hw = (s32) (sz * 0.4f) + 4;
+            hh = (s32) sz + 8;
             x = (s32) bx;
             y = (s32) by;
             col = c->weapons_held[GUNRIGHT] != NULL ? 0xFF3018C0u : 0xF0F0F0B0u;
@@ -657,6 +686,19 @@ Gfx *portGadgetsOverlay(Gfx *gdl)
         gdl = rect(gdl, x0 - 3, y0 - 3, x0 + w + 3, y0 + 13, 0x000000A0u);
         gdl = rect(gdl, x0, y0, x0 + w, y0 + 10, 0x404040C0u);
         if (fill > 0) gdl = rect(gdl, x0, y0, x0 + fill, y0 + 10, sBarCol[me] ? sBarCol[me] : 0xFFE040FFu);
+    }
+    if (sDialOn[me])
+    {   /* the safe: the dial bar, the click window (green), the needle sweeping it */
+        s32 w = sOvW / 3, x0 = (sOvW - w) / 2, y0 = (s32) ((f32) sOvH * 0.66f), wx0, wx1, nx;
+        f32 ph = (f32) ((portSimOnlyTickCount() - sDialStart[me]) % (u32) sDialPeriod[me]) / sDialPeriod[me];
+
+        wx0 = x0 + (s32) ((sDialCenter[me] - sDialWidth[me] * 0.5f) * (f32) w);
+        wx1 = x0 + (s32) ((sDialCenter[me] + sDialWidth[me] * 0.5f) * (f32) w);
+        nx = x0 + (s32) (ph * (f32) w);
+        gdl = rect(gdl, x0 - 4, y0 - 6, x0 + w + 4, y0 + 18, 0x000000B0u);
+        gdl = rect(gdl, x0, y0, x0 + w, y0 + 12, 0x505050C0u);
+        gdl = rect(gdl, wx0, y0, wx1, y0 + 12, (nx >= wx0 && nx <= wx1) ? 0x60FF60FFu : 0x30A030E0u);
+        gdl = rect(gdl, nx - 1, y0 - 4, nx + 2, y0 + 16, 0xFFFFFFFFu);
     }
     gdl = combiner_bayer_lod_perspective(gdl);
     OV_SPACE(gdl, 0, 0);

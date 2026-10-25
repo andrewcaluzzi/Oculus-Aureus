@@ -11,13 +11,16 @@
 --   COINS      (in hand: fire)   throw one: where it lands it makes a "coin" noise: the nearest guards walk over to look, then go back.
 --   TAPE LOOP  (in hand: fire)   aim at a camera and fire: it shows a recorded loop and sees nothing for 60 s.
 --   SLEEP GAS  (in hand: fire)   throw it: 3 s later everyone near where it landed is knocked out.
+--              At a safe the lockpicks are a stethoscope: three tumblers, press fire while the sweeping needle is in the green.
 --   THERMAL    (in hand: fire)   10 s of every chr within 35 m outlined through the walls (red armed, white not); 30 s to recharge.
 --   PICKPOCKET (use)             behind a guard or a staffer who carries a card, who does not face you and is not on to you: press use
 --                                within reach and the card is yours. Facing you: he catches your hand (a guard sees through you).
 --   DISGUISE   (use)             at a knocked-out, searched body: press use and stay with it (4 s, unseen): you wear its uniform. A
 --                                guard's: restricted and staff rooms are yours (guards look closer when you linger near them); a staffer's:
 --                                the staff rooms.
---   VENTS      (use)             at a vent (pads vent_<id>_a / _b): press use and you crawl through to the other end.
+--   VENTS      (use)             at a vent (pads vent_<id>_a / _b): press use and you crawl through to the other end. The vault's
+--                                ventilator (vent_vault) only while the power is out (its fans stop).
+-- The points are found by pad name on any layout (bank v2's and v3's; v3's heist_bank_map() also lists them as M.GRAPPLES / M.VENTS).
 -- Gadget state is sim state: it is in this script's text state (mode.state, hashed) and the Lua arena (the rollback snapshot); the C
 -- side's (triggers, the line, disguises) in port_gadgets.c's hash. Noises go through noise.emit when the AI layer has it, else the
 -- nearest cover guards are walked over to look (spawn.go) and back.
@@ -62,6 +65,11 @@ local DEFAULT = {
   vent_time = 3,
   thermal_time = 10,        -- seconds the thermal imager shows every chr near through the walls
   thermal_recharge = 30,
+  safe_reach = 320,         -- the stethoscope (lockpicks at a safe)
+  safe_tumblers = 3,
+  safe_period = 72,         -- ticks for the needle to sweep the dial
+  safe_window = 0.16,       -- the click window, a fraction of the dial
+  safe_noise = 400,
 }
 
 local T = {}
@@ -193,8 +201,9 @@ end
 -- ------------------------------------------------------------------------------------------------------------------------------------
 -- the piton gun
 
-local LABEL = { roof = "the roof", gallery = "the west gallery", alley = "the archive window", canal = "the embankment",
-                vault = "the ductwork" }
+local LABEL = { roof = "the roof", gallery = "the gallery", alley = "the archive window", canal = "the embankment",
+                vault = "the ductwork", facade = "the facade", lantern_w = "the west lantern", lantern_e = "the east lantern",
+                liftshaft = "the lift shaft" }
 
 -- the layout room a point is in (its rect, the floor nearest below)
 local function room_at(x, y, z)
@@ -350,7 +359,81 @@ local function pick_done(p, d)
   flash_p(p, "Click. The lock is open", 3)
 end
 
+-- the stethoscope: lockpicks at a safe. Three tumblers; a needle sweeps the dial and each tumbler clicks in a window: press fire
+-- while the needle is in it (green). A miss rattles the door (a small "door" noise).
+local function safe_target(p)
+  local _, _, x, _, z, feet = gadget.aim(p)
+  if not x then return nil end
+  for _, sf in ipairs(G.safes) do
+    local g = door.get(sf.idx)
+    if g and g.keyflags ~= 0 and g.open < 0.3 and math.abs(g.y - feet) < 260 and d2(x, z, g.x, g.z) <= T.safe_reach
+       and not bond.has_key(p, g.keyflags) then return sf, g end
+  end
+  return nil
+end
+G.safe_target = safe_target
+
+local function safe_window() return 0.15 + 0.7 * math.random() end
+
+local function safe_open(p, sf)
+  door.set_keyflags(sf.idx, 0)
+  door.open(sf.idx)
+  G.stats.safes = (G.stats.safes or 0) + 1
+  log("Bond %d cracked safe %s (door %d)", p, sf.name, sf.idx)
+  flash_p(p, "The safe swings open", 4)
+  local list = sf.loot and LEVEL.loot and LEVEL.loot[sf.loot]
+  if list then   -- (a safe the heist does not fill itself: its loot pads get gold and cash)
+    local n = 0
+    for i, pd in ipairs(list) do
+      if spawn.item(pd, i % 2 == 1 and "goldbar" or "money", { offset = { 0, 0 } }) then n = n + 1 end
+    end
+    log("safe %s: %d pieces of loot", sf.name, n)
+  end
+end
+
+local function crack_tick(p, me, sf, presses)
+  local now, edge = gadget.now(p)
+  local c = me.crack
+  if not c or c.safe ~= sf.idx then
+    if presses == 0 then
+      gadget.dial(p, nil)
+      hint(p, "LOCKPICKS: a safe. FIRE to listen at the dial")
+      return
+    end
+    c = { safe = sf.idx, tumbler = 1, start = now, center = safe_window() }
+    me.crack = c
+    presses = 0
+    log("Bond %d listens at safe %s", p, sf.name)
+  end
+  if presses > 0 then
+    local ph = ((edge - c.start) % T.safe_period) / T.safe_period
+    if math.abs(ph - c.center) <= T.safe_window / 2 then
+      c.tumbler = c.tumbler + 1
+      log("Bond %d: tumbler %d clicks (%.2f in %.2f)", p, c.tumbler - 1, ph, c.center)
+      if c.tumbler > T.safe_tumblers then
+        me.crack = nil
+        gadget.dial(p, nil)
+        safe_open(p, sf)
+        return
+      end
+      c.center, c.start = safe_window(), now
+      flash_p(p, string.format("Click. Tumbler %d of %d", c.tumbler - 1, T.safe_tumblers), 1.5)
+    else
+      c.misses = (c.misses or 0) + 1
+      log("Bond %d: missed the tumbler (%.2f, window %.2f)", p, ph, c.center)
+      make_noise(sf.x, sf.y, sf.z, T.safe_noise, "door", p, 1)
+      flash_p(p, "Clunk. The tumbler slipped", 1.5)
+    end
+  end
+  gadget.dial(p, c.start, T.safe_period, c.center, T.safe_window)
+  seen_act(p, "at a safe")
+  hint(p, string.format("SAFE: tumbler %d of %d - FIRE when the needle is in the green", c.tumbler, T.safe_tumblers))
+end
+
 local function lockpick_tick(p, me, presses, held, dt)
+  local sf = safe_target(p)
+  if sf then gadget.bar(p, nil); crack_tick(p, me, sf, presses); return end
+  if me.crack then me.crack = nil; gadget.dial(p, nil) end
   local d = pick_target(p)
   if not d then
     me.pick = nil
@@ -602,6 +685,12 @@ local function vent_try(p, me)
   for _, v in ipairs(G.vents) do
     for _, ab in ipairs({ { v.pa, v.a, v.pb, v.b }, { v.pb, v.b, v.pa, v.a } }) do
       local here = ab[1]
+      if d2(x, z, here[1], here[3]) <= T.vent_reach and math.abs(feet - here[2]) < 150 and v.id == "vault" and not (H.power and H.power.out) then
+        -- (the controller's ruling: the emergency vault ventilator can be crawled only while the power is out and its fans stop)
+        flash_p(p, "The vault ventilator fans are running - cut the power first", 3)
+        log("Bond %d: the vault vent refused (the power is on)", p)
+        return true
+      end
       if d2(x, z, here[1], here[3]) <= T.vent_reach and math.abs(feet - here[2]) < 150 then
         if gadget.reel(p, { { x, feet, z }, { x, feet, z } }, T.vent_time, ab[2], ab[4]) then
           me.reel = { id = "vent_" .. v.id, up = false, until_t = H.elapsed + T.vent_time, to = ab[4], vent = true }
@@ -670,6 +759,7 @@ local function player_tick(p, dt)
   local item = bond.weapon(p)
   local presses, held = gadget.fire(p)
   if item ~= ITEM.lockpick and me.pick then me.pick = nil end
+  if item ~= ITEM.lockpick and me.crack then me.crack = nil; gadget.dial(p, nil) end
   if item ~= ITEM.lockpick and not me.task then gadget.bar(p, nil) end
   gadget.marker(p, nil)
   if item == ITEM.piton then
@@ -710,7 +800,18 @@ end
 on("stage_start", function(stage)
   if H.phase == "off" then return end
   load_pairs()
-  G.never = {}
+  G.never, G.safes = {}, {}
+  local onames = {}
+  for n, _ in pairs(LEVEL.objects or {}) do onames[#onames + 1] = n end
+  table.sort(onames)
+  for _, n in ipairs(onames) do
+    local o = LEVEL.objects[n]
+    if o.type == "safe" then
+      local g = door.get(o.index)
+      G.safes[#G.safes + 1] = { idx = o.index, name = n, x = g and g.x, y = g and g.y, z = g and g.z,
+                                loot = (n == "director_safe") and "director_loot" or nil }
+    end
+  end
   for _, o in pairs(LEVEL.objects or {}) do
     if (o.type == "door" or o.type == "safe") and (o.guard_access == "never" or o.type == "safe") then
       G.never[o.index] = true
@@ -739,9 +840,9 @@ function G.state()
   for p = 0, bond.count() - 1 do
     local me = G.players[p]
     if me then
-      t[#t + 1] = string.format("%d:%d/%d/%d/%s/%s/%s/%d/%s", p, me.coins, me.loops, me.gas, me.pick and tostring(me.pick) or "-",
+      t[#t + 1] = string.format("%d:%d/%d/%d/%s/%s/%s/%d/%s/%s", p, me.coins, me.loops, me.gas, me.pick and tostring(me.pick) or "-",
         me.task and string.format("%s%.2f", me.task.kind, me.task.t) or "-", me.reel and me.reel.id or "-", gadget.disguise(p),
-        tostring(me.xray_until))
+        tostring(me.xray_until), me.crack and string.format("%d.%d.%d.%.3f", me.crack.safe, me.crack.tumbler, me.crack.start, me.crack.center) or "-")
     end
   end
   local pk = {}

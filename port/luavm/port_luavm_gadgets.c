@@ -3,7 +3,8 @@
  *
  *   gadget.items({item, ...})                 the ITEM_* ids that are gadgets: in hand, their fire button is the script's, not the gun's
  *   gadget.fire(p) -> presses, held, ticks     fire presses since the last call (taken), whether it is held now, for how many ticks
- *   gadget.test_fire(p, ticks [, taps])       test hook: hold fire for `ticks` sim ticks, or give `taps` presses (one a tick)
+ *   gadget.test_fire(p, ticks [, taps [, delay]])   test hook: hold fire for `ticks` sim ticks, or give `taps` presses (every other
+ *                                             tick) after `delay` ticks
  *   gadget.aim(p) -> yaw, pitch, x, y, z, feet Bond p's view (degrees: yaw is vv_theta, forward = (-sin, cos)) and eye / feet height
  *   gadget.reel(p, {{x,y,z}, ...}, secs, from_pad, to_pad) -> bool   carry Bond p along the feet points, set him down on to_pad
  *   gadget.reeling(p) -> bool, frac, done     on the line now, how far, reels finished this stage
@@ -12,7 +13,9 @@
  *   gadget.lift_key(p, chr) -> flags          the pickpocket: chr's keys go to Bond p (0: none)
  *   gadget.disguise(p [, kind])               0 none, 1 staff, 2 guard (the cover reads it)
  *   gadget.bar(p, frac [, rgba]) / gadget.marker(p, x, y, z | nil)   presentation: the work bar, the grapple point bracket
- *   gadget.xray(p, on)                        presentation: the thermal imager's boxes round every chr near, through walls */
+ *   gadget.xray(p, on)                        presentation: the thermal imager's boxes round every chr near, through walls
+ *   gadget.now([p]) -> tick, press_tick        the stage's sim tick, and the tick of Bond p's last gadget fire press
+ *   gadget.dial(p, start, period, center, width | nil)   presentation: the safe's dial (ticks; window as fractions of the bar) */
 #include <string.h>
 #include <stdio.h>
 #include "lua.h"
@@ -21,7 +24,7 @@
 
 extern int portGadgetsSetItems(const int *items, int n);
 extern int portGadgetsTakeFire(int p, int *held, int *heldTicks);
-extern int portGadgetsTestFire(int p, int ticks, int taps);
+extern int portGadgetsTestFire(int p, int ticks, int taps, int delay);
 extern int portGadgetsAim(int p, float *yaw, float *pitch, float *x, float *y, float *z, float *feet);
 extern int portGadgetsReel(int p, const float *pts, int n, float secs, int from, int to);
 extern int portGadgetsReeling(int p, float *frac, int *done);
@@ -32,6 +35,8 @@ extern int portGadgetsDisguise(int p, int kind);
 extern void portGadgetsBar(int p, float frac, unsigned rgba);
 extern void portGadgetsMarker(int p, int on, float x, float y, float z);
 extern void portGadgetsXray(int p, int on);
+extern void portGadgetsDial(int p, int on, unsigned start, float period, float center, float width);
+extern unsigned portGadgetsNow(int p, unsigned *edgeTick);
 
 static void needStage(lua_State *L, const char *api)
 {
@@ -73,7 +78,8 @@ static int gFire(lua_State *L)
 static int gTestFire(lua_State *L)
 {
     needStage(L, "gadget.test_fire");
-    lua_pushboolean(L, portGadgetsTestFire((int) luaL_checkinteger(L, 1), (int) luaL_optinteger(L, 2, 0), (int) luaL_optinteger(L, 3, 0)));
+    lua_pushboolean(L, portGadgetsTestFire((int) luaL_checkinteger(L, 1), (int) luaL_optinteger(L, 2, 0), (int) luaL_optinteger(L, 3, 0),
+                                           (int) luaL_optinteger(L, 4, 0)));
     return 1;
 }
 
@@ -189,11 +195,33 @@ static int gXray(lua_State *L)
     return 0;
 }
 
+static int gDial(lua_State *L)
+{
+    int p = (int) luaL_checkinteger(L, 1);
+
+    if (lua_isnoneornil(L, 2)) portGadgetsDial(p, 0, 0, 1.0f, 0.0f, 0.0f);
+    else portGadgetsDial(p, 1, (unsigned) luaL_checkinteger(L, 2), (float) luaL_checknumber(L, 3), (float) luaL_checknumber(L, 4),
+                         (float) luaL_checknumber(L, 5));
+    return 0;
+}
+
+static int gNow(lua_State *L)
+{
+    unsigned edge = 0, now;
+
+    needStage(L, "gadget.now");
+    now = portGadgetsNow((int) luaL_optinteger(L, 1, 0), &edge);
+    lua_pushinteger(L, (lua_Integer) now);
+    lua_pushinteger(L, (lua_Integer) edge);
+    return 2;
+}
+
 void portLuaGadgetsRegister(lua_State *L)
 {
     static const luaL_Reg lib[] = { { "items", gItems }, { "fire", gFire }, { "test_fire", gTestFire }, { "aim", gAim }, { "reel", gReel },
         { "reeling", gReeling }, { "floor_point", gFloorPoint }, { "chr_yaw", gChrYaw }, { "lift_key", gLiftKey }, { "disguise", gDisguise },
-        { "bar", gBar }, { "marker", gMarker }, { "xray", gXray }, { NULL, NULL } };
+        { "bar", gBar }, { "marker", gMarker }, { "xray", gXray }, { "dial", gDial }, { "now", gNow },
+        { NULL, NULL } };
 
     luaL_newlib(L, lib);
     lua_setglobal(L, "gadget");

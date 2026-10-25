@@ -1,7 +1,7 @@
 #!/bin/sh
 # The heist's gadgets (designs/bank-heist.md section 21, tools/heist_gadgets.lua) on the Janus bank, inside the build container with Xvfb
 # on :99 and build_pc built (tools/levelgen/janus_bank.json on the levelgen slot). One run per scenario of tests/heist/heist_gadgets.lua.
-#   run_gadgets.sh                 every scenario: piton lockpick pocket coin loop disguise vent gas (RUNS="piton coin" picks)
+#   run_gadgets.sh                 every scenario: piton lockpick pocket coin loop disguise vent gas thermal safe (RUNS="piton coin" picks)
 #   run_gadgets.sh det             determinism: the gadget scenario twice solo, twice in local co-op (the second view-switched: the
 #                                  netplay condition); each pair's per-tick state hashes (GE_HASHLOG) must be identical over >= NEED ticks
 # GE_GADGETS_SHOTS=1 adds screenshots (in ${SHOTDIR:-build_pc/heist_gadget_shots}; convert with tests/bmp2png.py, delete the BMPs).
@@ -66,7 +66,7 @@ if [ "$1" = "det" ]; then
     exit 0
 fi
 
-for run in ${RUNS:-piton lockpick pocket coin loop disguise vent gas}; do
+for run in ${RUNS:-piton lockpick pocket coin loop disguise vent gas thermal safe}; do
     flag=GE_GADGETS_$(echo $run | tr a-z A-Z)=1
     echo "HEIST RUN $run"
     env $flag DISPLAY=:99 GE_MODE=heist_gadgets_test GE_STAGE=levelgen GE_SKIPINTRO=1 GE_NOINISAVE=1 GE_FIXEDTICK=1 GE_TICKHZ=60 GE_SEED=7 \

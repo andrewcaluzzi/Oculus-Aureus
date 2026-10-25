@@ -10,10 +10,12 @@
 --                           guard there gives him away ("close")
 --   GE_GADGETS_VENT=1       the vents: the staff corridor into the security office, the lounge into the lockers
 --   GE_GADGETS_GAS=1        the sleep gas knocks out the guard it lands by
+--   GE_GADGETS_SAFE=1       the stethoscope at the director's safe: a miss rattles; three presses in the window open it (loot inside)
+--   GE_GADGETS_THERMAL=1    the thermal imager: on for its time, then recharging (the boxes through the walls: the screenshot)
 --   GE_GADGETS_DET=1        a scripted run through most gadgets for the determinism comparison (run_gadgets.sh det); Bond 1 in co-op too
 -- GE_GADGETS_SHOTS=1 adds screenshots ("HEIST SHOT <name>"). Prints "HEIST PASS|FAIL ..." and "HEIST DONE <n> passed, <m> failed".
 local RUN = "piton"
-for _, r in ipairs({ "lockpick", "pocket", "coin", "loop", "disguise", "vent", "gas", "det" }) do
+for _, r in ipairs({ "lockpick", "pocket", "coin", "loop", "disguise", "vent", "gas", "thermal", "safe", "det" }) do
   if mode.env_flag("GE_GADGETS_" .. r:upper()) then RUN = r end
 end
 local SHOTS = mode.env_flag("GE_GADGETS_SHOTS")
@@ -174,16 +176,20 @@ local function piton_path()
   done = reeled(0, 6)
   check("abseiled down to the street", done and bond.room(0) == room("street") and near_pad(0, "grapple_roof_low"),
         tostring(LEVEL.room_name[bond.room(0)]))
-  -- 3. the alley -> the archive window, the canal -> the embankment
-  for _, c in ipairs({ { "alley", "archive_1" }, { "canal", "embankment" } }) do
-    bond.warp(0, pad("grapple_" .. c[1] .. "_low"))
-    local hx, _, hz = pads.pos(pad("grapple_" .. c[1] .. "_high"))
-    face = { hx, hz }
-    wait(1)
-    face = nil
-    gadget.test_fire(0, 0, 1)
-    done = reeled(0, 7)
-    check("the " .. c[1] .. " line: up to " .. c[2], done and bond.room(0) == room(c[2]), tostring(LEVEL.room_name[bond.room(0)]))
+  -- 3. every other line on the map but the gallery (found by name: any layout), up to its high pad
+  for _, gp in ipairs(G.pairs) do
+    if gp.id ~= "roof" and gp.id ~= "gallery" then
+      bond.warp(0, gp.lo)
+      face = { gp.h[1], gp.h[3] }
+      wait(1)
+      face = nil
+      gadget.test_fire(0, 0, 1)
+      done = reeled(0, 7)
+      local hx, _, hz = pads.pos(gp.hi)
+      local x, _, z = bond.pos(0)
+      check("the " .. gp.id .. " line: up to its high pad", done and x and d2(x, z, hx, hz) < 80 and bond.room(0) == gp.hroom,
+            tostring(LEVEL.room_name[bond.room(0) or 0]))
+    end
   end
   check("nobody saw any of it (no cover blown)", #blown == 0, #blown > 0 and blown[1].why or "")
   -- 4. the hall floor -> the west gallery, in the hall guards' view: an act seen
@@ -201,7 +207,9 @@ local function piton_path()
   face = nil
   gadget.test_fire(0, 0, 1)
   done = reeled(0, 6)
-  check("the hall line: up to the west gallery", done and bond.room(0) == room("gallery_w"), tostring(LEVEL.room_name[bond.room(0)]))
+  local gp
+  for _, q in ipairs(G.pairs) do if q.id == "gallery" then gp = q end end
+  check("the hall line: up to the gallery", done and gp and bond.room(0) == gp.hroom, tostring(LEVEL.room_name[bond.room(0)]))
   check("climbing in a hall guard's view blows the cover", #blown > 0 and blown[1].why == "act",
         string.format("watched=%s blown=%d %s", tostring(watched), #blown, blown[1] and blown[1].why or ""))
 end
@@ -390,15 +398,23 @@ local function disguise_path()
 end
 
 local function vent_path()
-  for _, v in ipairs({ { "sec", "sec_office" }, { "lockers", "lockers" } }) do
-    bond.warp(0, pad("vent_" .. v[1] .. "_a"))
+  local n = 0
+  for _, v in ipairs(G.vents) do   -- (by name: any layout)
+    bond.warp(0, v.a)
     wait(1)
     cctv.test_use(0)
-    local done = reeled(0, 6)
-    check("the " .. v[1] .. " vent: crawled through to " .. v[2], done and bond.room(0) == room(v[2]) and near_pad(0, "vent_" .. v[1] .. "_b"),
-          tostring(LEVEL.room_name[bond.room(0)]))
+    if v.id == "vault" then
+      wait(1)
+      check("the vault ventilator refuses with the power on", not (gadget.reeling(0)) and G.stats.vents == n)
+    else
+      local done = reeled(0, 6)
+      local bx, _, bz = pads.pos(v.b)
+      local x, _, z = bond.pos(0)
+      n = n + 1
+      check("the " .. v.id .. " vent: crawled through", done and x and d2(x, z, bx, bz) < 80, tostring(LEVEL.room_name[bond.room(0) or 0]))
+    end
   end
-  check("two vents crawled", G.stats.vents == 2, tostring(G.stats.vents))
+  check("every vent crawled", n >= 2 and G.stats.vents == n, tostring(G.stats.vents))
 end
 
 local function gas_path()
@@ -413,6 +429,63 @@ local function gas_path()
   check("the gas is thrown", #G.gas == 1)
   local ko_ = wait_for(5, function() return ko.is(c) end)
   check("3 s later the guard it landed by is out cold", ko_ and G.stats.gassed >= 1, string.format("gassed %d", G.stats.gassed))
+end
+
+local function thermal_path()
+  bond.equip(0, "camera")
+  check("the thermal imager in hand", wait_for(3, function() return bond.weapon(0) == 40 end), tostring(bond.weapon(0)))
+  warp_xz(0, -2600, -300, 0)   -- (office A, west of the hall: its guards are behind two walls)
+  face = { 0, -300 }
+  wait(1)
+  gadget.test_fire(0, 0, 1)
+  wait(1)
+  local me = G.players[0]
+  check("fire: the imager is on", me.xray_until and me.xray_until > HEIST.elapsed, tostring(me.xray_until))
+  shot("thermal")
+  wait(10)
+  check("10 s later it is off and recharging", HEIST.elapsed >= me.xray_until and HEIST.elapsed < me.xray_ready)
+  gadget.test_fire(0, 0, 1)
+  wait(1)
+  check("while recharging, fire does nothing", (G.stats.thermal or 0) == 1, tostring(G.stats.thermal))
+end
+
+local function safe_path()
+  local sfo = LEVEL.objects.director_safe
+  bond.warp(0, pad("dir_safe_front"))
+  face = { sfo.x or -400, sfo.z or 4430 }
+  bond.equip(0, "gaskeyring")
+  wait(2)
+  local sf = G.safe_target(0)
+  check("the director's safe in reach of the lockpicks", sf ~= nil and sf.idx == sfo.index, sf and sf.name or "none")
+  if not sf then return end
+  gadget.test_fire(0, 0, 1)
+  wait(0.75)
+  local me = G.players[0]
+  check("fire: listening at the dial", me.crack ~= nil and me.crack.tumbler == 1)
+  shot("safe_dial")
+  local T = G.T
+  -- a miss: half a dial away from the window
+  local now = gadget.now(0)
+  local c = me.crack
+  local function delay_to(frac)   -- ticks from now until the needle is at `frac`
+    local ph = ((now - c.start) % T.safe_period)
+    local want = math.floor(frac * T.safe_period)
+    return (want - ph) % T.safe_period
+  end
+  local n0 = G.stats.noises
+  gadget.test_fire(0, 0, 1, delay_to((c.center + 0.5) % 1) - 1)
+  wait(2)
+  check("a press outside the window: a miss, it rattles", me.crack.tumbler == 1 and (me.crack.misses or 0) == 1 and G.stats.noises == n0 + 1,
+        string.format("tumbler %d misses %s", me.crack.tumbler, tostring(me.crack.misses)))
+  for k = 1, T.safe_tumblers do
+    c = me.crack
+    if not c then break end
+    now = gadget.now(0)
+    gadget.test_fire(0, 0, 1, delay_to(c.center) - 1)
+    wait(2)
+  end
+  local opened = wait_for(3, function() return door.get(sfo.index).open > 0.3 end)
+  check("three tumblers in the window: the safe opens", opened and (G.stats.safes or 0) == 1, string.format("open %.2f", door.get(sfo.index).open))
 end
 
 -- the determinism scenario: the same gadgets, the same ticks, every run (Bond 1 in co-op climbs the gallery line and throws a coin)
@@ -467,7 +540,9 @@ local function body()
   check("the gadgets are in the inventory", G.players[0] ~= nil and G.players[0].coins == 4, "")
   if RUN == "piton" then piton_path() elseif RUN == "lockpick" then lockpick_path() elseif RUN == "pocket" then pocket_path()
   elseif RUN == "coin" then coin_path() elseif RUN == "loop" then loop_path() elseif RUN == "disguise" then disguise_path()
-  elseif RUN == "vent" then vent_path() elseif RUN == "gas" then gas_path() elseif RUN == "det" then det_path() end
+  elseif RUN == "vent" then vent_path() elseif RUN == "gas" then gas_path() elseif RUN == "thermal" then thermal_path()
+  elseif RUN == "safe" then safe_path()
+  elseif RUN == "det" then det_path() end
   print(string.format("HEIST DONE %d passed, %d failed", pass, fail))
   finished = true
   if RUN ~= "det" then real_fail("gadgets test done") end
