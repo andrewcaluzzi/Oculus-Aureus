@@ -272,10 +272,13 @@ local function body()
   local ux, uz = (bx - gx) / ll, (bz - gz) / ll
   local mx, mz = gx + ux * 70 + uz * 25, gz + uz * 70 - ux * 25
   local near, nd = nil, 1e9               -- the pad nearest the midpoint, then an offset onto the line
+  -- (on the guard's floor: bank v2's roof (F3, y 1440) lies over the hall, and the nearest pad by x/z alone was up there, 1440 above the
+  -- line of fire, which the hold test rightly ignores as another floor)
+  local _, gy = pads.pos(PSHOOT)
   for _, p in ipairs(pads.far_from(mx, mz, 0, 600)) do
-    local x, _, z = pads.pos(p)
+    local x, y, z = pads.pos(p)
     local d = dist2(x, z, mx, mz)
-    if d < nd then near, nd = p, d end
+    if d < nd and math.abs(y - gy) < 150 then near, nd = p, d end
   end
   local shield
   if near then
