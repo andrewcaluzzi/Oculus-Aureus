@@ -1,0 +1,7 @@
+# Cradle. Objectives (tools/bot/objectives.py assets/obseg/setup/u/UsetupcradZ.c):
+#   0 (all) destroy the control console (tag 0): `auto`; fails on 0x800 (ai_35: the countdown ran out first)
+#   1 (all) flag 0x100: ai_36 sets it once chr 0 (Trevelyan) no longer exists - go after him and fight
+name cradle
+auto
+meet chr 0 250 60000
+exit

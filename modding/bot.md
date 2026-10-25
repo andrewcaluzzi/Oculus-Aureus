@@ -49,10 +49,12 @@ objectives and with no position drift; `failure_point` says where it died or got
 | `GE_PLAYERBOT_AIMY` | aim height over a chr's origin (default 52, the head) |
 | `GE_PLAYERBOT_NOCOVER`, `GE_PLAYERBOT_NOKITE`, `GE_PLAYERBOT_RUSH` | A/B switches: no cover, no backing away, `rush 1` from the start |
 | `GE_PLAYERBOT_SPAREALL`, `GE_PLAYERBOT_GLASSTEST` | experiments (quiet: shoot only guards that noticed Bond; shoot raisers through closed doors) |
-| `GE_PLAYERBOT_SPEED=1` | the speedrun movement: speed-strafe on the digital move (forward + sideways, the view 38 deg off the travel direction; +31% on a straight) |
+| `GE_PLAYERBOT_SPEED=1` | the speedrun movement: speed-strafe on the digital move (forward + sideways, the view 38 deg off the travel direction; +31% on a straight), dropped to plain running (view ahead) for 2 s whenever an armed hostile is within 1000 with a line (1800 if he has noticed Bond) or Bond is hurt |
 | `GE_PLAYERBOT_DODGE=N` | strafe N ticks each way while shooting (default 0: stand) |
 | `GE_PLAYERBOT_OLDCOVER=1` | the round-3 cover rule (nearest tile no threat sees) instead of the exposure score |
 | `GE_PLAYERBOT_SSTEST=1` | experiment: the first 25 s measure each movement input (stick, stick diagonal, digital diagonal, C strafe) |
+| `GE_PLAYERBOT_DOORS=1` | at stage start, log every door (tag, rooms, key, link, flags) and the door pairs sharing a doorway |
+| `GE_PLAYERBOT_LOCKCLOSED=N` | diagnosis: 1 doors Bond cannot open close their tiles (is there a way round?), 2 keyed doors are ignored, 3 the round-4 lock rule |
 
 For speed and determinism the harness also sets `GE_FIXEDTICK=1` (one 60 Hz field per sim tick, so a run does not
 depend on how fast the machine is), `GE_NOSLEEP=1` (no frame pacing), `GE_CLOCKSCALE=20` (the N64 clock runs 20x so
@@ -69,7 +71,11 @@ The bot exits the process with status 0 (completed), 1 (failed) or 2 (timeout) a
   edge to edge - not the guards' waypoint graph (which is in pieces on some levels). The route is string-pulled through
   the shared tile edges (a funnel, keeping Bond's radius off walls) and steered with the look yaw. Bond's own tile tells
   how far along the route he is; off the route for 1.5 s means plan again.
-* **Doors**: a shut door on the route is walked up to and opened with B. If B does nothing, the setup's switch links
+* **Doors**: a shut door on the route is walked up to and opened with B - the first one along the route (a B press works
+  the nearest door Bond faces and closes it if it is open, so a door nearer than the target is walked past first:
+  Caverns' stacked doors, two doors with a small room between). A locked door counts only if the route goes through its
+  doorway (the door's room list), not past it in a side wall; a locked leaf of a linked pair is opened through its
+  unlocked partner (Depot's train door). If B does nothing, the setup's switch links
   (consoles that work a door, e.g. Dam's gate controls) are tried in turn; padlocked doors get their padlock shot off;
   a door that needs a key sends the bot for the key - lying in the level, or carried by a guard it then waits for and
   takes down. A door that still will not open is avoided for 30 s.
@@ -77,7 +83,8 @@ The bot exits the process with status 0 (completed), 1 (failed) or 2 (timeout) a
   -> the link is made expensive and the route planned again; 12 s -> reported (`STUCK ...`) and counted against the
   step.
 * **Combat**: every armed, non-civilian, non-ally chr in a straight line within 1600 units is ranked: alarm raisers
-  first, then guards shooting at Bond (more so if they hurt him lately), then the nearest; a guard with a civilian
+  first, then guards shooting at Bond (more so if they hurt him lately, and by how far each one's aim at Bond has built
+  - his `shotbondsum`, at 1 Bond takes a hit), then the nearest; a guard with a civilian (or an ally)
   near the line of fire is not a target from where Bond stands. When Bond is hurt by someone the line test cannot see
   (catwalks, windows), the nearest guard in an attack action. It aims at the head (+52 over a chr's origin), fires
   when the yaw and the pitch are both on (semi-automatics are tapped), and:
@@ -122,6 +129,8 @@ skipped once objective N is complete or not needed at this difficulty, `diff=A-B
 | `rush 1|0` | keep walking the route while fighting (the stick and the C strafe buttons move, the look stays on the target) |
 | `avoid pad N` | keep routes out of that pad's room from here on (a room that ends the mission early); `avoid pad -1` opens them all again |
 | `spare ai ID` | never shoot chrs running that AI list (a hostage's captors whose death has the hostage killed); `spare ai 0` clears |
+| `hunt` / `hunt ai ID` | walk to the hostile with the shortest route and fight, until none is left; `ai ID`: only chrs on that list, and they are shot before anyone else (Frigate's captors) |
+| `escort ai ID [dist]` | from here on, gotos wait (fighting) while that chr is more than dist (400) behind, and walk back to it after 4 s; `escort ai 0` stops |
 | `auto` | the generic objective handlers until none is left |
 | `exit` | stand still and tap A until the mission ends (end cut-scenes wait for a button) |
 

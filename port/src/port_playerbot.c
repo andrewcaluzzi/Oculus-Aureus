@@ -223,6 +223,7 @@ typedef struct {
     AIRecord *raiserList;      /* the stock alarm raiser list: those guards are shot first */
     s32 coverNode, coverUntil, coverSince, lastCoverScan, noCover, oldCover;
     s32 kiteSince, kiteBlockedUntil, noKite, glassTest, spareAll;
+    s32 noAimScore;            /* GE_PLAYERBOT_NOAIMSCORE=1: targets without the aim-progress weight (A/B) */
     s32 avoidRoom[8], nAvoid;  /* rooms the routes keep out of (the `avoid` step) */
     ChrRecord *civExempt;      /* a civilian carrier being shot on purpose (not a bystander for the line-of-fire check) */
     s32 rush, moveOnly;        /* rush: keep walking the route while shooting (the `rush` step); moveOnly: steerTo
@@ -2141,7 +2142,10 @@ static PropRecord *pickTarget(f32 range)
         else
         {
             sc = pblThreatScore(d, chrAttacking(c), 0, hurt && chrAttacking(c));
-            sc = pblThreatAimScore(sc, c->shotbondsum);   /* nearest to landing his next hit: first */
+            if (!B.noAimScore)
+            {
+                sc = pblThreatAimScore(sc, c->shotbondsum);   /* nearest to landing his next hit: first */
+            }
         }
         if (civilianInLineYawEx(pblYawTo(dx, dz), d, chrIsRaiser(c) && chrAlert(c)))
         {
@@ -2686,10 +2690,46 @@ static s32 autoNext(s32 *op, s32 *tag)
     for (i = 0; i < objectiveGetCount(); i++)
     {
         MissionObjectiveRecord *o;
+        s32 bestOp = 0, bestTag = -1;
+        f32 bestD = 1e30f;
 
         if (!objectiveOpen(i) || objective_ptrs[i] == NULL)
         {
             continue;
+        }
+        /* within an objective: the current target while it lasts, else the NEAREST one - in tag order the bot crossed
+         * Facility's bottling hall back and forth, and once one tank bursts the gas drains Bond anywhere in the level
+         * after 30 s (propobj.c handle_gas_damage: 0.125 every 225 ticks), so every second counts */
+        for (o = (MissionObjectiveRecord *) &objective_ptrs[i]->id; o->type != PROPDEF_OBJECTIVE_END;
+             o = (MissionObjectiveRecord *) (sizepropdef((PropDefHeaderRecord *) o) + (PropDefHeaderRecord *) o))
+        {
+            ObjectRecord *obj;
+            f32 dx, dz, d;
+
+            if (o->type != PROPDEF_OBJECTIVE_DESTROY_OBJECT)
+            {
+                continue;
+            }
+            obj = objByTag(o->ObjRefID);
+            if (obj == NULL || obj->prop == NULL || !objIsHealthy(obj))
+            {
+                continue;
+            }
+            dx = obj->prop->pos.x - bond()->prop->pos.x;
+            dz = obj->prop->pos.z - bond()->prop->pos.z;
+            d = (B.count == o->ObjRefID * 16 + PBL_DESTROY_OBJ) ? -1.0f : dx * dx + dz * dz;
+            if (d < bestD)
+            {
+                bestD = d;
+                bestOp = PBL_DESTROY_OBJ;
+                bestTag = o->ObjRefID;
+            }
+        }
+        if (bestTag >= 0)
+        {
+            *op = bestOp;
+            *tag = bestTag;
+            return 1;
         }
         for (o = (MissionObjectiveRecord *) &objective_ptrs[i]->id; o->type != PROPDEF_OBJECTIVE_END;
              o = (MissionObjectiveRecord *) (sizepropdef((PropDefHeaderRecord *) o) + (PropDefHeaderRecord *) o))
@@ -3708,6 +3748,7 @@ static void stageBegin(void)
     B.noCover = getenv("GE_PLAYERBOT_NOCOVER") != NULL;
     B.oldCover = getenv("GE_PLAYERBOT_OLDCOVER") != NULL;
     B.noKite = getenv("GE_PLAYERBOT_NOKITE") != NULL;
+    B.noAimScore = getenv("GE_PLAYERBOT_NOAIMSCORE") != NULL;
     B.glassTest = getenv("GE_PLAYERBOT_GLASSTEST") != NULL;   /* experiment: shoot raisers through closed doors */
     B.spareAll = getenv("GE_PLAYERBOT_SPAREALL") != NULL;
     B.kiteSince = 0;
