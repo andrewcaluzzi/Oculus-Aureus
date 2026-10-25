@@ -496,6 +496,8 @@ Every room has `zone` (public / staff / restricted) and an `area` tag on section
 
 **Tests (2026-10-25, bank2 after the merge of heist 34d74b9):** `tests/levelgen/test_gen_level.py` 11/11; `tests/levelgen/run_bank.sh`: static 14/14, route A (the whole building on foot, 53 rooms in order, 10 ramp rooms, |y - slope| < 0.2) 2/2, route B (the plant level, the tunnel to the canal, the maintenance stair) 3/3, guards 4/4 (records to the hall round the counter, up the service ramp through the RED shutter, up the RED stairs, down the stair core three storeys); heist win path 59, trapped 17, civilian fail 5, quiet 11, 007 count 2; bindings 38, cctv 40, ko 26; cover 11 of 12 runs clean (hall 8, gun 7, loot 5, restricted 4, staff 7, ko 6, cam 7, camdown 9, power 12, interrupt 5, generator 8; doors: see below); guards 34-35 of 37 (see below).
 
+**Fixed (2026-10-26), root causes of open items (1) and (2) below.** (1) *An allowed guard on screen never opened a ruled door.* The stock door finder in `chrlvTravelTick` (`chraction.c`, every 10 ticks) skips a door whose `flags2` has bit `0x20000000`; the decomp names it `PROPFLAG_DOOR_OPENTOFRONT` there, but in `flags2` it is `PROPFLAG2_20000000`, "AI cannot operate", the very bit `doorRuleLock` (`port_heist.c`) puts on every ruled door so the move test stops refused guards. The finder found the BLUE leaves fine (within 60 units), then dropped them on that bit, for every guard. On v1 the guard was off screen, and the pad hop takes an allowed guard through a shut door, so the bug never showed (the barracks squad on v2 came out the same way, with its door never moving). Fix: `portHeistChrMayOpenDoor` now returns 2 for "the rule allows him" (1 = no rule, stock; a door locked to AI in the layout itself still returns 1), and the finder opens the door on 2 despite the bit. Both the security guard at the BLUE door and the barracks squad now open their doors (0.95). (2) *Hold fire* was a test bug. The civilian was placed on the pad nearest the line by x and z only; on v2 that pad is on the roof (F3), right over the hall, at y 1548 against the guard's 109, and the hold test rightly ignores a civilian on another floor. `heist_guards.lua` now picks a pad on the guard's floor (|dy| < 150): the guard held 21 shots and fired none.
+
 **Open (honest):** (1) *cover `doors`*: an on-screen security guard sent through the BLUE double door stops against it shut at (1188, 2666) and never opens it; the hall guard is refused and the barracks squad (off screen) comes out as it should. On v1 the same guard was off screen (the stock pad hop). The door now stands in the wall's middle on its waypoint pad (that fixed the same stop at the RED service-ramp shutter in the bank test), but not this one: the on-screen route to a ruled (AI-locked) double door needs a look in `chraction.c` (the door finder's line to the next pad). (2) *guards: hold fire*: with a civilian 25 off the shooter's line 70 out, the guard does not hold (68 fired, 0 held); the same check passes on v1; the civilian is registered (idle) and the geometry is inside `HOLD_RADIUS`; not found. (A related real bug was fixed on the way: a guard spawned on a removed civilian's chr number stayed a "civilian" for the hold-fire and target tests, `portHeistCivilianForget`.) (3) *guards: body found*: the witness noticing a body is a random roll, now given 6 s and Bond 9 m away; still failed 1 run in 3. (4) Guards and cameras do not see through openings (the stock sight test walks floor tiles): a guard on a balcony does not see Bond in the hall below.
 
 **Performance** (`tests/heist/run_bench.sh`, headless llvmpipe on a machine shared with two other agents' containers using about 8 cores, so the absolute times are inflated): hall phase draws avg 565 (v1: 573), vault 139 (v1: 204); frame avg 63 ms hall / 34 ms vault / 54 ms alarm+waves at Agent, 59 / 35 / 50 ms at 007 (v1 on a quiet machine: 23 / 18 / 19 ms). A sample of the game thread (30 backtraces) was almost all in GL submit and the swap, not game code: the bank's sim cost is small; the GL cost per view is about v1's (the draw counts match). Pools: master display list peak 154 / 485 KB, vertex pool 83 / 997 KB, chr slots 142 / 460, props 610 / 2400. A real-GPU number needs AC's machine.
@@ -595,6 +597,146 @@ The older suites run with the cover where they test it and without where they te
 
 **Limits and open tuning.** Running counts only within 400 units (full stick is how keyboard players always move). The meter is per guard per Bond; there is no shared "the guards talk to each other" suspicion. The witness's radio and the security room do not need a line to a panel (he just radios). No emergency lighting (the bank's light is baked). An allowed guard off screen hops through a shut door without opening it (stock). Not yet: a disguise taken from a knocked-out staff member, choosing loud or quiet at the van (AC: later).
 
+## 19. Intel board and hints (built, branch `intel`)
+
+AC, 2026-10-26: "the game is really fun so far but I have absolutely no idea how to play it. I don't know where to get the right keys, how to crack the safe, etc etc. need much more info, maybe some sort of intel view (new button?) to read the plan ... a big pre-planned set of notes/schematics like you'd see in a heist, hilariously brought out mid heist lol."
+
+### 19a. How to use it (players)
+
+- **Tab** (keyboard) or **Back / Select** (controller) opens the crew's planning board. Press it again to put it away. The game does **not** pause: the bank keeps moving while you read, so find a quiet corner (or don't, and enjoy the guard's face).
+- **Pages:** the mouse wheel, `,` and `.`, or the bumpers (LB / RB) flip between the five pages. While the board is up those keys flip pages instead of guns.
+- **Floors** (on SCHEMATICS): the Up / Down arrows, or the gadget keys (`Q` / `[`, the gadget buttons on a pad).
+- At the start of the heist the board comes up once by itself as the **briefing**; press the INTEL key to close it and get to work.
+- `midas.ini [input] intel_hold=1` shows it only while the key is held. The key is rebindable (`[controls] intel=...`, a pad's `padN_intel`, or the Controls page: "Heist Intel").
+
+The five pages:
+
+1. **THE PLAN**: the job in six steps (get in, the keys, cameras or power, crack the vault, the gold, get out), the quiet way and the loud way side by side. The checkboxes tick themselves as the crew does each step; the three card boxes under step 2 fill in as the crew gets GREEN, BLUE and RED; the next step is framed in red ("NEXT"); the bottom line is the live status (phase, alarm, power, cameras, loot).
+2. **SCHEMATICS**: the bank a floor at a time (B2, B1, G, F1, F2, F3), rooms tinted by stealth zone (blue public, amber staff only, red restricted). Markers: you (yellow, live) and your crew (cyan, live); the exits (van, dock); the vault and its gold, the safes, the crack spot; the breaker and the generator; the camera console and the hall's screens; every camera with its view cone (grey while the cameras are off); every locked door coloured by the card it needs (GREEN, BLUE, RED, GOLD for the safes, purple for the floor key, black for the time-locked vault doors, grey for padlocks); stairs (and the outline of a stairwell that arrives from another floor); the card holders' posts (pins: "GREEN? HEAD TELLER", "GREEN? LOBBY CAPTAIN" - the plan doesn't know which of the two has it - "BLUE: SECURITY CHIEF", "RED: MANAGER", "GOLD: VAULT CAPTAIN"); and a throbbing red ring on the next step's place (the front door, the next card's holder, the crack spot, the vault, the exits). Guards: their **posts** are on the map from the start (orange rings: the crew cased the place); a guard's **live** position appears (red dot, then fading with its age) only when a Bond watching a camera feed sees him. Knowledge is the reward for using the cameras.
+3. **THE KEYS**: a card per key (GREEN, BLUE, RED, GOLD, the floor key, and a "no key" card for the time lock, the padlocks and the lockdown): what it opens (the rooms behind its doors, counted from the layout), who carries it and where they're posted, how to get it, and the last time a camera feed showed the carrier. A big red cross and "GOT IT: BOND n" once the crew has it.
+4. **PERSONNEL**: dossiers: tellers, the branch manager, the lobby captain, the security chief, guards, alarm raisers, the security room, vault guards, squads and waves. What they do, what they carry, how they react.
+5. **NOTES**: the rules in plain words, written from the live settings `S` so they stay true: your cover, cameras and the security room, the power cut, holding fire near civilians, the alarm and lockdown, the time lock, scoring, the screens, and "this board doesn't pause anything".
+
+**Hints.** One line in your own HUD at the right moment: at a locked door without its card ("This door needs BLUE - the security chief carries it (INTEL)"), at the vault door ("Use the door decoder on the vault door (equip it, fire)"; "Cracker jammed: ..."), at the breaker, at the camera console (with or without BLUE), at the hall's screens, and the first time you walk into a restricted room. At most one every 8 s, the same one at most once a minute, never over a live warning (the cover's "HEY!", an alarm flash). `S.hints = false` turns them off; `S.briefing = false` skips the briefing; `S.intel = false` drops the board altogether.
+
+### 19b. How it works
+
+- **Content in Lua, a generic renderer in C.** `tools/heist_intel.lua` builds every page from the mode's live data (`S`, `H`, `PW`, `heist_bank_map()`'s tables, `LEVEL`'s rooms / doors / objects / cameras, the card carriers, the objective progress) and hands it to `port/src/port_intel.c` through `intel.*` (`port/luavm/port_luavm_intel.c`; modding/lua.md "The INTEL board"): pages of rects, frames, lines, triangles, text and markers, a static layer (the map, the notes: built once) and a live layer (ticks, crosses, cameras, seen guards: rebuilt every 0.5 s). The C side owns only the chrome (the cork frame, the blueprint paper and grid, the tabs, the floor list, the footer), the live crew markers, and the drawing: 2D fill rectangles and the stock GE fonts (Bank Gothic, Zurich for headings) in the console's 2D space, into two display lists of its own (`portAllocHigh`, alternating), so a text-heavy page never eats the frame's master list. No new art.
+- **The map** comes from the layout: the floors are the room heights with at least two rooms (B2 -840, B1 -420, G 0, F1 480, F2 960, F3 1440); a landing between floors goes to the floor below; the street (and the canal) is drawn on G. Each floor is fitted to its rooms (G keeps the street in front of the bank). The board's x runs against the world's x (board = `(wx1 - x) s`, `(wz1 - z) s`), which is how the 3D view looks with +z up: checked in a screenshot from the hall facing south, where the screen wall's west end is on the left as it is on the map (`intel_view_south.png`).
+- **Presentation only.** Nothing on the board is sim state. The content is built on the script's own clock whether anyone looks or not (never "when the board is open", which is one machine's input), and only reads the mode's state; the one thing that feeds back is the hint line (`flash_p`), from sim state alone. The view (open, page, floor) is per machine in C. The `intel` action is taken off the poll in `joy_port.c portJoyPortPollCommit` before the sim, the input recorder (`GE_INPUTREC`) and the netplay window ever see it, and while the board is open the page / floor keys are swallowed there too (so the wheel flips pages, not guns). `port_intel.c` is classed presentation for the rollback snapshot (`scripts/port/snap_embed.py`). The briefing never opens in an automated run (`GE_FRAMES` set).
+- **Keys shared on purpose.** Tab was Classic Mode's key and Back is Objectives on the Pro pad layouts. The `intel` bind takes the same keys; in a mode with a board (`intel.enable`), a press of the shared key goes to the board and the other job gives way (`video.c` for the keyboard's Tab edge, `joy_port.c` for a pad's Objectives and Classic Mode). Everywhere else they work as before. A new-default clash with classic_toggle is allowed for this one bind (`video.c videoPortBindNewDefaults`), so an existing `midas.ini` with `classic_toggle=Tab` still gets INTEL on Tab.
+- **Files.** `port/src/port_intel.c` (new), `port/luavm/port_luavm_intel.c` (new), `tools/heist_intel.lua` (new), and small hooks: `joy_port.c` (the action, the poll filter, `intel_hold`), `input_pc.c` (the pad row, Back by default), `video.c` (Tab), `port_console.c` (one render call), `port_luavm.c` (one register call), `port_watchpages.c` (the rebind row), `tools/gamecontrollerdefault.txt` (`intel=back`), `tools/mode_heist.lua` (an include, `S.hints` / `S.briefing`, two lines to create and tick it), `CMakeLists.txt` (the copy).
+
+### 19c. Tests
+
+`tests/heist/run_intel.sh` (inside the build container, Xvfb on :99):
+
+| Case | Checks | What it shows |
+| --- | --- | --- |
+| content | 23 | `tests/heist/heist_intel_test.lua` on the real mode (bank v2, no posted guards so nothing interrupts the hints): the board builds; six floors B2..F3 (6 / 11 / 38 / 26 / 19 / 7 rooms), all 107 rooms on a floor; all 28 keyed doors and safes on a key card (GREEN 5, BLUE 15, RED 4, GOLD 2, floor key 2), none unlisted; all 27 cameras on the map; the static layer ~580 items, the live ~70; no briefing in an automated run; the plan ticks "get in" in the hall (and the next step becomes the keys) and "crack the vault" once it opens; nothing known before watching a feed, the hall cameras then put the head teller on THE KEYS; the BLUE-door hint names its card and the security chief; no second hint inside 8 s; the vault-door hint; one screenshot per page, B1's schematic and a handedness shot |
+| det | 2 | the board is presentation only: `heist_determinism.lua` (the camera feeds, knock-outs, the alarm, waves, the crack with a jam, the vault open and sealed) twice with seed 7, once untouched and once with the board opened, flipped through every page and every floor, closed, reopened (`GE_INTEL_AUTO`) and toggled twice by the intel action itself (`GE_JOYPORT_AUTO=intel:...`): the per-tick state hashes are identical over 4366 ticks; the key toggled the board |
+| nointel | 1 | the content builder and the hints change nothing either: the same scenario with `S.intel = false` (no board at all) against the untouched run: 4366 ticks hash-identical |
+
+Screenshots (AC's machine, not in the repo): `E:\midas-temp\intel\shots\` `intel_1.png` .. `intel_5.png` (the five pages), `intel_2_b1.png` (the vault level), `intel_view_south.png` (the handedness check).
+
+**Regression on this branch** (2026-10-26, the machine shared with four other streams, load average about 45 on 12 threads): win path 59, trapped 17, civilian fail 5, quiet 11, count 2; bindings 38, cctv 40, ko 26; heist determinism solo and co-op (twice and view-switched) hash-identical over 4365 / 4362 ticks, every step reached; netplay host / guest hash-identical over every tick both ran, scenario notes identical, every step reached, no DESYNC, but short of the runner's tick count under the load (1964 ticks at the default budget, 2799 at `GE_FRAMES=9000 NETTICKS=4100`; the same environmental limit as section 16e); cover 11 of 12 (`doors` fails as on the base branch); guards 35 of 37 twice (`witness went on alert` and `hold fire`: unseeded runs, and each of the two also fails on other streams' builds tonight; `heist_guards.lua` doesn't load the heist mode, and nothing in this branch touches the AI); levelgen bank `static` 14 of 14 (the walking parts not run: they don't load the mode); dam1 identical (453 lines); `tests/run_logic_tests.sh` all pass.
+
+**Limits and next.** The board is drawn with fill rectangles (lines and cones as runs of them), so diagonal strings and big cones cost a few hundred rects; fine at this size. Text is the stock Bank Gothic (all capitals) and Zurich; no handwriting face without new art. Bond doesn't lower his gun while reading (that would be sim state). Pickpocketing is not on THE KEYS yet (the gadgets stream may add it). The mode's own control-room intel box (`H.seen`, section 10) still reports a carrier "seen" by a camera on another floor (`cctv.sees` tests the cone and the stan line in x/z only); the board's own feed scan checks the floor and doesn't have that problem.
+
+## 20. Augmented interface and diagnostics (built, branch `arhud`)
+
+AC (2026-10-26): "much more diagnostics/debugging, some for testing and some actually for realsies like an augmented interface"; "3d space
+translated to 2d overlay, indicators above enemies who are suspicious, speech (with a sound) near their faces, a glow or outline if
+they've got a certain key". Two layers, both drawn by `port/src/port_arhud.c` after the frame in the console's 2D space (480 lines by the
+window's width). World points go through the local Bond's camera: the world-to-view matrix (`field_10CC`) times the chrs' projection
+(`projmatrixf`), the product `port_crowd.c` uses, then the player's viewport (`c_screenleft/top/width/height`) and the wide or
+pillarboxed frame. Points behind the camera are clipped at the near side (`w > 1`); a marker off screen becomes an arrow on the edge.
+
+**Presentation only.** The overlay reads sim state and writes only its own statics (marks, bubbles, waypoints, rings, labels, toggles),
+which the sim never reads; the file is classed PRES in `scripts/port/snap_embed.py` (never rewound). Its Lua calls are ignored while a
+rollback re-simulates a tick. `tools/heist_ar.lua` only reads the heist's state (no `math.random`, nothing in `mode.state`). Proof:
+`tests/heist/run_ar.sh proof` runs the scripted determinism heist with the AR wiring not even attached (`GE_AR_OFF=1`) and with the
+specs, the diagnostics and the radar all on (`GE_DIAG=1`): the per-tick state hashes must be identical. The one exception is the test
+switch `diag freeze` below (solo only, off by default).
+
+### 20.1 The Q-Branch specs (the AR layer)
+
+On by default in the heist (`S.ar = true`); the specs are part of the crew's kit, so there is no inventory item to fiddle with. Toggle with
+**Shift+F3** or the console (`ar`, `ar off`). Layers (`ar <layer> on|off`, `S.ar_layers = { radar = true }`, `ar.layer(name, bool)`):
+
+| Layer | What it draws |
+|---|---|
+| `suspicion` | over each cover guard: a pixel "?" that fills from the bottom as his meter toward you rises (yellow, orange past half), a blinking red "!" once he has seen through you ("HEY!") or everyone is on alert. With the ai stream's `portAiAwareness` linked, its states count too (suspicious / searching fill the "?", alert / combat are "!"). Faded with distance (full to 12 m, gone at 32 m); hidden when the game did not draw the chr this frame (`PROPFLAG_ONSCREEN`: the room portals and the frustum, no per-pixel test) |
+| `speech` | speech bubbles near the face, with a short stock ROM sound (the radio squelch for radio calls, the camera beep for "HEY!", a quiet beep otherwise), panned from where he stands. One bubble per chr; it pops in and fades out |
+| `keys` | a chr carrying a key (its child props that are key objects): bracket corners in the key's colour round its projected bounds, a faint pulsing tint (the glow), a key icon and GREEN / BLUE / RED / GOLD. `ar.outline(chr, rgba)` does the same for any chr |
+| `points` | waypoint diamonds with distances in metres: VAULT (GOLD once it opens), BREAKER (while the power is on, quiet, casing), VAN and DOCK (bright once you carry loot or it went loud) |
+| `doors` | a keyed, shut door within 18 m: bracket corners and OPEN in its colour when your keys open it; a dim key icon in its colour when they do not |
+| `cameras` | a camera icon on each live camera within 30 m, red with a blinking REC while it is timing you, and its heading as a faint floor cone (only in the room you are in: there is no occlusion test). Nothing with the power out |
+| `radar` | off by default: a 25 m top-down disc at the bottom right, your heading up: guards (white, yellow suspicious, red alert), staff (blue), key holders (their key's colour), knocked out (grey), waypoints at the rim |
+
+The heist's own moments become bubbles over the guard who says them (`tools/heist_ar.lua`): "HEY!" (`cover_blown`), "Control!
+Intruder!" (`cover_report`, the witness radioing in), "Camera n: we've got someone" (the security room's relay on `cctv_spotted`), "Man
+down!" / "Body!" (`body_found`), "ALARM!" (a raiser when the siren starts), "Huh?" (a guard's meter passing half way), "Don't shoot!" /
+"Take it!" (civilians), "Ugh... my head" (`chr_woken`). The ai stream's `guard_bark(chr, kind, text)` and `noise(x, y, z, radius, kind)`
+events are drawn when they exist (hooked through `pcall`, so the heist works without them).
+
+### 20.2 The diagnostics layer (F3)
+
+**F3** or the console `diag` (`diag on|off`; `GE_DIAG=1` turns it on at the heist's start). Over every chr the game drew within 22 m:
+its chr number, action (`stand`, `gopos`, ...), AI list (`G`lobal / `L`ocal id + offset), the ai stream's awareness state and level,
+its cover suspicion, alertness and distance; within 16 m its sight cone as a floor fan (cover.tune's range and cone: the edges at full
+range, the arc at 7 m), its hearing ring (hearingscale x 500: about a silenced shot), and a line to its go-to target. Noise events are
+expanding rings (one second). Doors within 18 m show `D<idx> k<keyflags>` and their guard rule from `S.door_access` / the layout's tags
+(green any, red never, amber a role list). Cameras show their timer toward you and their alarm time. The panel (left, under the HUD):
+tick, the co-op state hash (read every half second), FPS and frame ms, chrs up / placed, alarm / power / cover, the room you stand in
+with its name, area and cover class, your position, then the heist's phase, loot, guards, civilians, blown / reports. The radar is on
+while the layer is.
+
+**`diag freeze`** (console only) stops every AI list (chrs finish their current action and stand). It changes the sim, so it is refused
+in co-op and netplay and is off at every stage start (`ar.reset`). Use it to look at a scene, walk round a guard, or line up a
+screenshot.
+
+### 20.3 The Lua API (`port/luavm/port_luavm_ar.c`; any mode may call it, guarded with `if ar then`)
+
+| Call | |
+|---|---|
+| `ar.on(bool)`, `ar.enabled()` | the specs (off until a mode turns them on) |
+| `ar.layer(name [, bool]) -> bool` | the layers above; an unknown name is an error |
+| `ar.mark(chr, { label =, rgba =, bracket = })` or `ar.mark(chr, "text")` | a tag under the chr, optional brackets |
+| `ar.say(chr, text [, secs [, kind]])` | a bubble; kind `"hey"` (red), `"radio"` (cyan), `"huh"` (yellow) or any `guard_bark` kind |
+| `ar.outline(chr, rgba or nil)` | brackets and glow in that colour (nil clears) |
+| `ar.clear([chr])` | the chr's mark, outline and bubble (no chr: all) |
+| `ar.point(x, y, z, label [, rgba]) -> id`, `ar.unpoint([label])` | a waypoint (the same label moves it) |
+| `ar.noise(x, y, z, radius [, kind])` | an expanding ring |
+| `ar.config{ range =, cone = }`, `ar.sound(bool)`, `ar.reset()` | the diagnostics' cone; bubble sounds; forget everything |
+| `diag.on()`, `diag.off()`, `diag.enabled()` | the diagnostics layer |
+| `diag.door(idx, label [, rgba])`, `diag.room(id, label)`, `diag.text(n, text)` | labels for doors, rooms, and panel lines 1..4 |
+| `diag.freeze(bool) -> ok` | the AI freeze (refused in co-op / netplay) |
+
+Colours are `0xRRGGBBAA` or a name (`red green blue gold white cyan yellow orange`).
+
+### 20.4 Tests
+
+`tests/heist/run_ar.sh` (container, Xvfb `:99`): `api` runs `tests/heist/heist_arhud.lua` (13 checks: the API, the heist wiring, a
+carrier with a key, a guard's meter filling with a drawn gun and his "HEY"); `GE_AR_SHOTS=1` takes the four showcase shots (a key
+holder's brackets, the diagnostics over the hall, the "?" filling, the "!" and the "HEY!" bubble). `proof` is the presentation proof
+above.
+
+**Results on the arhud build (2026-10-26):** `run_ar.sh` api 13/13, proof 4365 ticks hash-identical (AR off vs AR + diagnostics +
+radar, and the log shows the layer drew); heist determinism with `GE_DIAG=1` (the diagnostics on in every run): solo 3/3, co-op 5/5,
+netplay (run alone, `GE_FRAMES=8000`) host / guest hash-identical over all 3179 ticks both ran, scenario notes identical, every step
+reached, no DESYNC, but short of the runner's tick count (the known loopback-under-llvmpipe shortfall of section 16: 11 of 12 by the
+script's count, no difference anywhere); bindings 38, win path 59, trapped 17, civilian fail 5, quiet 11, count 2, cctv 40, ko 26, cover 11 of 12 runs (`doors`
+fails as expected), dam1 identical (453 lines), logic tests pass, levelgen bank `static` 14 (the walking parts not run: they do not
+load the heist). **guards 33 of 37, not from this branch:** the guards test sets no `GE_SEED`, so each run is a different game; with
+`GE_SEED=7` the develop baseline (aa33cf0) and this branch both score 33 (body found, bodies.found, the witness's alert, hold fire) and
+their state hashes are identical for all 5864 ticks; an unseeded develop run scored 36.
+
+**Limits.** No true silhouette outline: the renderer has no cheap stencil pass, so key holders get bracket corners and a tint over their
+projected box. Occlusion is the game's own chr visibility (rooms and frustum), so a guard behind a pillar in a room you can see still
+shows his "?". The head marker sits over the standing height (a crouching guard's floats a little). The camera cone is the camera's
+heading, not its exact sight test. The diagnostics' text overlaps when many chrs stand close together.
+
 ## 21. Gadgets and spycraft (built, branch `gadgets`)
 
 AC (2026-10-26): "new concepts, new cool ideas, gadgets, even a piton to scale a wall lmao and get to the top, spycraft shit. seriously, go hard and make this as fun as possible." Earlier: "disguise switch/obtain would be great later".
@@ -628,9 +770,9 @@ The loadout is the mode's `S.gadgets` (nil = all of the above); a table override
 - **The rules** (`tools/heist_gadgets.lua`, included at the end of `tools/mode_heist.lua`, its own handlers after the heist's): the grapple points and vents come from the layout's pad names; the noises go through `noise.emit` when the AI layer defines it (`rawget(_G, "noise")`), else the cover guards are walked over and back; a camera's report uses the heist's own security-room path (`HEIST.report`).
 - **State.** The C side (each Bond's trigger counts, the line, the disguise, the gadget item list) is in the heist state hash (`portGadgetsHash`, folded in `portHeistStateHash`) and the rollback snapshot (`port_gadgets.c` is SIM in `scripts/port/snap_embed.py`); the script's (counts, the locks' progress, tasks, coins and gas in flight, loops, pulled guards, the stats) is appended to the heist's `mode.state` text every tick (hashed; in the desync dump) and lives in the Lua arena (snapshotted).
 
-### 21c. Level pads (`tools/levelgen/build_janus_bank.py` `gadgets()`)
+### 21c. Level pads
 
-`grapple_<id>_low` (where you stand) / `grapple_<id>_high` (where the line takes you): `roof` (street (-3600, -1420) -> roof (-3600, -1060), clear of the roof camera's sweep), `gallery` (hall (-1060, 1200) -> west gallery (-1480, 1200)), `alley` (alley (4620, 3560) -> archive_1 (4250, 3560), through the new `archive_window` opening, alley to archive_1, F1), `canal` (canal (8640, -1800) -> embankment top (6250, -1800)). `vent_<id>_a` / `_b`: `sec` (back_corr_e (2050, 3200) -> sec_office (2050, 2860)), `lockers` (staff_lounge (1700, 4450) -> lockers (1980, 4450)). Any layout can add more with the same names; the mode finds them by name (bank v3's `facade`, `lantern_w`, `lantern_e`, `gallery`, `liftshaft` lines and its six vents work unchanged; v3's `heist_bank_map()` also lists them as `M.GRAPPLES` / `M.VENTS`). **The vault's ventilator** (`vent_vault`, v3) can be crawled only while the power is out (its fans stop); with the power on it refuses: "The vault ventilator fans are running - cut the power first". The power cut is a second way into the vault (controller's ruling, 2026-10-26).
+The gadgets find their points by pad name on any layout: `grapple_<id>_low` (where you stand) / `grapple_<id>_high` (where the line takes you), `vent_<id>_a` / `_b`. **Bank v3** (section 22) places the lines `facade`, `lantern_w`, `lantern_e`, `gallery`, `liftshaft` (the lift shaft from the rear corridor's landing down to the vault corridor: abseil down, climb back up) and the vents `records`, `lounge`, `server`, `vault`, `sewer`, `plant` (`heist_bank_map()` also lists them as `M.GRAPPLES` / `M.VENTS`). The v2 lines this stream first added (street -> roof, hall -> west gallery, alley -> an archive window, canal -> embankment; two vents) went with v2 at the merge. **The vault's ventilator** (`vent_vault`) can be crawled only while the power is out (its fans stop); with the power on it refuses: "The vault ventilator fans are running - cut the power first". The power cut is a second way into the vault (controller's ruling, 2026-10-26).
 
 ### 21d. Tests and limits
 
@@ -651,3 +793,57 @@ The loadout is the mode's `S.gadgets` (nil = all of the above); a table override
 | det | 4 | `run_gadgets.sh det`: a scripted run through the piton, coins, lockpicks and a vent, solo twice and in local co-op twice (the second view-switched: the netplay condition): 3866 / 3864 ticks hash-identical, the scenario's notes identical |
 
 **Limits.** The line is a straight path (up the wall at your spot, over the edge, onto the pad), not physics; you pass through a parapet or a rail for a frame. The uniform changes the cover's rules, not Bond's model (a partner in co-op still sees a banker). Pickpocket targets the bank's card carriers and any guard or staffer the heist placed; it needs no animation. The coin's fallback (no `noise.emit`) walks the nearest cover guards over with `spawn.go`: they do not search, they look and go back. The tape loop sets the camera's alarm time out of reach (its feed still shows live video with `[LOOP]` on its label): the intel box still reads it. The thermal imager draws every chr's box, whatever is between. Without the ai stream there is no hearing for coins beyond the walk-over. Some test runs name v2 rooms and doors (`sec_back`, `maint_door`, the roof and gallery lines); the piton and vent runs walk whatever lines and vents the layout has.
+
+## 22. Bank v3 (stream `bank3`, 2026-10-26)
+
+AC asked for a deep dive into real bank designs and a v3 built on informed views. The research is in [`bank-v3-research.md`](bank-v3-research.md), with 42 sources: halls, vaults, the day gate, the time lock, dual-key boxes, mantraps, guard tours, staffing, and seven real heists. The design is in [`bank-v3.md`](bank-v3.md): the room programme, the security layers, the staffing roster, guard tours, the vault, procedures as gameplay, heist approaches and the interfaces.
+
+**The level** comes from `tools/levelgen/build_janus_bank_v3.py`, which writes `tools/levelgen/janus_bank_v3.json`. It is now the compiled bank on this branch (`port/levelgen/`). v2's builder and JSON stay. It has 119 rooms, 186 portals and 31 cameras, and keeps every name the mode and its tests use.
+
+The new spaces:
+- the hall's 17.6 m lantern, seen from three roof terraces;
+- the officers' platform;
+- the safe-deposit department, down its own stair from the west aisle, with coupon booths and a box vault whose door needs GREEN **and** the floor key;
+- the round door's vestibule and a barred day gate;
+- the vault's inspection ring;
+- the goods-lift shaft;
+- the sally port;
+- the staff entrance mantrap.
+
+**How to play it:** launch the heist as before (`Play Heist.bat`, `GE_STAGE=levelgen`). New ways in:
+- **The safe-deposit stair** (GREEN grille), then the box vault (GREEN plus the floor key from records).
+- **The lift shaft**, from the rear corridor's landing down to the vault corridor, which skips the RED stairs. It needs the gadgets stream's grapple.
+- **The ring** behind RED `ring_gate`.
+- **The dig** from the deep archive (the canal tunnel), which needs the gadgets stream's vents.
+- **The roof**, then a rappel into the hall (grapple).
+
+**Interfaces:** the pads `grapple_<id>_low/_high` (`lantern_w`, `lantern_e`, `gallery`, `facade`, `liftshaft`) and `vent_<id>_a/_b` (`records`, `lounge`, `server`, `vault`, `sewer`, `plant`). There are 36 guard-tour pads, `patrol_<route>_<n>`, on 8 routes, with 10 watchclock stations. `heist_bank_map()` returns them as `M.GRAPPLES`, `M.VENTS`, `M.PATROLS` and `M.STATIONS`. `gen_level.py` passes a layout's `script` key through as `LEVEL.script`, and `heist_bank_map.lua` takes v3's area and camera tables from `LEVEL.script.heist`.
+
+**Tests (2026-10-26, on v3, headless, two containers):**
+
+| Check | v2 | v3 |
+| --- | --- | --- |
+| `tests/levelgen/run_bank.sh` static / route A / route B / guards | 14 / 2 / 3 / 4 | **16 / 2 / 3 / 5** |
+| `tests/levelgen/test_gen_level.py` | 11 | **12** |
+| win path / trapped / civilian fail / quiet / 007 count | 59 / 17 / 5 / 11 / 2 | **59 / 17 / 5 / 11 / 2** (007: 104 guards, 89 of 90 posted, 12 raisers) |
+| bindings / cctv / ko | 38 / 40 / 26 | **38 / 40 / 26** |
+| guards | ≥36 of 37 | 36 of 37 (the witness check) |
+| cover | 11 of 12 runs | 11 of 12 runs; `doors` fails as on v2 (§17c item 1) |
+
+The levelgen counts change because the test now covers more.
+- **Static** adds two checks: `v3_interfaces`, which checks that every patrol, station, vent and grapple pad resolves, in the right room; and `roof_sees_hall_lantern`, which checks that the hall is drawn through the clerestory.
+- **Route A** walks down the safe-deposit stair and through the booth, the box vault, the roof terraces, the day gate and the staff entrance.
+- **Route B** walks the ring and the lift shaft.
+- **Guards** adds a guard climbing the safe-deposit stair.
+
+The guards suite failed once in 3 runs on `body_found` and once on the witness check. Both are the random rolls noted as flaky in §17c item 3.
+
+Not run: the dam1 oracle, the logic tests, and determinism. This stream changes nothing in `src/` or `port/src/`. Determinism hashes the level's sim, so it is worth a run on v3.
+
+**Screenshots** (`E:\midas-tempank3\shots\`): the roof terrace looking down through the clerestory into the hall, the hall looking up to the lantern, the officers' platform, the safe-deposit reception with the box vault's round door, the round door open onto the day gate, the inspection ring, looking down the lift shaft, and the sally port. The new mode `tests/levelgen/levelgen_bank_shots.lua` picks v3's list when the layout has the ring.
+
+**Open:**
+- Guards do not walk the tours yet. `M.PATROLS` and `M.STATIONS` are ready for the ai stream.
+- The mantrap and sally-port interlocks are not enforced.
+- `vent_vault` (the emergency ventilator) bypasses the crack. AC needs to decide whether the gadgets stream lets gold out through it.
+- The time-lock clock and the drill-the-wall alternative (Hatton Garden) are designed (`bank-v3.md` §6, §7) but not built.

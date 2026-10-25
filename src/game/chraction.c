@@ -9425,6 +9425,9 @@ void chrlvTravelTick(ChrRecord *self, coord3d *arg1, StandTile *arg2, struct way
     PropRecord *phi_s3;
     s32 stack_01;
     s32 stack_02;
+#ifndef TARGET_N64
+    s32 heistDoorRule;   /* portHeistChrMayOpenDoor: 0 refused, 1 no rule (stock), 2 allowed by the rule */
+#endif
 
     self_prop = self->prop;
     cdtypes = CDTYPE_OBJS | CDTYPE_PLAYERS | CDTYPE_CHRS | CDTYPE_PATHBLOCKER | CDTYPE_DOORSLOCKEDTOAI;
@@ -9680,12 +9683,14 @@ void chrlvTravelTick(ChrRecord *self, coord3d *arg1, StandTile *arg2, struct way
         phi_s3 = sub_GAME_7F0B1410(self_prop->stan, self_prop->pos.f[0], self_prop->pos.f[2], arg3->pos_copy.f[0], arg3->pos_copy.f[2], 0x5000);
 
 #ifndef TARGET_N64
+        heistDoorRule = 1;
         if (phi_s3 != NULL && phi_s3->type == PROP_TYPE_DOOR)
         {   /* PORT: heist door rules (port_heist.c mode.guard_doors): a guard may not open a door his role does not hold (the vault
              * doors: nobody); he walks into it and waits there. Off outside the heist: every guard opens every door (stock). */
             extern int portHeistChrMayOpenDoor(ChrRecord *self, void *door);
 
-            if (!portHeistChrMayOpenDoor(self, phi_s3->door))
+            heistDoorRule = portHeistChrMayOpenDoor(self, phi_s3->door);
+            if (heistDoorRule == 0)
             {
                 phi_s3 = NULL;
             }
@@ -9695,7 +9700,14 @@ void chrlvTravelTick(ChrRecord *self, coord3d *arg1, StandTile *arg2, struct way
         if (phi_s3 != NULL)
         {
             obj = phi_s3->obj;
+#ifndef TARGET_N64
+            /* (flags2 bit 0x20000000 is "AI cannot operate", PROPFLAG2_20000000; the decomp's name for it here is the flags bit's)
+             * PORT: heist: a ruled door carries that bit for the move test (port_heist.c doorRuleLock); a guard the rule lets through
+             * (2) opens it all the same, or no allowed guard on screen ever opened one (bank v2's BLUE double door) */
+            if (!(obj->flags2 & PROPFLAG_DOOR_OPENTOFRONT) || heistDoorRule == 2)
+#else
             if (!(obj->flags2 & PROPFLAG_DOOR_OPENTOFRONT))
+#endif
             {
                 dx = phi_s3->pos.f[0] - self_prop->pos.f[0];
                 dy = phi_s3->pos.f[1] - self_prop->pos.f[1];

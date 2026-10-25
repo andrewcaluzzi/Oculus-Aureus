@@ -123,6 +123,13 @@ START, Dam's bungee waypoints.
 **The bot must not use the watch menu**: it is driven from draw code, so sim-only ticks and replays would differ. A
 only cycles guns; gadgets come with the "next inventory" port action.
 
+**The nearest pad by x/z can be on another floor.** On a stacked map (bank v2: the roof lies over the hall), a test that
+picks "the pad nearest this point" from `pads.far_from(x, z, ...)` can get a pad 1400 units up. The hold-fire test put
+its civilian on the roof that way, and the y check rightly ignored it. Filter by `y` from `pads.pos` (2026-10-26).
+
+**An on-screen guard never opens a door locked to AI**, and an off-screen guard hops through any shut door. A door
+test that passes off screen proves nothing about on screen ([guards-and-ai.md](guards-and-ai.md), routing).
+
 **Small samples are noisy**: the bot's heist ladders use 10 seeds per setting, and its own notes call that noisy. Use
 more seeds before concluding from a difference of a few wins.
 

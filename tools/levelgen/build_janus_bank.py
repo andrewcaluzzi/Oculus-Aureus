@@ -794,24 +794,6 @@ def core_doors():
     door("corr3", "core_w_2b", at=lane_b, width=220)
 
 
-def gadgets():
-    """The heist gadgets' points (designs/bank-heist.md section 21): piton lines grapple_<id>_low (where you stand) / _high (where the
-    line takes you), and vents vent_<id>_a / _b (crawl from one to the other). The alley's line goes in through a new archive window."""
-    for gid, lo_room, lo, lo_face, hi_room, hi, hi_face in (
-            ("roof", "street", (-3600, -1420), (-3600, -1260), "roof", (-3600, -1060), (-3600, 0)),          # the facade, street to the roof
-            ("gallery", "hall", (-1060, 1200), (-1240, 1200), "gallery_w", (-1480, 1200), (-1800, 1200)),   # the hall floor to the west gallery
-            ("alley", "alley", (4620, 3560), (4440, 3560), "archive_1", (4250, 3560), (2760, 3560)),        # the alley to the F1 archive's window
-            ("canal", "canal", (8640, -1800), (8480, -1800), "embankment", (6250, -1800), (6040, -1800))):  # the canal up to the embankment top
-        pads(_by[lo_room], ("grapple_%s_low" % gid, lo, lo_face))
-        pads(_by[hi_room], ("grapple_%s_high" % gid, hi, hi_face))
-    opening("alley", "archive_1", 3560, 240, (Y_F1 + 90, Y_F1 + 330), name="archive_window", frame="stone_blocks")
-    for vid, a_room, a, b_room, b in (
-            ("sec", "back_corr_e", (2050, 3200), "sec_office", (2050, 2860)),      # the staff corridor into the security office
-            ("lockers", "staff_lounge", (1700, 4450), "lockers", (1980, 4450))):   # the staff lounge into the lockers (by the RED stairs)
-        pads(_by[a_room], ("vent_%s_a" % vid, a, b))
-        pads(_by[b_room], ("vent_%s_b" % vid, b, a))
-
-
 def main():
     outside()
     ground()
@@ -820,7 +802,6 @@ def main():
     executive()
     basement()
     core_doors()
-    gadgets()
     # which guards may open a keyed door (the coming door rule, LEVEL.objects[name].guard_access): never the vault doors; a card tier's
     # doors its own area's guards (BLUE the security wing, RED the vault level, GREEN the offices); the barracks door: the squads
     # (designs/bank-heist.md 16c: "any" | "never" | "role:<role>,..." | "barracks"; a guard's role is his post's area, or squad, vault,

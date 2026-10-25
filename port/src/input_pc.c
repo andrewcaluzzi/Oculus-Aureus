@@ -149,8 +149,9 @@ enum
      * joy_port's, checked at init),
      * +20 classic_toggle (Classic Mode bindable on a pad, as Tab is on the keyboard),
      * +21 / +22 watch_up / watch_down (unbound: a pad's D-pad or Move already
-     * steps the watch lists) */
-    PM_PORT_LAST = PM_PORT_FIRST + 22,
+     * steps the watch lists),
+     * +23 intel (the heist INTEL board, port_intel.c: Back / Select by default) */
+    PM_PORT_LAST = PM_PORT_FIRST + 23,
     PM_COUNT
 };
 #define PM_PORT_COUNT (PM_PORT_LAST - PM_PORT_FIRST + 1)
@@ -172,6 +173,7 @@ static const char *sPadMapNames[PM_COUNT] =
     "menu_accept", "menu_back",
     "mouse_unlock", "classic_toggle",
     "watch_up", "watch_down",
+    "intel",
 };
 /* The raw (unmapped DInput) fallback layout of portInputPadMerge expressed as
  * map tokens, so the launcher, first-rebind seed and bind rows can describe it.
@@ -1942,6 +1944,16 @@ static int inputFixedKeyDown(const SDL_KeyboardEvent *key)
         }
         return 1;
     }
+    if (sc == SDL_SCANCODE_F3)
+    {   /* the diagnostics layer; Shift+F3 the AR specs (port_arhud.c): presentation, this machine only */
+        extern void portArKey(int shift);
+
+        if (!repeat)
+        {
+            portArKey((key->keysym.mod & KMOD_SHIFT) != 0);
+        }
+        return 1;
+    }
     if ((sc == SDL_SCANCODE_PAGEUP || sc == SDL_SCANCODE_PAGEDOWN) && !repeat)
     {   /* Lua test hotkeys (modding/arena.md); they read this machine's keyboard, so never in co-op or netplay */
         extern int portCoopActive(void);
@@ -2598,6 +2610,7 @@ static void inputDefaultTokensBuiltin(SDL_GameController *c, char tok[][16])
             SDL_strlcat(tok[DEF_PORT(9)], t2, 16);
         }
     }
+    DEF_BTN(DEF_PORT(23), SDL_CONTROLLER_BUTTON_BACK);          /* the heist INTEL board (in a mode with one, Back is INTEL) */
     DEF_BTN(DEF_PORT(11), SDL_CONTROLLER_BUTTON_LEFTSHOULDER);  /* watch prev page */
     DEF_BTN(DEF_PORT(12), SDL_CONTROLLER_BUTTON_RIGHTSHOULDER); /* watch next page */
     {   /* zoom in / out = Move stick up / down and the D-pad, as the shipped

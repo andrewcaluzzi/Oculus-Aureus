@@ -193,6 +193,25 @@ class Shipped(unittest.TestCase):
         for name in ("breaker", "generator", "front_door", "vault_door_a", "red_stairs", "tunnel_grate"):
             self.assertIn('["%s"] = { type = ' % name, lua)
 
+    def test_janus_bank_v3(self):
+        """bank v3 (designs/bank-v3.md): generates within the limits; the layout's `script` reaches LEVEL.script."""
+        with open(os.path.join(ROOT, "tools", "levelgen", "janus_bank_v3.json")) as f:
+            L = json.load(f)
+        rc, out, d = run(L)
+        self.assertEqual(rc, 0, out[-2000:])
+        last = [l for l in out.splitlines() if l.startswith("openings:")][0]
+        self.assertLessEqual(int(last.split("portals ")[1].split(" ")[0]), g.MAX_PORTALS)
+        self.assertLessEqual(int(last.split("cameras ")[1]), 32)
+        with open(os.path.join(d, "levelgen_layout.lua")) as f:
+            lua = f.read()
+        for name in ("ring_w", "ring_n", "vault_vest", "lift_shaft", "sd_reception", "deposit_boxes", "sally_port", "staff_entry", "roof_east"):
+            self.assertIn('["%s"] = { id = ' % name, lua)
+        for name in ("day_gate", "boxes_door", "ring_gate", "lift_gate", "sd_gate"):
+            self.assertIn('["%s"] = { type = ' % name, lua)
+        self.assertIn('  script = {', lua)
+        self.assertIn('["patrols"] = {', lua)
+        self.assertIn('"grapple_liftshaft_low"', lua)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -423,6 +423,8 @@ static void conCmdHelp(void)
     conPrintLn(0, "  arena next|next+|back|back+   arena test jumps (see modding/arena.md)");
     conPrintLn(0, "  spawn guard [n] [dist]|clear  arena: hostile guards in a ring around Bond (netplay: both sides, around the issuer)");
     conPrintLn(0, "  give <item> [p1|p2] [ammo]    give an item by game name (give list); netplay: both sides");
+    conPrintLn(0, "  diag [on|off|freeze]  the diagnostics layer (F3); freeze = no AI lists run (solo)");
+    conPrintLn(0, "  ar [on|off|layers|<layer> on|off]  the AR specs (Shift+F3) and their layers");
     conPrintLn(0, "  clear                 empty the scrollback");
     conPrintLn(0, "  help                  this");
     conPrintLn(0, "keys: PgUp/PgDn/Home/End scroll, Up/Down recall");
@@ -917,6 +919,12 @@ static void conExecute(char *line)
         extern void portArenaConsole(const char *sub, const char *rest);
 
         portArenaConsole(arg1, arg2);
+    }
+    else if (conStrEqI(cmd, "diag") || conStrEqI(cmd, "ar"))
+    {
+        extern void portArConsole(const char *cmd, const char *a1, const char *a2);   /* port_arhud.c */
+
+        portArConsole(cmd, arg1, arg2);
     }
     else if (conStrEqI(cmd, "clear"))
     {
@@ -1874,6 +1882,10 @@ Gfx *portConRender(Gfx *gdl)
 
             gdl = portGadgetsOverlay(gdl);
         }
+        {   /* the AR specs and the diagnostics layer (port_arhud.c) */
+            extern Gfx *portArHudRender(Gfx *gdl);
+            gdl = portArHudRender(gdl);
+        }
     }
 
     gdl = portNetGraphRender(gdl);   /* job 6: net_graph 1-3 (a no-op at 0) */
@@ -1903,6 +1915,11 @@ Gfx *portConRender(Gfx *gdl)
                 gdl = conDrawRow(gdl, CON_TEXT_X, CON_HUD_Y + CON_ROW_PITCH * i, hud[i], CON_COL_TEXT);
             }
             gdl = conSpaceEnd(gdl);
+        }
+        {   /* heist: the INTEL board, over the HUD, under the console (port_intel.c) */
+            extern Gfx *portIntelRender(Gfx *gdl);
+
+            gdl = portIntelRender(gdl);
         }
     }
 

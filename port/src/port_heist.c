@@ -1464,8 +1464,10 @@ int portHeistSlap(ChrRecord *c)
 /* the chr runs no AI list this tick (chraction.c): knocked out, or a guard walking over to wake one */
 int portHeistChrNoAi(ChrRecord *c)
 {
+    extern int portArFreezeAi(void);   /* port_arhud.c: `diag freeze` (solo test tool) */
     int i;
 
+    if (portArFreezeAi()) return 1;
     if (sKoBusy <= 0) return 0;
     for (i = 0; i < sKoN; i++)
     {
@@ -2664,7 +2666,8 @@ unsigned portHeistChrRoles(int chrnum)
 /* A ruled door also gets the stock "AI cannot operate" bit (flags2 0x20000000) while the rules are on: an on-screen chr's move test
  * ignores ordinary doors (it opens them, chraction.c) and collides only with doors locked to AI (CDTYPE_DOORSLOCKEDTOAI,
  * propDoorGetCdTypes), so without it a refused guard walked straight through the shut door. A role holder still finds the door on his
- * path (the door finder looks for closed doors) and opens it; an open door lets anyone through, as it lets Bond. */
+ * path (the door finder looks for closed doors) and opens it: the finder skips a door with this bit (chraction.c), so it asks
+ * portHeistChrMayOpenDoor, whose 2 lets him past the bit; an open door lets anyone through, as it lets Bond. */
 static void doorRuleLock(int i, int on)
 {
     DoorRecord *d = heistDoor(sDoorRule[i].idx);
@@ -2750,7 +2753,10 @@ int portHeistHopBlocked(ChrRecord *self, coord3d *to)
 }
 void portHeistDoorStats(int *refused, int *opened) { *refused = sDoorRefused; *opened = sDoorOpened; }
 
-/* chraction.c, the waypoint follower: chr `self` walks into door `door` (a DoorRecord); 0 = he may not open it */
+/* chraction.c, the waypoint follower: chr `self` walks into door `door` (a DoorRecord); 0 = he may not open it, 1 = no rule (stock: he
+ * opens it unless the door is locked to AI), 2 = the rule lets him (he opens it although the rule's own AI-lock bit is on it: the stock
+ * door finder skips a door with that bit, so without this no allowed guard on screen opened a ruled door; a door locked to AI in the
+ * layout itself stays shut, 1) */
 int portHeistChrMayOpenDoor(ChrRecord *self, void *door)
 {
     int idx, i;
@@ -2766,7 +2772,7 @@ int portHeistChrMayOpenDoor(ChrRecord *self, void *door)
             if (sDoorRule[i].allow & portHeistChrRoles(self->chrnum))
             {
                 if (d->openPosition <= 0.0f && d->openstate != DOORSTATE_OPENING) sDoorOpened++;
-                return 1;
+                return sDoorRule[i].hadAiLock ? 1 : 2;
             }
             if (sDoorRefused < 0x7FFFFFF0) sDoorRefused++;
             if ((sDoorRefused & 63) == 1)

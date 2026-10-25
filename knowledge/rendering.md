@@ -81,6 +81,25 @@ A CCTV feed shows the world from a camera on one machine without changing the si
   own corner at the top of the pool (+512 KB in a heist mode).
 - Per-room scissors are off for a feed. The lens is a fixed 62-deg FOV.
 
+## World points on the 2D overlay (fork, the AR specs)
+
+`port/src/port_arhud.c` (designs/bank-heist.md section 20) draws markers over the frame at world positions. The recipe, measured
+against chrs' heads in 1280x720 Xvfb shots:
+
+- **Matrices.** The local Bond's `player->field_10CC` (world to view, `camGetWorldToScreenMtxf`) times `player->projmatrixf` (the chrs'
+  projection), row-vector convention (`p * M`; `port_crowd.c` builds the same product). Both are per-frame `dyn` allocations, still valid
+  when `portConRender` runs at the end of that frame's list. Read them from `g_playerPointers[portLocalPlayer()]`, not `g_CurrentPlayer`.
+- **Clip.** `w < 1` is behind (or at) the camera: clip a 3D segment there before dividing, or a line through the camera flips across
+  the screen.
+- **Viewport.** NDC to the player's viewport in 320x240 units (`c_screenleft + (x + 1) / 2 * c_screenwidth`, y flipped), then to the
+  console's 2D space (480 lines, `portConsoleSpace` width): x `* W / 320` in the wide and stretched modes (the widened projection fills
+  the window), `* 480 * 4/3 / 320` plus a centring offset when `portPillarboxFrame()`; y `* 2`.
+- **Visibility.** `chr->prop->flags & PROPFLAG_ONSCREEN` is the game's own "drawn this frame" (room portals and the frustum); there is
+  no cheaper occlusion test, and a stan line test from the render pass would touch sim scratch state.
+- **Drawing.** Fill rects (`gDPFillRectangle`, `G_CC_PRIMITIVE`, `G_RM_XLU_SURF`) first, then text (the console's combiner), inside the
+  `G_CONSOLE2D_EXT` bracket with `viSetXY` set to the console's size (the text and rect code clip to the VI size). Lines are runs of thin
+  rects, one per step of the minor axis (at most 40). Gate every write on `dynGetFreeGfx2`.
+
 ## Pools that ran dry
 
 | Pool | Stock | Symptom when full | Fork |

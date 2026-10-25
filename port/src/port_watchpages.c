@@ -236,6 +236,7 @@ static const struct PortBindDef sBindsPort[] = {
     { "Watch Up\n",          "watch_up",       "watch_up"       },
     { "Watch Down\n",        "watch_down",     "watch_down"     },
     { "Objectives\n",        "watch_objectives", "watch_objectives" },
+    { "Heist Intel\n",       "intel",          "intel"          }, /* the heist INTEL board (port_intel.c); Tab / Back */
     /* the menus' own two, so they can be moved without
      * moving use or the gadget buttons, which confirm and back out as well
      * (joy_port.c portJoyPortUseMenuPressed / portJoyPortBackMenuPressed) */

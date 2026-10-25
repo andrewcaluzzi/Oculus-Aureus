@@ -185,6 +185,11 @@ returns at once when inactive.
   group border at the **first** linked waypoint it finds (so small groups zig-zag). A route of fewer than 2 waypoints
   fails ("unreachable area"). A course keeps the target position from when it was plotted.
 - While travelling, a chr checks every 10 ticks for a door on its path within 200 and opens it (`chrlvTravelTick`).
+  It skips a door whose `flags2` has bit `0x20000000` (named `PROPFLAG_DOOR_OPENTOFRONT` at that line, but in `flags2`
+  it is `PROPFLAG2_20000000`, "AI cannot operate"). That is the same bit the move test collides with
+  (`CDTYPE_DOORSLOCKEDTOAI`), so an AI-locked door is never opened by an on-screen chr. The fork's heist door rules set
+  the bit and let allowed guards past it (`portHeistChrMayOpenDoor` returns 2). An off-screen chr hops pad to pad and
+  ignores doors entirely.
 - The waypoint graph can be in pieces (Dam has 2 components); the stan tiles are what is really walkable.
 - Re-issuing `chrGoToBond` while a chr is mid-route makes it march away (each plot starts from its nearest waypoint):
   re-plot only when it stopped or the target moved a lot.

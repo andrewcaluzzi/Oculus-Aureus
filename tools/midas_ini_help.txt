@@ -44,6 +44,9 @@ Data/Devices/kbm.gedevice (see the last section).
   no_aim_crouch       | 0       | 1 = aiming and pushing down (stick, C-down,
                       |         | D-down or the back key) no longer crouches.
                       |         | The crouch binds still work
+  intel_hold          | 0       | Heist INTEL board: 0 = a press of the intel
+                      |         | key opens it and the next closes it,
+                      |         | 1 = it shows only while the key is held
   Controllers
   pads                | 4       | N64 pads reported connected (1 to 4)
   rumble              | 1       | Vibration on or off
@@ -368,6 +371,10 @@ Port actions (extra actions beyond the N64 pad)
   menu_back        |                  | Menu-only back
   mouse_unlock     | F1               | Release or re-grab the mouse pointer
   classic_toggle   | Tab              | Switch Classic Mode on or off
+  intel            | Tab              | Heist: open / close the INTEL board (the
+                   |                  | crew's plan, map, keys). Pads: Back. In a
+                   |                  | mode with a board it wins a key it shares
+                   |                  | with classic_toggle or watch_objectives
 
 Retired keys (ignored): run, walk_toggle.
 
