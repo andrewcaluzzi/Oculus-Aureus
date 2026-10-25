@@ -41,7 +41,7 @@ PRES_PORT = {
     'libultra_shim.c', 'main.c', 'model_audit.c', 'motor_stub.c', 'n64_stubs.c', 'pcsched.c', 'port_console.c', 'port_modmenu.c',
     'port_bench.c', 'port_crowd.c', 'port_gamesfx.c', 'port_music.c', 'port_net.c', 'port_netcmd.c', 'port_nethash.c', 'port_netlock.c', 'port_netmsg.c', 'port_netstats.c',
     'port_probe.c', 'port_profiles.c', 'port_simcfg.c', 'port_simonly.c', 'port_snap.c', 'port_snapshot.c', 'port_snaptable.c', 'port_soundfile.c', 'port_textures.c',
-    'port_watchpages.c', 'printf_port.c', 'raphnet.c', 'roc_hooks.c', 'romfile_bg.c',
+    'port_watchpages.c', 'printf_port.c', 'raphnet.c', 'roc_hooks.c', 'romfile_bg.c', 'port_intel.c',
     'segments.c', 'sysstubs.c', 'ucode_dl_stubs.c', 'video.c',
 }
 # src/*.c and src/game/*.c that are NOT sim state (audio, scheduler, VI, framebuffers, thread stacks, boot, profiling).

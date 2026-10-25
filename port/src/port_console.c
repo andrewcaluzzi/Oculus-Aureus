@@ -1899,6 +1899,11 @@ Gfx *portConRender(Gfx *gdl)
             }
             gdl = conSpaceEnd(gdl);
         }
+        {   /* heist: the INTEL board, over the HUD, under the console (port_intel.c) */
+            extern Gfx *portIntelRender(Gfx *gdl);
+
+            gdl = portIntelRender(gdl);
+        }
     }
 
     if (!conOpen)

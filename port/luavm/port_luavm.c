@@ -1732,6 +1732,11 @@ static lua_State *portLuaState(void)
 
         portLuaBotRegister(sL);
     }
+    {   /* the heist INTEL board: intel.* (port_luavm_intel.c) */
+        extern void portLuaIntelRegister(lua_State *L);
+
+        portLuaIntelRegister(sL);
+    }
     lua_pushcfunction(sL, portLuaOn);
     lua_setglobal(sL, "on");
     lua_pushcfunction(sL, portLuaInclude);

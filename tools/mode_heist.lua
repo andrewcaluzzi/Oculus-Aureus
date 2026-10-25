@@ -29,6 +29,7 @@
 include("heist_lib")
 include("levelgen_layout")                     -- LEVEL: the generated level's layout (include() works at the top level only)
 include("heist_bank_map")                      -- heist_bank_map(): the mode's tables from LEVEL by name
+include("heist_intel")                         -- heist_intel(ctx): the INTEL board's content and the hints (section 19)
 local STAGE_LEVELGEN = 52                      -- LEVELID_LEE: the generated level's slot
 
 local S = {
@@ -134,6 +135,10 @@ local S = {
     vault_a = "never", vault_b = "never",                                        -- the time-locked vault: nobody
     safe = "never", cell_green = "never", cell_floor = "never", dock_shutter = "never",
   },
+  -- the INTEL board (section 19; Tab / Back): the crew's plan, schematics, keys, personnel and notes. Presentation only.
+  intel           = true,    -- false: no board at all (the determinism proof compares the two)
+  hints           = true,    -- one-line contextual hints (a keyed door, the vault door, the breaker, the console, the screens)
+  briefing        = true,    -- open the board once at the start ("press INTEL to close"; skipped in automated runs)
   spawn_per_tick  = 24,      -- chrs placed per 0.25 s at the start (no hitch)
   test            = false,   -- test hooks on (HEIST.* below are always there; this only adds log lines)
   -- difficulty (mission.difficulty(): 0 Agent .. 3 007). force: the share of the full force above (posted guards, raisers, vault
@@ -1227,6 +1232,8 @@ on("stage_start", function(stage)
         "JANUS BANK, ST PETERSBURG. Steal the gold. Hurt no staff.", 8)
   log("stage start: %s, %d Bond(s), difficulty %d", MAP.label, bond.count(), mission.difficulty())
   refresh_hud()
+  if S.intel ~= false then H.intel = heist_intel{ S = S, H = H, PW = PW, M = H.M, force = diff.force, flash_p = flash_p, money = money, security_up = security_up,
+                         keys = { GREEN = GREEN, BLUE = BLUE, RED = RED, GOLD = GOLD, FLOORKEY = FLOORKEY, VAULT = VAULT } } end
 end)
 
 -- the script's sim state for the co-op / netplay state hash (mode.state): a script-state desync shows at once, and the dump names it
@@ -1256,6 +1263,7 @@ on("tick", function(dt)
     local ok, err = pcall(job)
     if not ok then log("setup step failed: %s", tostring(err)) end
   end
+  if H.intel then H.intel.tick(dt) end   -- the INTEL board's content and the hints (presentation; tools/heist_intel.lua)
   if not H.ready then return end
   if H.hot and S.siren_latch and not alarm.active() then alarm.start() end
   if H.cam_off_until and H.elapsed >= H.cam_off_until then

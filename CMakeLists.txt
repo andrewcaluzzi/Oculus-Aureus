@@ -583,6 +583,8 @@ if(GE_VIDEO)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/tools/heist_bank_map.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/heist_bank_map.lua
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/tools/heist_intel.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/heist_intel.lua
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/tools/bot/heist_bot.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/heist_bot.lua
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/tools/bot/heist_bot_cells.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/heist_bot_cells.lua)
