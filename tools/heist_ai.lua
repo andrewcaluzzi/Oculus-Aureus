@@ -15,8 +15,8 @@
 --                                  attribute, near, weight_<kind>
 --   patrols = true                some posted guards walk patrol routes (the layout's patrol_<route>_<n> pads, else the named
 --                                  routes below: patrols_named = false turns those off)
---   station_late = 60            a patrol guard who punches no watchclock station (bank v3's M.STATIONS) this long has missed his
---                                  round: someone is sent to the station
+--   station_late = 45            a patrol guard down this long since his last watchclock station (bank v3's M.STATIONS), or one
+--                                  still up three times as long, has missed his round: someone is sent to the station
 --   ai_difficulty                 per difficulty (0 Agent .. 3 007) ai.tune values on top (below: harder = quicker to react, a shorter
 --                                  check-in, more backup)
 
@@ -148,7 +148,7 @@ end
 -- station he should have punched next.
 local function watchclock()
   local H = A.H
-  local late = A.S.station_late or 60
+  local late = A.S.station_late or 45
   for _, t in ipairs(A.tours or {}) do
     if #t.stations > 0 then
       local up = spawn.alive(t.chr) and not spawn.down(t.chr)
@@ -159,7 +159,8 @@ local function watchclock()
           if px and (px - x) ^ 2 + (pz - z) ^ 2 < 150 * 150 then t.punched, t.at, t.missed = H.elapsed, i, false end
         end
       end
-      if not t.missed and H.elapsed - t.punched > late and not H.hot then
+      -- (a tour can be long: a guard still up gets three times the time before his round counts as missed)
+      if not t.missed and H.elapsed - t.punched > (up and late * 3 or late) and not H.hot then
         t.missed = true
         local nxt = t.stations[((t.at or 0) % #t.stations) + 1]
         local px, py, pz = pads.pos(nxt)

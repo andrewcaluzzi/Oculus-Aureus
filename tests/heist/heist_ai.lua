@@ -166,28 +166,32 @@ local function door_path()
   away()
   local O = LEVEL.objects.blue_hall
   local da, db = door.get(O.index), door.get(O.pair)
-  local D = { x = 1220, z = (da.z + db.z) / 2 }   -- the doorway (hall-sec_office) is in the wall x = 1220; the two leaves' middle
+  -- the doorway: the two leaves' middle; u = the unit step into the security office (the wall's normal, toward the room's middle)
+  local D = { x = (da.x + db.x) / 2, z = (da.z + db.z) / 2 }
+  local rr = LEVEL.rooms.sec_office.rect
+  local cx, cz = (rr[1] + rr[3]) / 2 - D.x, (rr[2] + rr[4]) / 2 - D.z
+  local ux, uz = 0, 0
+  if math.abs(cx) > math.abs(cz) then ux = cx > 0 and 1 or -1 else uz = cz > 0 and 1 or -1 end
   check("the BLUE door is shut", door.get(O.index).open < 0.05 and door.get(O.pair).open < 0.05)
   local y = select(2, pads.pos(pad("sec_mid")))
-  -- the door is in the wall x = 1220 (hall west, security office east)
-  local c = guard_at(D.x + 300, y, D.z, D.x + 800, D.z)
+  local c = guard_at(D.x + ux * 300, y, D.z + uz * 300, D.x + ux * 800, D.z + uz * 800)
   wait(1.5)
   check("a test guard in the security office, 300 inside the door, his back to it", c ~= nil, tostring(c))
   if not c then return end
   local rh, rs = LEVEL.rooms.hall.id, LEVEL.rooms.sec_office.id
   print(string.format("HEIST   factor hall -> security office %.2f (shut door), slap radius %.0f", noise.factor(rh, rs), noise.radius("slap")))
-  noise.emit(D.x - 300, y, D.z, noise.radius("slap"), "slap")
+  noise.emit(D.x - ux * 300, y, D.z - uz * 300, noise.radius("slap"), "slap")
   wait(1)
   local i = info(c)
   check("a slap 600 away through the shut door is not heard", i.state == 0 and i.heard_ago < 0, string.format("%s, heard %.1f s ago", i.name, i.heard_ago))
-  noise.emit(D.x - 1, y, D.z, noise.radius("slap"), "slap")   -- right at the door, 300 from him
+  noise.emit(D.x - ux, y, D.z - uz, noise.radius("slap"), "slap")   -- right at the door, 300 from him
   wait(1)
   i = info(c)
   check("... nor 300 away, right behind the shut door", i.state == 0 and i.heard_ago < 0, string.format("%s, heard %.1f s ago", i.name, i.heard_ago))
   door.open(O.index); door.open(O.pair)
   wait_for(3, function() return door.get(O.index).open > 0.9 end)
   print(string.format("HEIST   factor with the door open %.2f", noise.factor(rh, rs)))
-  noise.emit(D.x - 1, y, D.z, noise.radius("slap"), "slap")
+  noise.emit(D.x - ux, y, D.z - uz, noise.radius("slap"), "slap")
   wait(0.5)
   i = info(c)
   check("with the door open, 300 away: heard", i.state >= 1 and i.heard_ago >= 0, string.format("%s %s", i.name, i.sub))
@@ -253,12 +257,12 @@ local function camact_path()
   clear_area("hall")
   local spotted = {}
   on("cctv_spotted", function(c, p) spotted[#spotted + 1] = { cam = c, p = p, t = HEIST.elapsed } end)
-  local v = spawn_near("cust_2", { behaviour = "civilian", body = "Civilian_3" })
+  local v = spawn_near("cust_1", { behaviour = "civilian", body = "Civilian_3" })
   check("a teller at the counter", v ~= nil)
   if not v then return end
   wait(1)
   local vx, vz = spawn.where(v)
-  local _, vy = pads.pos(pad("cust_2"))
+  local _, vy = pads.pos(pad("cust_1"))
   warp_xz(0, vx + 60, vy, vz)
   bond.face(0, vx, vz)
   wait(1.5)
@@ -320,7 +324,9 @@ local function patrol_path()
   tour.punched, tour.missed = HEIST.elapsed, false
   mode.body_check(false)   -- (nobody finds the body first: a camera or a guard would raise the alarm, and a hot heist has no rounds)
   spawn.ko(tour.chr, 0)
-  local sent = wait_for(HEIST_SETTINGS.station_late + 4, function() for _, b in ipairs(barks) do if b.text:find("missed a station") then return true end end end)
+  local b0 = #barks
+  local sent = wait_for(HEIST_SETTINGS.station_late + 4, function()
+    for k = b0 + 1, #barks do if barks[k].text:find("missed a station") then return true end end end)
   check("he misses his station: a colleague is sent to it", sent and tour.missed, tostring(tour.missed))
 end
 
