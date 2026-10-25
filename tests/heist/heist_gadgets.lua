@@ -5,7 +5,8 @@
 --                           act: cover blown)
 --   GE_GADGETS_LOCKPICK=1   a BLUE door picked by holding fire (about 10 s), a GREEN door rushed by taps (fast, noisy)
 --   GE_GADGETS_POCKET=1     the security chief's BLUE card lifted from behind; a guard facing Bond catches his hand (cover blown)
---   GE_GADGETS_COIN=1       a coin pulls hall guards over to where it lands; they go back
+--   GE_GADGETS_COIN=1       a coin: with the AI layer (section 18) it goes through noise.emit and the hall guard ahead hears it, walks
+--                           over, searches, gives up and walks back to his post; without it the gadgets' own pull sends him and back
 --   GE_GADGETS_LOOP=1       a camera on a tape loop does not see an armed Bond; when the loop runs out it does
 --   GE_GADGETS_DISGUISE=1   a knocked-out guard's uniform: the security office (restricted) without suspicion; lingering next to a
 --                           guard there gives him away ("close")
@@ -312,7 +313,7 @@ end
 
 local function coin_path()
   bond.equip(0, "creditcard")
-  local target = stand_off_hall(700)   -- (the coin lands about 540 ahead: near him)
+  local target, home_x, home_z = stand_off_hall(700)   -- (the coin lands about 540 ahead: near him)
   check("a hall guard 7 m ahead", target ~= nil)
   wait(2)
   check("coins in hand", bond.weapon(0) == 53, tostring(bond.weapon(0)))
@@ -320,6 +321,32 @@ local function coin_path()
   gadget.test_fire(0, 0, 1)
   wait(1.5)
   check("the coin lands and makes a noise", G.stats.coins == 1 and G.stats.noises == 1, string.format("coins %d noises %d", G.stats.coins, G.stats.noises))
+  if target and rawget(_G, "noise") and noise.emit and rawget(_G, "ai") and ai.awareness then
+    -- the AI layer (section 18) hears it: noise.emit, no pull by the gadgets' own fallback. The guard ahead turns, walks over to look,
+    -- searches, gives up and walks back to his post.
+    check("the coin went through the AI layer's noise.emit (no fallback pull)", #G.pulled == 0, tostring(#G.pulled))
+    local hx, hz = home_x, home_z
+    local heard = wait_for(3, function() local st = ai.awareness(target); return st and st >= 1 end)
+    check("the guard ahead heard the coin (suspicious or searching)", heard, string.format("state %s", tostring(ai.awareness(target))))
+    wait(0.5)
+    shot("coin_heard")   -- (his AR bubble: the AI layer's bark)
+    local nl = noise.last()
+    local gx0, gz0 = spawn.where(target)
+    local c0 = (nl and gx0) and d2(gx0, gz0, nl.x, nl.z) or 0
+    local left = wait_for(15, function() local x, z = spawn.where(target); return nl and x and d2(x, z, nl.x, nl.z) < math.max(150, c0 - 150) end)
+    local x1, z1 = spawn.where(target)
+    check("he walks over to where the coin fell", left, string.format("%.0f -> %.0f from the coin, %.0f from his post", c0,
+          (nl and x1) and d2(x1, z1, nl.x, nl.z) or -1, x1 and d2(x1, z1, hx, hz) or -1))
+    shot("coin_investigates")
+    local back = wait_for(60, function()   -- (a search lasts 30 s: run_gadgets.sh gives the coin run the frames)
+      local st = ai.awareness(target); local x, z = spawn.where(target)
+      return st == 0 and x and d2(x, z, hx, hz) < 150 end)
+    local x2, z2 = spawn.where(target)
+    check("then he gives up and walks back to his post", back, string.format("state %s, %.0f from his post", tostring(ai.awareness(target)),
+          x2 and d2(x2, z2, hx, hz) or -1))
+    check("throwing a coin is not suspicious", #blown == 0, #blown > 0 and blown[1].why or "")
+    return
+  end
   local e = G.pulled[1]
   check("guards come to look", #G.pulled >= 1, tostring(#G.pulled))
   if not e then return end

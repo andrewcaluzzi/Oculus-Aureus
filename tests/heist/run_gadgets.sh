@@ -69,7 +69,9 @@ fi
 for run in ${RUNS:-piton lockpick pocket coin loop disguise vent gas thermal safe}; do
     flag=GE_GADGETS_$(echo $run | tr a-z A-Z)=1
     echo "HEIST RUN $run"
+    frames=5200
+    [ "$run" = coin ] && frames=8000   # (with the AI layer the coin's guard searches 30 s, gives up and walks back)
     env $flag DISPLAY=:99 GE_MODE=heist_gadgets_test GE_STAGE=levelgen GE_SKIPINTRO=1 GE_NOINISAVE=1 GE_FIXEDTICK=1 GE_TICKHZ=60 GE_SEED=7 \
-        GE_FULLHEIGHT=0 GE_EDGEINSET=1 GE_FRAMES=${GE_FRAMES:-5200} timeout 400 /home/dev/project/build_pc/ProjectMidas > $LOGDIR/heist_gadgets_$run.log 2>&1
+        GE_FULLHEIGHT=0 GE_EDGEINSET=1 GE_FRAMES=${GE_FRAMES:-$frames} timeout ${TIMEOUT:-600} /home/dev/project/build_pc/ProjectMidas > $LOGDIR/heist_gadgets_$run.log 2>&1
     grep -aE "HEIST|gfx: wrote|ge: lua: ge: heist: (gadgets|ready|ALARM|cover)|ge: gadgets|ge: lua: .*error" $LOGDIR/heist_gadgets_$run.log
 done

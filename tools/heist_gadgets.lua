@@ -119,9 +119,10 @@ end
 local function make_noise(x, y, z, radius, kind, p, n)
   G.stats.noises = G.stats.noises + 1
   local ai_noise = rawget(_G, "noise")
-  if type(ai_noise) == "table" and ai_noise.emit then   -- (the AI layer's hearing)
-    ai_noise.emit(x, y, z, radius, kind)
-    return -1
+  if type(ai_noise) == "table" and ai_noise.emit then   -- (the AI layer's hearing: the guards who heard it turn, then walk over to look)
+    local heard = ai_noise.emit(x, y, z, radius, kind) or 0
+    log("%s noise at (%.0f %.0f) r %d: %d guard(s) heard it (the AI layer)", kind, x, z, radius, heard)
+    return heard
   end
   local cands = {}
   for _, g in ipairs(guards_up(COVER_KINDS)) do
@@ -504,7 +505,7 @@ local function thrown_tick()
   for _, c in ipairs(G.coins) do
     if H.elapsed >= c.at then
       local n = make_noise(c.x, c.y, c.z, T.coin_noise, "coin", c.p, T.coin_guards)
-      if n > 0 then flash_p(c.p, string.format("Clink. %d guard%s coming to look", n, n == 1 and " is" or "s are"), 3)
+      if n > 0 then flash_p(c.p, string.format("Clink. %d guard%s heard it", n, n == 1 and "" or "s"), 3)
       elseif n == 0 then flash_p(c.p, "Clink. Nobody heard it", 2) end
     else
       keep[#keep + 1] = c
