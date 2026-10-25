@@ -387,7 +387,7 @@ guards = function()
   local g = guard_route("guard_records_to_hall", "rec_1", "records>office_corr>hall", 60, function(gx, gz) return gz < 2200 end)
   if g then shot("hall_guard_arrived"); spawn.remove(g) end
   door.unlock(LEVEL.objects.red_ramp.index)
-  bond.warp(0, LEVEL.pads.dock_mid)
+  bond.warp(0, LEVEL.pads.dock_1)                       -- (3550, 4850): just inside the RED shutter (a shutter falls again behind him)
   wait(0.5)
   g = guard_route("guard_up_the_ramp", "dep_3", "deposit>cash_processing>service_ramp>dock", 90)
   if g then spawn.remove(g) end

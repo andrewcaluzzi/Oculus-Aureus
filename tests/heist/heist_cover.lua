@@ -406,9 +406,15 @@ local function doors_path()
   -- a hall guard may not open the BLUE door; a security guard may (first: before the vault noise sends everyone running)
   bond.warp(0, pad("start_1"))
   wait(1)
-  -- (by position: a chr standing at a doorway can report the room beyond it)
-  local function in_sec(c) local x = c and spawn.where(c); return x ~= nil and x > 1760 end            -- the security office: x > 1740
-  local function in_corr(c) local _, z = nil, nil; if c then _, z = spawn.where(c) end; return z ~= nil and z < 1240 end   -- corridor z < 1250
+  -- (by position, 40 inside the room's rect: a chr standing at a doorway can report the room beyond it; bank v2 rooms by name)
+  local function inside(c, rname)
+    local r = LEVEL.rooms[rname].rect
+    local x, z
+    if c then x, z = spawn.where(c) end
+    return x ~= nil and x > r[1] + 40 and x < r[3] - 40 and z > r[2] + 40 and z < r[4] - 40
+  end
+  local function in_sec(c) return inside(c, "sec_office") end
+  local function in_corr(c) return inside(c, "sec_corr") end      -- out of the barracks, in the security corridor
   local blue = O.blue_hall.index
   local hc = send(pad("hall_post_ne"), "hall", pad("sec_mid"))
   local mh = math.max(door_open_max(blue, 12), door.get(O.blue_hall.pair).open)
@@ -417,19 +423,23 @@ local function doors_path()
   if hc then spawn.remove(hc) end
   wait(1)
   local sc = send(pad("hall_post_ne"), "security", pad("sec_mid"))
-  local ms = door_open_max(blue, 15, function() return in_sec(sc) end)
+  local ms = door_open_max(blue, 30, function() return in_sec(sc) end)   -- (bank v2: round the counter through its flap first)
   -- (on screen he opens it; off screen the stock pad hop takes an allowed guard through without moving the door)
+  local sx_, sz_ = nil, nil
+  if sc then sx_, sz_ = spawn.where(sc) end
   check("a security guard (BLUE by role) goes through it", sc ~= nil and in_sec(sc),
-        string.format("open %.2f x %s", ms, tostring(sc and spawn.where(sc))))
+        string.format("open %.2f at %s, %s in room %s", ms, tostring(sx_), tostring(sz_), tostring(sc and LEVEL.room_name[spawn.room(sc) or 0])))
   -- 3. a barracks door opens for the squad that comes out of it (and not for another guard)
-  local pd = O.power_door.index
+  -- (bank v2: the barracks' own door, off the security corridor; its layout tag lets the reinforcements out; the rule set here
+  -- is the bare "barracks")
+  local pd = O.barracks_door.index
   door.guard_access(pd, "barracks")
-  local oc = send(pad("power_mid"), "corridor", pad("back_4"))
+  local oc = send(pad("barracks_2"), "corridor", pad("sec_corr_mid"))
   local mo = door_open_max(pd, 10)
   check("the barracks door stays shut for a corridor guard", oc ~= nil and mo < 0.05 and not in_corr(oc), string.format("open %.2f", mo))
   if oc then spawn.remove(oc) end
   wait(1)
-  local bc = send(pad("power_mid"), "barracks", pad("back_4"))
+  local bc = send(pad("barracks_2"), "barracks", pad("sec_corr_mid"))
   local mp = door_open_max(pd, 15, function() return in_corr(bc) end)
   check("a barracks squad comes out through its own door", bc ~= nil and in_corr(bc), string.format("open %.2f", mp))
   vault_noise()

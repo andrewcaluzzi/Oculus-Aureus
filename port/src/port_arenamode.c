@@ -535,6 +535,13 @@ int portLuaGameSpawnChr(int pad, const PortLuaChrSpec *s)
         portFactionSetChr(chr, PORT_FACTION_HOSTAGE);
         portHeistCivilianAdd((int)chr->chrnum);
     }
+    else
+    {   /* PORT: bank v2: a chr number is reused once its chr is removed; a guard on a removed civilian's number was still taken for a
+         * civilian (port_heist.c isCivilian: no hold fire for him, no target for others) */
+        extern void portHeistCivilianForget(int chrnum);
+
+        portHeistCivilianForget((int)chr->chrnum);
+    }
     if (s->accuracy >= 0)
     {
         chr->accuracyrating = (s8)(s->accuracy > 100 ? 100 : s->accuracy);

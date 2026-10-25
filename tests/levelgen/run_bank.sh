@@ -17,7 +17,7 @@ for part in ${*:-static route_a route_b guards}; do
     case $part in
         route_a) flags="GE_BANK_ROUTE_A=1"; frames=400000 ;;
         route_b) flags="GE_BANK_ROUTE_B=1"; frames=250000 ;;
-        guards) flags="GE_BANK_GUARDS=1"; frames=150000 ;;
+        guards) flags="GE_BANK_GUARDS=1"; frames=60000 ;;
         *) flags=""; frames=60000 ;;
     esac
     dir=/home/dev/project/build_pc/levelgen_bank_shots_$part

@@ -261,13 +261,13 @@
 <rect x="225.0" y="315.0" width="6" height="6" fill="rgb(150,120,90)"/>
 <circle cx="390.0" cy="318.0" r="1.6" fill="rgb(90, 90, 100)"><title>power_1</title></circle>
 <circle cx="234.0" cy="228.0" r="1.6" fill="rgb(90, 90, 100)"><title>power_2</title></circle>
-<circle cx="530.4" cy="252.0" r="1.6" fill="rgb(90, 90, 100)"><title>breaker_front</title></circle>
+<circle cx="542.4" cy="252.0" r="1.6" fill="rgb(90, 90, 100)"><title>breaker_front</title></circle>
 <circle cx="402.0" cy="258.0" r="1.6" fill="rgb(90, 90, 100)"><title>power_mid</title></circle>
 <circle cx="390.0" cy="162.0" r="1.6" fill="rgb(90, 90, 100)"><title>power_3</title></circle>
 <rect x="387.0" y="59.4" width="6" height="6" fill="rgb(150,120,90)"/>
 <rect x="231.0" y="63.0" width="6" height="6" fill="rgb(150,120,90)"/>
 <rect x="537.0" y="63.0" width="6" height="6" fill="rgb(150,120,90)"/>
-<circle cx="390.0" cy="96.0" r="1.6" fill="rgb(90, 90, 100)"><title>generator_front</title></circle>
+<circle cx="390.0" cy="78.0" r="1.6" fill="rgb(90, 90, 100)"><title>generator_front</title></circle>
 <circle cx="246.0" cy="120.0" r="1.6" fill="rgb(90, 90, 100)"><title>gen_1</title></circle>
 <circle cx="906.0" cy="318.0" r="1.6" fill="rgb(90, 90, 100)"><title>deep_1</title></circle>
 <circle cx="954.0" cy="216.0" r="1.6" fill="rgb(90, 90, 100)"><title>deep_2</title></circle>

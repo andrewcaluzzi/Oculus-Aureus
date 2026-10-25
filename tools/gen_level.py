@@ -1222,8 +1222,10 @@ class Objects:
         self.rec("Tag %d on %s" % (self.next_tag, what), "_mkword(0, _mkshort(0, 22)), _mkword(%d, 0x0001), 0, 0" % self.next_tag)
         return self.next_tag
 
-    def bound(self, tris, room, x, y, z, up, look, bbox, note):
-        n, px, pz = tile_at(tris, room.id, x, z)
+    def bound(self, tris, room, x, y, z, up, look, bbox, note, at=None):
+        # bank v2: `at` = the point whose tile the pad names (a door's: the doorway's middle, where chrs walk and the stock door finder
+        # looks along their line; a leaf's own jamb may sit on a sliver of floor beside it)
+        n, px, pz = tile_at(tris, room.id, at[0] if at else x, at[1] if at else z)
         if n is None:
             sys.exit("%s: no floor under its bound pad at (%d, %d) in room %s" % (note, x, z, room.name))
         # P2.3: the pad keeps its exact position (a wall mount or a door leaf on a tile edge was moved 9 units by the nudge that
@@ -1284,6 +1286,12 @@ def build_objects(rooms, byname, doors, pads, tris, objs_first_pad):
         # (prop.c sub_GAME_7F00324C) land on room a's and room b's tiles and setupDoor finds the doorway's portal
         sgn = 1.0 if D.fb > D.fa else -1.0             # room b lies on this side
         plane = D.fb - sgn * (t / 2.0 + 1.0)
+        if abs(D.fb - D.fa) <= 90:
+            # bank v2: in the middle of the wall, on the doorway's own waypoint pad. The stock door finder opens a door only when the
+            # line from a walking chr to his next waypoint crosses it; with the door at room b's face and the doorway pad in front of
+            # it, an on-screen chr coming from room a stopped against a shut door that is locked to AI (the heist's guard door rules)
+            # short of the pad, and never opened it. (setupDoor's two test points, 50 either side, still land in rooms a and b.)
+            plane = (D.fa + D.fb) / 2.0
         mid = (D.lo + D.hi) / 2.0
         if D.axis == "x":
             x, z, up = plane, mid, (0.0, 0.0, 1.0)
@@ -1311,9 +1319,10 @@ def build_objects(rooms, byname, doors, pads, tris, objs_first_pad):
             bb = (-t / 2.0, t / 2.0, -w / 2.0, w / 2.0, 0.0, h)       # x: thickness (normal), y: width (up), z: height (look)
             leaves = [(x, z, up, bb, 0, ival(o.get("sound"), 3))]
         idxs = []
+        mid_at = (plane, mid + 15) if D.axis == "x" else (mid + 15, plane)
         for k, (lx, lz, lup, bb, link, sound) in enumerate(leaves):
             bp = O.bound(tris, D.a, int(round(lx)), D.y, int(round(lz)), lup, (0.0, 1.0, 0.0), bb,
-                         "door %s%s" % (D.name, (" leaf %d" % (k + 1)) if len(leaves) > 1 else ""))
+                         "door %s%s" % (D.name, (" leaf %d" % (k + 1)) if len(leaves) > 1 else ""), at=mid_at)
             tail = "0x%08x, 0x%08x, 0x%08x, 0x00000051, 0x00000051, 0x00000666, _mkword(4, %d), 0x%08x, %d, %d, %s" % (
                 link & 0xFFFFFFFF, fx16(0.95), perim, DOOR_TYPE[kind], keyflags & 0xFFFFFFFF, autoclose, sound, DOOR_RUNTIME)
             idxs.append(O.rec("Door %s%s (%s, model %d, keyflags 0x%x)" % (D.name, (" leaf %d" % (k + 1)) if len(leaves) > 1 else "",

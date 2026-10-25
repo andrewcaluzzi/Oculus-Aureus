@@ -289,8 +289,8 @@ local function body()
   wait(3)
   local f1, h1 = spawn.fire_stats(shooter or -1)
   check("hold fire: with a civilian by his line of fire to Bond the guard holds his shots", shooter ~= nil and shield ~= nil and f1 == f0b
-        and h1 > h0b and civilian.killed() == killed0, string.format("fired %d, held %d in 3 s; guard (%.0f, %.0f), civilian (%.0f, %.0f), Bond (%.0f, %.0f), killed %d",
-        f1 - f0b, h1 - h0b, gx, gz, sx, sz, bx, bz, civilian.killed() - killed0))
+        and h1 > h0b and civilian.killed() == killed0, string.format("fired %d, held %d in 3 s; guard %s (%.0f, %.0f), civilian %s %s (%.0f, %.0f), Bond (%.0f, %.0f), killed %d",
+        f1 - f0b, h1 - h0b, tostring(shooter), gx, gz, tostring(shield), tostring(shield and civilian.state(shield)), sx, sz, bx, bz, civilian.killed() - killed0))
   if shield then spawn.remove(shield) end
   wait(4)
   local f2, h2 = spawn.fire_stats(shooter or -1)

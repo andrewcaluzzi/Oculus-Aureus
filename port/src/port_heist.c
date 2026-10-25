@@ -980,6 +980,14 @@ void portHeistCivilianAdd(int chrnum)
     }
 }
 
+/* a chr spawned as anything but a civilian on a number a removed civilian had (bank v2) */
+void portHeistCivilianForget(int chrnum)
+{
+    HeistCiv *c = civFind(chrnum);
+
+    if (c != NULL) c->used = 0;
+}
+
 int portHeistCivilianState(int chrnum)
 {
     HeistCiv *c = civFind(chrnum);

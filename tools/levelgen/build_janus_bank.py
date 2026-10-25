@@ -743,7 +743,7 @@ def basement():
            block("transformer", (-2200, 8500, -1600, 8900), 360, "green_corrugated", "rusty_roof"),
            block("switchgear", (-1180, 7700, -1040, 8000), 240, "steel_panels", "steel_panels"),
            block("switchgear_2", (-1180, 8400, -1040, 8700), 240, "steel_panels", "steel_panels"))
-    pads(pw, ("power_1", (-2500, 7650), (-1040, 8300)), ("power_2", (-3800, 8400), (-1040, 8400)), ("breaker_front", (-1330, 8200), (-1040, 8200)),
+    pads(pw, ("power_1", (-2500, 7650), (-1040, 8300)), ("power_2", (-3800, 8400), (-1040, 8400)), ("breaker_front", (-1230, 8200), (-1040, 8200)),
          ("power_mid", (-2400, 8150), (-1040, 8150)), ("power_3", (-2500, 8950), (-2500, 7480)))
     objs(pw, alarm("alarm_plant", "x1", 7650),
          prop("breaker", 30, (-1110, 8200), (-1600, 8200)),
@@ -755,7 +755,7 @@ def basement():
     objs(b2, cam("cam_plant", "x1", 7260, 300, "b2_mid", (6, -6)))
     gn = room("generator", (-4000, 9120, -1040, 9900), Y_B2, 400, "plant", "restricted", floor_mat="concrete", wall_mat="steel_pipes",
               ceiling_mat="pipe_grid", chr_light=10, light=light(0.28, 0.9, 420, [255, 220, 180]))
-    pads(gn, ("generator_front", (-2500, 9500), (-2500, 9900)), ("gen_1", (-3700, 9300), (-1040, 9500)))
+    pads(gn, ("generator_front", (-2500, 9650), (-2500, 9900)), ("gen_1", (-3700, 9300), (-1040, 9500)))
     objs(gn, prop("generator", 48, (-2500, 9780), (-2500, 9120)), prop("gen_tank_1", 117, (-3800, 9750), (-1040, 9750)),
          prop("gen_tank_2", 117, (-1250, 9750), (-4000, 9750)))
     door("power", "generator", at=-2500, width=200, height=260, frame=STEEL, obj=SLIDE("generator_door"))
