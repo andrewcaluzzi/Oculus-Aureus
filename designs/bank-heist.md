@@ -984,10 +984,43 @@ Screenshots of the merged build on v3 are on AC's machine, not in the repo, in `
 
 ### 23c. Remaining gaps
 
-- **The win path is not seeded** (`run_winpath.sh`, like the guards suite was). On one of two runs the GREEN card dropped on a search and
-  was not picked up within 4 s. The lobby captain had answered a backup call before he was knocked out ("Over there!"), so he lay
-  somewhere else. The test now prints where the card lies and where Bond stands (`HEIST card at ...`). Next: seed it and walk Bond onto
-  the card instead of warping.
+- **The win path is seeded now** (`run_winpath.sh`, `GE_SEED` default 7, 2026-10-26 polish). Seed 7 passes 59 with the card at Bond's
+  feet ("0 apart"). The earlier miss (the GREEN card dropped and not picked up within 4 s, after the lobby captain had answered a backup
+  call) was not reproduced, so its cause is not known. Suspect the test's `warp_xz` (nearest pad in the body's room plus an offset)
+  before the game: the stock pickup took every card it was put on. A sweep over other seeds was cut for time (`GE_SEED=n RUNS=win`).
+- **The co-op bot is stale.** `tools/bot/heist_bot.lua` still targets the retired Bunker 2 heist (`GE_STAGE=bunker2`). modding/lua.md's
+  heist paragraph (Bunker 2, room 6, `run_shots.sh`) carries a stale note now.
+
+### 23d. The first-play guide (2026-10-26 polish)
+
+AC: "the game is really fun so far but I have absolutely no idea how to play it". The board answers that if you open it. These changes
+tell a new player the next step without the board. All of it is in `tools/heist_guide.lua`, with three small hooks in `mode_heist.lua`
+(`refresh_hud`, the stage start, an include). It is presentation only: HUD text, nothing in `mode.state`, no `math.random`. With the AR
+specs off it still shows, because it is the mode's own HUD lines. `S.guide = false` brings back the old lines.
+
+- **HUD line 1** ends in `TAB: INTEL` when it fits.
+- **HUD line 2, the objective, always names the next concrete step while casing.** In order:
+  - "Next: walk in the bank's front door, gun holstered" (until you are inside);
+  - "Next: GREEN card - head teller or lobby captain (hall)";
+  - "BLUE card - the security chief (<his room now>)";
+  - "RED card - the branch manager (<room>)";
+  - "the vault - down the RED stairs, a floor down".
+
+  The cracking, open, trapped and escape phases keep the mode's own lines.
+- **HUD line 3, when nothing else uses it.** The cover's warnings, the board's hints and the gadget lines all win.
+  - **Key strip.** After the opening line (8 s), four tips for 8 s each: TAB / BACK for the board, next / prev weapon for the gadgets,
+    Shift+F3 for the AR specs, and what USE does.
+  - **How-to line.** After the strip, and for 10 s whenever the step changes: how to do the step, e.g. "Teller: aim a gun at her.
+    Captain: slap him twice, USE to search".
+  - **Prompts.** When you are near something you can use: a knocked-out body that still has a card ("press USE to search"), a card on
+    the floor, a vent, a piton point.
+- The opening line is short enough to fit the 63-character HUD line now. Before, it was cut to "...no restricted areas. S".
+- **Test:** `tests/heist/run_firstplay.sh`, the real mode with seed 7 and a few shots: 6 checks (line 1, the front-door step, the
+  opening line fits, the strip's TAB tip, the GREEN step inside, the search prompt by a knocked-out carrier). The test turns off guards
+  waking bodies. With waking on, the teller knocked out in the busy hall was up again 5.5 s later, probably woken by a hall guard (not
+  confirmed). So a player in the hall has to search fast.
+- **Screenshots** (AC's machine): `polish-before-*.jpg` and `polish-after-*.jpg` in the overnight `img` folder. Before, line 2 said only
+  "GREEN card: head teller or lobby captain", with no hint of how to get it or what Tab does.
 - **`cctv.sees` itself is still x/z only.** Every Lua caller now filters by floor or room (the mode, the board, the gadgets' camera
   report). A new caller must do the same, or the C function should get the floor rule.
 - **A coin's pull depends on the distance.** Through the AI layer a coin is just a noise (radius 900, weight 0.8). A guard 4 m from

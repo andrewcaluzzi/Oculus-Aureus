@@ -6,6 +6,7 @@
 # pumps) runs out during the boot. For speed, run the RUNS in parallel containers (one RUNS=<run> each).
 # usage: run_winpath.sh   -> prints the HEIST lines of each run; each run ends with "HEIST DONE <n> passed, <m> failed"
 # The full logs are kept in ${LOGDIR:-/tmp}/heist_winpath_{win,trapped,fail,quiet,count}.log.
+# Seeded (GE_SEED, default 7; 2026-10-26, like run_guards.sh): every run is the same game. Pass another GE_SEED to try other games.
 cp /home/dev/project/tests/heist/heist_winpath.lua /home/dev/project/build_pc/Data/Scripts/modes/heist_winpath.lua
 cp /home/dev/project/tools/mode_heist.lua /home/dev/project/build_pc/Data/Scripts/modes/heist.lua
 cp /home/dev/project/tools/heist_lib.lua /home/dev/project/build_pc/Data/Scripts/modes/heist_lib.lua
@@ -25,7 +26,7 @@ for run in ${RUNS:-win trapped fail quiet count}; do
         *) flags="GE_HEIST_TEST_WIN=1" ;;
     esac
     echo "HEIST RUN $run"
-    env $flags DISPLAY=:99 GE_MODE=heist_winpath GE_STAGE=levelgen GE_SKIPINTRO=1 GE_NOINISAVE=1 GE_FIXEDTICK=1 GE_TICKHZ=60 \
+    env $flags DISPLAY=:99 GE_MODE=heist_winpath GE_STAGE=levelgen GE_SKIPINTRO=1 GE_NOINISAVE=1 GE_FIXEDTICK=1 GE_TICKHZ=60 GE_SEED=${GE_SEED:-7} \
         GE_FRAMES=$frames timeout ${TIMEOUT:-500} ./ProjectMidas > $LOGDIR/heist_winpath_$run.log 2>&1
     grep -E "HEIST|ge: lua: ge: heist: (ready|WIN|FAIL|HIGH|VAULT|ALARM|vault|re-crack|the cracker|cracker|heavy|crack|security console|setup step|civilian)|ge: lua: .*error" $LOGDIR/heist_winpath_$run.log
 done

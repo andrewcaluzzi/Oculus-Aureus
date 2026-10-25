@@ -31,6 +31,7 @@ include("levelgen_layout")                     -- LEVEL: the generated level's l
 include("heist_bank_map")                      -- heist_bank_map(): the mode's tables from LEVEL by name
 include("heist_ai")                            -- HEIST_AI: the guards' hearing, awareness and barks (section 18)
 include("heist_intel")                         -- heist_intel(ctx): the INTEL board's content and the hints (section 19)
+include("heist_guide")                         -- heist_guide(ctx): the first-play objective line, key strip and prompts (section 23d)
 pcall(include, "heist_ar")                     -- the AR specs and diagnostics (section 20; presentation only, optional)
 local STAGE_LEVELGEN = 52                      -- LEVELID_LEE: the generated level's slot
 
@@ -377,11 +378,13 @@ local function refresh_hud()
       -- on the camera feeds: only the feed's overlay and the intel box (the mode's lines would sit over the picture)
       hud.set(1, "", p); hud.set(2, "", p); hud.set(3, "", p)
     else
-      hud.set(1, string.format("JANUS BANK %s  %d bars  %s  [%s]", money(H.loot), H.bars, status, cards_text(p)), p)
-      hud.set(2, objective(p), p)
+      local gd = H.guide                                  -- the first-play guide (tools/heist_guide.lua): presentation only
+      local l1 = string.format("JANUS BANK %s  %d bars  %s  [%s]", money(H.loot), H.bars, status, cards_text(p))
+      hud.set(1, gd and gd.tag(l1) or l1, p)
+      hud.set(2, gd and gd.objective(p) or objective(p), p)
       local pf = H.pflash[p]
       if pf and H.elapsed < pf[2] then hud.set(3, pf[1], p)
-      elseif H.flash and H.elapsed < H.flash_until then hud.set(3, H.flash, p) else hud.set(3, "", p) end
+      elseif H.flash and H.elapsed < H.flash_until then hud.set(3, H.flash, p) else hud.set(3, gd and gd.line3(p) or "", p) end
     end
   end
 end
@@ -1271,12 +1274,13 @@ on("stage_start", function(stage)
                                                                     weapon = pick({ "rcp90", "ar33" }), armour = 1.5, sunglasses = true }) end,
                               active = function() return H.hot and not H.ended and H.hot_at and H.elapsed - H.hot_at >= S.response_after
                                                          and hostiles_alive() < S.hostile_cap end }
-  flash(S.cover and "JANUS BANK. You're staff: gun holstered, no restricted areas. Steal the gold." or
+  flash(S.cover and "JANUS BANK. You're staff: gun holstered. Steal the gold." or
         "JANUS BANK, ST PETERSBURG. Steal the gold. Hurt no staff.", 8)
   log("stage start: %s, %d Bond(s), difficulty %d", MAP.label, bond.count(), mission.difficulty())
   refresh_hud()
   if S.intel ~= false then H.intel = heist_intel{ S = S, H = H, PW = PW, M = H.M, force = diff.force, flash_p = flash_p, money = money, security_up = security_up,
                          keys = { GREEN = GREEN, BLUE = BLUE, RED = RED, GOLD = GOLD, FLOORKEY = FLOORKEY, VAULT = VAULT } } end
+  if S.guide ~= false then H.guide = heist_guide{ S = S, H = H, PW = PW, M = H.M, keys = { GREEN = GREEN, BLUE = BLUE, RED = RED, GOLD = GOLD, FLOORKEY = FLOORKEY } } end
 end)
 
 -- the script's sim state for the co-op / netplay state hash (mode.state): a script-state desync shows at once, and the dump names it
