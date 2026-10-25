@@ -219,6 +219,7 @@ LEVELID langGetLangBankIndexFromStagenum(LEVELID level)
 #ifndef TARGET_N64
         case LEVELID_SHO: /* PORT: Flatland (port/flatland) borrows Surface's text bank */
         case LEVELID_EAR: /* PORT: so does the Colosseum (port/colosseum) */
+        case LEVELID_LEE: /* PORT: and the generated level (port/levelgen) */
             return_id = LSEVX;
             break;
 #endif

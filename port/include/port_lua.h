@@ -202,6 +202,7 @@ int         portCctvSeesChr(int cam, int chrnum);                          /* a 
 int         portCctvSeesPoint(int cam, float x, float y, float z);
 int         portCctvChrRoom(int chrnum);                                   /* -1 gone */
 int         portCctvBondRoom(int p);                                       /* -1 none */
+int         portRoomVisDrawn(int pl, int *out, int max);                   /* the rooms view pl drew last (port_roomvis.c) */
 int         portCctvRenderInfo(int *cam, int *start, int *rooms, int max, int *geom, int *frames);   /* this machine's last feed pass */
 void        portCctvTestPress(int mask);                                   /* test: raw N64 buttons held on pad 0 for 4 sim ticks */
 void        portCctvTestUse(int p);                                        /* test: one Port use-action tap in Bond p's next tick */

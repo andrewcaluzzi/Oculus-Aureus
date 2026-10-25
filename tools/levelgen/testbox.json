@@ -1,0 +1,30 @@
+{
+  "name": "levelgen",
+  "comment": "P2.1 first proof: two rooms joined by one doorway. Generate it onto the slot instead of lshape.json to try it.",
+  "defaults": {
+    "height": 320,
+    "cell": 300,
+    "door_width": 180,
+    "door_height": 240,
+    "floor_mat": "lobby_tiles",
+    "wall_mat": "pink_marble",
+    "ceiling_mat": "light_wood"
+  },
+  "materials": {
+    "lobby_tiles":    { "tex": 632,  "texels_per_unit": 1.18 },
+    "pink_marble":    { "tex": 179,  "texels_per_unit": 0.115 },
+    "light_wood":     { "tex": 1524, "texels_per_unit": 0.122 },
+    "white_tiles":    { "tex": 901,  "texels_per_unit": 0.75 },
+    "beige_panels":   { "tex": 315,  "texels_per_unit": 0.33 },
+    "office_ceiling": { "tex": 257,  "texels_per_unit": 0.60 }
+  },
+  "rooms": [
+    { "name": "A", "rect": [-1040, -500, -20, 500] },
+    { "name": "B", "rect": [20, -500, 1040, 500],
+      "floor_mat": "white_tiles", "wall_mat": "beige_panels", "ceiling_mat": "office_ceiling" }
+  ],
+  "doors": [
+    { "rooms": ["A", "B"] }
+  ],
+  "start": { "room": "A", "at": [-700, 0], "face": [0, 0] }
+}

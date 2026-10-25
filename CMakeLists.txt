@@ -221,7 +221,8 @@ endif()
 # bg_sho_all_p_seg symbol; the stan and setup are fetched by symbol (bg.c, prop.c).
 set(PORT_ASSET_KEEP_SYMS PlegalpageZ PnintendologoZ PgoldeneyelogoZ
     bg_sho_all_p_seg Tbg_flatland_all_p_stanZ UsetupflatlandZ
-    bg_ear_all_p_seg Tbg_colosseum_all_p_stanZ UsetupcolosseumZ)
+    bg_ear_all_p_seg Tbg_colosseum_all_p_stanZ UsetupcolosseumZ
+    bg_lee_all_p_seg Tbg_levelgen_all_p_stanZ UsetuplevelgenZ)
 function(port_asset_record obj sym)
     if(${sym} IN_LIST PORT_ASSET_KEEP_SYMS)
         set_property(GLOBAL APPEND PROPERTY PORT_ASSET_OBJS_KEEP ${obj})
@@ -269,6 +270,11 @@ port_add_asset_direct(port/flatland/UsetupflatlandZ.c UsetupflatlandZ)
 port_add_asset_seg(port/colosseum/bg_colosseum_all_p.c bg_ear_all_p_seg)
 port_add_asset_direct(port/colosseum/Tbg_colosseum_all_p_stanZ.c Tbg_colosseum_all_p_stanZ)
 port_add_asset_direct(port/colosseum/UsetupcolosseumZ.c UsetupcolosseumZ)
+# The generated level (lab, heist P2): tools/gen_level.py <layout.json> -> port/levelgen/, on the cut slot LEVELID_LEE
+# (bg symbol bg_lee_all_p_seg); see modding/levelgen.md.
+port_add_asset_seg(port/levelgen/bg_levelgen_all_p.c bg_lee_all_p_seg)
+port_add_asset_direct(port/levelgen/Tbg_levelgen_all_p_stanZ.c Tbg_levelgen_all_p_stanZ)
+port_add_asset_direct(port/levelgen/UsetuplevelgenZ.c UsetuplevelgenZ)
 get_property(ASSET_OBJS_KEEP GLOBAL PROPERTY PORT_ASSET_OBJS_KEEP)
 get_property(ASSET_OBJS_SERVED GLOBAL PROPERTY PORT_ASSET_OBJS_SERVED)
 # GE_ROMDATA_FALLBACK OFF: drop the served asset objects (models/bg/setups/
@@ -567,7 +573,11 @@ if(GE_VIDEO)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/tools/mode_heist.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/heist.lua
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            ${CMAKE_SOURCE_DIR}/tools/heist_lib.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/heist_lib.lua)
+            ${CMAKE_SOURCE_DIR}/tools/heist_lib.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/heist_lib.lua
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/port/levelgen/levelgen_layout.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/levelgen_layout.lua
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/tools/mode_levelgen_test.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/levelgen_test.lua)
     if(WIN32)
         # the arena launchers (set GE_MODE / GE_STAGE, then start the exe), next to the exe
         add_custom_command(TARGET ge POST_BUILD

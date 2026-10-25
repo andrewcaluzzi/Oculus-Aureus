@@ -557,6 +557,31 @@ void fogLoadLevelEnvironment(s32 level_id, s32 arg1)
         g_EnvironmentFoundp = NULL;
         return;
     }
+    if (level_id == LEVELID_LEE)
+    {   /* PORT: the generated level (port/levelgen, tools/gen_level.py): interiors, no fog, no sky (a near-black clear
+         * colour shows only through a gap in the geometry). Static, as for the Colosseum above. */
+        static EnvironmentFoglessRecord levelgen_env;
+
+        levelgen_env.Id = LEVELID_LEE;
+        levelgen_env.Red = 0x10;
+        levelgen_env.Green = 0x10;
+        levelgen_env.Blue = 0x14;
+        levelgen_env.Clouds = 0;
+        levelgen_env.CloudRepeat = 6000.0f;
+        levelgen_env.SkyImageId = 0;
+        levelgen_env.CloudRed = 0.0f;
+        levelgen_env.CloudGreen = 0.0f;
+        levelgen_env.CloudBlue = 0.0f;
+        levelgen_env.IsWater = 0;
+
+        g_ScaledFarFogIntensity = FLT_MAX;
+        g_ScaledDifferenceFromFarFogIntensity = 0.0f;
+        viSetZRange(10.0f, 16000.0f);
+        g_FogSkyIsEnabled = 0;
+        fogLoadFoglessCurrentEnvironment(&levelgen_env);
+        g_EnvironmentFoundp = NULL;
+        return;
+    }
 #endif
 
     num_players = getPlayerCount();

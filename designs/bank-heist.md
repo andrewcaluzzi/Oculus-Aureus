@@ -1,6 +1,6 @@
 # Bank Heist: design
 
-Status: P0 (the Bunker 2 prototype) is built: the playable mode is section 9; P1 (camera feeds, intel) is section 10; P3 (co-op hardening, determinism) is section 11. The rest is still design. Every "stock" claim below cites the code it was read from, so it can be checked. Where something was read but not yet run, it says **verify in P0**.
+Status: P0 (the Bunker 2 prototype) is built: the playable mode is section 9; P1 (camera feeds, intel) is section 10; P3 (co-op hardening, determinism) is section 11; P2 job 1 (the multi-room generator, proven on a two-room box and a three-room L) is section 12. The rest is still design. Every "stock" claim below cites the code it was read from, so it can be checked. Where something was read but not yet run, it says **verify in P0**.
 
 ---
 
@@ -316,3 +316,18 @@ The test: `tests/heist/run_determinism.sh` runs the scripted heist `tests/heist/
 | Exits | Every living Bond must stand in an exit, whatever `coop_exits` says (AC's answer 8). |
 | State hash | Besides the KO table, the civilians (now with each Bond's timers), loot, the countdown, camera overrides and the feed state (which camera, the held and edge buttons, ticks on the camera, the hit baseline), the script's own state goes in through `mode.state(text)`: phase, crack progress and jam schedule, who cracks, the vault clock, the trap, loot per Bond, squads, the wave and response counters, the camera switch-off, the spawn queue. The text is in the desync dump. |
 | Waves | `heist.reinforce` tries a busy pad a step aside before the next one: every hall pad has a guard posted on it, so the waves never came in at all (the determinism test found it: 0 waves). |
+
+## 12. P2 job 1: the multi-room generator (built)
+
+`tools/gen_level.py` turns a JSON layout (`tools/levelgen/*.json`: box rooms, doorways, materials, lights, named pads, the start) into the bg, stan and setup C of a level plus a Lua layout table, on the cut slot `LEVELID_LEE` (`GE_STAGE=levelgen`). It builds on what Flatland and the Colosseum already do (their deflate and display-list helpers, the stan and setup emitters, the compiled-in slot); what is new is several bg rooms with a portal per doorway, the stan grouped and room-tagged per room and linked through the doorways, and waypoint groups per room. The format, the textures found and the mechanism are in `modding/levelgen.md`.
+
+**Proven** (`tests/levelgen/run.sh`, 11 checks on the three-room L, 9 on the two-room box): a room behind the camera is not drawn, a doorway shows the next room and not the one two walls further; Bond walks through a doorway on stick input and `bond.room` changes A to B; an unarmed guard spawned two rooms away routes to Bond through both doorways (`spawn.room` C, B, A, about 8 s). Screenshots: `build_pc/levelgen_shots/`. Not yet re-run after this job (WSL failed mid-pass): the heist suites, `tests/coop_determinism.sh`, dam1 and the Windows build (`modding/levelgen.md`, "Status").
+
+**Next (P2.2 to P2.5).**
+
+1. **P2.2 setup objects.** The generator writes `propDefs` empty. It needs door records (model, the doorway's pad as the bound pad, `keyflags`, door type: a door sits in the doorway's opening, so the generator knows its frame), CCTV (a pad high on a wall, look pad, range), alarm boxes, monitors, a cell door for the bullion cage, the safe with linked items, keys, padlocks. A door flagged `PROPFLAG_CULL_BEHIND_DOOR` takes the portal between the rooms on its two sides (`bgGetPortalBetweenRooms`, `prop.c`) and closes it while shut (`propobj.c`), so a door set in a generated doorway culls the next room for free. Layout keys: per door `"object": {"model": ..., "keyflags": ...}`, per room `"objects": [...]`.
+2. **P2.3 the bank layout and textures.** Section 4 as a layout (street, lobby with tellers, offices, loading dock, security room, manager's office, vault antechamber, vault, tunnel), with stairs or a ramp down to the vault: the generator supports one floor height per doorway today, so it needs ramp rooms (sloped floor tiles and walls). Doorway frames, a counter (box props or bg boxes with stan holes), columns, pads for every post, patrol and panel. The material table in `modding/levelgen.md` is the start of the texture choice.
+3. **P2.4 port the mode.** `mode_heist.lua` reads Bunker 2's door, camera and pad numbers; on the bank they come from `LEVEL` (`include("levelgen_layout")`). The areas (hall, offices, security, vault ...) map to rooms by name.
+4. **P2.5 perf.** 100+ guards on post over the bank's rooms; the slot reserves 200 chr slots (`port_flatland.c`), and the dyn pools grow only above 240 (`portColosseumBigSlots`): check frame time and the pools with the full count.
+
+**Limits now.** Box rooms only; the same floor height on both sides of a doorway; open doorways (no frame, no door); per-material texture scale set by hand; one generated level on the slot at a time (the layout's `name` stays `levelgen`); baked vertex-colour lighting.

@@ -37,6 +37,9 @@ struct music_setup music_setup_entries[] = {
     { LEVELID_SURFACE2,  M_SURFACE2,     M_WIND,   M_SURFACE2END },
     { LEVELID_EAR,       M_CITADEL,      0xFFFF,   0xFFFF }, /* PORT: the Colosseum arena (port/colosseum) */
     { LEVELID_CUBA,      M_CUBA,         0xFFFF,   0xFFFF },
+#ifndef TARGET_N64
+    { LEVELID_LEE,       M_ARCHIVES,     0xFFFF,   M_ARCHIVESX }, /* PORT: the generated level (port/levelgen): St Petersburg */
+#endif
     { 0 }
 };
 

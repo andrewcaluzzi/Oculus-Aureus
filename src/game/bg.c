@@ -258,7 +258,12 @@ struct levelentry levelinfotable[] = {
     /* PORT: this cut slot is the Colosseum arena (port/colosseum, tools/gen_colosseum.py); bg units = world units */
     {LEVELID_EAR,      "bg/bg_ear_all_p.seg",  "Tbg_ear_all_p_stanZ",  1.0,         1.0,        10.123456},
 #endif
+#ifdef TARGET_N64
     {LEVELID_LEE,      "bg/bg_lee_all_p.seg",  "Tbg_lee_all_p_stanZ",  0.94285715,  1.0,        10.123456},
+#else
+    /* PORT: this cut slot is the generated level (port/levelgen, tools/gen_level.py); bg units = world units */
+    {LEVELID_LEE,      "bg/bg_lee_all_p.seg",  "Tbg_lee_all_p_stanZ",  1.0,         1.0,        10.123456},
+#endif
     {LEVELID_LIP,      "bg/bg_lip_all_p.seg",  "Tbg_lip_all_p_stanZ",  0.94285715,  1.0,        10.123456},
     {LEVELID_CUBA,     "bg/bg_len_all_p.seg",  "Tbg_len_all_p_stanZ",  0.094662853, 1.0,        6.6844921},
     {LEVELID_WAX,      "bg/bg_wax_all_p.seg",  "Tbg_wax_all_p_stanZ",  0.94285715,  1.0,        10.123456},
@@ -1144,6 +1149,11 @@ void load_bg_file(LEVEL_INDEX levelid)
         extern u8 Tbg_colosseum_all_p_stanZ[];
         gptr_stan = (s32) Tbg_colosseum_all_p_stanZ;
     }
+    else if (levelid == LEVELID_LEE)
+    {   /* PORT: the generated level (port/levelgen), same arrangement */
+        extern u8 Tbg_levelgen_all_p_stanZ[];
+        gptr_stan = (s32) Tbg_levelgen_all_p_stanZ;
+    }
     else
 #endif
     gptr_stan = (s32) _fileNameLoadToBank(levelinfotable[levelentry_index].bg_stan_filename, 2, 0, 4);
@@ -1153,7 +1163,7 @@ void load_bg_file(LEVEL_INDEX levelid)
        * cart (already packed, real pointers) or is the compiled-in file */
         extern s32 g_portStanFromRom;
         extern s32 romdataFileServed(s32 index);
-        g_portStanFromRom = (levelid == LEVELID_SHO || levelid == LEVELID_EAR) ? 0
+        g_portStanFromRom = (levelid == LEVELID_SHO || levelid == LEVELID_EAR || levelid == LEVELID_LEE) ? 0
             : romdataFileServed(fileGetIndex((u8 *) levelinfotable[levelentry_index].bg_stan_filename));
     }
     { /* bring-up (sanitizer sweep): a stage whose stan asset is missing

@@ -1,0 +1,43 @@
+{
+  "name": "levelgen",
+  "comment": "P2.1 test level: three rooms in an L (west A, corner B, north C), a doorway A-B and B-C. From most of A, room C is behind two walls (the culling test).",
+  "defaults": {
+    "height": 320,
+    "cell": 300,
+    "door_width": 180,
+    "door_height": 240,
+    "max_wall": 200,
+    "floor_mat": "lobby_tiles",
+    "wall_mat": "pink_marble",
+    "ceiling_mat": "light_wood",
+    "chr_light": 13,
+    "light": { "ambient": 0.42, "intensity": 0.75, "radius": 420, "lamp_spacing": 520, "tint": [255, 244, 228] }
+  },
+  "materials": {
+    "lobby_tiles":    { "tex": 632,  "texels_per_unit": 1.18, "from": "Archives floor" },
+    "pink_marble":    { "tex": 179,  "texels_per_unit": 0.115, "from": "Archives wall: marble panels with a skirting band" },
+    "light_wood":     { "tex": 1524, "texels_per_unit": 0.122, "from": "Archives ceiling" },
+    "white_tiles":    { "tex": 901,  "texels_per_unit": 0.75, "from": "Bunker 2 floor" },
+    "beige_panels":   { "tex": 315,  "texels_per_unit": 0.33, "from": "Bunker 2 wall" },
+    "office_ceiling": { "tex": 257,  "texels_per_unit": 0.60, "from": "Bunker 2 ceiling: suspended tiles" },
+    "concrete":       { "tex": 311,  "texels_per_unit": 0.16, "from": "Facility floor" },
+    "stone_blocks":   { "tex": 1469, "texels_per_unit": 0.414, "from": "Archives wall" },
+    "dark_grid":      { "tex": 258,  "texels_per_unit": 0.39, "from": "Facility ceiling" },
+    "plaster":        { "tex": 2374, "texels_per_unit": 0.27, "from": "Archives wall: plain grey" }
+  },
+  "rooms": [
+    { "name": "A", "rect": [-1240, -500, -200, 500],
+      "pads": [ { "name": "a_corner", "at": [-1100, 400], "face": [-200, -300] } ] },
+    { "name": "B", "rect": [-160, -500, 840, 500],
+      "floor_mat": "white_tiles", "wall_mat": "beige_panels", "ceiling_mat": "office_ceiling" },
+    { "name": "C", "rect": [-160, 540, 840, 1540],
+      "floor_mat": "concrete", "wall_mat": "stone_blocks", "ceiling_mat": "dark_grid",
+      "light": { "ambient": 0.32, "intensity": 0.85, "radius": 360 },
+      "pads": [ { "name": "c_far", "at": [0, 1400], "face": [640, 520] } ] }
+  ],
+  "doors": [
+    { "rooms": ["A", "B"], "at": -300 },
+    { "rooms": ["B", "C"], "at": 640 }
+  ],
+  "start": { "room": "A", "at": [-900, 300], "face": [-200, -300] }
+}

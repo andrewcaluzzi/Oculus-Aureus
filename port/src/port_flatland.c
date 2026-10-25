@@ -33,8 +33,21 @@ s32 portColosseumStage(void)
     return bossGetStageNum() == LEVELID_EAR;
 }
 
+/* The generated level (port/levelgen, tools/gen_level.py, modding/levelgen.md) takes the cut stage LEVELID_LEE. No guards of its
+ * own either: the modes spawn them (the bank heist plans 100+ on post plus alarm waves). */
+#define LEVELGEN_EXTRA_SLOTS 200
+
+s32 portLevelgenStage(void)
+{
+    return bossGetStageNum() == LEVELID_LEE;
+}
+
 s32 portFlatlandExtraSlots(void)
 {
+    if (portLevelgenStage())
+    {
+        return LEVELGEN_EXTRA_SLOTS;
+    }
     if (portColosseumStage())
     {
         /* GE_COLOSSEUM_SLOTS raises it (benchmark: ~1400) */

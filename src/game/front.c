@@ -9364,6 +9364,14 @@ Gfx * print_current_solo_briefing_stage_name(Gfx *DL, char *text)
             DL = frontPrintText(DL, &x, &y, text, ptrFontZurichBoldChars, ptrFontZurichBold, 0xff, viGetX(), viGetY(), 0, 0);
             return DL;
         }
+        if (selected_stage == LEVELID_LEE)   /* the generated level (port/levelgen) borrows the same slot text */
+        {
+            strcpy(text, "Generated level\n");
+            x = 0x37;
+            y = 0x67;
+            DL = frontPrintText(DL, &x, &y, text, ptrFontZurichBoldChars, ptrFontZurichBold, 0xff, viGetX(), viGetY(), 0, 0);
+            return DL;
+        }
     }
 #endif
     chapter = get_chapter_briefing_entry(briefingpage);
@@ -16833,9 +16841,9 @@ Gfx *print_objectives_and_status_to_menu(Gfx *DL, s32 arg1, u8 *arg2, s32 arg3)
     v1 = 0;
 
 #ifndef TARGET_N64
-    if (selected_stage == LEVELID_EAR)
+    if (selected_stage == LEVELID_EAR || selected_stage == LEVELID_LEE)
     {
-        return DL;   /* PORT: the Colosseum borrows Surface's briefing: no "power down the dish" objectives */
+        return DL;   /* PORT: the Colosseum and the generated level borrow Surface's briefing: no "power down the dish" objectives */
     }
 #endif
     for (i = 0; i < OBJECTIVES_MAX; i++)
@@ -18928,6 +18936,7 @@ static const struct { const char *name; s32 id; } stages[] = {
         { "temple", LEVELID_TEMPLE },     { "cuba", LEVELID_CUBA },
         { "flatland", LEVELID_SHO },      { "sho", LEVELID_SHO },  /* generated test level (port/flatland) */
         { "colosseum", LEVELID_EAR },     { "ear", LEVELID_EAR },  /* generated arena (port/colosseum) */
+        { "levelgen", LEVELID_LEE },      { "lee", LEVELID_LEE },  /* generated rooms (port/levelgen, tools/gen_level.py) */
 };
 
 /** 1 when `id` is a level the direct launch knows (the solo missions and Flatland's slot). Netplay validates network-supplied ids with it. */

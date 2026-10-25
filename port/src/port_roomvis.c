@@ -164,6 +164,22 @@ void portRoomVisNote(const char *fmt, ...)
 
 /* Called from bgLevelRender (the world draw of a pass), where bgRoomVisibilityRelated has already run for g_CurrentPlayer: the
  * rooms the view is about to draw (draw[]) against its canonical sim walk. */
+static s32 sDrawn[4][64];   /* the rooms each view drew last (bond.rooms_drawn, tests: the generated level's culling check) */
+static s32 sDrawnN[4];
+
+s32 portRoomVisDrawn(s32 pl, s32 *out, s32 max)
+{
+    s32 i;
+
+    if (pl < 0 || pl > 3) {
+        return 0;
+    }
+    for (i = 0; i < sDrawnN[pl] && i < max; i++) {
+        out[i] = sDrawn[pl][i];
+    }
+    return i;
+}
+
 void portRoomVisDrawLog(s32 pl, s32 startroom, s32 *draw, s32 ndraw)
 {
     s32 sim[256], vis[64];
@@ -172,6 +188,14 @@ void portRoomVisDrawLog(s32 pl, s32 startroom, s32 *draw, s32 ndraw)
     struct player *p;
     s32 tileroom = -1;
 
+    if (pl >= 0 && pl <= 3) {
+        s32 i;
+
+        for (i = 0; i < ndraw && i < 64; i++) {
+            sDrawn[pl][i] = draw[i];
+        }
+        sDrawnN[pl] = i;
+    }
     if (!portRoomLogOn() || pl < 0 || pl > 3 || sLogged[pl] == sTick + 1) {
         return;
     }

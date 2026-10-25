@@ -9,6 +9,7 @@
  *   cctv.render_info() -> table        this machine's last feed pass: {cam, start, rooms = {...}, geom_only, frames} | nil (tests)
  *   hud.panel(lines | nil [, p])       up to 8 lines in a box at the top right (nil or {} clears); p = that Bond only
  *   bond.room(p) -> room | nil         spawn.room(chr) -> room | nil
+ *   bond.rooms_drawn(p) -> {room, ...} the bg rooms view p drew last (tests)
  * Event: cctv_view(p, cam, why): cam -1 = the view ended; why 0 a script, 1 cycled, 2 the Bond left (B / use), 3 hit, 4 down. */
 #include <string.h>
 #include <stdio.h>
@@ -156,6 +157,23 @@ static int bondRoom(lua_State *L)
     return 1;
 }
 
+/* bond.rooms_drawn(p) -> {room, ...}: the bg rooms view p drew last frame (this machine's draw: presentation, tests only) */
+static int bondRoomsDrawn(lua_State *L)
+{
+    int rooms[64];
+    int i, n;
+
+    needStage(L, "bond.rooms_drawn");
+    n = portRoomVisDrawn((int) luaL_optinteger(L, 1, 0), rooms, 64);
+    lua_createtable(L, n, 0);
+    for (i = 0; i < n; i++)
+    {
+        lua_pushinteger(L, rooms[i]);
+        lua_rawseti(L, -2, i + 1);
+    }
+    return 1;
+}
+
 static int spawnRoom(lua_State *L)
 {
     int r;
@@ -241,7 +259,7 @@ void portLuaCctvRegister(lua_State *L)
         { "sees", cctvSees }, { "render_info", cctvRenderInfo }, { "test_press", cctvTestPress }, { "test_shot", cctvTestShot },
         { "test_use", cctvTestUse }, { NULL, NULL } };
     static const luaL_Reg hudAdd[] = { { "panel", hudPanel }, { "panel_lines", hudPanelLines }, { "line", hudLine }, { NULL, NULL } };
-    static const luaL_Reg bondAdd[] = { { "room", bondRoom }, { "use_key", bondUseKey }, { NULL, NULL } };
+    static const luaL_Reg bondAdd[] = { { "room", bondRoom }, { "use_key", bondUseKey }, { "rooms_drawn", bondRoomsDrawn }, { NULL, NULL } };
     static const luaL_Reg spawnAdd[] = { { "room", spawnRoom }, { NULL, NULL } };
     static const luaL_Reg modeAdd[] = { { "state", modeState }, { NULL, NULL } };
 

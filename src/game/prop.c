@@ -1970,6 +1970,11 @@ void proplvreset2(enum LEVELID stageId)
             extern stagesetup UsetupcolosseumZ;
             g_ptrStageSetupFile = &UsetupcolosseumZ;
         }
+        else if (stageId == LEVELID_LEE)
+        {   /* PORT: the generated level (port/levelgen), same arrangement */
+            extern stagesetup UsetuplevelgenZ;
+            g_ptrStageSetupFile = &UsetuplevelgenZ;
+        }
         else
 #endif
         g_ptrStageSetupFile = _fileNameLoadToBank(strResource, FILELOADMETHOD_DEFAULT, 256, MEMPOOL_STAGE);
@@ -1977,7 +1982,7 @@ void proplvreset2(enum LEVELID stageId)
 #ifndef TARGET_N64
         {
             extern s32 romdataFileServed(s32 index);
-            g_portSetupFromRom = (stageId == LEVELID_SHO || stageId == LEVELID_EAR) ? 0 : romdataFileServed(fileGetIndex((u8 *) strResource));
+            g_portSetupFromRom = (stageId == LEVELID_SHO || stageId == LEVELID_EAR || stageId == LEVELID_LEE) ? 0 :romdataFileServed(fileGetIndex((u8 *) strResource));
         }
 #endif
         local_stage = g_ptrStageSetupFile;
