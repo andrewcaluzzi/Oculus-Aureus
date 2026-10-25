@@ -4,13 +4,18 @@
 --                            restart (and the zone rule: no progress and no restart outside it), the vault, the loot, the exit, the win
 --   GE_HEIST_TEST_TRAPPED=1  the vault closes on Bond: trapped, alarm, re-crack from the inside (heavy squad), out, win
 --   GE_HEIST_TEST_FAIL=1     civilians: a knock-out never counts; one death past the limit fails the mission
+--   GE_HEIST_TEST_QUIET=1    the quiet win: crack, grab, leave the vault before the time lock; the empty vault seals with no alarm, and
+--                            the exit pays the quiet bonus
+--   GE_HEIST_TEST_COUNT=1    (with GE_DIFF=3) the full force on 007: 100+ guards placed
 -- Prints "HEIST PASS|FAIL <name> ..." and "HEIST DONE n passed, m failed" (the mission then ends with the mode's own win / fail).
 local TRAPPED = mode.env_flag("GE_HEIST_TEST_TRAPPED")
 local FAILRUN = mode.env_flag("GE_HEIST_TEST_FAIL")
+local QUIET = mode.env_flag("GE_HEIST_TEST_QUIET")
+local COUNT = mode.env_flag("GE_HEIST_TEST_COUNT")
 HEIST_SETTINGS = {
   test = true,
   crack_time = 12, jam_chance = 0, jam_every = 1000,     -- the jam is forced through HEIST.force_jam()
-  vault_time = TRAPPED and 14 or 45, klaxon_at = 5, recrack_time = 8,
+  vault_time = (TRAPPED or QUIET) and 14 or 45, klaxon_at = 5, recrack_time = 8,
 }
 include("heist")
 mods.set("invincible", true)   -- a hundred guards are awake around a warping test Bond
@@ -110,8 +115,11 @@ end
 
 local function win_path()
   -- the setup
-  check("over 100 guards placed", #HEIST.guards >= 100, string.format("guards=%d (posted %d, raisers %d, carriers %d)", #HEIST.guards,
-        HEIST.placed.post, HEIST.placed.raiser, HEIST.placed.carrier))
+  local want = HEIST.want or { post = -100, raiser = -100 }
+  check("guards placed for the difficulty (Agent: ~30 posted, 4 raisers)", mission.difficulty() == 0 and math.abs(HEIST.placed.post - 30) <= 3
+        and math.abs(HEIST.placed.post - want.post) <= 3 and HEIST.placed.raiser == want.raiser,
+        string.format("difficulty %d, guards=%d (posted %d of %d, raisers %d of %d, carriers %d)", mission.difficulty(), #HEIST.guards,
+        HEIST.placed.post, want.post, HEIST.placed.raiser, want.raiser, HEIST.placed.carrier))
   check("bank staff placed", HEIST.placed.civ >= 15, "civilians=" .. HEIST.placed.civ)
   check("six cameras live", #cctv.list() == 6)
   check("tiered doors: GREEN offices, BLUE security, RED antechambers, vault, GOLD safe",
@@ -139,6 +147,14 @@ local function win_path()
   wait(0.5)
   local cam = cctv.get(cctv.list()[1])
   check("the security console blinds the cameras", HEIST.cam_off_until ~= nil and cam and cam.disabled, "until=" .. tostring(HEIST.cam_off_until))
+  local until0 = HEIST.cam_off_until
+  wait(1)
+  door.try(0, 52)                        -- more use presses in the console zone while the cameras are off: ignored
+  wait(0.5)
+  door.try(0, 52)
+  wait(0.5)
+  check("a second console press while the cameras are off does nothing", HEIST.cam_off_until == until0,
+        string.format("until %s -> %s", tostring(until0), tostring(HEIST.cam_off_until)))
   take_card(0x8, "RED")
   bond.warp(0, 86)                       -- room 49, at the antechamber doors 58/59
   wait(0.5)
@@ -228,18 +244,25 @@ local function trapped_path()
   check("crack opens the vault", crack_to_open(), HEIST.phase)
   local _, n = grab("vault", 2)
   check("bars grabbed", n >= 2, "n=" .. n)
-  bond.warp(0, 89)                        -- inside door A
+  -- the west end of room 56 (x below ~300 along z 3141): the old circle test missed it, and a Bond there at the time lock was "sealed"
+  -- in for good with no re-crack (the player bot found it). He counts as inside by his room now.
+  warp_xz(250, 3141)
   wait(0.5)
+  local wx, _, wz = bond.pos(0)
+  check("Bond stands in the vault's west end (room 56, x < 300)", bond.room(0) == 56 and wx < 300,
+        string.format("room %s at (%.0f, %.0f)", tostring(bond.room(0)), wx, wz))
   check("Bond is inside the vault", HEIST.in_vault(0))
+  local sq = HEIST.squads
   local closing = wait_for(10, function() return HEIST.phase == "closing" end)
   check("klaxon before the close", closing and alarm.active(), HEIST.phase)
   local trapped = wait_for(10, function() return HEIST.phase == "trapped" end)
-  check("the vault closes on Bond: trapped", trapped and HEIST.trapped[0] == true, HEIST.phase)
-  check("the time lock raises the alarm (hot)", HEIST.hot and alarm.active())
+  check("the vault closes on Bond in the west end: trapped", trapped and HEIST.trapped[0] == true, HEIST.phase)
+  check("the time lock raises the alarm (hot) when it traps a Bond", HEIST.hot and alarm.active())
+  check("... and sends the heavy squad", HEIST.squads == sq + 1, string.format("squads %d -> %d", sq, HEIST.squads))
+  bond.warp(0, 89)                        -- to the re-crack zone inside door A
   wait(2.5)
   local da = door.get(68)
   check("vault door A closed and relocked", da and da.open < 0.05 and da.keyflags == 0x40000000, da and string.format("%s %.2f", da.state, da.open) or "nil")
-  local sq = HEIST.squads
   check("vault door A does not open from the inside", door.try(0, 68) == false)
   wait(0.5)
   local da2 = door.get(68)
@@ -247,7 +270,6 @@ local function trapped_path()
   if HEIST.phase ~= "recracking" then bond.test_gadget(0, "doordecoder") end   -- (the use press itself restarts the cracker)
   wait(0.5)
   check("re-crack from the inside", HEIST.phase == "recracking", HEIST.phase)
-  check("heavy squad sent", HEIST.squads == sq + 1)
   local out = wait_for(15, function() return HEIST.phase == "escaped" end)
   check("re-crack done: escaped", out, HEIST.phase)
   wait(1.5)
@@ -256,6 +278,42 @@ local function trapped_path()
   bond.warp(0, 116)                       -- exit B, the loading dock
   local won = wait_for(4, function() return ended.win ~= nil end)
   check("exit at the loading dock wins", won, tostring(ended.win))
+end
+
+-- the quiet win (AC delegated, Claude's call 2026-10-25): the time lock closing on an empty vault raises no alarm
+local function quiet_path()
+  check("phase casing, quiet", HEIST.phase == "casing" and not HEIST.hot, HEIST.phase)
+  bond.warp(0, 85)
+  wait(0.5)
+  bond.test_gadget(0, "doordecoder")
+  check("crack opens the vault", crack_to_open(), HEIST.phase)
+  local _, n = grab("vault", 3)
+  check("bars grabbed", n >= 3, "n=" .. n)
+  bond.warp(0, 86)                        -- out of the vault, in the east wing
+  wait(0.5)
+  check("Bond is out of the vault", not HEIST.in_vault(0))
+  local sealed = wait_for(20, function() return HEIST.phase == "sealed" end)
+  check("the empty vault seals", sealed, HEIST.phase)
+  wait(1)
+  check("the time lock on an empty vault raises no alarm", not HEIST.hot and not alarm.active(),
+        string.format("hot=%s alarm=%s", tostring(HEIST.hot), tostring(alarm.active())))
+  local da = door.get(68)
+  check("vault door A shut and relocked", da and da.open < 0.05 and da.keyflags == 0x40000000, da and string.format("%.2f", da.open) or "nil")
+  bond.warp(0, 51)                        -- exit A, the van
+  local won = wait_for(4, function() return ended.win ~= nil end)
+  check("a quiet exit wins", won and not HEIST.hot, tostring(ended.win))
+  local bonus = math.floor(HEIST.loot * 0.25)
+  check("the quiet bonus is paid (+25%)", HEIST.score == HEIST.loot + bonus - civilian.killed() * 100000 and bonus > 0,
+        string.format("score=%s loot=%d bonus=%d", tostring(HEIST.score), HEIST.loot, bonus))
+end
+
+-- the full force on 007 (GE_DIFF=3)
+local function count_path()
+  local want = HEIST.want or { post = -100, raiser = -100 }
+  check("007: the full force, 100+ guards placed", mission.difficulty() == 3 and #HEIST.guards >= 100 and math.abs(HEIST.placed.post - 90) <= 3
+        and HEIST.placed.raiser == 12, string.format("difficulty %d, guards=%d (posted %d of %d, raisers %d of %d)", mission.difficulty(),
+        #HEIST.guards, HEIST.placed.post, want.post, HEIST.placed.raiser, want.raiser))
+  ended.fail = "count run done"
 end
 
 local function fail_path()
@@ -278,7 +336,7 @@ local function body()
   local ready = wait_for(20, function() return HEIST.ready end)
   check("mode ready", ready, "phase=" .. tostring(HEIST.phase))
   wait(1.5)
-  if TRAPPED then trapped_path() elseif FAILRUN then fail_path() else win_path() end
+  if TRAPPED then trapped_path() elseif FAILRUN then fail_path() elseif QUIET then quiet_path() elseif COUNT then count_path() else win_path() end
   summary()
   finished = true
   if ended.win then real_win(ended.win) elseif ended.fail then real_fail(ended.fail) else real_fail("heist test: no ending") end

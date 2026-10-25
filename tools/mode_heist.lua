@@ -25,8 +25,9 @@
 include("heist_lib")
 
 local S = {
-  -- people (at Agent; scaled by DIFF below). About 105 guards are placed on Agent, 120 on Secret Agent: most stand on post, which costs
-  -- almost nothing; the vault guards (+8) appear when it opens, the waves come on top.
+  -- people: the FULL force (007). Each difficulty takes its `force` share of these (difficulty below): Agent about 30 posted guards,
+  -- Secret Agent 45, 00 Agent 70, 007 all 90 (100+ placed with the raisers and carriers). Most stand on post, which costs almost
+  -- nothing; the vault guards appear when it opens, the waves come on top.
   guards_post     = 90,      -- posted guards (stand guard; the stock simple guard list: they hear shots, see Bond, react to bodies)
   guards_raiser   = 12,      -- alarm raisers: on sight or sound they run to the area's alarm panel and sound the alarm
   guards_vault    = 8,       -- vault guards: they wake (spawn inside, chasing) when the vault door opens
@@ -40,12 +41,11 @@ local S = {
   chief_body      = "Russian_Commandant",
   -- alarm and reinforcements
   siren_latch     = true,    -- once the alarm is up the heist is "hot" for good: the siren is re-raised whenever it times out
-  wave_interval   = 25,      -- seconds between waves while hot
-  wave_size       = 3,
-  wave_max_alive  = 16,      -- wave guards alive at once (posted guards not counted)
+  wave_interval   = 25,      -- seconds between waves while hot (each wave: the difficulty's `wave` guards)
+  wave_max_alive  = 16,      -- wave guards alive at once at the full force (posted guards not counted); x force
   wave_first      = 6,       -- seconds from the alarm to the first wave
   response_after  = 120,     -- seconds hot before the elite response (armoured Spetsnaz / Janus SF from both entrances)
-  response_size   = 3,
+  response_size   = 3,       -- x force (at least 1)
   response_interval = 30,
   hostile_cap     = 120,     -- no wave spawns while this many armed chrs are alive (perf: ~75 live is free, idle posts cost little)
   reserve_slots   = 12,
@@ -61,11 +61,18 @@ local S = {
   jam_every       = 15,      -- seconds of progress between jam rolls
   jam_chance      = 0.30,    -- chance of a jam at each roll
   crack_squads    = 2,       -- squads that come for the cracker even in a quiet run (one at the start, one at half way)
-  crack_squad_size = 3,
+  crack_squad_size = 3,      -- x force (at least 1)
   vault_time      = 60,      -- seconds the vault stays open
   klaxon_at       = 15,      -- the klaxon sounds this many seconds before it closes
   recrack_time    = 45,      -- re-cracking from the inside
-  heavy_squad     = 6,       -- armoured squad sent when someone re-cracks from the inside
+  heavy_squad     = 6,       -- armoured squad sent when the time lock traps a Bond inside; x force (at least 2)
+  -- the time lock: closing on an EMPTY vault is quiet (no alarm: a clean run stays clean). Only a Bond trapped inside raises the alarm
+  -- and brings the heavy squad. (AC delegated, Claude's call 2026-10-25: designs/bank-heist.md section 8.)
+  timelock_alarm_empty = false,
+  -- guards hold their fire while a bank civilian (standing, cowering or knocked out) is within ~40 units of their line of fire, short
+  -- of the target; they keep aiming and shoot when it clears (AC delegated, Claude's call 2026-10-25: the bot lost most Agent runs to
+  -- guards' crossfire killing the 5th civilian). The civilian-death count is unchanged.
+  hold_fire       = true,
   -- loot
   bar_value       = 150000,
   money_value     = 25000,
@@ -80,18 +87,21 @@ local S = {
   start_ammo      = 0.5,     -- extra PP7 ammo, fraction of the max
   spawn_per_tick  = 24,      -- chrs placed per 0.25 s at the start (no hitch)
   test            = false,   -- test hooks on (HEIST.* below are always there; this only adds log lines)
+  -- difficulty (mission.difficulty(): 0 Agent .. 3 007). force: the share of the full force above (posted guards, raisers, vault
+  -- guards, wave cap, squads, the response); acc: the guards' accuracy rating (0 = stock, 5 = 1.5x, 10 = 2x: the stock aim is scaled by
+  -- 1 + acc / 10); wave: guards per wave. (AC delegated, Claude's call 2026-10-25, revisit: the player bot won 10/10 with the carriers
+  -- only, 8/10 with 20 posted, 0/10 with 45, so Agent is ~30 posted at stock aim and should be clearly winnable by a careful human.)
+  difficulty = {
+    [0] = { force = 0.334, acc = 0,  hearing = 0.8,  wave = 2, civ_limit = 4 },   -- Agent: ~30 posted, stock accuracy
+    [1] = { force = 0.5,   acc = 5,  hearing = 1.0,  wave = 3, civ_limit = 2 },   -- Secret Agent: ~45, 1.5x
+    [2] = { force = 0.778, acc = 10, hearing = 1.25, wave = 4, civ_limit = 1 },   -- 00 Agent: ~70, 2x
+    [3] = { force = 1.0,   acc = 10, hearing = 1.5,  wave = 4, civ_limit = 1 },   -- 007: the full force (100+ placed), 2x
+  },
 }
 if type(HEIST_SETTINGS) == "table" then
   for k, v in pairs(HEIST_SETTINGS) do S[k] = v end
 end
-
--- difficulty scaling (mission.difficulty(): 0 Agent .. 3 007): guard count, accuracy, hearing, waves
-local DIFF = {
-  [0] = { guards = 1.00, acc = 10, hearing = 0.8,  wave = 2, civ_limit = 4 },
-  [1] = { guards = 1.15, acc = 20, hearing = 1.0,  wave = 3, civ_limit = 2 },
-  [2] = { guards = 1.30, acc = 30, hearing = 1.25, wave = 4, civ_limit = 1 },
-  [3] = { guards = 1.45, acc = 40, hearing = 1.5,  wave = 4, civ_limit = 1 },
-}
+local DIFF = S.difficulty
 
 -- cards (key flags). Per player: a card opens doors only for the Bond who picked it up.
 local GREEN, BLUE, RED, GOLD, FLOORKEY, VAULT = 0x2, 0x4, 0x8, 0x10, 0x1, 0x40000000
@@ -171,6 +181,8 @@ local H = {
 HEIST = H
 
 local diff = DIFF[1]
+-- a full-force count at this difficulty's share (never below `min`)
+local function scaled(n, min) return math.max(min or 0, math.floor(n * (diff.force or 1) + 0.5)) end
 local queue = {}            -- spawn jobs, placed spawn_per_tick per tick
 local waves, response
 local function d2(ax, az, bx, bz) local dx, dz = ax - bx, az - bz; return math.sqrt(dx * dx + dz * dz) end
@@ -349,6 +361,7 @@ end)
 
 on("cctv_spotted", function(cam, p)
   log("camera %d spotted Bond %d", cam, p)
+  go_hot("camera")   -- (the stock alarm also goes off; this catches a spot while the klaxon's siren is already sounding)
 end)
 
 on("body_found", function(g, b, k)
@@ -363,8 +376,9 @@ local function area_by_name(n) for _, a in ipairs(AREAS) do if a.name == n then 
 local function queue_area_guards()
   local total_share = 0
   for _, a in ipairs(AREAS) do total_share = total_share + a.share end
-  local posts = math.floor(S.guards_post * diff.guards + 0.5)
-  local raisers = math.floor(S.guards_raiser * diff.guards + 0.5)
+  local posts = scaled(S.guards_post, 0)
+  local raisers = scaled(S.guards_raiser, 0)
+  H.want = { post = posts, raiser = raisers }
   local raiser_left = raisers
   for _, a in ipairs(AREAS) do
     local n = math.floor(posts * a.share / total_share + 0.5)
@@ -542,13 +556,11 @@ local function crack_start(p, recrack)
   hud.countdown(secs)
   log("%s started by Bond %d (%d s)", recrack and "re-crack" or "crack", p, secs)
   if recrack then
-    flash("Re-cracking: they heard that - heavy squad incoming!", 5)
-    go_hot("re-crack")
-    spawn_squad(P.heavy, S.heavy_squad, { behaviour = "chase", body = "Siberian_Special_Forces", sunglasses = true, weapon = "rcp90",
-                armour = 2, health = 1.5 }, "heavy squad")
+    flash("Re-cracking: hold on, the heavy squad is coming!", 5)
+    go_hot("re-crack")   -- (already hot: the time lock raised it when it trapped the crew)
   else
     flash("The cracker is on the door: stay with it!", 4)
-    if S.crack_squads > 0 then spawn_squad(P.squad, S.crack_squad_size, { behaviour = "chase" }, "crack squad 1") end
+    if S.crack_squads > 0 then spawn_squad(P.squad, scaled(S.crack_squad_size, 1), { behaviour = "chase" }, "crack squad 1") end
   end
 end
 
@@ -578,7 +590,7 @@ local function vault_open_now()
   hud.countdown(S.vault_time)
   log("VAULT OPEN: %d s", S.vault_time)
   flash("The vault is open! Grab the gold", 5)
-  local n = math.floor(S.guards_vault * diff.guards + 0.5)
+  local n = scaled(S.guards_vault, 0)
   for i = 1, n do
     local c = spawn_at(VAULT_PADS[(i * 5) % #VAULT_PADS + 1], guard_opts({ behaviour = "chase" }))
     if c then note_guard(c, "vault", "vault") end
@@ -616,7 +628,7 @@ local function crack_tick(dt)
   local secs_done = H.progress * total
   if not H.recrack and S.crack_squads > 1 and not H.half_squad and H.progress >= 0.5 then
     H.half_squad = true
-    spawn_squad(P.squad, S.crack_squad_size, { behaviour = "chase" }, "crack squad 2")
+    spawn_squad(P.squad, scaled(S.crack_squad_size, 1), { behaviour = "chase" }, "crack squad 2")
   end
   if H.progress >= 1 then crack_done(); return end
   if secs_done >= H.next_jam then
@@ -685,7 +697,9 @@ on("use", function(p, kind, idx, objtype)
   for _, d in ipairs(DOORS.vault_a) do if idx == d then crack_action(p, "use") end end
   for _, d in ipairs(DOORS.vault_b) do if idx == d then crack_action(p, "use") end end
   -- the security console: blinds every camera for cam_off_time seconds and shows who carries the cards
-  if bond.has_key(p, BLUE) and H.console_zone and zone.contains(H.console_zone, bond.id(p)) then H.camera_switch(p) end
+  -- once per activation: a use press while the cameras are already off does nothing (it used to restart the switch every press)
+  if bond.has_key(p, BLUE) and H.console_zone and zone.contains(H.console_zone, bond.id(p))
+     and not (H.cam_off_until and H.elapsed < H.cam_off_until) then H.camera_switch(p) end
   -- the hall's screens: watch the camera feeds (a press of the use action at a screen; MONITOR / MULTI_MONITOR / RACK or nothing in
   -- reach). Only the use action: B is also reload, and a reload next to the screens must not open them (B still leaves the feeds).
   if (idx < 0 or objtype == 10 or objtype == 11 or objtype == 12) and bond.use_key(p) and not cctv.viewing(p) and near_monitor(p)
@@ -804,15 +818,21 @@ local function vault_tick(dt)
       for p = 0, bond.count() - 1 do
         if in_vault(p) then H.trapped[p] = true; any = true end
       end
-      go_hot("vault time lock")
       if any then
+        -- a Bond shut in: the alarm, and the heavy squad comes for him (re-crack from the inside to get out)
         H.phase = "trapped"
+        go_hot("vault time lock: crew trapped")
+        spawn_squad(P.heavy, scaled(S.heavy_squad, 2), { behaviour = "chase", body = "Siberian_Special_Forces", sunglasses = true, weapon = "rcp90",
+                    armour = 2, health = 1.5 }, "heavy squad")
         flash("TRAPPED! Re-crack the vault door from the inside", 6)
         log("vault closed with Bond(s) inside: trapped")
       else
+        -- an empty vault seals quietly: a clean run stays clean (the klaxon's siren is switched off again unless the heist is hot)
         H.phase = "sealed"
+        if S.timelock_alarm_empty then go_hot("vault time lock")
+        elseif not H.hot and alarm.active() then H.klaxon = true; alarm.stop(); H.klaxon = false end
         flash("The vault has sealed. Get out!", 5)
-        log("vault closed and sealed")
+        log("vault closed and sealed (%s)", H.hot and "the heist is hot" or "quiet")
       end
     end
   end
@@ -894,6 +914,7 @@ end)
 
 mode.keep_locks()
 mode.per_player_keys()
+mode.hold_fire(S.hold_fire)
 
 on("stage_start", function(stage)
   if stage ~= 27 then   -- LEVELID 27 = Bunker 2 (GE_STAGE=bunker2)
@@ -934,11 +955,11 @@ on("stage_start", function(stage)
   local function wave_opts()
     return guard_opts({ behaviour = "chase", body = pick({ "Siberian_Special_Forces", "St_Petersburg_Guard" }), weapon = pick({ "kf7", "d5k", "zmg" }) })
   end
-  waves = heist.reinforce{ pads = P.waves_front, interval = S.wave_interval, per_wave = math.max(1, diff.wave), max_alive = S.wave_max_alive,
+  waves = heist.reinforce{ pads = P.waves_front, interval = S.wave_interval, per_wave = math.max(1, diff.wave), max_alive = scaled(S.wave_max_alive, 4),
                            first = S.wave_first, reserve = S.reserve_slots, opts = wave_opts,
                            active = function() return H.hot and not H.ended and hostiles_alive() < S.hostile_cap end }
   response = heist.reinforce{ pads = { P.waves_front[1], P.waves_dock[1], P.waves_front[2], P.waves_dock[2] }, interval = S.response_interval,
-                              per_wave = S.response_size, max_alive = S.wave_max_alive, first = 0, reserve = S.reserve_slots,
+                              per_wave = scaled(S.response_size, 1), max_alive = scaled(S.wave_max_alive, 4), first = 0, reserve = S.reserve_slots,
                               opts = function() return guard_opts({ behaviour = "chase", body = pick({ "Siberian_Special_Forces", "Janus_Special_Forces" }),
                                                                     weapon = pick({ "rcp90", "ar33" }), armour = 1.5, sunglasses = true }) end,
                               active = function() return H.hot and not H.ended and H.hot_at and H.elapsed - H.hot_at >= S.response_after

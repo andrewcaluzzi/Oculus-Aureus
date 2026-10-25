@@ -70,6 +70,7 @@ static KeyRecord sKeyRecs[KEY_REC_N];
 static int sKeyNext;
 void portHeistGuardsReset(void);
 static void cctvBondReset(void);
+static void holdFireReset(void);
 
 void portHeistStageReset(void)
 {
@@ -82,6 +83,7 @@ void portHeistStageReset(void)
     memset(sKeyRecs, 0, sizeof(sKeyRecs));
     sKeyNext = 0;
     cctvBondReset();
+    holdFireReset();
     portHeistGuardsReset();
     {
         extern void portHeistModeStateReset(void);   /* mode.state and the per-Bond use-key flags */
@@ -322,6 +324,62 @@ int portHeistTestGadget(int player, const char *name)
         }
     }
     return 0;
+}
+
+/* ---- any object (obj.get / obj.test_damage; the levelgen object tests, P2.2) ---- */
+
+extern void objApplyDamage(ObjectRecord *obj, f32 damage, coord3d *pos, ITEM_IDS itemnum, s32 playernum);
+extern bool objIsHealthy(ObjectRecord *self);
+
+static ObjectRecord *heistObj(int idx)
+{
+    heistScan();
+    if (!portModeActive() || idx < 0 || idx >= sRecN) return NULL;
+    switch (sRec[idx]->type)
+    {
+        case PROPDEF_DOOR: case PROPDEF_PROP: case PROPDEF_KEY: case PROPDEF_ALARM: case PROPDEF_CCTV: case PROPDEF_MAGAZINE:
+        case PROPDEF_COLLECTABLE: case PROPDEF_MONITOR: case PROPDEF_MULTI_MONITOR: case PROPDEF_RACK: case PROPDEF_AUTOGUN:
+        case PROPDEF_HAT: case PROPDEF_AMMO: case PROPDEF_ARMOUR: case PROPDEF_GLASS: case PROPDEF_SAFE: case PROPDEF_TINTED_GLASS:
+            return (ObjectRecord *) sRec[idx];
+        default:
+            return NULL;
+    }
+}
+
+int portHeistObjGet(int idx, PortHeistObj *o)
+{
+    ObjectRecord *obj = heistObj(idx);
+
+    if (obj == NULL) return 0;
+    memset(o, 0, sizeof(*o));
+    o->idx = idx;
+    o->type = (int) obj->type;
+    o->model = (int) obj->obj;
+    o->pad = (int) obj->pad;
+    o->live = obj->prop != NULL;
+    o->room = -1;
+    o->health = obj->damage;        /* after setup: the hit points (the setup's fixed-point "damage" field) */
+    o->damage = obj->maxdamage;     /* damage taken so far */
+    o->destroyed = obj->prop != NULL ? (objGetDestroyedLevel(obj) > 0 || !objIsHealthy(obj)) : 0;
+    if (obj->prop != NULL)
+    {
+        o->x = obj->prop->pos.x; o->y = obj->prop->pos.y; o->z = obj->prop->pos.z;
+        o->room = propRoom(obj->prop);
+    }
+    return 1;
+}
+
+/* the stock damage path, as a hit from Bond `player`'s PP7 at the object's position would take it (a padlock shot off, an alarm box or
+ * camera shot out) */
+int portHeistObjDamage(int idx, float amount, int player)
+{
+    ObjectRecord *obj = heistObj(idx);
+    coord3d pos;
+
+    if (obj == NULL || obj->prop == NULL) return -1;
+    pos = obj->prop->pos;
+    objApplyDamage(obj, amount, &pos, ITEM_WPPK, player < 0 ? 0 : player);
+    return 1;
 }
 
 /* ---- keys ---- */
@@ -927,6 +985,104 @@ void portHeistCivilianTune(float range, float aim_sec, float threat_sec, float c
 }
 
 int portHeistCivilianKilled(void) { return sCivKilled; }
+
+/* ---- hold fire (mode.hold_fire; AC delegated, Claude's call 2026-10-25) ----
+ * A guard about to fire holds the shot while a bank civilian (standing, cowering or knocked out) is near his line of fire to his
+ * target: within HOLD_RADIUS of the segment, and short of the target. He keeps his stance and aim and fires when the line clears.
+ * Only with mode.hold_fire(true) (the heist); stock behaviour otherwise. The check reads only sim state (positions, the civilian
+ * table) and the shot it drops is decided the same way on every machine; the counters below are for tests and feed nothing back. */
+#define HOLD_RADIUS 40.0f
+#define HOLD_SHORT  30.0f
+#define FIRESTAT_N  64
+static int sHoldFire;
+static struct { s32 chrnum; s32 fired, held; } sFireStat[FIRESTAT_N];
+static int sFireStatN;
+
+void portHeistSetHoldFire(int on) { sHoldFire = on ? 1 : 0; }
+int portHeistHoldFireOn(void) { return sHoldFire; }
+
+static void fireStat(s32 chrnum, int held)
+{
+    int i;
+
+    for (i = 0; i < sFireStatN; i++)
+    {
+        if (sFireStat[i].chrnum == chrnum) break;
+    }
+    if (i == sFireStatN)
+    {
+        if (sFireStatN >= FIRESTAT_N) return;
+        sFireStat[sFireStatN].chrnum = chrnum;
+        sFireStat[sFireStatN].fired = sFireStat[sFireStatN].held = 0;
+        sFireStatN++;
+    }
+    if (held) sFireStat[i].held++; else sFireStat[i].fired++;
+}
+
+/* spawn.fire_stats(chr) -> shots fired, shots held (since the stage started; the first 64 chrs that tried to shoot) */
+int portHeistFireStats(int chrnum, int *fired, int *held)
+{
+    int i;
+
+    *fired = *held = 0;
+    for (i = 0; i < sFireStatN; i++)
+    {
+        if (sFireStat[i].chrnum == chrnum)
+        {
+            *fired = sFireStat[i].fired;
+            *held = sFireStat[i].held;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static void holdFireReset(void)
+{
+    sHoldFire = 0;
+    sFireStatN = 0;
+}
+
+/* chraction.c chrlvTriggerFireWeapon: `self` is about to fire at the current player (the action tick's Bond); 1 = hold this shot */
+int portHeistHoldFire(ChrRecord *self)
+{
+    PropRecord *target, *me;
+    f32 dx, dz, len2, len;
+    int i, hold = 0;
+
+    if (!sHoldFire || !portModeActive() || self == NULL || self->prop == NULL || isCivilian(self->chrnum)) return 0;
+    me = self->prop;
+    target = getCurrentPlayerProp();
+    if (target == NULL) return 0;
+    dx = target->pos.x - me->pos.x;
+    dz = target->pos.z - me->pos.z;
+    len2 = dx * dx + dz * dz;
+    if (len2 < 1.0f) return 0;
+    len = sqrtf(len2);
+    for (i = 0; i < sCivN && !hold; i++)
+    {
+        ChrRecord *c;
+        f32 px, pz, t, ex, ez, along, ty;
+
+        if (!sCiv[i].used) continue;
+        c = chrFindByLiteralId(sCiv[i].chrnum);
+        if (c == NULL || c->prop == NULL || c == self || (chrIsDead(c) && !koIsDown(c->chrnum))) continue;
+        px = c->prop->pos.x - me->pos.x;
+        pz = c->prop->pos.z - me->pos.z;
+        t = (px * dx + pz * dz) / len2;
+        if (t <= 0.0f || t >= 1.0f) continue;
+        along = t * len;
+        if (along > len - HOLD_SHORT) continue;                      /* at or behind the target: not in the way */
+        ex = px - t * dx;
+        ez = pz - t * dz;
+        if (ex * ex + ez * ez > HOLD_RADIUS * HOLD_RADIUS) continue;
+        ty = me->pos.y + t * (target->pos.y - me->pos.y);
+        if (c->prop->pos.y > ty + 200.0f || c->prop->pos.y < ty - 250.0f) continue;   /* another floor */
+        hold = 1;
+    }
+    fireStat(self->chrnum, hold);
+    return hold;
+}
 
 /* port_blocks.c deathsTick: chr `chrnum` just died; killerPlayer = the Bond who killed it, -1 unknown */
 void portHeistChrDied(s32 chrnum, s32 killerPlayer)

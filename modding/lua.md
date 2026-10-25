@@ -169,6 +169,8 @@ Generic building blocks for a heist-style mode (designs/bank-heist.md). Door and
 | `door.try(p, i)` | Bond `p` uses door `i` as the use key would: the stock key check against **that Bond's** keys (plus the `use` event). `true` the door moved, `false` refused, nil no such door or Bond. Handy for scripted NPC use and tests. |
 | `door.one_way(i [, false])` | Whether door `i` is a stock one-way door (flags2 0x10000000 / 0x08000000: it opens from its free side whatever the key). With `false` both bits are cleared first (returns the state before), so only the key opens it from either side. Bunker 2's keyed pairs 58-61 and 68-71 and the blast doors 80-85 are one-way. |
 | `door.snap(i, open)` | Put door `i` and its linked doors fully open (`true`) or shut (`false`) at once, even with a chr in the doorway (a blocked door in the stock game just stops where it is). The portal opens / closes as a stock move would. |
+| `obj.get(i)` | Any setup object by index: `{idx, type, model, pad, live, room, x, y, z, health, damage, destroyed}` or nil. `type` is the `PROPDEF_*` record type (1 door, 3 prop, 4 key, 5 alarm, 6 camera, 10 monitor, 43 safe); `destroyed` per the stock damage state. |
+| `obj.test_damage(i, amount [, p])` | Test hook: object `i` takes `amount` damage through the stock damage path, as Bond `p`'s hit (shoot off a padlock, shoot out an alarm box). True, or nil (no such object). |
 | `spawn.key(chr, flags [, model])` | Gives a spawned chr a key (a stock key assigned to the chr, so it drops where he dies and is picked up like any guard's key). `model` defaults to 86 (the swipe card; the stock keys use 86, 243 and 244). Returns a handle, or nil (no such chr, or it has no model yet; call it right after `spawn.chr`). |
 | `spawn.key_at(pad, flags [, model])` | A floor key on a pad. |
 | `spawn.key_alive(h)` | `alive, held, x, z`: whether the key is still in the world, whether a chr carries it, and where it is. A key a Bond picked up is no longer alive. Up to 64 keys per stage. |
@@ -280,6 +282,8 @@ Job 5 of designs/bank-heist.md. Test mode: `tests/heist/heist_ko.lua` (run with 
 | `ko.test_slap(p, chr)` | Test hook: Bond `p`'s slappers hit `chr` through the stock hit path, wherever he is. |
 | `mode.slaps_to_ko([n])` | Set (and return) the slap count; 0 = off. |
 | `mode.guards_wake(on)` | A guard who finds a knocked-out chr comes to wake it (default true). |
+| `mode.hold_fire([on])` | Returns the setting. On: a guard holds a shot while a bank civilian (`behaviour = "civilian"`, standing, cowering or knocked out) is within 40 units of his line of fire to his target, short of it; he fires when the line clears. Off by default (stock); the heist turns it on. |
+| `spawn.fire_stats(chr)` | Test helper: `fired, held`, the shots the chr fired and the shots it held for a civilian in the line this stage (the first 64 chrs that tried to shoot). |
 
 Co-op: every slap names the Bond whose punch landed; the knock-out table (slaps, state, searched, waker and its timer) and both options are in the co-op state hash. Limits: the fall is always the one stock soft death animation, with none of the stock death code's wall checks, so a chr knocked out facing a wall may clip into it (not seen in the test); the woken chr blends up from lying (there is no stock get-up animation); the waker's "look it over" is the stock look-around animation, not a kneel.
 

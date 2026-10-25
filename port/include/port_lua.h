@@ -142,6 +142,14 @@ int         portHeistDoorMove(int idx, int open);                          /* -1
 int         portHeistDoorKeyflags(int idx, int mode, unsigned flags);      /* mode 0 lock (|=), 1 unlock (&= ~), 2 set */
 int         portHeistTryDoor(int player, int idx);                         /* -1 no such door / Bond, 0 locked, 1 moved */
 int         portHeistTestGadget(int player, const char *name);             /* test hook for the gadget_used plumbing */
+/* obj.get / obj.test_damage (levelgen P2.2): any setup object by index. type = PROPDEF_*, model = its obj model; destroyed per the
+ * stock damage state. ObjGet: 0 no such record (or no mode). ObjDamage: -1 no such object / no prop, else 1. */
+typedef struct PortHeistObj { int idx, type, model, live, room, pad, destroyed; float x, y, z, health, damage; } PortHeistObj;
+int         portHeistObjGet(int idx, PortHeistObj *o);
+void        portHeistSetHoldFire(int on);                                  /* mode.hold_fire: guards hold shots with a civilian in the line */
+int         portHeistHoldFireOn(void);
+int         portHeistFireStats(int chrnum, int *fired, int *held);         /* spawn.fire_stats (tests) */
+int         portHeistObjDamage(int idx, float amount, int player);
 int         portHeistPerPlayerKeys(void);
 void        portHeistSetPerPlayerKeys(int on);
 unsigned    portHeistBondKeys(int player);                                 /* key flags that Bond carries */

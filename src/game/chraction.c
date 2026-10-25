@@ -7488,6 +7488,16 @@ void chrlvTriggerFireWeapon(ChrRecord *self)
 
 #ifndef TARGET_N64
     if (self->hidden & (CHRHIDDEN_FIRE_WEAPON_RIGHT | CHRHIDDEN_FIRE_WEAPON_LEFT))
+    {   /* PORT: heist (mode.hold_fire): a guard holds this shot while a bank civilian is near his line of fire (port_heist.c) */
+        extern int portHeistHoldFire(ChrRecord *self);
+
+        if (portHeistHoldFire(self))
+        {
+            self->hidden &= ~(CHRHIDDEN_FIRE_WEAPON_RIGHT | CHRHIDDEN_FIRE_WEAPON_LEFT);
+            return;
+        }
+    }
+    if (self->hidden & (CHRHIDDEN_FIRE_WEAPON_RIGHT | CHRHIDDEN_FIRE_WEAPON_LEFT))
     {
         portArenaNoteShot(self);   /* PORT: arena (drop A5): log the range of an enemy's first shot */
     }

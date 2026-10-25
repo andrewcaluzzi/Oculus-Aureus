@@ -12,6 +12,7 @@
  *   spawn.ko(chr [, p]) / ko.is / ko.count / ko.slaps / ko.wake / ko.waker / ko.search(p) / ko.test_slap(p, chr)
  *   mode.slaps_to_ko([n]) / mode.guards_wake(on)   (knock-outs, job 5)
  *   bond.equip(p, item) / bond.weapon(p) / mission.difficulty()   (job 6; loot is spawn.item "goldbar"/"money", port_luavm_arena.c)
+ *   obj.get(i) / obj.test_damage(i, amount [, p])   (any setup object; levelgen P2.2)
  * Door and camera indices are the setup-record indices the probe logs. */
 #include <string.h>
 #include <stdio.h>
@@ -476,6 +477,25 @@ static int modeGuardsWake(lua_State *L)
     return 0;
 }
 
+/* mode.hold_fire([on]) -> the setting: guards hold a shot while a bank civilian is near their line of fire (the heist sets it) */
+static int modeHoldFire(lua_State *L)
+{
+    if (!lua_isnone(L, 1)) portHeistSetHoldFire(lua_toboolean(L, 1));
+    lua_pushboolean(L, portHeistHoldFireOn());
+    return 1;
+}
+
+/* spawn.fire_stats(chr) -> fired, held: shots the chr fired and shots it held for a civilian in the line (tests) */
+static int spawnFireStats(lua_State *L)
+{
+    int fired, held;
+
+    portHeistFireStats((int) luaL_checkinteger(L, 1), &fired, &held);
+    lua_pushinteger(L, fired);
+    lua_pushinteger(L, held);
+    return 2;
+}
+
 /* ---- job 6: weapon in hand, difficulty ---- */
 
 /* bond.equip(p, item) -> bool: Bond p draws `item` into his right hand (the stock weapon switch; given first if he lacks it).
@@ -518,6 +538,45 @@ static int missionDifficulty(lua_State *L)
     return 1;
 }
 
+/* ---- obj (any setup object by index; levelgen P2.2) ---- */
+
+/* obj.get(i) -> {idx, type, model, pad, live, room, x, y, z, health, damage, destroyed} | nil (type = PROPDEF_*: 1 door, 3 prop, 4 key,
+ * 5 alarm, 6 cctv, 10 monitor, 43 safe ...) */
+static int objGet(lua_State *L)
+{
+    PortHeistObj o;
+
+    needStage(L, "obj.get");
+    if (!portHeistObjGet((int) luaL_checkinteger(L, 1), &o))
+    {
+        lua_pushnil(L);
+        return 1;
+    }
+    lua_createtable(L, 0, 12);
+    setInt(L, "idx", o.idx);
+    setInt(L, "type", o.type);
+    setInt(L, "model", o.model);
+    setInt(L, "pad", o.pad);
+    setBool(L, "live", o.live);
+    setInt(L, "room", o.room);
+    setNum(L, "x", o.x); setNum(L, "y", o.y); setNum(L, "z", o.z);
+    setNum(L, "health", o.health);
+    setNum(L, "damage", o.damage);
+    setBool(L, "destroyed", o.destroyed);
+    return 1;
+}
+
+/* obj.test_damage(i, amount [, p]) -> true | nil: the stock damage path as Bond p's hit (shoot off a padlock, shoot out an alarm box) */
+static int objTestDamage(lua_State *L)
+{
+    int r;
+
+    needStage(L, "obj.test_damage");
+    r = portHeistObjDamage((int) luaL_checkinteger(L, 1), (float) luaL_checknumber(L, 2), (int) luaL_optinteger(L, 3, 0));
+    if (r < 0) lua_pushnil(L); else lua_pushboolean(L, 1);
+    return 1;
+}
+
 static void addTo(lua_State *L, const char *lib, const luaL_Reg *reg)
 {
     lua_getglobal(L, lib);
@@ -533,20 +592,23 @@ void portLuaHeistRegister(lua_State *L)
     static const luaL_Reg cctvLib[] = { { "list", cctvList }, { "get", cctvGet }, { "disable", cctvDisable }, { "enable", cctvEnable },
         { "set_alarm_time", cctvSetAlarmTime }, { "alarm_on_spot", cctvAlarmOnSpot }, { NULL, NULL } };
     static const luaL_Reg spawnAdd[] = { { "key", spawnKey }, { "key_at", spawnKeyAt }, { "key_alive", spawnKeyAlive }, { "down", spawnDown }, { "heard", spawnHeard },
-        { "ko", spawnKo }, { NULL, NULL } };
+        { "ko", spawnKo }, { "fire_stats", spawnFireStats }, { NULL, NULL } };
     static const luaL_Reg bondAdd[] = { { "has_key", bondHasKey }, { "keys", bondKeys }, { "test_gadget", bondTestGadget }, { "face", bondFace }, { "test_noise", bondTestNoise },
         { "equip", bondEquip }, { "weapon", bondWeapon }, { NULL, NULL } };
     static const luaL_Reg missionAdd[] = { { "difficulty", missionDifficulty }, { NULL, NULL } };
     static const luaL_Reg modeAdd[] = { { "per_player_keys", modePerPlayerKeys }, { "body_check", modeBodyCheck }, { "slaps_to_ko", modeSlapsToKo },
-        { "guards_wake", modeGuardsWake }, { NULL, NULL } };
+        { "guards_wake", modeGuardsWake }, { "hold_fire", modeHoldFire }, { NULL, NULL } };
     static const luaL_Reg koLib[] = { { "is", koIs }, { "count", koCount }, { "slaps", koSlaps }, { "wake", koWake }, { "waker", koWaker },
         { "search", koSearch }, { "test_slap", koTestSlap }, { NULL, NULL } };
     static const luaL_Reg civLib[] = { { "state", civState }, { "killed", civKilled }, { "tune", civTune }, { NULL, NULL } };
     static const luaL_Reg bodiesLib[] = { { "found", bodiesFound }, { NULL, NULL } };
     static const luaL_Reg hudAdd[] = { { "countdown", hudCountdown }, { "countdown_left", hudCountdownLeft }, { NULL, NULL } };
+    static const luaL_Reg objLib[] = { { "get", objGet }, { "test_damage", objTestDamage }, { NULL, NULL } };
 
     luaL_newlib(L, doorLib);
     lua_setglobal(L, "door");
+    luaL_newlib(L, objLib);
+    lua_setglobal(L, "obj");
     luaL_newlib(L, alarmLib);
     lua_setglobal(L, "alarm");
     luaL_newlib(L, cctvLib);

@@ -20,10 +20,12 @@ on("civilian_robbed", function(c, p) ev.crobbed[#ev.crobbed + 1] = { c, p }; pri
 
 local aim = nil
 local heal = false
+local pin = false
 local function wait(sec)
   local t = 0
   while t < sec do
     t = t + coroutine.yield()
+    if pin then bond.warp(0, 61) end
     if aim then bond.face(0, aim[1], aim[2]) end
     if heal then bond.heal(0, 1, 1) end
   end
@@ -217,6 +219,57 @@ local function body()
   spawn.kill(civ)
   wait(1.5)
   check("civilian death counter + event", civilian.killed() == 1 and #ev.ckilled == 1 and ev.ckilled[1][1] == civ, string.format("killed=%d events=%d", civilian.killed(), #ev.ckilled))
+
+  -- G. hold fire (mode.hold_fire; AC delegated, Claude's call 2026-10-25): a guard with a bank civilian in his line of fire to Bond
+  -- holds his shots; once the line is clear he fires
+  mode.hold_fire(true)
+  bond.warp(0, 61)
+  wait(1)
+  pin = true                              -- Bond is held on pad 61 (the hits would push him about and swing the line of fire)
+  local bx, _, bz = bond.pos(0)
+  local gx, _, gz = pads.pos(64)
+  local shooter = spawn.chr(64, { behaviour = "snipe", weapon = "kf7", vision = 20000, face = { bx, bz } })
+  aim = { gx, gz }
+  local t0 = 0
+  while t0 < 15 and select(1, spawn.fire_stats(shooter or -1)) == 0 do wait(0.25); t0 = t0 + 0.25 end
+  wait(1)
+  local f0, h0 = spawn.fire_stats(shooter or -1)
+  check("hold fire: with a clear line the guard shoots at Bond", shooter ~= nil and f0 > 0 and h0 == 0, string.format("fired %d, held %d (first shot after %.1f s)", f0, h0, t0))
+  -- then a civilian steps beside the line, 70 units out from the guard and 25 off it: it does not block his sight of Bond (the stock
+  -- sight test would stop him shooting at all), but a shot past it is the crossfire that killed the bot's staff
+  if shooter then gx, gz = spawn.where(shooter) end
+  local ll = dist2(bx, bz, gx, gz)
+  local ux, uz = (bx - gx) / ll, (bz - gz) / ll
+  local mx, mz = gx + ux * 70 + uz * 25, gz + uz * 70 - ux * 25
+  local near, nd = nil, 1e9               -- the pad nearest the midpoint, then an offset onto the line
+  for _, p in ipairs(pads.far_from(mx, mz, 0, 600)) do
+    local x, _, z = pads.pos(p)
+    local d = dist2(x, z, mx, mz)
+    if d < nd then near, nd = p, d end
+  end
+  local shield
+  if near then
+    local nx, _, nz = pads.pos(near)
+    shield = spawn.chr(near, { behaviour = "civilian", body = "Civilian_3", offset = { mx - nx, mz - nz } })
+  end
+  local sx, sz = 0, 0
+  if shield then sx, sz = spawn.where(shield) end
+  local killed0 = civilian.killed()
+  local f0b, h0b = spawn.fire_stats(shooter or -1)
+  wait(3)
+  local f1, h1 = spawn.fire_stats(shooter or -1)
+  check("hold fire: with a civilian by his line of fire to Bond the guard holds his shots", shooter ~= nil and shield ~= nil and f1 == f0b
+        and h1 > h0b and civilian.killed() == killed0, string.format("fired %d, held %d in 3 s; guard (%.0f, %.0f), civilian (%.0f, %.0f), Bond (%.0f, %.0f), killed %d",
+        f1 - f0b, h1 - h0b, gx, gz, sx, sz, bx, bz, civilian.killed() - killed0))
+  if shield then spawn.remove(shield) end
+  wait(4)
+  local f2, h2 = spawn.fire_stats(shooter or -1)
+  check("... and once the civilian is gone he shoots again", f2 > f1, string.format("fired %d more (held %d)", f2 - f1, h2 - h1))
+  if shooter then spawn.remove(shooter) end
+  mode.hold_fire(false)
+  aim = nil
+  pin = false
+  wait(1)
 
   -- F. crowd of guards: many chrs in one stage
   local made = 0
