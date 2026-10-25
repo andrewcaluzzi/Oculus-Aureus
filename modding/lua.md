@@ -358,6 +358,19 @@ The heist's crew planning board (designs/bank-heist.md section 19). The C side (
 
 `midas.ini [input] intel_hold=1` shows the board only while the key is held. `GE_INTEL_AUTO="<frame>:open|close|page<n>|floor<n>,..."` drives the view in a headless run (the determinism proof in `tests/heist/run_intel.sh`).
 
+### The AR overlay and diagnostics: `ar.*`, `diag.*`
+
+Presentation only (`port/src/port_arhud.c`, `port/luavm/port_luavm_ar.c`; designs/bank-heist.md section 20 has the full table). World
+markers drawn over the frame through the local Bond's camera: `ar.on(bool)`, `ar.layer(name [, bool])` (suspicion, speech, keys, points,
+doors, cameras, radar), `ar.mark(chr, { label, rgba, bracket })`, `ar.say(chr, text [, secs [, kind]])` (a speech bubble with a ROM blip;
+kind `"hey"`, `"radio"`, `"huh"`), `ar.outline(chr, rgba | nil)` (bracket corners and a glow), `ar.clear([chr])`,
+`ar.point(x, y, z, label [, rgba]) -> id` / `ar.unpoint([label])` (waypoints with distances, edge arrows off screen),
+`ar.noise(x, y, z, radius [, kind])`, `ar.config{ range, cone }`, `ar.sound(bool)`, `ar.reset()`. The diagnostics layer (F3):
+`diag.on()`, `diag.off()`, `diag.enabled()`, `diag.door(idx, label [, rgba])`, `diag.room(id, label)`, `diag.text(n, text)`, and
+`diag.freeze(bool)` (no AI list runs: changes the sim, refused in co-op and netplay). Colours are `0xRRGGBBAA` or a name. Without a mode
+calling `ar.on`, nothing is drawn; another stream's script should guard calls with `if ar then`. The heist's wiring is
+`tools/heist_ar.lua`.
+
 ### Weapons, modifiers, music, menus
 
 - `weapon.set(item, field, value)`, `weapon.get(item, field)`, `weapon.reset()`, `weapon.items()`, `weapon.fields()`. Items are lowercase `ITEM_*` names (`ak47`, `wppk`, `goldengun`, `throwknife`, ...) plus `pp7 pp7sil dd44 klobb kf7 zmg ar33 rcp90`. Fields: integers `magsize firerate singlerate penetration sound ammotype`; numbers `damage inaccuracy zoom crosshairspeed aimlockspeed sway recoilback recoilup boltrecoil loudnessmin loudnessmax noiseshot impact`. Edits last until the next stage start.

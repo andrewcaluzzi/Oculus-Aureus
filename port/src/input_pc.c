@@ -1944,6 +1944,16 @@ static int inputFixedKeyDown(const SDL_KeyboardEvent *key)
         }
         return 1;
     }
+    if (sc == SDL_SCANCODE_F3)
+    {   /* the diagnostics layer; Shift+F3 the AR specs (port_arhud.c): presentation, this machine only */
+        extern void portArKey(int shift);
+
+        if (!repeat)
+        {
+            portArKey((key->keysym.mod & KMOD_SHIFT) != 0);
+        }
+        return 1;
+    }
     if ((sc == SDL_SCANCODE_PAGEUP || sc == SDL_SCANCODE_PAGEDOWN) && !repeat)
     {   /* Lua test hotkeys (modding/arena.md); they read this machine's keyboard, so never in co-op or netplay */
         extern int portCoopActive(void);

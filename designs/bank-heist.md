@@ -642,3 +642,97 @@ Screenshots (AC's machine, not in the repo): `E:\midas-temp\intel\shots\` `intel
 **Regression on this branch** (2026-10-26, the machine shared with four other streams, load average about 45 on 12 threads): win path 59, trapped 17, civilian fail 5, quiet 11, count 2; bindings 38, cctv 40, ko 26; heist determinism solo and co-op (twice and view-switched) hash-identical over 4365 / 4362 ticks, every step reached; netplay host / guest hash-identical over every tick both ran, scenario notes identical, every step reached, no DESYNC, but short of the runner's tick count under the load (1964 ticks at the default budget, 2799 at `GE_FRAMES=9000 NETTICKS=4100`; the same environmental limit as section 16e); cover 11 of 12 (`doors` fails as on the base branch); guards 35 of 37 twice (`witness went on alert` and `hold fire`: unseeded runs, and each of the two also fails on other streams' builds tonight; `heist_guards.lua` doesn't load the heist mode, and nothing in this branch touches the AI); levelgen bank `static` 14 of 14 (the walking parts not run: they don't load the mode); dam1 identical (453 lines); `tests/run_logic_tests.sh` all pass.
 
 **Limits and next.** The board is drawn with fill rectangles (lines and cones as runs of them), so diagonal strings and big cones cost a few hundred rects; fine at this size. Text is the stock Bank Gothic (all capitals) and Zurich; no handwriting face without new art. Bond doesn't lower his gun while reading (that would be sim state). Pickpocketing is not on THE KEYS yet (the gadgets stream may add it). The mode's own control-room intel box (`H.seen`, section 10) still reports a carrier "seen" by a camera on another floor (`cctv.sees` tests the cone and the stan line in x/z only); the board's own feed scan checks the floor and doesn't have that problem.
+
+## 20. Augmented interface and diagnostics (built, branch `arhud`)
+
+AC (2026-10-26): "much more diagnostics/debugging, some for testing and some actually for realsies like an augmented interface"; "3d space
+translated to 2d overlay, indicators above enemies who are suspicious, speech (with a sound) near their faces, a glow or outline if
+they've got a certain key". Two layers, both drawn by `port/src/port_arhud.c` after the frame in the console's 2D space (480 lines by the
+window's width). World points go through the local Bond's camera: the world-to-view matrix (`field_10CC`) times the chrs' projection
+(`projmatrixf`), the product `port_crowd.c` uses, then the player's viewport (`c_screenleft/top/width/height`) and the wide or
+pillarboxed frame. Points behind the camera are clipped at the near side (`w > 1`); a marker off screen becomes an arrow on the edge.
+
+**Presentation only.** The overlay reads sim state and writes only its own statics (marks, bubbles, waypoints, rings, labels, toggles),
+which the sim never reads; the file is classed PRES in `scripts/port/snap_embed.py` (never rewound). Its Lua calls are ignored while a
+rollback re-simulates a tick. `tools/heist_ar.lua` only reads the heist's state (no `math.random`, nothing in `mode.state`). Proof:
+`tests/heist/run_ar.sh proof` runs the scripted determinism heist with the AR wiring not even attached (`GE_AR_OFF=1`) and with the
+specs, the diagnostics and the radar all on (`GE_DIAG=1`): the per-tick state hashes must be identical. The one exception is the test
+switch `diag freeze` below (solo only, off by default).
+
+### 20.1 The Q-Branch specs (the AR layer)
+
+On by default in the heist (`S.ar = true`); the specs are part of the crew's kit, so there is no inventory item to fiddle with. Toggle with
+**Shift+F3** or the console (`ar`, `ar off`). Layers (`ar <layer> on|off`, `S.ar_layers = { radar = true }`, `ar.layer(name, bool)`):
+
+| Layer | What it draws |
+|---|---|
+| `suspicion` | over each cover guard: a pixel "?" that fills from the bottom as his meter toward you rises (yellow, orange past half), a blinking red "!" once he has seen through you ("HEY!") or everyone is on alert. With the ai stream's `portAiAwareness` linked, its states count too (suspicious / searching fill the "?", alert / combat are "!"). Faded with distance (full to 12 m, gone at 32 m); hidden when the game did not draw the chr this frame (`PROPFLAG_ONSCREEN`: the room portals and the frustum, no per-pixel test) |
+| `speech` | speech bubbles near the face, with a short stock ROM sound (the radio squelch for radio calls, the camera beep for "HEY!", a quiet beep otherwise), panned from where he stands. One bubble per chr; it pops in and fades out |
+| `keys` | a chr carrying a key (its child props that are key objects): bracket corners in the key's colour round its projected bounds, a faint pulsing tint (the glow), a key icon and GREEN / BLUE / RED / GOLD. `ar.outline(chr, rgba)` does the same for any chr |
+| `points` | waypoint diamonds with distances in metres: VAULT (GOLD once it opens), BREAKER (while the power is on, quiet, casing), VAN and DOCK (bright once you carry loot or it went loud) |
+| `doors` | a keyed, shut door within 18 m: bracket corners and OPEN in its colour when your keys open it; a dim key icon in its colour when they do not |
+| `cameras` | a camera icon on each live camera within 30 m, red with a blinking REC while it is timing you, and its heading as a faint floor cone (only in the room you are in: there is no occlusion test). Nothing with the power out |
+| `radar` | off by default: a 25 m top-down disc at the bottom right, your heading up: guards (white, yellow suspicious, red alert), staff (blue), key holders (their key's colour), knocked out (grey), waypoints at the rim |
+
+The heist's own moments become bubbles over the guard who says them (`tools/heist_ar.lua`): "HEY!" (`cover_blown`), "Control!
+Intruder!" (`cover_report`, the witness radioing in), "Camera n: we've got someone" (the security room's relay on `cctv_spotted`), "Man
+down!" / "Body!" (`body_found`), "ALARM!" (a raiser when the siren starts), "Huh?" (a guard's meter passing half way), "Don't shoot!" /
+"Take it!" (civilians), "Ugh... my head" (`chr_woken`). The ai stream's `guard_bark(chr, kind, text)` and `noise(x, y, z, radius, kind)`
+events are drawn when they exist (hooked through `pcall`, so the heist works without them).
+
+### 20.2 The diagnostics layer (F3)
+
+**F3** or the console `diag` (`diag on|off`; `GE_DIAG=1` turns it on at the heist's start). Over every chr the game drew within 22 m:
+its chr number, action (`stand`, `gopos`, ...), AI list (`G`lobal / `L`ocal id + offset), the ai stream's awareness state and level,
+its cover suspicion, alertness and distance; within 16 m its sight cone as a floor fan (cover.tune's range and cone: the edges at full
+range, the arc at 7 m), its hearing ring (hearingscale x 500: about a silenced shot), and a line to its go-to target. Noise events are
+expanding rings (one second). Doors within 18 m show `D<idx> k<keyflags>` and their guard rule from `S.door_access` / the layout's tags
+(green any, red never, amber a role list). Cameras show their timer toward you and their alarm time. The panel (left, under the HUD):
+tick, the co-op state hash (read every half second), FPS and frame ms, chrs up / placed, alarm / power / cover, the room you stand in
+with its name, area and cover class, your position, then the heist's phase, loot, guards, civilians, blown / reports. The radar is on
+while the layer is.
+
+**`diag freeze`** (console only) stops every AI list (chrs finish their current action and stand). It changes the sim, so it is refused
+in co-op and netplay and is off at every stage start (`ar.reset`). Use it to look at a scene, walk round a guard, or line up a
+screenshot.
+
+### 20.3 The Lua API (`port/luavm/port_luavm_ar.c`; any mode may call it, guarded with `if ar then`)
+
+| Call | |
+|---|---|
+| `ar.on(bool)`, `ar.enabled()` | the specs (off until a mode turns them on) |
+| `ar.layer(name [, bool]) -> bool` | the layers above; an unknown name is an error |
+| `ar.mark(chr, { label =, rgba =, bracket = })` or `ar.mark(chr, "text")` | a tag under the chr, optional brackets |
+| `ar.say(chr, text [, secs [, kind]])` | a bubble; kind `"hey"` (red), `"radio"` (cyan), `"huh"` (yellow) or any `guard_bark` kind |
+| `ar.outline(chr, rgba or nil)` | brackets and glow in that colour (nil clears) |
+| `ar.clear([chr])` | the chr's mark, outline and bubble (no chr: all) |
+| `ar.point(x, y, z, label [, rgba]) -> id`, `ar.unpoint([label])` | a waypoint (the same label moves it) |
+| `ar.noise(x, y, z, radius [, kind])` | an expanding ring |
+| `ar.config{ range =, cone = }`, `ar.sound(bool)`, `ar.reset()` | the diagnostics' cone; bubble sounds; forget everything |
+| `diag.on()`, `diag.off()`, `diag.enabled()` | the diagnostics layer |
+| `diag.door(idx, label [, rgba])`, `diag.room(id, label)`, `diag.text(n, text)` | labels for doors, rooms, and panel lines 1..4 |
+| `diag.freeze(bool) -> ok` | the AI freeze (refused in co-op / netplay) |
+
+Colours are `0xRRGGBBAA` or a name (`red green blue gold white cyan yellow orange`).
+
+### 20.4 Tests
+
+`tests/heist/run_ar.sh` (container, Xvfb `:99`): `api` runs `tests/heist/heist_arhud.lua` (13 checks: the API, the heist wiring, a
+carrier with a key, a guard's meter filling with a drawn gun and his "HEY"); `GE_AR_SHOTS=1` takes the four showcase shots (a key
+holder's brackets, the diagnostics over the hall, the "?" filling, the "!" and the "HEY!" bubble). `proof` is the presentation proof
+above.
+
+**Results on the arhud build (2026-10-26):** `run_ar.sh` api 13/13, proof 4365 ticks hash-identical (AR off vs AR + diagnostics +
+radar, and the log shows the layer drew); heist determinism with `GE_DIAG=1` (the diagnostics on in every run): solo 3/3, co-op 5/5,
+netplay (run alone, `GE_FRAMES=8000`) host / guest hash-identical over all 3179 ticks both ran, scenario notes identical, every step
+reached, no DESYNC, but short of the runner's tick count (the known loopback-under-llvmpipe shortfall of section 16: 11 of 12 by the
+script's count, no difference anywhere); bindings 38, win path 59, trapped 17, civilian fail 5, quiet 11, count 2, cctv 40, ko 26, cover 11 of 12 runs (`doors`
+fails as expected), dam1 identical (453 lines), logic tests pass, levelgen bank `static` 14 (the walking parts not run: they do not
+load the heist). **guards 33 of 37, not from this branch:** the guards test sets no `GE_SEED`, so each run is a different game; with
+`GE_SEED=7` the develop baseline (aa33cf0) and this branch both score 33 (body found, bodies.found, the witness's alert, hold fire) and
+their state hashes are identical for all 5864 ticks; an unseeded develop run scored 36.
+
+**Limits.** No true silhouette outline: the renderer has no cheap stencil pass, so key holders get bracket corners and a tint over their
+projected box. Occlusion is the game's own chr visibility (rooms and frustum), so a guard behind a pillar in a room you can see still
+shows his "?". The head marker sits over the standing height (a crouching guard's floats a little). The camera cone is the camera's
+heading, not its exact sight test. The diagnostics' text overlaps when many chrs stand close together.

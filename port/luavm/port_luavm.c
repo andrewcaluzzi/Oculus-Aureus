@@ -1737,6 +1737,11 @@ static lua_State *portLuaState(void)
 
         portLuaIntelRegister(sL);
     }
+    {   /* the AR overlay and the diagnostics: ar.* / diag.* (port_luavm_ar.c) */
+        extern void portLuaArRegister(lua_State *L);
+
+        portLuaArRegister(sL);
+    }
     lua_pushcfunction(sL, portLuaOn);
     lua_setglobal(sL, "on");
     lua_pushcfunction(sL, portLuaInclude);
