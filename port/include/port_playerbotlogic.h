@@ -77,8 +77,8 @@ float pblExposure(const float *dist, const int *seen, int n, float noShot);
 /* An exponential average of angles in degrees (wraps: 170 and -170 average to 180, not 0); k = the new sample's weight. */
 float pblAngleEma(float oldDeg, float sampleDeg, float k);
 /* Speed-strafing: which C strafe to hold (-1 C-left, +1 C-right) for a route that turns turnDeg (yaw degrees, signed) at the
- * next corner, offRight = the learnt yaw of Bond's motion off the view while C-right is held. The strafe that pushes the
- * motion into the turn; on bends under 25 degrees the current side stays (every flip ramps the strafe speed through 0). */
+ * next corner, offRight = the yaw of Bond's motion off the view while strafing right. The strafe that pushes the motion
+ * into the turn; on bends under 50 degrees the current side stays (a flip swings the view by twice the offset). */
 int   pblStrafeSide(int cur, float turnDeg, float offRight);
 
 /* ---- plans ------------------------------------------------------------------------------------------------------------ */

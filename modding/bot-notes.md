@@ -115,6 +115,58 @@ takes over an hour.
 - **Streets / Depot / Cradle / Egypt / Jungle**: die in fights; Train / Control / Caverns / Aztec: time out. None has a
   plan yet (default `auto` + `exit`). The `exit` step now fights (it used to stand still and get shot).
 
+## Round 4 (2026-10-25): real strafing, speed-strafe, Statue complete, exposure-scored cover
+
+**The C buttons never moved Bond.** In the port's pad path (bondview2.c ~7770, not an N64 pad) the strafe is the Move
+stick's x (`analogStrafe = stick x`, `canTurnTank` forced on) and the C buttons' digital steps are cleared. Every combat
+"strafe", civilian side-step and walk-while-aiming heading since round 1 pressed C-left/right and stood still (measured
+< 1 u/tick). They now use stick x (+x moves Bond toward yaw theta + 90, i.e. against r1 = (cos t, sin t)). The periodic
+combat dodge is opt-in (`GE_PLAYERBOT_DODGE=N` ticks per side): Bunker 2 seeds 1-6 won 1/6 with a 45-tick dodge against
+3/6 standing (see the dodge sweep below).
+
+**Movement, measured** (`GE_PLAYERBOT_SSTEST=1`: the first 25 s of a stage run each input along a line, view held; Dam's
+start road, the "out" leg): stick forward 8.4 u/tick; stick forward + right 9.0 u/tick 40 deg off the view (the bot's
+own |x|+|y| <= 130 gate cuts the diagonal to 65/65); **the port's digital move forward + right 11.0 u/tick, 38 deg off
+the view (+31%)**. Source: bondview2.c scales the walk animation's forward root motion by speedforwards / maxspeed
+(maxspeed = max(forward, sideways x 0.8, turn): a full strafe does not cut the forward) and bondhead.c adds the strafe on
+top. The digital strafe ramps (speedstrafe +-delta a tick: a side flip costs ~2 ticks); the analog strafe is instant.
+`GE_PLAYERBOT_SPEED=1` speed-strafes on the digital move (`portPlayerBotDigMove`, recorded like the pad) with the view
+38 deg off the travel direction, the side kept through bends under 50 deg.
+
+**How a guard's shot lands** (chraction.c ~6790): the per-shot sum (0.16 x cadence x min(1, 300/d) x ...) only grows while
+Bond is inside the guard's aim cone, measured from its body facing + `aimsideback`: 14 deg under 200, 8.6 deg to 400,
+4.3 deg to 800, 2.2 deg to 1600, 1.1 deg beyond (`chrlvGetAimLimitAngle`). `aimsideback` eases toward the aim at Bond
+over `aimendcount` = 10 ticks (chr.c `chrUpdateAimProperties`), so a Bond crossing the guard's line lags the aim by
+about (lateral speed x 10 ticks) / d rad - wider than the cone at every range for 8 u/tick. On paper lateral motion
+should dodge; the Bunker 2 sweep did not show it (strafing also walks Bond out of cover and into other guards' lines).
+
+**Stale Lua in round 3.** CMake copies `tools/mode_heist.lua` and `tools/bot/heist_bot*.lua` into `Data/Scripts/modes`
+only as a POST_BUILD step of `ge`: an up-to-date build (no relink) leaves the old copies. Round 3's "leave the vault
+early" and the vault-rooms fix never ran in its batches. Re-measured with them: tune 2 **9/10** (seed 4, shut in before,
+now wins), tune 3 **1/10** (5 of the 9 losses: the 5th civilian killed in the guards' crossfire at 54-134 s, before the
+vault). The stale-Lua batch of the same build had tune 2 7/10, tune 3 4/10 (10 seeds is noisy). Replays 40/40 `same`.
+
+**Statue complete (5/5, replay same).** The whole chain, from the setup's AI (lists run as 0x401 + N):
+Valentin (meet in front of him); Janus spawns within 800 of pad 59 and checks after 2 s that Bond holds ITEM_FIST -
+flag 0x2000 ("Janus walks off", objective 1 fails) comes from a shot near him or his guards, Bond > 1400 from pad 59
+(the old `meet` walked Bond there in 3 s), or a gun out once 0x4000 is set; Natalya (ai_21) spawns at pad 6 with a 180 s
+countdown, which drops to 15 s once Bond is within 500 of the aircraft at pad 24 (next to her), and the blast at its end
+kills her if she is still there; her captors and the exit-scene chr (lists 0x419, 0x41c, 0x41d) shot or killed set
+0x04000000 and ai_39 kills her, even after objective 3 completed; the exit (pad 22's room) gives the good ending only
+while chr 10 lives. New plan step `spare ai ID`.
+
+**Other fixes**: the `exit` step tapped A every 30 ticks - A is "next gun" - through fights and ended on the fist (the
+Streets/Depot/Archives deaths with 0-4 kills); it now taps only after 5 s with nobody in sight. `equip unarmed` clears a
+wanted item; `peace 1` keeps the wanted item in hand (Janus: the fist). Stage-flag changes are logged (`flags +0x... at
+t=`): plan writing reads which AI flag fired straight from a run. Cover picks the tile with the lowest exposure
+(`pblExposure`: sum of min(1, 300/d) over guards that see it; 0.25 for none) when 2+ guards have a line, moving only for a
+clear gain (`GE_PLAYERBOT_OLDCOVER=1`: the round-3 rule). Plans: Statue, Streets (pad 248), Depot (train door, pad 271),
+Archives (pad 152, Natalya 0x409, pad 208).
+
+**Disk**: batch output goes to `E:\midas-temp\bot` (`BOTOUT=/scratch/bot` with `-v /mnt/e/midas-temp:/scratch`; `OUT=` for
+campaign.sh); `NOSHOTS=1` now works for level.sh and campaign.sh too. Batches run a copy of the binary
+(`BUILD=../../../scratch/bot/binX`, a snapshot of build_pc's ProjectMidas + Data) so build_pc can be rebuilt meanwhile.
+
 ## Round 3 (2026-10-25): the full heist loop, a difficulty curve, the audio crash
 
 **Heist easy tunings.** `tools/bot/heist_bot.lua` sets `HEIST_SETTINGS` before `include("heist")` (the mode's defaults are

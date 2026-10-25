@@ -49,6 +49,10 @@ objectives and with no position drift; `failure_point` says where it died or got
 | `GE_PLAYERBOT_AIMY` | aim height over a chr's origin (default 52, the head) |
 | `GE_PLAYERBOT_NOCOVER`, `GE_PLAYERBOT_NOKITE`, `GE_PLAYERBOT_RUSH` | A/B switches: no cover, no backing away, `rush 1` from the start |
 | `GE_PLAYERBOT_SPAREALL`, `GE_PLAYERBOT_GLASSTEST` | experiments (quiet: shoot only guards that noticed Bond; shoot raisers through closed doors) |
+| `GE_PLAYERBOT_SPEED=1` | the speedrun movement: speed-strafe on the digital move (forward + sideways, the view 38 deg off the travel direction; +31% on a straight) |
+| `GE_PLAYERBOT_DODGE=N` | strafe N ticks each way while shooting (default 0: stand) |
+| `GE_PLAYERBOT_OLDCOVER=1` | the round-3 cover rule (nearest tile no threat sees) instead of the exposure score |
+| `GE_PLAYERBOT_SSTEST=1` | experiment: the first 25 s measure each movement input (stick, stick diagonal, digital diagonal, C strafe) |
 
 For speed and determinism the harness also sets `GE_FIXEDTICK=1` (one 60 Hz field per sim tick, so a run does not
 depend on how fast the machine is), `GE_NOSLEEP=1` (no frame pacing), `GE_CLOCKSCALE=20` (the N64 clock runs 20x so
@@ -79,10 +83,11 @@ The bot exits the process with status 0 (completed), 1 (failed) or 2 (timeout) a
   when the yaw and the pitch are both on (semi-automatics are tapped), and:
   * keeps guards at range: a guard's aim builds per shot by 0.48 x min(1, 300 / distance) (chraction.c; Bond's own
     movement does not enter it), so it backs away from an alert guard inside 450 (700 when hurt);
-  * takes cover when outnumbered or hurt: the nearest tile (breadth first, same floor) that none of the guards with a
-    line on Bond can see, held while they come round to it;
-  * steps aside when a civilian stands in a guard's line of fire at Bond (the strafe direction is learnt from Bond's
-    own motion the first time he strafes: C-right moves him against (cos t, sin t));
+  * with two or more guards with a line on him (or hurt), moves to the nearby tile (breadth first, same floor) where
+    they hit him least - the sum of min(1, 300 / d) over the guards that see it, a hidden tile counting 0.25 - when it
+    is clearly better than where he stands, and fights from there;
+  * steps aside when a civilian stands in a guard's line of fire at Bond (the strafe is the Move stick's x: the port's
+    pad path takes no strafe from the C buttons);
   * goes for lying body armour within 1500 when hurt (below 0.6);
   * with no gun at all (Bunker 2, Archives) closes in and punches, then picks up the guard's gun;
   * gives up on a target it has not had a shot at for 8 s (left alone for 10 s).
@@ -116,12 +121,15 @@ skipped once objective N is complete or not needed at this difficulty, `diff=A-B
 | `key FLAGS` | fetch a key with any of these flags: lying (walk over it), on a guard (knock out and search, or shoot), on heist staff (hold a gun on it until it hands it over) |
 | `rush 1|0` | keep walking the route while fighting (the stick and the C strafe buttons move, the look stays on the target) |
 | `avoid pad N` | keep routes out of that pad's room from here on (a room that ends the mission early); `avoid pad -1` opens them all again |
+| `spare ai ID` | never shoot chrs running that AI list (a hostage's captors whose death has the hostage killed); `spare ai 0` clears |
 | `auto` | the generic objective handlers until none is left |
 | `exit` | stand still and tap A until the mission ends (end cut-scenes wait for a button) |
 
 `tools/bot/objectives.py assets/obseg/setup/Usetup<stage>Z.c` (run it on your extracted setup) lists a stage's
 objectives, tags, and the AI lines that set each completion flag with the conditions before them - that is how the
-plans were written. Note the AI macros store flags and pads byte-swapped (the tool converts them).
+plans were written. Note the AI macros store flags and pads byte-swapped (the tool converts them); a stage's AI list
+`ai_N` runs as list id 0x401 + N. The bot logs every stage-flag change (`flags +0x... at t=`), so a run shows which AI
+flag fired and when.
 
 ## Game modes (Lua) and the Bank Heist
 

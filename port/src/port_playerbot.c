@@ -132,7 +132,7 @@ typedef struct {
     f32 ssDist, wDist;         /* distance covered on straight stretches: speed-strafing / plain running (ticks below) */
     s32 ssTicks, wTicks;
     s32 ssTest;
-    s32 dodgePeriod;           /* combat: ticks per strafe direction (GE_PLAYERBOT_DODGE, default 45) */
+    s32 dodgePeriod;           /* combat: ticks per strafe direction (GE_PLAYERBOT_DODGE; 0 = stand, the default) */
     f32 ssTestYaw, ssTestX, ssTestZ;
     f32 ssOff[2], ssPrevX, ssPrevZ, ssTurnHint;
     void *spare[6];            /* `spare ai ID`: AI lists whose chrs are never shot (a hostage's captors) */
@@ -1312,7 +1312,7 @@ static void steerTo(f32 x, f32 y, f32 z, f32 slowRadius)
         (void) slowRadius;
         return;
     }
-    if (B.speedMode && slowRadius <= 0.0f && B.doorProp == NULL && dist > 120.0f)
+    if (B.speedMode && slowRadius <= 0.0f && B.doorProp == NULL && dist > 30.0f)
     {   /* speed-strafe: bondview2.c scales the walk animation's forward root motion by speedforwards / maxspeed (maxspeed =
          * the largest of forward, sideways x MAX_SPEED_FACTOR, turn) and then ADDS the strafe (speedsideways / delta) to it
          * (bondhead.c bheadUpdate), not normalised: forward + strafe is faster than forward. Turn the view off the travel
@@ -1356,8 +1356,8 @@ static void steerTo(f32 x, f32 y, f32 z, f32 slowRadius)
             }
         }
         else
-        {
-            B.sy = fabsf(err) > 70.0f ? 0 : 30;
+        {   /* turning onto a new bend: keep the digital forward on unless it points well away (it only ramps back) */
+            B.dmy = fabsf(err) > 90.0f ? 0 : 1;
             B.ssHeld = 0;
         }
         B.ssPrevX = p->prop->pos.x;
@@ -2155,13 +2155,15 @@ static s32 combatTick(f32 range)
         {
             B.sx = (s8) (side > 0 ? -70 : 70);
         }
-        else if (B.tick - B.holdFire < 10 ? ((B.holdFire / 240) & 1) != 0 : ((B.tick / B.dodgePeriod) & 1) != 0)
-        {
-            B.sx = -70;
+        else if (B.tick - B.holdFire < 10)
+        {   /* holding fire for a bystander: one way, to open the line */
+            B.sx = ((B.holdFire / 240) & 1) != 0 ? -70 : 70;
         }
-        else
-        {
-            B.sx = 70;
+        else if (B.dodgePeriod > 0)
+        {   /* GE_PLAYERBOT_DODGE=N: strafe N ticks each way while shooting (off by default: until round 4 the strafe was
+             * the C buttons, which never moved Bond, so every measured run stood still; Bunker 2 seeds 1-6 won 1 of 6 with
+             * a 45-tick dodge against 3 of 6 standing) */
+            B.sx = ((B.tick / B.dodgePeriod) & 1) != 0 ? -70 : 70;
         }
     }
     {   /* keep them at range: a guard's aim builds up per shot by 0.48 x min(1, 300 / distance) (chraction.c), so one
@@ -3257,10 +3259,10 @@ static void stageBegin(void)
     B.ssHeld = 0;
     B.ssLearnN = 0;
     B.ssTest = getenv("GE_PLAYERBOT_SSTEST") != NULL ? atoi(getenv("GE_PLAYERBOT_SSTEST")) : 0;
-    B.dodgePeriod = getenv("GE_PLAYERBOT_DODGE") != NULL ? atoi(getenv("GE_PLAYERBOT_DODGE")) : 45;
-    if (B.dodgePeriod < 5)
+    B.dodgePeriod = getenv("GE_PLAYERBOT_DODGE") != NULL ? atoi(getenv("GE_PLAYERBOT_DODGE")) : 0;
+    if (B.dodgePeriod < 0)
     {
-        B.dodgePeriod = 45;
+        B.dodgePeriod = 0;
     }
     B.ssTestYaw = 0.0f;
     B.ssOff[0] = -38.0f;   /* digital forward + left: the motion 38 deg off the view (measured, GE_PLAYERBOT_SSTEST) */

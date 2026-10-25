@@ -121,9 +121,9 @@ float pblAngleEma(float oldDeg, float sampleDeg, float k)
 
 int pblStrafeSide(int cur, float turnDeg, float offRight)
 {
-    if (fabsf(turnDeg) < 25.0f)
+    if (fabsf(turnDeg) < 50.0f)
     {
-        return cur;   /* (a side flip costs the ramp: keep it on gentle bends) */
+        return cur;   /* (a flip swings the view 76 degrees: keep the side through ordinary bends) */
     }
     return (turnDeg > 0.0f) == (offRight > 0.0f) ? 1 : -1;
 }
