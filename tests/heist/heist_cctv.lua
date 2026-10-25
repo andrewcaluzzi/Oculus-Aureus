@@ -204,6 +204,30 @@ local function body()
     wait(0.25)
   end
   check("a working camera sees a guard (cctv.sees)", any, "camera " .. tostring(seen_by))
+  -- 11b. the intel box's sightings keep to the camera's floor (cctv.sees is x/z only): the mode's rule agrees with the INTEL board's
+  -- (a chr counts only with his room on the camera's floor), over every camera and guard for 5 s of sweeps
+  local I = HEIST.intel
+  if I and I.room_floor and HEIST.cam_sees_on_floor then
+    local camfloor = {}
+    for _, c in ipairs(I.data.cams or {}) do camfloor[c.idx] = c.floor end
+    local same, cross, bad = 0, 0, {}
+    for _ = 1, 20 do
+      for _, cam in ipairs(cams) do
+        for _, g in ipairs(HEIST.guards) do
+          if spawn.alive(g.chr) then
+            local raw = cctv.sees(cam, g.chr)
+            local r = spawn.room(g.chr)
+            local want = raw and r ~= nil and I.room_floor[r] == camfloor[cam]
+            if raw and want then same = same + 1 elseif raw then cross = cross + 1 end
+            if HEIST.cam_sees_on_floor(cam, g.chr) ~= want then bad[#bad + 1] = cam .. ":" .. g.chr end
+          end
+        end
+      end
+      wait(0.25)
+    end
+    check("intel sightings only on the camera's floor", #bad == 0,
+          string.format("%d same-floor, %d other-floor sightings filtered, mismatches %s", same, cross, table.concat(bad, ",", 1, math.min(#bad, 8))))
+  end
   cctv.disable(CAM_HALL)
   local none = true
   for _, g in ipairs(HEIST.guards) do if cctv.sees(CAM_HALL, g.chr) then none = false end end

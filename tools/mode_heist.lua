@@ -819,12 +819,45 @@ on("use", function(p, kind, idx, objtype)
   end
 end)
 
+-- the floor rule of the INTEL board's feed scan (tools/heist_intel.lua): cctv.sees tests the cone and the line in x/z only, so a camera
+-- "sees" a chr on the floor above or below; a sighting counts only with the chr's room on the camera's own floor (the layout's levels)
+local cam_floor_of, room_floor_of
+local function floors_build()
+  local heights, levels = {}, {}
+  for _, r in pairs(LEVEL.rooms) do if r.area ~= "street" then heights[r.floor] = (heights[r.floor] or 0) + 1 end end
+  for y, n in pairs(heights) do if n >= 2 then levels[#levels + 1] = y end end
+  table.sort(levels)
+  local ground = 1
+  for i, y in ipairs(levels) do if y == 0 then ground = i end end
+  local function level_of(y)
+    local best = 1
+    for i, ly in ipairs(levels) do if y >= ly - 10 then best = i end end
+    return best
+  end
+  local function room_level(r) return r.area == "street" and ground or level_of(r.floor) end
+  cam_floor_of, room_floor_of = {}, {}
+  for _, r in pairs(LEVEL.rooms) do room_floor_of[r.id] = room_level(r) end
+  for _, o in pairs(LEVEL.objects) do
+    if o.type == "camera" then
+      local r = LEVEL.rooms[o.room]
+      cam_floor_of[o.index] = r and room_level(r) or level_of(o.y or 0)
+    end
+  end
+end
+local function cam_sees_on_floor(cam, chr)
+  if not cctv.sees(cam, chr) then return false end
+  if not cam_floor_of then floors_build() end
+  local r = spawn.room(chr)
+  return r ~= nil and cam_floor_of[cam] ~= nil and room_floor_of[r] == cam_floor_of[cam]
+end
+H.cam_sees_on_floor = cam_sees_on_floor
+
 -- every 0.5 s: where the working cameras see the card carriers now (6 cameras x 5 carriers)
 local function intel_scan()
   for role, c in pairs(H.carriers) do
     if c.chr and spawn.alive(c.chr) then
       for _, cam in ipairs(cctv.list()) do
-        if cctv.sees(cam, c.chr) then H.seen[role] = { area = CAM_AREA[cam] or c.area, at = H.elapsed }; break end
+        if cam_sees_on_floor(cam, c.chr) then H.seen[role] = { area = CAM_AREA[cam] or c.area, at = H.elapsed }; break end
       end
     end
   end
