@@ -3090,6 +3090,10 @@ static int videoPortBindNewDefaults(void)
                     }
                 }
             }
+            if (other != NULL && SDL_strcmp(portJoyPortBindName(i), "intel") == 0 && SDL_strcmp(other, "classic_toggle") == 0)
+            {   /* the INTEL board shares Tab with Classic Mode on purpose: in a mode with a board, the board takes it */
+                other = NULL;
+            }
             if (other != NULL)
             {
                 SDL_Scancode one[BIND_MAX_KEYS] = { 0 };
@@ -4475,7 +4479,18 @@ void videoGetPad(OSContPad *pad)
                  * here with the console open or during a bind capture */
                 extern s32 portJoyPortActClassicToggle(void);
                 const int ct = (int) portJoyPortActClassicToggle();
-                const int down = (ct >= 0 && ct < n) ? pdown[ct] : 0;
+                int down = (ct >= 0 && ct < n) ? pdown[ct] : 0;
+
+                {   /* a mode with an INTEL board (port_intel.c) takes a key the two share (Tab, by default) for the board */
+                    extern s32 portJoyPortActIntel(void);
+                    extern int portIntelAvailable(void);
+                    const int it = (int) portJoyPortActIntel();
+
+                    if (down && it >= 0 && it < n && pdown[it] && portIntelAvailable())
+                    {
+                        down = 0;
+                    }
+                }
 
                 if (down && !sClassicTogglePrev && portStageRunning())
                 {   /* in a stage only: a press on a menu must not wait in the

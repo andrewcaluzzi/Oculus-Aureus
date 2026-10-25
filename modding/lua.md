@@ -338,6 +338,26 @@ The scan runs every 4 ticks for every cover guard and every Bond, reads only sim
 
 Job 6 of designs/bank-heist.md: `tools/mode_heist.lua`, shipped as `Data/Scripts/modes/heist.lua`. Run it on Bunker 2: `GE_MODE=heist GE_STAGE=bunker2 GE_SKIPINTRO=1` (Windows: `Play Heist.bat`). The Janus front bank in St Petersburg: about 105 guards on post on Agent (more on harder difficulties), alarm raisers at their area's panel, bank staff, four card carriers (GREEN: the head teller or the lobby captain, chosen at random; BLUE: the security chief; RED: the branch manager; GOLD: the vault captain), Bunker 2's doors re-keyed as tiers, the stock cameras, a cracker with jams and a time-locked vault, gold bars and cash, two exits. Every count, timer and chance is in the settings table `S` at the top; a preset or test sets `HEIST_SETTINGS` before `include("heist")`. The table `HEIST` is its test window (phase, loot, carriers, zones, `HEIST.force_jam()`, `HEIST.camera_switch(p)`, `HEIST.watch(p [, cam])`, `HEIST.intel_lines(p)`). The banking hall (room 6) is the control room: the use action (the Port use bind, not B, which is also reload) at one of its screens (the monitor wall at its west side, the two desk screens) puts that Bond on the camera feeds, and while he is in room 6 or on a feed the HUD panel shows the intel (cameras up, alarm, the vault, where a working camera last saw each card carrier, guard counts in the areas a working camera covers, "?" elsewhere). The security console (BLUE card) still switches every camera off for 90 s. Tests: `tests/heist/run_winpath.sh` (win path, trapped-in-the-vault path, civilian-limit fail path), `tests/heist/run_cctv.sh` (the feeds and the intel); screenshots: `tests/heist/run_shots.sh`. The flow and the map are written up at the top of the script and in designs/bank-heist.md section 9.
 
+### The INTEL board
+
+The heist's crew planning board (designs/bank-heist.md section 19). The C side (`port/src/port_intel.c`) draws pages of 2D primitives over the game when this machine's player opens the board (the `intel` bind: Tab, Back on a pad); a script fills them through `intel.*` (`port/luavm/port_luavm_intel.c`). The heist's content is `tools/heist_intel.lua`. Presentation only: the content is not sim state, the view (open, page, floor) is per machine and never reaches a script's logic. Build the content on the script's own clock, never "when the board is open". Board units are 640 x 480 (x right, y down), centred on the screen; colours are `0xRRGGBBAA`.
+
+| Call | What it does |
+|---|---|
+| `intel.enable(on)` | This mode has a board: the `intel` key opens it (and wins Tab over Classic Mode, Back over Objectives). |
+| `intel.clear([live])` | `live = true`: drop the live layer; otherwise drop everything (pages, floors, both layers). |
+| `intel.title(text)`, `intel.page(i, title)` | The caption; page `i` (1 to 8) and its tab. |
+| `intel.map_page(i)`, `intel.floor(k, name, wx1, wz1, s, bx0, by0)` | The page drawn per floor (up / down picks the floor); floor `k`'s transform: world `(x, z)` to board `(bx0 + (wx1 - x) s, by0 + (wz1 - z) s)`. |
+| `intel.bond(p, k)` | Bond `p` is on floor `k`: the map draws him there, live, each frame (YOU for this machine's Bond). |
+| `intel.at(page, floor, live)` | Where the next items go: the page, the floor (0 = every floor), the live layer (`true`) or the static one. |
+| `intel.rect`, `intel.frame`, `intel.line`, `intel.tri`, `intel.poly` | `(x0, y0, x1, y1, rgba)` filled; the same with `[thick]` as an outline; a line `[thick]`; a filled triangle `(x0, y0, x1, y1, x2, y2, rgba)`; a filled convex polygon `({x1, y1, ...}, rgba)`. |
+| `intel.text(x, y, text, rgba [, scale [, wrap [, font]]])` | Text; `wrap` is a width in board units (0 = none), `"\n"` breaks, `font` 1 is the big face. |
+| `intel.marker(x, y, kind, rgba [, size [, label]])` | `dot ring x pin check box tri diamond cam stairs door star`. |
+| `intel.briefing()` | Open the board once on this machine as the start-of-heist briefing ("press INTEL to close"). Skipped in automated runs (`GE_FRAMES`, `GE_INTEL_NOBRIEF`). |
+| `intel.count([live])`, `intel.test_show(open, page, floor)`, `intel.view()` | Tests only: items in a layer; set this machine's view; read it (`open, page, floor`). Game logic must never read the view. |
+
+`midas.ini [input] intel_hold=1` shows the board only while the key is held. `GE_INTEL_AUTO="<frame>:open|close|page<n>|floor<n>,..."` drives the view in a headless run (the determinism proof in `tests/heist/run_intel.sh`).
+
 ### Weapons, modifiers, music, menus
 
 - `weapon.set(item, field, value)`, `weapon.get(item, field)`, `weapon.reset()`, `weapon.items()`, `weapon.fields()`. Items are lowercase `ITEM_*` names (`ak47`, `wppk`, `goldengun`, `throwknife`, ...) plus `pp7 pp7sil dd44 klobb kf7 zmg ar33 rcp90`. Fields: integers `magsize firerate singlerate penetration sound ammotype`; numbers `damage inaccuracy zoom crosshairspeed aimlockspeed sway recoilback recoilup boltrecoil loudnessmin loudnessmax noiseshot impact`. Edits last until the next stage start.
