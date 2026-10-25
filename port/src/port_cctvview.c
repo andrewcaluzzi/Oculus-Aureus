@@ -754,6 +754,10 @@ int portCctvSeesPoint(int camidx, float x, float y, float z)
         if (tc != NULL) tc->hidden |= CHRHIDDEN_MOVING;   /* chrSetMoving(chr, 0); restored bit-exact below, whatever it was */
         r = stanTestLineUnobstructed(&st, prop->pos.x, prop->pos.z, x, z, 0x1B, 100.0f, 100.0f, 0.0f, 1.0f) != 0;
         if (tc != NULL) tc->hidden = (tc->hidden & ~CHRHIDDEN_MOVING) | (old & CHRHIDDEN_MOVING);
+        /* the floor: the line walks the stan from the camera's own floor, so it ends on the target's tile (or at least in his room) only
+         * when he stands on that floor. A chr straight above or below the cone (x/z inside it) is not seen. */
+        if (r && sSeeTarget != NULL && sSeeTarget->stan != NULL && st != sSeeTarget->stan
+            && (st == NULL || (st->room & 0xFF) != (sSeeTarget->stan->room & 0xFF))) r = 0;
         return r;
     }
 }
