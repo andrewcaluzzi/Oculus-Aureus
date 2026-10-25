@@ -29,6 +29,7 @@
 include("heist_lib")
 include("levelgen_layout")                     -- LEVEL: the generated level's layout (include() works at the top level only)
 include("heist_bank_map")                      -- heist_bank_map(): the mode's tables from LEVEL by name
+include("heist_ai")                            -- HEIST_AI: the guards' hearing, awareness and barks (section 18)
 local STAGE_LEVELGEN = 52                      -- LEVELID_LEE: the generated level's slot
 
 local S = {
@@ -40,6 +41,7 @@ local S = {
   guards_vault    = 8,       -- vault guards: they wake (spawn inside, chasing) when the vault door opens
   civilians       = 18,      -- bank staff (unarmed; aim at one to make it surrender, keep aiming and it hands over what it carries)
   hearing         = 1.0,     -- guard hearing scale (silenced PP7: heard within 100 units on a first shot, 500 at its cap)
+  ai              = true,    -- hearing, awareness, barks, check-ins, backup (section 18); hearing_* / ai_tune: tools/heist_ai.lua
   vision          = 3000,    -- guard sight range, units (corridors here are 100-300 wide, rooms 500-1500)
   guard_weapons   = { "kf7", "kf7", "kf7", "d5k", "zmg", "dd44" },
   guard_bodies    = { "St_Petersburg_Guard", "St_Petersburg_Guard", "Russian_Soldier" },
@@ -244,6 +246,7 @@ local function note_guard(c, kind, area)
   end
   -- the door rules: which keyed doors this guard may open on his way (S.door_access)
   spawn.role(c, (kind == "squad" and "squad") or (kind == "vault" and "vault") or area)
+  HEIST_AI.guard(c, kind)
 end
 
 -- ------------------------------------------------------------------------------------------------------------------------------------
@@ -1184,6 +1187,7 @@ on("stage_start", function(stage)
     for _, r in pairs(LEVEL.rooms) do cover.room(r.id, S.area_class[r.area] or r.zone or "public") end   -- (bank v2: else the room's zone)
     cctv.alarm_on_spot(false)
   end
+  HEIST_AI.setup(S, H)
   H.hand = S.cover and S.start_hand or S.start_weapons[1]
   for p = 0, bond.count() - 1 do
     bond.warp(p, P.start[p % #P.start + 1], (p >= #P.start) and 60 or 0, 0)
@@ -1266,6 +1270,7 @@ on("tick", function(dt)
     end
   end
   security_tick()
+  HEIST_AI.tick()
   if P.breaker then power_tick(dt) end
   crack_tick(dt)
   vault_tick(dt)

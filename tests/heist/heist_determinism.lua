@@ -92,6 +92,17 @@ local function body()
   end
   local g = HEIST.guards[5] and HEIST.guards[5].chr
   if g then spawn.ko(g, worker); wait(0.5); note("guard %d ko %s", g, tostring(ko.is(g))) end
+  if ai and ai.on() then   -- section 18: the slaps and the thuds were heard; a noise in the hall; who is searching (hashed state)
+    local pid = LEVEL and LEVEL.pads and LEVEL.pads.hall_mid
+    local hx, hy, hz
+    if pid then hx, hy, hz = pads.pos(pid) end
+    if hx then noise.emit(hx, hy, hz, 700, "glass") end
+    wait(2)
+    local c = ai.counts()
+    local busy = 0
+    for _, gg in ipairs(HEIST.guards) do local st = ai.awareness(gg.chr); if st and st >= 1 then busy = busy + 1 end end
+    note("ai searches %d barks %d aware %d", c.searches, c.barks, busy)
+  end
   bond.equip(worker, "pp7sil")
 
   -- 3. the alarm: hot, the lockdown, the waves

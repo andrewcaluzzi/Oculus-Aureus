@@ -21,6 +21,7 @@ cp /home/dev/project/tests/heist/heist_determinism.lua /home/dev/project/build_p
 cp /home/dev/project/tools/mode_heist.lua /home/dev/project/build_pc/Data/Scripts/modes/heist.lua
 cp /home/dev/project/tools/heist_lib.lua /home/dev/project/build_pc/Data/Scripts/modes/heist_lib.lua
 cp /home/dev/project/tools/heist_bank_map.lua /home/dev/project/build_pc/Data/Scripts/modes/heist_bank_map.lua
+cp /home/dev/project/tools/heist_ai.lua /home/dev/project/build_pc/Data/Scripts/modes/heist_ai.lua
 cp /home/dev/project/port/levelgen/levelgen_layout.lua /home/dev/project/build_pc/Data/Scripts/modes/levelgen_layout.lua
 cd /home/dev/project/build_pc || exit 1
 FRAMES=${GE_FRAMES:-4500}   # (about 540 of them are the boot and the intro before the stage's first-person play)

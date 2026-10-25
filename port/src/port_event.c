@@ -123,7 +123,7 @@ const char *portEventName(int type)
                                                        "ITEM_PICKUP", "OBJECTIVE_CHANGED", "ALARM", "CCTV_SPOTTED", "USE", "GADGET_USED",
                                                        "BODY_FOUND", "CIVILIAN_KILLED", "CIVILIAN_SURRENDERED", "CIVILIAN_ROBBED",
                                                        "CHR_KNOCKED_OUT", "CHR_WOKEN", "CHR_SEARCHED", "CCTV_VIEW",
-                                                       "COVER_BLOWN", "COVER_REPORT" };
+                                                       "COVER_BLOWN", "COVER_REPORT", "NOISE", "GUARD_BARK" };
 
     return (type > 0 && type < PORT_EV_COUNT) ? names[type] : "?";
 }

@@ -103,6 +103,11 @@ void portHeistStageReset(void)
 
         portCctvViewReset();
     }
+    {
+        extern void portAiStageReset(void);   /* port_ai.c: guard awareness, the hearing layer (section 18) */
+
+        portAiStageReset();
+    }
 }
 
 static void heistScan(void)
@@ -1448,6 +1453,11 @@ int portHeistSlap(ChrRecord *c)
     if (e == NULL) return 0;
     if (e->down) return 1;
     coverAct((int) get_cur_playernum());   /* slapping someone in view blows the cover */
+    {
+        extern void portAiSlapped(ChrRecord *c);   /* port_ai.c: the slap is heard (section 18) */
+
+        portAiSlapped(c);
+    }
     if (e->slaps < 255) e->slaps++;
     if ((int) e->slaps < sSlapsToKo) return 2;
     koDown(c, e, (int) get_cur_playernum());
@@ -2004,6 +2014,11 @@ void portHeistAiTick(void)
         sAcc = 0;
         if (sBodyCheck) bodyScan();
     }
+    {
+        extern void portAiTick(void);   /* port_ai.c: hearing, awareness, barks, check-ins, the cameras' acts and bodies */
+
+        portAiTick();
+    }
 }
 
 /* ---- cover: the banker disguise (designs/bank-heist.md section 16, AC's answers 2026-10-25) ----
@@ -2185,6 +2200,11 @@ void portHeistCoverFired(void)
 {
     int p = (int) get_cur_playernum();
 
+    {
+        extern void portAiBondFired(void);   /* port_ai.c: the shot is a noise (walls and doors muffle it; section 18) */
+
+        portAiBondFired();
+    }
     if (!coverActive() || p < 0 || p > 3 || !bondArmed(p)) return;
     coverShot(p);
 }
@@ -2224,6 +2244,21 @@ int portHeistCoverBlow(int chrnum, int p)
 
     if (!coverActive() || e == NULL || p < 0 || p >= (int) portBondCount()) return 0;
     coverHey(e, covChr(e), p, CW_SCRIPT);
+    return 1;
+}
+
+/* port_ai.c: Bond p's act (a slap, a robbery, a search, a shot) is still counting: a camera that sees it reports it */
+int portHeistCoverActing(int p) { return coverActive() && p >= 0 && p < 4 && sNow < sCoverActUntil[p]; }
+
+/* port_ai.c: guard `chrnum` heard a noise near staffer Bond p: `add` to his meter, or `blow` (he pinned a slap / a thud on him) */
+int portHeistCoverNoise(int chrnum, int p, float add, int blow)
+{
+    HeistCover *e = covFind(chrnum);
+
+    if (!coverActive() || sCoverAlert || e == NULL || p < 0 || p > 3 || (e->witness & (1 << p))) return 0;
+    if (blow) { coverHey(e, covChr(e), p, CW_HEARD); return 2; }
+    e->susp[p] += add;
+    if (e->susp[p] >= 1.0f) coverHey(e, covChr(e), p, CW_HEARD);
     return 1;
 }
 
@@ -2911,6 +2946,11 @@ unsigned portHeistStateHash(void)
 
         h = h * 16777619u + portCctvViewHash();
         h = h * 16777619u + portHeistCoverHash();
+    }
+    {
+        extern unsigned portAiHash(void);   /* port_ai.c / port_noise.c: awareness, the hearing layer (section 18) */
+
+        h = h * 16777619u + portAiHash();
     }
     return h;
 }

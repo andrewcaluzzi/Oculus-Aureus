@@ -47,6 +47,9 @@ typedef enum PortEventType
     PORT_EV_CCTV_VIEW,       /* a = player, b = camera setup index now watched (-1 = the view ended), c = why (port_cctvview.h CCTV_WHY_*) */
     PORT_EV_COVER_BLOWN,     /* a = guard chrnum that saw through Bond's cover, b = player index, c = why (port_heist.c CW_*) */
     PORT_EV_COVER_REPORT,    /* a = guard chrnum (a witness still up after the radio time), b = player index */
+    PORT_EV_NOISE,           /* a = kind (port_noise.h NOISE_*), b = source chr, c = guards that heard it, d = room; the Lua event reads
+                              * x, y, z, radius from port_noise.c (portNoiseEventArgs) */
+    PORT_EV_GUARD_BARK,      /* a = guard chrnum, b = bark kind (port_ai.c), c = awareness state; the text from portAiBarkArgs */
     PORT_EV_COUNT
 } PortEventType;
 

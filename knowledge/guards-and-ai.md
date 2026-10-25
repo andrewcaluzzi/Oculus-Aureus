@@ -81,6 +81,22 @@ Radii at hearing scale 1.0 (values read with `weapon.get` on the stock cart, Bun
 
 Silenced is not invisible: a guard that sees another get shot or die still reacts (below).
 
+**Fork: the heist's hearing layer** (`port/src/port_noise.c`, `port_ai.c`; [`designs/bank-heist.md`](../designs/bank-heist.md)
+section 18). On top of the stock check (which stays as it is), a noise is a point, a radius and a kind. A tracked guard hears it when
+his straight-line distance (height x 1.5) is under `radius x hearingscale x factor`, where the factor comes from the BG portal table
+(`g_BgPortals[k].connectedRoom1/2`): 1 in the same room, x 0.6 per open portal on the best path (4 deep), x 0.25 per portal whose door
+record (`DoorRecord.portalNumber`) has `openPosition < 0.3`, and never under 0.1 (walls). The door state comes from the door records,
+not the portal's `PORTALFLAG_DISABLED` bit, because a viewer-dependent toggle (`bgToggleDataPortalsForView`) also writes that bit.
+Facing does not matter. Sources: slaps (`portHeistSlap`), a body falling (the `CHR_KNOCKED_OUT` / `CHR_DIED` events on the C bus),
+Bond's steps and runs (his speed from the sim position every 4 ticks), a door a Bond starts opening (`openstate` going to
+`DOORSTATE_OPENING`), gunshots (the gun's `getCurrentPlayerNoise` x 100, from `portHeistCoverFired`), shattering glass (`glass.c`
+`sub_GAME_7F0A1DA0`), and `noise.emit` from Lua. What a guard does with it (turn, walk over, search, give up) is the awareness layer:
+it steers him with `check_set_actor_standing_still(TARGET_COMPASS, angle)` (a compass id is `angle / tau x 65535`, compared against
+`getsubroty`), `plot_course_for_actor` / `chrGoToPad` and `chrTrySurprisedLookAround`, only while `chr->ailist` is still the list he
+was spawned with (the stock simple guard's detection loop issues no movement, so the two do not fight). The moment that list jumps
+(it saw Bond, heard a shot, saw a death) the layer lets go. GoldenEye's guards have no speech lines; a bark plays a throat-clear
+(`COUGH2_SFX`), a grunt (`GET_HIT_MALE*`) or the radio (`RADIO_SFX`, `RADIO_MESSAGE_SFX`).
+
 ## How a guard's shot hits Bond
 
 A guard's bullet ray (`chrlvFireWeaponRelated`) does not test players at all. Hitting Bond is an accumulator,
@@ -140,7 +156,9 @@ shooter has `CHRFLAG_CAN_SHOOT_CHRS` (0x40) or the fork's faction layer allows i
   `F_80030B14`, which is **2.0 at Agent (600 ticks = 10 s) and 1.0 above (300 ticks = 5 s)** (`lv.c` ~1547). Measured
   on Bunker 2 camera 95: the timer rose 60/s and the alarm rang at 600. The setup's range field reads -100 on all six
   Bunker 2 cameras: no range limit. Shooting the glass disables a camera (`PROPFLAG_CCTV_DISABLED`). Stock tests only
-  the current player; the fork tests every living Bond with its own timer in co-op (`portHeistCctvAllBonds`).
+  the current player; the fork tests every living Bond with its own timer in co-op (`portHeistCctvAllBonds`). Fork heist (section 18,
+  `port_ai.c cameras`): a camera that sees a Bond's act (a slap, a robbery, a search, a shot: the cover's 1.5 s act window) or a dead or
+  knocked-out chr in its cone reports it at once (`cctv_spotted`, player -1 for a body); the mode routes it through the security room.
 
 ## Surrender, threats, knock-outs
 

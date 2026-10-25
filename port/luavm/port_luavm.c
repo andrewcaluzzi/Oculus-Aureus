@@ -511,6 +511,8 @@ static const struct { const char *name; int type; int nargs; } sEvents[] = {
     { "objective_changed", PORT_EV_OBJECTIVE_CHANGED, 2 },   /* index, status (0 incomplete, 1 complete, 2 failed) */
     { "cover_blown", PORT_EV_COVER_BLOWN, 3 },   /* guard chr that saw through the disguise, player index, why (cover.why_name) */
     { "cover_report", PORT_EV_COVER_REPORT, 2 }, /* the witness guard (still up after the radio time), player index */
+    { "noise", PORT_EV_NOISE, 6 },               /* x, y, z, radius, kind ("slap" ...), source chr (port_luavm_ai.c pushes them) */
+    { "guard_bark", PORT_EV_GUARD_BARK, 3 },     /* guard chr, kind ("huh" "hey" "investigate" "lost" ...), text */
     { "tick", LUA_EV_TICK, 1 },                  /* seconds since the last tick event */
     { "test_key", LUA_EV_TESTKEY, 1 },           /* name of a test hotkey: "next" "back" "next+" "back+" (PageDown, PageUp, with Shift = +) */
 };
@@ -561,6 +563,12 @@ static void portLuaDispatch(int type, int a, int b, int c, int d, double dt)
         else if (type == LUA_EV_TESTKEY)
         {
             lua_pushstring(L, sTestKeyName);
+        }
+        else if (type == PORT_EV_NOISE || type == PORT_EV_GUARD_BARK)
+        {
+            extern int portLuaAiPushArgs(lua_State *L, int type);   /* port_luavm_ai.c */
+
+            nargs = portLuaAiPushArgs(L, type);
         }
         else
         {
@@ -1731,6 +1739,11 @@ static lua_State *portLuaState(void)
         extern void portLuaBotRegister(lua_State *L);
 
         portLuaBotRegister(sL);
+    }
+    {   /* the hearing layer and guard awareness: noise.*, ai.* (port_luavm_ai.c) */
+        extern void portLuaAiRegister(lua_State *L);
+
+        portLuaAiRegister(sL);
     }
     lua_pushcfunction(sL, portLuaOn);
     lua_setglobal(sL, "on");

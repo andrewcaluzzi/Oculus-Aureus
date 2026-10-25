@@ -34,6 +34,8 @@ SIM_PORT = {
     'port_simsnd.c',
     # the player bot: its decisions are state the optimiser's savestates rewind (its scratch buffers are registered live)
     'port_playerbot.c', 'port_playerbotgraph.c',
+    # the heist's hearing layer and guard awareness (designs/bank-heist.md section 18)
+    'port_noise.c', 'port_ai.c',
 }
 # port/src files that are presentation or transport: never rewound.
 PRES_PORT = {

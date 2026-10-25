@@ -6,6 +6,7 @@ cp /home/dev/project/tests/heist/heist_bank_shots.lua /home/dev/project/build_pc
 cp /home/dev/project/tools/mode_heist.lua /home/dev/project/build_pc/Data/Scripts/modes/heist.lua
 cp /home/dev/project/tools/heist_lib.lua /home/dev/project/build_pc/Data/Scripts/modes/heist_lib.lua
 cp /home/dev/project/tools/heist_bank_map.lua /home/dev/project/build_pc/Data/Scripts/modes/heist_bank_map.lua
+cp /home/dev/project/tools/heist_ai.lua /home/dev/project/build_pc/Data/Scripts/modes/heist_ai.lua
 cp /home/dev/project/port/levelgen/levelgen_layout.lua /home/dev/project/build_pc/Data/Scripts/modes/levelgen_layout.lua
 mkdir -p /home/dev/project/build_pc/heist_bank_shots
 rm -f /home/dev/project/build_pc/heist_bank_shots/shot_*.bmp

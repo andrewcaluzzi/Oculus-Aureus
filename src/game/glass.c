@@ -104,6 +104,13 @@ void sub_GAME_7F0A1DA0(coord3d *pos, coord3d *xaxis, coord3d *yaxis, coord3d *za
     basepos.y  = (pos->y + ((xmin + ((f32)(new_var >> 1))) * xnorm.y)) + ((*new_var3).y * (ymin + ((f32)(new_var >> 1))));
     basepos.z  = (pos->z + ((xmin + ((f32)(new_var >> 1))) * xnorm.z)) + ((*new_var3).z * (ymin + ((f32)(new_var >> 1))));
     chrobjSndCreatePostEventDefault(sndPlaySfx(g_musicSfxBufferPtr, 0x47, 0), pos);
+#ifndef TARGET_N64
+    {   /* PORT: heist hearing (port_ai.c, designs/bank-heist.md section 18): breaking glass is a noise; no-op outside a mode */
+        extern void portAiGlass(f32 x, f32 y, f32 z);
+
+        portAiGlass(pos->x, pos->y, pos->z);
+    }
+#endif
     y      = 0;
     xlimit = (xcount = (s32)(arg8 / ((f32)step)));
     ycount = (s32)(arg9 / ((f32)new_var));
