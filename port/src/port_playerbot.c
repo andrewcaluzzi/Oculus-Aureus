@@ -1,0 +1,5481 @@
+/*
+ * port_playerbot.c - the player bot: plays solo missions as Bond through player 1's controller.
+ *
+ * Input only. Each sim tick it reads the game (Bond, chrs, props, objectives, the waypoint graph) and writes:
+ *   - pad 0 (buttons + stick) in osContGetReadData, through inputrec.c's pad hook, and
+ *   - this tick's look as direct-mode mouse degrees (yaw onto vv_theta, pitch onto vv_verta), through inputrec.c's
+ *     mouse hook.
+ * Both land in a GE_INPUTREC recording exactly like a human's input, so GE_INPUTPLAY replays a bot run without the
+ * bot. The bot never writes sim state; the engine queries it makes (stan line tests) have their scratch globals saved
+ * and restored around them.
+ *
+ * Layers (modding/bot.md has the user-facing description):
+ *   observe  - per stage: build the graph, track health / kills / objectives, write the RESULT line, exit the process
+ *   drive    - per tick: plan step -> (fight | navigate | interact) -> pad + look
+ *   plan     - Data/BotPlans/<stage>.plan (or GE_PLAYERBOT_PLANDIR), parsed by port_playerbotlogic.c, else `auto`
+ *
+ * Read when touching: inputrec.c (the hooks), port_playerbotlogic.c (graph, A*, plan parser), file.c
+ * portMissionEndLog (the mission-end hook).
+ */
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdint.h>
+#include <unistd.h>
+#include <ultra64.h>
+#include <bondtypes.h>
+#include <bondconstants.h>
+#include <bondaicommands.h>
+#include <math.h>
+#include "game/chr.h"
+#include "game/chrai.h"
+#include "game/chraction.h"
+#include "game/player.h"
+#include "game/bondview.h"
+#include "game/lv.h"
+#include "game/stan.h"
+#include "game/bondinv.h"
+#include "game/objective_status.h"
+#include "game/propobj.h"
+#include "game/gun.h"
+#include "port_playerbot.h"
+#include "port_playerbotlogic.h"
+
+extern void portConLogf(const char *fmt, ...);
+extern u32  portInputRecTickNow(void);
+extern void portInputRecFlush(void);
+extern s32  get_is_ramrom_flag(void);
+extern s32  get_recording_ramrom_flag(void);
+extern f32  viGetFovY(void);
+extern LEVELID bossGetStageNum(void);
+extern s32  sizepropdef(PropDefHeaderRecord *pdef);
+extern u32  get_cur_player_look_vertical_inverted(void);
+extern s32  objectiveregisters1;
+extern int  ge_shot_force;
+extern s32  gamemode;
+extern bool doorIsPadlockFree(DoorRecord *door);
+extern s32  get_ammo_type_for_weapon(ITEM_IDS weapon);   /* gunfire.c */
+extern int  portModeActive(void);                          /* port_mode.c */
+extern const char *portModeName(void);
+extern bool bondinvCheckHasKeyFlags(u32 wantkeyflags);   /* bondinv.c */
+extern s32  get_difficulty_for_objective(s32 objectiveIndex);
+extern bool alarmIsActive(void);                           /* propobj.c */
+extern int  portHeistKoIs(int chrnum);                     /* port_heist.c: knocked out (modes only) */
+extern int  portHeistCivilianState(int chrnum);            /* -1 not a heist civilian, 0 idle, 1 hands up, 2 cowering, 3 KO */
+#include "game/model.h"                                     /* getsubroty: a chr's facing (radians) */
+
+/* stan.c scratch globals that a line test writes: saved and restored around every bot query */
+extern StandTile     *stanSavedColl_tile;
+extern s32            stanSavedColl_pointI;
+extern s32            stanSavedColl_unknown;
+extern struct coord2d stanSavedColl_pntA;
+extern struct coord2d stanSavedColl_pntB;
+extern f32            stanSavedColl_someMin;
+extern PropRecord    *stanSavedColl_posData;
+extern s32            dword_CODE_bss_8007BA08;
+extern StandTile     *dword_CODE_bss_8007BA0C;
+extern s32            D_800413BC;
+extern f32            D_800413C0;
+extern f32            D_800413C4;
+extern s32            D_800413C8;
+extern s32            D_800413CC;
+extern s32            D_800413D0[8];
+extern s32            D_80040FAC;
+/* stan.c: the tile file (the nav mesh) */
+extern s32            ptr_firstroom_0;
+extern f32            inv_level_scale;
+extern u8             list_of_tilesizes[];
+
+#define BTN_A     0x8000
+#define BTN_B     0x4000
+#define BTN_Z     0x2000
+#define BTN_START 0x1000
+#define BTN_R     0x0010
+#define BTN_CU    0x0008
+#define BTN_CD    0x0004
+#define BTN_CL    0x0002
+#define BTN_CR    0x0001
+
+#define MAXPATH 4096
+#define PORTACT_NEXT_INV_INDEX 8   /* joy_port.c PORTACT_NEXT_INV ("next_inventory"; input_pc.c PM_PORT_NEXT_INV) */
+
+/* ---- state ------------------------------------------------------------------------------------------------------- */
+
+typedef struct {
+    s32 mode;                  /* 0 off, 1 drive, 2 watch */
+    s32 exitOnEnd;
+    s32 verbose;
+    s32 maxSecs;
+    char plandir[256];
+    char planfile[256];
+
+    /* stage */
+    s32 inStage;
+    s32 stage;
+    void *setupKey;            /* g_CurrentSetup.pathwaypoints: changes on every stage load */
+    u32 lastRecTick;
+    s32 tick;                  /* bot ticks in this stage (play ticks: Bond in first person) */
+    s32 ticksAll;              /* every tick since the stage loaded */
+    s32 resultDone;
+    s32 diedTick;
+    f32 hpPrev;
+    f32 hpLost;
+    s32 lastHurtTick;
+    s32 kills;
+    s32 civDead;               /* civilians dead (logged as it changes) */
+    s32 idle[4];               /* ticks Bond stood still: fighting, at a door, in a stand-still step (use, wait, meet,
+                                * press...), in a moving step (goto, auto, hunt: stuck, turning, waiting) */
+    f32 idleX, idleZ;
+    s32 deadAtStart;
+    s32 objStatus[10];
+    u32 flagsPrev;             /* objectiveregisters1 last tick: changes are logged (which AI flag fired, for plans) */
+    /* speed-strafing (GE_PLAYERBOT_SPEED=1): the digital move forward + sideways held together, the view turned off the
+     * travel direction by ssOff ([0] left, [1] right: measured +-38 deg, refined from Bond's real motion), the side kept
+     * per route bend (ssSide: -1 left, +1 right) */
+    s32 speedMode, ssSide, ssHeld, ssLearnN, speedNoLoot;
+    s32 ssThreatTick;          /* last tick a hostile was close / in sight / hurting Bond: no speed-strafe for 2 s after */
+    f32 ssDist, wDist;         /* distance covered on straight stretches: speed-strafing / plain running (ticks below) */
+    s32 ssTicks, wTicks;
+    s32 ssTest;
+    s32 dodgePeriod;           /* combat: ticks per strafe direction (GE_PLAYERBOT_DODGE; 0 = stand, the default) */
+    f32 ssTestYaw, ssTestX, ssTestZ;
+    f32 ssOff[2], ssPrevX, ssPrevZ, ssTurnHint;
+    void *spare[6];            /* `spare ai ID`: AI lists whose chrs are never shot (a hostage's captors) */
+    s32 nSpare;
+    s32 alarmLogged;
+    char blocked[160];
+
+    /* graph: one node per stan tile (Bond's walkable floor), edges = the tiles' links */
+    PblGraph g;
+    StandTile **tiles;         /* node -> tile, ascending addresses (binary searched) */
+    s32 ntiles;
+    f32 maxStep;               /* tallest step up Bond can walk (GE_PLAYERBOT_MAXSTEP, default 45) */
+    s32 lockClosed;            /* GE_PLAYERBOT_LOCKCLOSED=1: doors Bond cannot open close their tiles (diagnosis) */
+    s32 climbCut;
+
+    /* plan */
+    PblPlan plan;
+    s32 planLoaded;
+    s32 step;
+    s32 stepTick;
+    s32 phase;
+    s32 count;
+    s32 stepFails;
+    s32 peace;
+
+    /* navigation */
+    s32 path[MAXPATH];
+    s32 pathN, pathAt;
+    f32 goalX, goalY, goalZ;
+    s32 goalValid;
+    s32 planTick;
+    PblStuck stuck;
+    s32 stuckEvents;
+    s32 recoverUntil, recoverDir, backUntil;
+    f32 recoverYaw, lastSteerYaw;
+    s32 lastDoorTap, noDoorTapUntil;
+    s32 lastNoRouteLog;
+    PropRecord *doorProp;      /* the shut door being opened */
+    s32 doorTaps, doorSince, doorOpened, doorOpenTick;
+    f32 doorOpenPos;
+    PropRecord *blockedDoors[16];
+    s32 blockedAt[16];
+    s32 nBlockedDoors;
+    ObjectRecord *subLock;     /* a detour: shoot this padlock off a door on the route */
+    ChrRecord *huntSkip[8];    /* guards the hunt step could not reach, and when */
+    s32 huntSkipAt[8], huntSkipN;
+    ChrRecord *huntLast;       /* the hunt's current quarry (logged when it changes), chosen at huntSince */
+    s32 huntSince;
+    s32 huntAi;                /* `hunt ai ID` running: chrs on that AI list are shot before anyone else (0 = none) */
+    s32 escortAi, escortHold;  /* `escort ai ID dist`: gotos wait for that chr (escortHold: waiting now, since escortSince) */
+    s32 escortSince;
+    f32 escortDist;
+    ObjectRecord *photoObj;    /* the object being photographed, and since when */
+    s32 photoSince;
+    ObjectRecord *photoSpotObj;   /* ...and the tile chosen to photograph it from (-1 none) */
+    s32 photoSpotNode;
+    ObjectRecord *shootObj;    /* the object being shot at, and since when */
+    s32 shootSince;
+    PropRecord *lootProp;      /* a detour: walk over a pick-up */
+    PropRecord *lootTried[16];
+    s32 lootN, lootUntil, noLoot;
+    u32 subKeyNeed;            /* a detour: fetch a key with these flags */
+    s32 keyGiveUpAt;
+    s32 lastKeyLog;
+    PropRecord *subSwitch;     /* a detour: use this switch to open subDoor, then resume the step */
+    PropRecord *subDoor;
+    PropRecord *subTriesDoor;
+    s32 subPhase, subSince, subTries, subGoalSet;
+    f32 subGoalX, subGoalZ;
+    s32 aimAt;                 /* path index being steered at (>= pathAt: the farthest one in a straight line) */
+    s32 offPath;               /* ticks Bond's tile has not been on the path */
+
+    /* combat */
+    PropRecord *target;
+    s32 targetSince;
+    s32 lastSeenTick;
+    s32 fireTick;
+    s32 holdFire;              /* ticks the last shot was held back (a civilian in the line of fire) */
+    s32 fireTicks;             /* ticks with the trigger down at a target (a measure of ammo per kill) */
+    s32 lastFireTick;
+    s32 shotBase[4];           /* the game's shot registers (total, head, body, limb) when the stage began */
+    PropRecord *tgtSkip[4];    /* targets the bot could not shoot for a long time: left alone for a while */
+    s32 tgtSkipAt[4], tgtSkipN;
+    s32 nThreats;              /* armed hostiles with a line on Bond (last scan) */
+    PropRecord *threats[6];
+    AIRecord *raiserList;      /* the stock alarm raiser list: those guards are shot first */
+    s32 coverNode, coverUntil, coverSince, lastCoverScan, noCover, oldCover;
+    s32 kiteSince, kiteBlockedUntil, noKite, glassTest, spareAll;
+    s32 noAimScore;            /* GE_PLAYERBOT_NOAIMSCORE=1: targets without the aim-progress weight (A/B) */
+    s32 avoidRoom[8], nAvoid;  /* rooms the routes keep out of (the `avoid` step) */
+    ChrRecord *civExempt;      /* a civilian carrier being shot on purpose (not a bystander for the line-of-fire check) */
+    s32 rush, moveOnly;        /* rush: keep walking the route while shooting (the `rush` step); moveOnly: steerTo
+                                * moves without turning (the look is on a target) */
+    PropRecord *armourProp;
+    s32 armourSince, armourGiveUpUntil;
+    s32 crIsR1, strafeCal, calTick, calLast;   /* strafe direction, learnt from Bond's own motion (strafeCalibrate) */
+    u16 calBtn;
+    f32 calX, calZ, calTheta;
+    f32 kiteX, kiteZ;
+    f32 aimY;                  /* aim this far above a chr's prop (its origin is ~110 above the floor; +52 is the head:
+                                * the heist A/B gave 2-3x the head hits of +15..38 for the same shots) */
+    f32 lastTX, lastTY, lastTZ;
+    s32 quiet;                 /* the `quiet` step: stealth until the alarm sounds */
+    /* the key detour's carrier handling: knock-out from behind, search, rob */
+    ChrRecord *koChr;
+    s32 koPhase, koSince, koSlapTick, searchTick;
+    s32 robSince;
+
+    /* weapon */
+    s32 wantWeapon;
+    s32 keepWant;
+    s32 actNextInv;            /* this tick: press the port action PORTACT_NEXT_INV */
+    s32 lastCycleTick;
+
+    /* output for this tick */
+    u16 btn;
+    s8  sx, sy;
+    s32 dmx, dmy;              /* the port's digital move (-1 / 0 / 1 per axis: strafe, walk) */
+    f32 yaw, pitch;
+    s32 lookFresh;
+    s32 heldA;
+    s32 pressMask, pressUntil;
+    s32 lastSy, lastSx, lastBtn;   /* the previous tick's output, for the status log */
+    f32 lastYaw;
+    f32 pitchWant, pitchErr;
+    s32 deadTicks;            /* ticks since Bond died */
+    s32 outTicks;              /* polls outside a playable stage since the stage was left */
+    s32 pollPhase[8];          /* diagnosis: pad polls by main-loop phase (boss.c g_PortTickPhase); +4 = the tick's first */
+
+    /* speedrun (GE_PLAYERBOT=speedrun): routes, never stopping, doors on the move, the segment optimiser */
+    s32 speedrun, speedrunBase;
+    PropRecord *lookDoor;     /* this tick: keep the view on this door while the digital move follows the route */
+    s32 stepBeganTick;        /* B.tick of the poll a step began in: it plays variant 0 (optVariant) */
+    PropRecord *doorFastFor;   /* the door the moving presses are counted for */
+    s32 doorFastTaps;
+    s32 idleRun, idleWhy, idleStuck;   /* the current stop: ticks, why (B.idle index), stuck level when it began */
+    f32 progX, progZ;          /* Bond's position last navTo tick (speedrun: running along the steer is progress) */
+    PropRecord *wayDoor;       /* a nearer door being walked through on the way to the target door: is its swing stalled? */
+    f32 wayDoorPos;
+    s32 wayDoorTick;
+} PlayerBot;
+
+static PlayerBot B;
+static s32 sInit;
+static PortPlayerBotPlanner sPlanner;
+
+void portPlayerBotSetPlanner(PortPlayerBotPlanner fn)
+{
+    sPlanner = fn;
+}
+
+/* ---- config ------------------------------------------------------------------------------------------------------ */
+
+static void botInit(void)
+{
+    const char *e;
+
+    sInit = 1;
+    memset(&B, 0, sizeof(B));
+    e = getenv("GE_PLAYERBOT");
+    if (e != NULL && e[0] != '\0' && e[0] != '0')
+    {
+        B.mode = (strcmp(e, "watch") == 0) ? 2 : 1;
+        B.speedrun = strcmp(e, "speedrun") == 0;   /* speedrun mode: routes, speed-strafe, doors on the move */
+        B.speedrunBase = B.speedrun;               /* (B.speedrun is off on a route's `slow` steps) */
+    }
+    if (B.mode == 1 && getenv("GE_INPUTPLAY") != NULL && getenv("GE_INPUTPLAY")[0] != '\0')
+    {
+        B.mode = 2;   /* replaying: the recording drives, the bot only reports */
+    }
+    e = getenv("GE_PLAYERBOT_EXIT");
+    B.exitOnEnd = (e == NULL) ? 1 : (e[0] != '0');
+    e = getenv("GE_PLAYERBOT_LOG");
+    B.verbose = (e == NULL) ? 1 : atoi(e);
+    e = getenv("GE_PLAYERBOT_MAXSECS");
+    B.maxSecs = (e == NULL) ? 1200 : atoi(e);
+    e = getenv("GE_PLAYERBOT_PLANDIR");
+    snprintf(B.plandir, sizeof(B.plandir), "%s", (e != NULL) ? e : "Data/BotPlans");
+    e = getenv("GE_PLAYERBOT_PLAN");
+    snprintf(B.planfile, sizeof(B.planfile), "%s", (e != NULL) ? e : "");
+    if (B.mode != 0)
+    {
+        portConLogf("ge: playerbot: %s (plans %s%s%s, max %d s)\n", B.mode == 1 ? "driving player 1" : "watching",
+                    B.planfile[0] ? B.planfile : B.plandir, B.planfile[0] ? "" : "/<stage>.plan", "", B.maxSecs);
+    }
+}
+
+s32 portPlayerBotMode(void)
+{
+    if (!sInit)
+    {
+        botInit();
+    }
+    if (get_is_ramrom_flag() != 0 || get_recording_ramrom_flag() != 0)
+    {
+        return 0;   /* never during the attract demos */
+    }
+    return B.mode;
+}
+
+/* ---- names ------------------------------------------------------------------------------------------------------- */
+
+static const struct { s32 id; const char *name; } sStageNames[] = {
+    { LEVELID_DAM, "dam" }, { LEVELID_FACILITY, "facility" }, { LEVELID_RUNWAY, "runway" },
+    { LEVELID_SURFACE, "surface" }, { LEVELID_BUNKER1, "bunker1" }, { LEVELID_SILO, "silo" },
+    { LEVELID_FRIGATE, "frigate" }, { LEVELID_SURFACE2, "surface2" }, { LEVELID_BUNKER2, "bunker2" },
+    { LEVELID_STATUE, "statue" }, { LEVELID_ARCHIVES, "archives" }, { LEVELID_STREETS, "streets" },
+    { LEVELID_DEPOT, "depot" }, { LEVELID_TRAIN, "train" }, { LEVELID_JUNGLE, "jungle" },
+    { LEVELID_CONTROL, "control" }, { LEVELID_CAVERNS, "caverns" }, { LEVELID_CRADLE, "cradle" },
+    { LEVELID_AZTEC, "aztec" }, { LEVELID_EGYPT, "egypt" },
+};
+
+static const char *stageName(s32 id)
+{
+    s32 i;
+
+    for (i = 0; i < (s32) (sizeof(sStageNames) / sizeof(sStageNames[0])); i++)
+    {
+        if (sStageNames[i].id == id)
+        {
+            return sStageNames[i].name;
+        }
+    }
+    return "unknown";
+}
+
+/* ---- read-only engine queries --------------------------------------------------------------------------------------- */
+
+typedef struct {
+    StandTile *tile; s32 pointI, unknown; struct coord2d a, b; f32 someMin; PropRecord *posData;
+    s32 w08; StandTile *w0c; s32 d3bc; f32 d3c0, d3c4; s32 d3c8, d3cc; s32 d3d0[8]; s32 dfac;
+} StanScratch;
+
+static void stanSave(StanScratch *s)
+{
+    s->tile = stanSavedColl_tile; s->pointI = stanSavedColl_pointI; s->unknown = stanSavedColl_unknown;
+    s->a = stanSavedColl_pntA; s->b = stanSavedColl_pntB; s->someMin = stanSavedColl_someMin;
+    s->posData = stanSavedColl_posData; s->w08 = dword_CODE_bss_8007BA08; s->w0c = dword_CODE_bss_8007BA0C;
+    s->d3bc = D_800413BC; s->d3c0 = D_800413C0; s->d3c4 = D_800413C4; s->d3c8 = D_800413C8; s->d3cc = D_800413CC;
+    memcpy(s->d3d0, D_800413D0, sizeof(s->d3d0)); s->dfac = D_80040FAC;
+}
+
+static void stanRestore(const StanScratch *s)
+{
+    stanSavedColl_tile = s->tile; stanSavedColl_pointI = s->pointI; stanSavedColl_unknown = s->unknown;
+    stanSavedColl_pntA = s->a; stanSavedColl_pntB = s->b; stanSavedColl_someMin = s->someMin;
+    stanSavedColl_posData = s->posData; dword_CODE_bss_8007BA08 = s->w08; dword_CODE_bss_8007BA0C = s->w0c;
+    D_800413BC = s->d3bc; D_800413C0 = s->d3c0; D_800413C4 = s->d3c4; D_800413C8 = s->d3c8; D_800413CC = s->d3cc;
+    memcpy(D_800413D0, s->d3d0, sizeof(s->d3d0)); D_80040FAC = s->dfac;
+}
+
+/* Straight line on the stan tiles from `from` to (x2,z2): 1 if nothing in `cd` blocks it and (when want != NULL) it
+ * ends on the tile `want`. */
+static s32 botLine(StandTile *from, f32 x1, f32 z1, f32 x2, f32 z2, StandTile *want, s32 cd)
+{
+    StanScratch s;
+    StandTile *t = from;
+    s32 ok;
+
+    if (from == NULL)
+    {
+        return 0;
+    }
+    stanSave(&s);
+    ok = stanTestLineUnobstructed(&t, x1, z1, x2, z2, cd, 140.0f, 140.0f, 0.0f, 1.0f);
+    stanRestore(&s);
+    return ok && (want == NULL || t == want);
+}
+
+static struct player *bond(void)
+{
+    return g_playerPointers[0];
+}
+
+static StandTile *bondTile(void)
+{
+    return bond()->prop->stan;   /* the tile the line tests must start from: the one under prop->pos */
+}
+
+static s32 bondRoom(void)
+{
+    StandTile *t = bondTile();
+
+    return t != NULL ? (s32) t->room : -1;
+}
+
+static PadRecord *padGet(s32 pad)
+{
+    if (pad < 0)
+    {
+        return NULL;
+    }
+    if (isNotBoundPad(pad))
+    {
+        return &g_CurrentSetup.pads[pad];
+    }
+    return (PadRecord *) &g_CurrentSetup.boundpads[getBoundPadNum(pad)];
+}
+
+static ObjectRecord *objByTag(s32 tag)
+{
+    return objFindByTagId(tag);
+}
+
+static s32 objectiveOpen(s32 i)
+{
+    if (i < 0 || i >= objectiveGetCount())
+    {
+        return 0;
+    }
+    if (get_difficulty_for_objective(i) > lvlGetSelectedDifficulty())
+    {
+        return 0;
+    }
+    return get_status_of_objective(i) != OBJECTIVESTATUS_COMPLETE;
+}
+
+static s32 stageFlag(s32 mask)
+{
+    return (objectiveregisters1 & mask) != 0;
+}
+
+static s32 isAllyBody(s32 body)
+{
+    /* (Boris: Control fails its objective 0 the moment he dies - ai_23, chr 0 gone - and he carries a gun) */
+    return body == BODY_Natalya_Skirt || body == BODY_Natalya_Jungle_Fatigues || body == BODY_Trevelyan_006 ||
+           body == BODY_Boris;
+}
+
+/* on a `spare ai ID` list (a hostage's captors: shooting one has the hostage killed) */
+static s32 chrSpared(ChrRecord *c)
+{
+    s32 k;
+
+    for (k = 0; k < B.nSpare; k++)
+    {
+        if ((void *) c->ailist == B.spare[k])
+        {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* the setup AI list id a chr runs now (0x401 + N for ai_N), or its return list while in a stock list; 0 if unknown */
+static s32 chrAiId(ChrRecord *c)
+{
+    s32 k;
+
+    if (g_CurrentSetup.ailists != NULL)
+    {
+        for (k = 0; g_CurrentSetup.ailists[k].ailist != NULL; k++)
+        {
+            if ((void *) g_CurrentSetup.ailists[k].ailist == (void *) c->ailist)
+            {
+                return g_CurrentSetup.ailists[k].ID;
+            }
+        }
+    }
+    return c->aireturnlist;
+}
+
+static s32 chrHostile(ChrRecord *c)
+{
+    if (c == NULL || c->model == NULL || c->prop == NULL || chrIsDead(c) || chrSpared(c))
+    {
+        return 0;
+    }
+    if (c->chrflags & CHRFLAG_COUNT_DEATH_AS_CIVILIAN)
+    {
+        return 0;
+    }
+    if (isAllyBody(c->bodynum))
+    {
+        return 0;
+    }
+    if (portHeistKoIs(c->chrnum))
+    {
+        return 0;   /* knocked out (heist modes): no threat, and shooting it is noise for nothing */
+    }
+    return chrGetEquippedWeaponPropWithCheck(c, GUNRIGHT) != NULL || chrGetEquippedWeaponPropWithCheck(c, GUNLEFT) != NULL;
+}
+
+/* a living bystander whose death counts against the mission (stock civilians, heist staff) */
+static s32 chrIsCivilian(ChrRecord *c)
+{
+    return c != NULL && c->model != NULL && c->prop != NULL && !chrIsDead(c) && (c->chrflags & CHRFLAG_COUNT_DEATH_AS_CIVILIAN);
+}
+
+static s32 chrAttacking(ChrRecord *c)
+{
+    return c->actiontype == ACT_ATTACK || c->actiontype == ACT_ATTACKWALK || c->actiontype == ACT_ATTACKROLL;
+}
+
+/* a guard on the stock alarm raiser list (heist raisers), or one sounding an alarm now */
+static s32 chrIsRaiser(ChrRecord *c)
+{
+    return c->actiontype == ACT_STARTALARM || (B.raiserList != NULL && c->ailist == B.raiserList);
+}
+
+/* has this chr noticed Bond? (standing, patrolling or idling = not yet) */
+static s32 chrAlert(ChrRecord *c)
+{
+    return !(c->actiontype == ACT_STAND || c->actiontype == ACT_PATROL || c->actiontype == ACT_ANIM ||
+             c->actiontype == ACT_INIT);
+}
+
+/* ---- output helpers ---------------------------------------------------------------------------------------------- */
+
+static void outClear(void)
+{
+    B.btn = 0;
+    B.sx = 0;
+    B.sy = 0;
+    B.dmx = 0;
+    B.dmy = 0;
+    B.yaw = 0.0f;
+    B.pitch = 0.0f;
+    B.actNextInv = 0;
+    B.lookDoor = NULL;
+}
+
+static f32 fovRatio(void)
+{
+    /* the same ratio bondview2.c portMouseFovRatio scales the direct-mode look by */
+    f32 fov = viGetFovY();
+    f32 basefov = (fov > 60.0f) ? (f32) GE_DEFAULT_FOV : 60.0f;
+
+    if (basefov < 1.0f)
+    {
+        basefov = 60.0f;
+    }
+    return (fov > 1.0f) ? fov / basefov : 1.0f;
+}
+
+/* turn toward a yaw / pitch (degrees); returns the remaining yaw error */
+static f32 lookToward(f32 yawWant, f32 pitchWant, f32 maxTurn)
+{
+    struct player *p = bond();
+    f32 err = pblWrap180(yawWant - p->vv_theta);
+    f32 perr = pitchWant - p->vv_verta;
+    f32 r = fovRatio();
+
+    B.yaw = pblClamp(err, -maxTurn, maxTurn) / r;
+    B.pitch = pblClamp(perr * 0.8f, -8.0f, 8.0f) / r;
+    B.pitchWant = pitchWant;
+    B.pitchErr = perr;
+    return err;
+}
+
+static f32 lookAt(f32 x, f32 y, f32 z, f32 maxTurn)
+{
+    struct player *p = bond();
+    f32 dx = x - p->prop->pos.x, dz = z - p->prop->pos.z;
+    f32 dh = sqrtf(dx * dx + dz * dz);
+
+    return lookToward(pblYawTo(dx, dz), pblPitchTo(y - p->prop->pos.y, dh), maxTurn);
+}
+
+static void tap(u16 mask, s32 every)
+{
+    if ((B.ticksAll % every) == 0)
+    {
+        B.btn |= mask;
+    }
+}
+
+/* ---- weapons ---------------------------------------------------------------------------------------------------- */
+
+static const s32 sGunPrefs[] = {
+    ITEM_FNP90, ITEM_M16, ITEM_AK47, ITEM_SPECTRE, ITEM_MP5K, ITEM_MP5KSIL, ITEM_UZI, ITEM_AUTOSHOT, ITEM_SHOTGUN,
+    ITEM_RUGER, ITEM_GOLDENGUN, ITEM_SKORPION, ITEM_TT33, ITEM_WPPKSIL, ITEM_WPPK, ITEM_SILVERWPPK, ITEM_GOLDWPPK,
+};
+
+static s32 isAuto(s32 w)
+{
+    return w == ITEM_FNP90 || w == ITEM_M16 || w == ITEM_AK47 || w == ITEM_SPECTRE || w == ITEM_MP5K ||
+           w == ITEM_MP5KSIL || w == ITEM_UZI || w == ITEM_SKORPION || w == ITEM_LASER;
+}
+
+static s32 weaponHasAmmo(s32 w)
+{
+    s32 at = get_ammo_type_for_weapon(w);
+
+    if (at == 0)
+    {
+        return 1;
+    }
+    return currentPlayerGetAmmoCount(at) > 0;
+}
+
+static s32 bestGun(void)
+{
+    s32 i;
+
+    if (B.quiet)
+    {   /* stealth: a silenced gun is heard ~100 units away, a KF7 2000. Even once the alarm sounds: the alarm brings the
+         * reinforcement waves, but the guards on post elsewhere only come for what they hear or see */
+        if (bondinvItemAvailable(ITEM_MP5KSIL) && weaponHasAmmo(ITEM_MP5KSIL))
+        {
+            return ITEM_MP5KSIL;
+        }
+        if (bondinvItemAvailable(ITEM_WPPKSIL) && weaponHasAmmo(ITEM_WPPKSIL))
+        {
+            return ITEM_WPPKSIL;
+        }
+    }
+    for (i = 0; i < (s32) (sizeof(sGunPrefs) / sizeof(sGunPrefs[0])); i++)
+    {
+        if (bondinvItemAvailable(sGunPrefs[i]) && weaponHasAmmo(sGunPrefs[i]))
+        {
+            return sGunPrefs[i];
+        }
+    }
+    return ITEM_UNARMED;
+}
+
+/* tap A (next weapon) until the wanted weapon is in hand */
+static void weaponTick(void)
+{
+    s32 cur = getCurrentPlayerWeaponId(GUNRIGHT);
+    /* a fight always gets the best gun, whatever gadget a step wants */
+    s32 want = (B.wantWeapon > 0 && (B.target == NULL || B.peace)) ? B.wantWeapon : bestGun();
+
+    if (want < 0 || !bondinvItemAvailable(want) || cur == want)
+    {
+        return;
+    }
+    if (B.tick - B.lastCycleTick >= 24)
+    {
+        if (want >= ITEM_BOMBCASE)
+        {   /* A only cycles guns; gadgets come round with the port's "next inventory item" action (a key / pad bind,
+             * recorded like any input) */
+            B.actNextInv = 1;
+        }
+        else
+        {
+            B.btn |= BTN_A;
+        }
+        B.lastCycleTick = B.tick;
+    }
+}
+
+/* ---- graph -------------------------------------------------------------------------------------------------------- */
+
+static StandTile *tileNext(StandTile *t)
+{
+    return (StandTile *) ((u8 *) t + list_of_tilesizes[t->tail.hdrTail.pointCount & 0xf]);
+}
+
+static s32 tileCount(StandTile *t)
+{
+    return t->tail.hdrTail.pointCount & 0xf;
+}
+
+/* the node of a tile, or -1 (binary search over the ascending tile addresses) */
+static s32 tileIndex(StandTile *t)
+{
+    s32 lo = 0, hi = B.ntiles - 1;
+
+    while (lo <= hi)
+    {
+        s32 mid = (lo + hi) / 2;
+
+        if (B.tiles[mid] == t)
+        {
+            return mid;
+        }
+        if ((u8 *) B.tiles[mid] < (u8 *) t)
+        {
+            lo = mid + 1;
+        }
+        else
+        {
+            hi = mid - 1;
+        }
+    }
+    return -1;
+}
+
+static StandTile *tileLink(StandTile *t, s32 i)
+{
+    u16 link = t->points[i].link;
+
+    return (link >> 4) != 0 ? (StandTile *) ((u8 *) standTileStart + ((u32) link << 3)) : NULL;
+}
+
+#define FUNNEL_N 48
+
+/* the two ends of the edge of tile `t` that leads to tile `to` (x/z); 0 if they are not linked */
+static s32 tilePortalEnds(StandTile *t, StandTile *to, f32 *ax, f32 *az, f32 *bx, f32 *bz)
+{
+    s32 n = tileCount(t), i;
+
+    for (i = 0; i < n; i++)
+    {
+        if (tileLink(t, i) == to)
+        {
+            s32 j = (i + 1) % n;
+
+            *ax = (f32) t->points[i].x * inv_level_scale;
+            *az = (f32) t->points[i].z * inv_level_scale;
+            *bx = (f32) t->points[j].x * inv_level_scale;
+            *bz = (f32) t->points[j].z * inv_level_scale;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* the middle of the edge of tile `t` that leads to tile `to`; 0 if they are not linked */
+static s32 tilePortal(StandTile *t, StandTile *to, f32 *x, f32 *y, f32 *z)
+{
+    s32 n = tileCount(t), i;
+
+    for (i = 0; i < n; i++)
+    {
+        if (tileLink(t, i) == to)
+        {
+            s32 j = (i + 1) % n;
+
+            *x = ((f32) t->points[i].x + (f32) t->points[j].x) * 0.5f * inv_level_scale;
+            *y = ((f32) t->points[i].y + (f32) t->points[j].y) * 0.5f * inv_level_scale;
+            *z = ((f32) t->points[i].z + (f32) t->points[j].z) * 0.5f * inv_level_scale;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static s32 sDoorPenN;   /* doorway links penalised by graphApplyLocks (a new graph has none) */
+
+static void graphBuild(void)
+{
+    StandTile *first = (StandTile *) ptr_firstroom_0, *t;
+    s32 n = 0, i, k, big = 0, nc;
+
+    sDoorPenN = 0;
+    if (B.g.cap > 0)
+    {
+        pblGraphFree(&B.g);
+    }
+    free(B.tiles);
+    B.tiles = NULL;
+    B.ntiles = 0;
+    B.climbCut = 0;
+    B.maxStep = getenv("GE_PLAYERBOT_MAXSTEP") != NULL ? (f32) atof(getenv("GE_PLAYERBOT_MAXSTEP")) : 45.0f;
+    /* (diagnosis) 1: doors Bond cannot open close their tiles - is there a way round? 2: keyed doors are ignored */
+    B.lockClosed = getenv("GE_PLAYERBOT_LOCKCLOSED") != NULL ? atoi(getenv("GE_PLAYERBOT_LOCKCLOSED")) : 0;
+    if (first == NULL)
+    {
+        portConLogf("ge: playerbot: this stage has no stan tiles\n");
+        return;
+    }
+    for (t = first; *(u32 *) t != 0; t = tileNext(t))
+    {
+        n++;
+    }
+    B.tiles = (StandTile **) malloc((size_t) n * sizeof(StandTile *));
+    if (B.tiles == NULL || !pblGraphAlloc(&B.g, n, n * 12))
+    {
+        portConLogf("ge: playerbot: out of memory for %d tiles\n", n);
+        return;
+    }
+    for (t = first, i = 0; *(u32 *) t != 0; t = tileNext(t), i++)
+    {
+        f32 x = 0.0f, y = 0.0f, z = 0.0f;
+        s32 c = tileCount(t);
+
+        for (k = 0; k < c; k++)
+        {
+            x += (f32) t->points[k].x;
+            y += (f32) t->points[k].y;
+            z += (f32) t->points[k].z;
+        }
+        if (c > 0)
+        {
+            x = x / (f32) c * inv_level_scale;
+            y = y / (f32) c * inv_level_scale;
+            z = z / (f32) c * inv_level_scale;
+        }
+        B.tiles[i] = t;
+        pblGraphNode(&B.g, x, y, z);
+    }
+    B.ntiles = n;
+    for (i = 0; i < n; i++)
+    {
+        s32 nb[16], m = 0, c = tileCount(B.tiles[i]);
+
+        for (k = 0; k < c && m < 16; k++)
+        {
+            StandTile *lt = tileLink(B.tiles[i], k);
+            s32 j = lt != NULL ? tileIndex(lt) : -1;
+
+            if (j >= 0)
+            {
+                /* the step at the shared edge: this tile's edge height vs the neighbour's edge back to us. Bond can
+                 * drop down any step but only climb a small one (a kerb, a stair), so a tall step up is one-way. */
+                StandTile *t = B.tiles[i];
+                s32 k2 = (k + 1) % c, n2 = tileCount(lt), q;
+                f32 ya = ((f32) t->points[k].y + (f32) t->points[k2].y) * 0.5f * inv_level_scale;
+                f32 yb = ya;
+
+                for (q = 0; q < n2; q++)
+                {
+                    if (tileLink(lt, q) == t)
+                    {
+                        yb = ((f32) lt->points[q].y + (f32) lt->points[(q + 1) % n2].y) * 0.5f * inv_level_scale;
+                        break;
+                    }
+                }
+                if (yb - ya > B.maxStep)
+                {
+                    B.climbCut++;
+                    continue;
+                }
+                nb[m++] = j;
+            }
+        }
+        pblGraphEdges(&B.g, i, nb, m);
+    }
+    nc = pblComponents(&B.g, &big);
+    portConLogf("ge: playerbot: nav mesh %d stan tiles, %d links (%d too tall to climb), %d component(s), largest %d\n", B.g.n,
+                B.g.ne, B.climbCut, nc, big);
+}
+
+static f32 segDist2(f32 px, f32 pz, f32 ax, f32 az, f32 bx, f32 bz)
+{
+    f32 dx = bx - ax, dz = bz - az;
+    f32 len2 = dx * dx + dz * dz;
+    f32 t = len2 > 0.0f ? ((px - ax) * dx + (pz - az) * dz) / len2 : 0.0f;
+    f32 qx, qz;
+
+    t = pblClamp(t, 0.0f, 1.0f);
+    qx = ax + t * dx - px;
+    qz = az + t * dz - pz;
+    return qx * qx + qz * qz;
+}
+
+static s32 doorIsBlocked(PropRecord *d);
+static s32 doorShut(PropRecord *d);
+
+/* a door Bond cannot get through: it needs a key he lacks (a padlock is not counted: the bot shoots those off) */
+static s32 doorLocked1(DoorRecord *d)
+{
+    return d->keyflags != 0 && !bondinvCheckHasKeyFlags(d->keyflags);
+}
+
+/* the leaf of a linked set (doorActivate opens every linked door) that Bond can work: `d` itself if it needs no key he
+ * lacks, else a linked partner that does not (Depot's train door: leaf tag 7 wants key 8, which no key in the level has;
+ * its partner, tag 6, has no lock and opens both). NULL if none. */
+static DoorRecord *doorWorkable(DoorRecord *d)
+{
+    DoorRecord *l;
+    s32 n = 0;
+
+    if (!doorLocked1(d))
+    {
+        return d;
+    }
+    for (l = d->linkedDoor; l != NULL && l != d && n < 8; l = l->linkedDoor, n++)
+    {
+        if (!doorLocked1(l))
+        {
+            return l;
+        }
+    }
+    return NULL;
+}
+
+static s32 doorLocked(DoorRecord *d)
+{
+    return doorWorkable(d) == NULL;
+}
+
+/* the rooms a door prop stands in (its doorway joins them; -1 terminated): how many, and is `room` one of them */
+static s32 doorRoomCount(PropRecord *d)
+{
+    s32 n = 0;
+
+    while (n < PROPRECORD_STAN_ROOM_LEN && d->rooms[n] != 0xff)
+    {
+        n++;
+    }
+    return n;
+}
+
+static s32 doorHasRoom(PropRecord *d, s32 room)
+{
+    s32 k;
+
+    for (k = 0; k < PROPRECORD_STAN_ROOM_LEN && d->rooms[k] != 0xff; k++)
+    {
+        if ((s32) d->rooms[k] == room)
+        {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* the link a -> b goes through this door's doorway: from one of the door's rooms into another. A door in a side wall
+ * of a corridor (Depot: the key-8 door beside the only way to the train) stands near the corridor's tiles but on none
+ * of the links a route along the corridor takes - "tiles near a locked door" made every route past it look locked. */
+static s32 linkThroughDoor(s32 a, s32 b, PropRecord *d)
+{
+    s32 ra = (s32) B.tiles[a]->room, rb = (s32) B.tiles[b]->room;
+
+    return ra != rb && doorHasRoom(d, ra) && doorHasRoom(d, rb);
+}
+
+/* doorway links of locked doors made expensive by the last graphApplyLocks (undone at the next one) */
+#define DOORPEN_MAX 512
+static s32 sDoorPenA[DOORPEN_MAX], sDoorPenB[DOORPEN_MAX];
+
+/* make tiles at a door Bond cannot open expensive (re-done before each plan; a key picked up opens them again) */
+static s32 graphApplyLocks(void)
+{
+    PropRecord *p;
+    s32 a, nd = 0;
+
+    pblGraphClearMarks(&B.g);
+    while (sDoorPenN > 0)
+    {   /* last time's doorway links */
+        sDoorPenN--;
+        pblGraphPenalize(&B.g, sDoorPenA[sDoorPenN], sDoorPenB[sDoorPenN], -20000.0f);
+    }
+    if (B.nAvoid > 0)
+    {   /* rooms a plan said to keep out of */
+        for (a = 0; a < B.g.n; a++)
+        {
+            s32 k;
+
+            for (k = 0; k < B.nAvoid; k++)
+            {
+                if ((s32) B.tiles[a]->room == B.avoidRoom[k])
+                {
+                    B.g.nbad[a] = 1;   /* closed: a route never enters it (Statue's exit room ends the mission) */
+                }
+            }
+        }
+    }
+    for (p = chrpropGetActiveTail(); p != NULL; p = p->prev)
+    {   /* the gas of a burst gas tank hurts: keep routes out of it */
+        if (p->type == PROP_TYPE_OBJ && p->obj != NULL && p->obj->type == PROPDEF_GAS_RELEASING && !objIsHealthy(p->obj))
+        {
+            for (a = 0; a < B.g.n; a++)
+            {
+                f32 dx = B.g.x[a] - p->pos.x, dz = B.g.z[a] - p->pos.z;
+
+                if (dx * dx + dz * dz < 400.0f * 400.0f && fabsf(B.g.y[a] - p->pos.y) < 300.0f)
+                {
+                    B.g.npen[a] += 4000.0f;
+                }
+            }
+        }
+    }
+    for (p = chrpropGetActiveTail(); p != NULL; p = p->prev)
+    {
+        if (p->type != PROP_TYPE_DOOR || p->door == NULL || (B.lockClosed == 2 && p->door->keyflags != 0) ||
+            !(doorLocked(p->door) || doorIsBlocked(p) || (p == B.subDoor && doorShut(p))))
+        {   /* (while walking to a door's switch, the shut door itself is not a way to it) */
+            continue;
+        }
+        nd++;
+        {
+            f32 reach = 90.0f + fabsf(p->door->frac) * 0.5f;   /* a gate is as wide as it slides */
+            /* a locked door between rooms: only the links through its doorway (blocked / switch doors: the tiles) */
+            s32 byLink = doorRoomCount(p) >= 2 && doorLocked(p->door) && B.lockClosed != 3;   /* (3: the round-4 rule) */
+
+            if (byLink)
+            {
+                reach += 150.0f;   /* (tile centres: the doorway's tiles can be big) */
+            }
+            for (a = 0; a < B.g.n; a++)
+            {
+                f32 dx = B.g.x[a] - p->pos.x, dz = B.g.z[a] - p->pos.z;
+
+                if (byLink && dx * dx + dz * dz < reach * reach && fabsf(B.g.y[a] - p->pos.y) < 250.0f)
+                {
+                    s32 e;
+
+                    for (e = B.g.start[a]; e < B.g.start[a + 1]; e++)
+                    {
+                        s32 b = B.g.to[e];
+
+                        if (linkThroughDoor(a, b, p) && sDoorPenN < DOORPEN_MAX)
+                        {
+                            pblGraphPenalize(&B.g, a, b, 20000.0f);
+                            sDoorPenA[sDoorPenN] = a;
+                            sDoorPenB[sDoorPenN++] = b;
+                        }
+                    }
+                    continue;
+                }
+                if (!byLink && dx * dx + dz * dz < reach * reach && fabsf(B.g.y[a] - p->pos.y) < 250.0f)
+                {
+                    B.g.npen[a] += 20000.0f;
+                    if (B.lockClosed && doorLocked(p->door))
+                    {
+                        B.g.nbad[a] = 1;   /* GE_PLAYERBOT_LOCKCLOSED=1 (diagnosis): is there a way round at all? */
+                    }
+                }
+            }
+        }
+    }
+    return nd;
+}
+
+/* the node for a goal: its tile when known, else the nearest tile centre */
+static s32 nodeNear(f32 x, f32 y, f32 z, StandTile *tile)
+{
+    s32 i = tile != NULL ? tileIndex(tile) : -1;
+
+    return i >= 0 ? i : pblNearest(&B.g, x, y, z);
+}
+
+/* ---- navigation ------------------------------------------------------------------------------------------------- */
+
+static void navReset(void)
+{
+    B.pathN = 0;
+    B.pathAt = 0;
+    B.goalValid = 0;
+}
+
+static void koConePenalty(void);
+
+static void navPlan(f32 x, f32 y, f32 z, StandTile *goalTile)
+{
+    struct player *p = bond();
+    s32 a, b;
+
+    graphApplyLocks();
+    koConePenalty();
+    a = nodeNear(p->prop->pos.x, p->prop->pos.y, p->prop->pos.z, bondTile());
+    b = nodeNear(x, y, z, goalTile);
+    B.pathN = (a >= 0 && b >= 0) ? pblAstar(&B.g, a, b, B.path, MAXPATH) : 0;
+    B.pathAt = 0;
+    B.aimAt = 0;
+    B.offPath = 0;
+    B.planTick = B.tick;
+    if (B.verbose >= 2 && B.pathN > 0)
+    {   /* the rooms the route crosses (nav diagnosis: lifts, doors) */
+        char rs[200];
+        s32 k, len = 0, last = -1, nr = 0;
+
+        rs[0] = '\0';
+        for (k = 0; k < B.pathN && len < (s32) sizeof(rs) - 8; k++)
+        {
+            s32 r = (s32) B.tiles[B.path[k]]->room;
+
+            if (r != last)
+            {
+                len += snprintf(rs + len, sizeof(rs) - (size_t) len, "%s%d", nr++ ? " " : "", r);
+                last = r;
+            }
+        }
+        portConLogf("ge: playerbot: route %d tiles, rooms %s\n", B.pathN, rs);
+    }
+    if (B.pathN == 0 && B.verbose && (B.tick - B.lastNoRouteLog > 600 || B.lastNoRouteLog == 0))
+    {
+        B.lastNoRouteLog = B.tick > 0 ? B.tick : 1;
+        portConLogf("ge: playerbot: no route on the stan mesh from tile %d (room %d) to tile %d (room %d) - walking straight\n", a,
+                    a >= 0 ? (s32) B.tiles[a]->room : -1, b, b >= 0 ? (s32) B.tiles[b]->room : -1);
+    }
+}
+
+static void stuckReport(const char *what)
+{
+    struct player *p = bond();
+    s32 node = B.pathAt < B.pathN ? B.path[B.pathAt] : -1;
+
+    snprintf(B.blocked, sizeof(B.blocked), "%s at room %d pos %.0f,%.0f,%.0f next room %d step %d '%s'", what, bondRoom(),
+             p->prop->pos.x, p->prop->pos.y, p->prop->pos.z, node >= 0 ? (s32) B.tiles[node]->room : -1, B.step + 1,
+             B.step < B.plan.n ? B.plan.s[B.step].text : "-");
+    portConLogf("ge: playerbot: STUCK %s\n", B.blocked);
+    ge_shot_force = 1;
+    {   /* what is around: doors (locked?) and big objects */
+        PropRecord *d;
+
+        for (d = chrpropGetActiveTail(); d != NULL; d = d->prev)
+        {
+            f32 dx = d->pos.x - p->prop->pos.x, dz = d->pos.z - p->prop->pos.z;
+
+            if (dx * dx + dz * dz > 600.0f * 600.0f || fabsf(d->pos.y - p->prop->pos.y) > 400.0f)
+            {
+                continue;
+            }
+            if (d->type == PROP_TYPE_DOOR && d->door != NULL)
+            {
+                portConLogf("ge: playerbot:   door at %.0f,%.0f,%.0f (%.0f away) state %d open %.2f/%.2f keyflags %x locked %d padlocked %d\n",
+                            d->pos.x, d->pos.y, d->pos.z, sqrtf(dx * dx + dz * dz), (s32) d->door->openstate,
+                            d->door->openPosition, d->door->maxFrac, (u32) d->door->keyflags, doorLocked(d->door),
+                            !doorIsPadlockFree(d->door));
+            }
+            else if (d->type == PROP_TYPE_OBJ && d->obj != NULL && dx * dx + dz * dz < 300.0f * 300.0f)
+            {
+                portConLogf("ge: playerbot:   object type %d model %d at %.0f,%.0f,%.0f (%.0f away)\n", (s32) d->obj->type,
+                            (s32) d->obj->obj, d->pos.x, d->pos.y, d->pos.z, sqrtf(dx * dx + dz * dz));
+            }
+        }
+    }
+}
+
+/* GE_PLAYERBOT_DOORS=1: every door at stage start (position, room, state, link, flags) and the pairs that share a
+ * doorway: two doors within 320 (x/z) of each other on one floor - a linked pair (opened together, or an airlock when
+ * flags2 & 0x40000000: opening one closes the other first) or stacked leaves (each opened on its own). */
+static void doorDump(void)
+{
+    PropRecord *d, *e;
+    s32 n = 0;
+
+    for (d = chrpropGetActiveTail(); d != NULL; d = d->prev)
+    {
+        DoorRecord *r;
+
+        if (d->type != PROP_TYPE_DOOR || d->door == NULL)
+        {
+            continue;
+        }
+        r = d->door;
+        n++;
+        {
+            s32 t, tag = -1;
+
+            for (t = 0; t < 128 && tag < 0; t++)
+            {
+                if ((void *) objByTag(t) == (void *) r)
+                {
+                    tag = t;
+                }
+            }
+            portConLogf("ge: playerbot: door %.0f,%.0f,%.0f tag %d room %d (rooms %d %d %d) frac %.0f max %.2f state %d pos %.2f"
+                        " key %x flags %x/%x portal %d linked %s%s\n", d->pos.x, d->pos.y, d->pos.z, tag,
+                        d->stan != NULL ? (s32) d->stan->room : -1, doorRoomCount(d) > 0 ? (s32) d->rooms[0] : -1,
+                        doorRoomCount(d) > 1 ? (s32) d->rooms[1] : -1, doorRoomCount(d) > 2 ? (s32) d->rooms[2] : -1,
+                        r->frac, r->maxFrac, (s32) r->openstate, r->openPosition, (u32) r->keyflags, (u32) r->flags,
+                        (u32) r->flags2, r->portalNumber, r->linkedDoor != NULL ? "yes" : "no",
+                        (r->flags2 & 0x40000000) ? " AIRLOCK" : "");
+        }
+        for (e = d->prev; e != NULL; e = e->prev)
+        {
+            f32 dx, dz;
+
+            if (e->type != PROP_TYPE_DOOR || e->door == NULL)
+            {
+                continue;
+            }
+            dx = e->pos.x - d->pos.x;
+            dz = e->pos.z - d->pos.z;
+            if (dx * dx + dz * dz < 320.0f * 320.0f && fabsf(e->pos.y - d->pos.y) < 150.0f)
+            {
+                s32 linked = r->linkedDoor == e->door || e->door->linkedDoor == r;
+
+                portConLogf("ge: playerbot:   pair: with door %.0f,%.0f,%.0f (%.0f apart) %s\n", e->pos.x, e->pos.y, e->pos.z,
+                            sqrtf(dx * dx + dz * dz), linked ? "linked" : "NOT linked (stacked / side by side)");
+            }
+        }
+    }
+    portConLogf("ge: playerbot: %d doors\n", n);
+}
+
+static PropRecord *doorInTheWay(PropRecord *target);
+
+/* open doors ahead: tap B when a closed, openable door is close and roughly in front */
+static void doorTick(void)
+{
+    struct player *p = bond();
+    PropRecord *d;
+
+    if (B.tick - B.lastDoorTap < 20 || B.tick < B.noDoorTapUntil)
+    {
+        return;
+    }
+    for (d = chrpropGetActiveTail(); d != NULL; d = d->prev)
+    {
+        f32 dx, dz, dist, ang;
+
+        if (d->type != PROP_TYPE_DOOR || d->door == NULL)
+        {
+            continue;
+        }
+        if (d->door->openstate == DOORSTATE_OPENING || d->door->openPosition > d->door->maxFrac * 0.8f)
+        {
+            continue;
+        }
+        dx = d->pos.x - p->prop->pos.x;
+        dz = d->pos.z - p->prop->pos.z;
+        dist = sqrtf(dx * dx + dz * dz);
+        if (dist > 190.0f || fabsf(d->pos.y - p->prop->pos.y) > 220.0f)
+        {
+            continue;
+        }
+        ang = pblWrap180(pblYawTo(dx, dz) - p->vv_theta);
+        if ((fabsf(ang) < 60.0f || dist < 90.0f) && doorInTheWay(d) == NULL)
+        {   /* (not with another door nearer in front: the press would work - and maybe close - that one) */
+            B.btn |= BTN_B;
+            B.lastDoorTap = B.tick;
+            return;
+        }
+    }
+}
+
+static void steerTo(f32 x, f32 y, f32 z, f32 slowRadius);
+
+static s32 propIsKey(PropRecord *q, u32 need)
+{
+    return q->type == PROP_TYPE_OBJ && q->obj != NULL && q->obj->type == PROPDEF_KEY &&
+           (((KeyRecord *) q->obj)->keyflags & need) != 0;
+}
+
+/* a key with any of the `need` flags: lying in the level (*holder = NULL) or carried by a live chr (*holder = it) */
+static PropRecord *findKeyProp(u32 need, ChrRecord **holder)
+{
+    PropRecord *p, *q;
+    s32 n = get_numguards(), i;
+
+    *holder = NULL;
+    for (p = chrpropGetActiveTail(); p != NULL; p = p->prev)
+    {
+        if (propIsKey(p, need))
+        {
+            return p;
+        }
+    }
+    for (i = 0; i < n; i++)
+    {
+        ChrRecord *c = &g_ChrSlots[i];
+
+        if (c->model == NULL || c->prop == NULL)
+        {
+            continue;
+        }
+        for (q = c->prop->child; q != NULL; q = q->next)
+        {
+            if (propIsKey(q, need))
+            {
+                *holder = c;
+                return q;
+            }
+        }
+    }
+    return NULL;
+}
+
+static s32 doorShut(PropRecord *d)
+{
+    return d->door->openPosition < d->door->maxFrac * 0.7f;   /* openPosition runs 0..maxFrac (frac is the door's size) */
+}
+
+static s32 doorIsBlocked(PropRecord *d)
+{
+    s32 i;
+
+    for (i = 0; i < B.nBlockedDoors; i++)
+    {
+        if (B.blockedDoors[i] == d)
+        {
+            return B.tick - B.blockedAt[i] < 1800;   /* try it again after 30 s: scripts open doors later */
+        }
+    }
+    return 0;
+}
+
+/* a shut door that the next stretch of the route goes through, within reach */
+static PropRecord *routeDoor(void)
+{
+    struct player *p = bond();
+    PropRecord *d, *best = NULL;
+    s32 k, bestK = 1 << 30;
+    f32 bestD = 1e30f;
+
+    /* the FIRST shut door along the route (then the nearest): two doors in one doorway (Caverns' stacked doors, double
+     * leaves) must be opened in the order Bond meets them - a B press works the nearest door he faces, so aiming at the
+     * far one presses the near one (and closes it again if it is open) */
+    for (d = chrpropGetActiveTail(); d != NULL; d = d->prev)
+    {
+        f32 dx, dz, reach;
+
+        if (d->type != PROP_TYPE_DOOR || d->door == NULL || !doorShut(d) || doorIsBlocked(d) || d == B.subDoor ||
+            (B.lockClosed == 2 && d->door->keyflags != 0))
+        {
+            continue;
+        }
+        /* a gate is as wide as it slides (frac), and its prop sits in its middle */
+        reach = 150.0f + fabsf(d->door->frac) * 0.5f;
+        dx = d->pos.x - p->prop->pos.x;
+        dz = d->pos.z - p->prop->pos.z;
+        if (dx * dx + dz * dz > (300.0f + reach) * (300.0f + reach) || fabsf(d->pos.y - p->prop->pos.y) > 300.0f)
+        {
+            continue;
+        }
+        /* (from two tiles back: Bond's tile can already be the far side's while the door, shutting, still holds him -
+         * Caverns' key-8 door, which stands open at the start and closes later) */
+        for (k = B.pathAt > 2 ? B.pathAt - 2 : 0; k < B.pathN && k < B.pathAt + 12 && k <= bestK; k++)
+        {
+            s32 nd = B.path[k];
+            f32 ex = B.g.x[nd] - d->pos.x, ez = B.g.z[nd] - d->pos.z;
+
+            if (k < B.pathAt && dx * dx + dz * dz > 150.0f * 150.0f)
+            {
+                continue;   /* (behind Bond and not right at him: passed) */
+            }
+            f32 close = 60.0f + fabsf(d->door->frac) * 0.5f;
+
+            if (ex * ex + ez * ez < reach * reach && fabsf(B.g.y[nd] - d->pos.y) < 300.0f &&
+                (doorRoomCount(d) < 2 || B.lockClosed == 3 || (k > 0 && linkThroughDoor(B.path[k - 1], nd, d)) ||
+                 (!doorLocked1(d->door) && ex * ex + ez * ez < close * close)))
+            {   /* (a door between rooms: only when the route goes through its doorway, not past it in a side wall -
+                 * Depot's key-8 door beside the way to the train sent the bot for a key that does not exist, Frigate's
+                 * side doors cost minutes of "will not open". An unlocked door the route passes right over also counts:
+                 * the room list of Surface's vent hatch does not name the rooms its route crosses) */
+                if (k < bestK || dx * dx + dz * dz < bestD)
+                {
+                    best = d;
+                    bestK = k;
+                    bestD = dx * dx + dz * dz;
+                }
+                break;
+            }
+        }
+    }
+    if (best != NULL && doorLocked1(best->door) && doorWorkable(best->door) != NULL && doorWorkable(best->door)->prop != NULL)
+    {
+        best = doorWorkable(best->door)->prop;   /* a keyed leaf: its partner opens both */
+    }
+    return best;
+}
+
+/* another door that a B press now would work instead of `target`: within the game's use range (200, doorTestForInteract),
+ * nearer Bond than the target and roughly in front of him. The press would close it if it is open (doorActivateWrapper
+ * toggles) - so walk on toward the target first. */
+static PropRecord *doorInTheWay(PropRecord *target)
+{
+    struct player *p = bond();
+    PropRecord *d;
+    f32 tx = target->pos.x - p->prop->pos.x, tz = target->pos.z - p->prop->pos.z, td = tx * tx + tz * tz;
+
+    for (d = chrpropGetActiveTail(); d != NULL; d = d->prev)
+    {
+        f32 dx, dz, dd;
+
+        if (d == target || d->type != PROP_TYPE_DOOR || d->door == NULL || d->door->maxFrac <= 0.0f ||
+            (d->door->flags & PROPFLAG_CANNOT_ACTIVATE) || d->door->linkedDoor == target->door ||
+            target->door->linkedDoor == d->door)
+        {
+            continue;
+        }
+        dx = d->pos.x - p->prop->pos.x;
+        dz = d->pos.z - p->prop->pos.z;
+        dd = dx * dx + dz * dz;
+        if (dd < 200.0f * 200.0f && dd < td && fabsf(d->pos.y - p->prop->pos.y) < 200.0f &&
+            fabsf(pblWrap180(pblYawTo(dx, dz) - p->vv_theta)) < 60.0f)
+        {
+            return d;
+        }
+    }
+    return NULL;
+}
+
+/* Get through a shut door on the route: walk up, face it, press B, wait while it opens. Returns 1 while busy. */
+static s32 doorHandle(f32 gx, f32 gy, f32 gz, StandTile *goalTile)
+{
+    struct player *p = bond();
+    PropRecord *d;
+    f32 dx, dz, dist;
+
+    if (B.subLock != NULL)
+    {
+        return 0;   /* walking up to shoot a padlock off: its door is shut, that is the point */
+    }
+    if (B.doorProp == NULL && (B.tick % 10) == 0)
+    {
+        B.doorProp = routeDoor();
+        B.doorTaps = 0;
+        B.doorOpened = 0;
+        B.doorSince = B.tick;
+        if (B.doorProp != NULL && B.verbose >= 2)
+        {
+            portConLogf("ge: playerbot: door on the route at %.0f,%.0f,%.0f\n", B.doorProp->pos.x, B.doorProp->pos.y,
+                        B.doorProp->pos.z);
+        }
+    }
+    d = B.doorProp;
+    if (d == NULL)
+    {
+        return 0;
+    }
+    if (d->type != PROP_TYPE_DOOR || d->door == NULL || !doorShut(d))
+    {
+        B.doorProp = NULL;   /* open: carry on */
+        B.stuck.lastGain = B.tick;
+        return 0;
+    }
+    if (!doorIsPadlockFree(d->door) && B.subLock == NULL)
+    {   /* padlocked: shoot the lock off (setup "lock door" links) */
+        LockDoorRecord *ld;
+
+        for (ld = g_LevelLoadPropLockDoor; ld != NULL; ld = ld->next)
+        {
+            if (ld->door == d->door && ld->lock != NULL && ld->lock->prop != NULL && objIsHealthy(ld->lock))
+            {
+                portConLogf("ge: playerbot: door at %.0f,%.0f,%.0f is padlocked - shooting the lock at %.0f,%.0f,%.0f\n", d->pos.x,
+                            d->pos.y, d->pos.z, ld->lock->prop->pos.x, ld->lock->prop->pos.y, ld->lock->prop->pos.z);
+                B.subLock = ld->lock;
+                B.subSince = B.tick;
+                B.doorProp = NULL;
+                navReset();
+                return 0;
+            }
+        }
+    }
+    if (doorLocked1(d->door) && doorWorkable(d->door) != NULL && doorWorkable(d->door)->prop != NULL)
+    {   /* a locked leaf of a linked pair whose partner opens both: press the partner */
+        PropRecord *pp = doorWorkable(d->door)->prop;
+
+        if (B.verbose)
+        {
+            portConLogf("ge: playerbot: door at %.0f,%.0f,%.0f wants key %x - its linked leaf at %.0f,%.0f,%.0f opens both\n",
+                        d->pos.x, d->pos.y, d->pos.z, (u32) d->door->keyflags, pp->pos.x, pp->pos.y, pp->pos.z);
+        }
+        B.doorProp = pp;
+        B.doorTaps = 0;
+        B.doorOpened = 0;
+        B.doorSince = B.tick;
+        return 1;
+    }
+    if (d->door->keyflags != 0 && !bondinvCheckHasKeyFlags(d->door->keyflags) && B.subKeyNeed == 0)
+    {   /* a key door: fetch the key if it is anywhere in the level (on the floor, or on a guard to take down) */
+        ChrRecord *holder = NULL;
+        PropRecord *kp = findKeyProp(d->door->keyflags, &holder);
+
+        if (kp != NULL && B.tick - B.keyGiveUpAt > 1800)
+        {
+            portConLogf("ge: playerbot: door at %.0f,%.0f,%.0f needs key %x: %s at %.0f,%.0f,%.0f - fetching it\n", d->pos.x,
+                        d->pos.y, d->pos.z, (u32) d->door->keyflags, holder != NULL ? "carried by a guard" : "lying",
+                        holder != NULL ? holder->prop->pos.x : kp->pos.x, holder != NULL ? holder->prop->pos.y : kp->pos.y,
+                        holder != NULL ? holder->prop->pos.z : kp->pos.z);
+            B.subKeyNeed = d->door->keyflags;
+            B.subSince = B.tick;
+            B.doorProp = NULL;
+            navReset();
+            return 0;
+        }
+        if (B.tick - B.lastKeyLog > 600)
+        {
+            B.lastKeyLog = B.tick;
+            portConLogf("ge: playerbot: door at %.0f,%.0f,%.0f needs a key (flags %x) Bond does not have and cannot find\n",
+                        d->pos.x, d->pos.y, d->pos.z, (u32) d->door->keyflags);
+        }
+    }
+    dx = d->pos.x - p->prop->pos.x;
+    dz = d->pos.z - p->prop->pos.z;
+    dist = sqrtf(dx * dx + dz * dz);
+    if (B.doorFastFor != d)
+    {
+        B.doorFastFor = d;
+        B.doorFastTaps = 0;
+    }
+    if (B.speedrun && B.doorFastTaps == 0 && B.subSwitch == NULL && d->door->openstate != DOORSTATE_OPENING &&
+        d->door->openstate != DOORSTATE_WAITING)
+    {   /* speedrun: a door the setup links to a switch (Dam's tunnel gates) - go to the switch right away (the careful way
+         * below presses B three times first) */
+        LinkRecord *l;
+
+        for (l = (LinkRecord *) g_LevelLoadPropSwitch; l != NULL; l = l->next)
+        {
+            if (l->second == d && l->first != NULL)
+            {
+                B.doorFastTaps = 3;
+                B.doorTaps = 3;
+                break;
+            }
+        }
+    }
+    if (B.speedrun && d->door->openstate == DOORSTATE_WAITING && B.tick - B.doorSince <= 1200)
+    {   /* a paired gate waiting for its sibling to shut: walk up to it and hold there */
+        B.stuck.lastGain = B.tick;
+        if (dist < 70.0f + fabsf(d->door->frac) * 0.25f)
+        {
+            lookAt(d->pos.x, p->prop->pos.y, d->pos.z, 45.0f);
+            return 1;
+        }
+        return 0;
+    }
+    if (B.speedrun && B.doorFastTaps < 3 && doorInTheWay(d) == NULL && d->door->openstate != DOORSTATE_WAITING)
+    {   /* speedrun: open it on the move. The view goes onto the door from 450 out (steerTo keeps the digital move on the
+         * route), B as soon as the game's use test can take it (within 200, the door straddling the view), and Bond runs on
+         * while it swings - stopping short only when he would meet a leaf still in its swing. Two presses that do not
+         * start it and the careful way below takes over (walk up, face, press, switches, keys). */
+        f32 standoff = 70.0f + fabsf(d->door->frac) * 0.25f;
+
+        if (d->door->openstate == DOORSTATE_OPENING)
+        {
+            B.stuck.lastGain = B.tick;   /* (a door opening on the way is not being stuck) */
+            B.doorOpened = 1;
+            if (d->door->openPosition > B.doorOpenPos + 0.01f || B.doorOpenTick == 0)
+            {
+                B.doorOpenPos = d->door->openPosition;
+                B.doorOpenTick = B.tick;
+            }
+            if (B.tick - B.doorOpenTick > 60)
+            {   /* it has stopped (Bond, or a body, in its swing): the careful way */
+                if (B.verbose >= 2)
+                {
+                    portConLogf("ge: playerbot: door at %.0f,%.0f: stopped opening at %.2f/%.2f with Bond %.0f away - the careful way\n",
+                                d->pos.x, d->pos.z, d->door->openPosition, d->door->maxFrac, dist);
+                }
+                B.doorFastTaps = 3;
+                return 1;
+            }
+            if (dist < standoff && d->door->openPosition < d->door->maxFrac * 0.5f)
+            {   /* the leaf is still in the way: hold here, facing it, until it is half open */
+                lookAt(d->pos.x, p->prop->pos.y, d->pos.z, 45.0f);
+                return 1;
+            }
+            return 0;   /* run on: it is open by the time Bond is there */
+        }
+        B.doorOpenTick = 0;
+        B.doorOpenPos = 0.0f;
+        if (dist > 700.0f)
+        {   /* left behind (the route went another way): forget it, so the door finder looks again */
+            B.doorProp = NULL;
+            return 0;
+        }
+        if (B.stuck.level >= 1)
+        {   /* not getting to it (an obstacle, or the door is a gate worked from elsewhere): the careful way */
+            if (B.verbose >= 2)
+            {
+                portConLogf("ge: playerbot: door at %.0f,%.0f: stuck %.0f away (%d presses) - the careful way\n", d->pos.x,
+                            d->pos.z, dist, B.doorFastTaps);
+            }
+            B.doorFastTaps = 3;
+            return 0;
+        }
+        if (dist < 450.0f)
+        {
+            f32 ang = pblWrap180(pblYawTo(dx, dz) - p->vv_theta);
+
+            B.lookDoor = d;
+            if (((dist < 170.0f && fabsf(ang) < 15.0f) || (dist < 110.0f && fabsf(ang) < 30.0f)) && B.tick - B.lastDoorTap >= 12)
+            {
+                B.btn |= BTN_B;
+                B.lastDoorTap = B.tick;
+                B.doorFastTaps++;
+                B.doorTaps++;
+                if (B.verbose >= 2)
+                {
+                    portConLogf("ge: playerbot: door at %.0f,%.0f: B on the move, %.0f away, %.1f deg off (press %d)\n", d->pos.x,
+                                d->pos.z, dist, ang, B.doorFastTaps);
+                }
+            }
+        }
+        return 0;
+    }
+    if ((d->door->openstate == DOORSTATE_OPENING || d->door->openstate == DOORSTATE_WAITING) && B.tick - B.doorSince <= 1200)
+    {   /* it is coming: wait facing it - unless it has not moved for 2 s (Bond, or a body, in its swing): step back.
+         * 20 s of this and the door counts as one that will not open (below) */
+        if (d->door->openPosition > B.doorOpenPos + 0.01f || B.doorOpenTick == 0)
+        {
+            B.doorOpenPos = d->door->openPosition;
+            B.doorOpenTick = B.tick;
+        }
+        B.doorOpened = 1;
+        lookAt(d->pos.x, p->prop->pos.y, d->pos.z, 15.0f);
+        B.stuck.lastGain = B.tick;
+        if (B.tick - B.doorOpenTick > 120)
+        {
+            B.sy = -60;
+            if (B.tick - B.doorOpenTick > 150)
+            {
+                B.doorOpenTick = B.tick;   /* and wait again */
+                B.btn |= BTN_B;
+            }
+        }
+        return 1;
+    }
+    B.doorOpenTick = 0;
+    B.doorOpenPos = 0.0f;
+    if ((B.tick % 10) == 5)
+    {   /* a shut door nearer along the route than this one (stacked doors): that one first */
+        PropRecord *nd = routeDoor();
+
+        if (nd != NULL && nd != d)
+        {
+            f32 nx = nd->pos.x - p->prop->pos.x, nz = nd->pos.z - p->prop->pos.z;
+
+            if (nx * nx + nz * nz < dist * dist)
+            {
+                if (B.verbose >= 2)
+                {
+                    portConLogf("ge: playerbot: door at %.0f,%.0f,%.0f comes first (stacked doors)\n", nd->pos.x, nd->pos.y,
+                                nd->pos.z);
+                }
+                B.doorProp = nd;
+                B.doorTaps = 0;
+                B.doorOpened = 0;
+                B.doorSince = B.tick;
+                return 1;
+            }
+        }
+    }
+    {
+        PropRecord *w = doorInTheWay(d);
+
+        if (w != NULL)
+        {   /* B would work that door, not ours (and close it if it is open): get past it, toward ours */
+            if (B.verbose >= 2 && B.tick - B.lastDoorTap > 60 && (B.tick % 60) == 0)
+            {
+                portConLogf("ge: playerbot: door at %.0f,%.0f,%.0f is in the way of a press on the one at %.0f,%.0f,%.0f - walking on\n",
+                            w->pos.x, w->pos.y, w->pos.z, d->pos.x, d->pos.y, d->pos.z);
+            }
+            B.stuck.lastGain = B.tick;
+            if (doorShut(w))
+            {   /* (shut too: then it is the one to open - the route check above did not see it) */
+                B.doorProp = w;
+                B.doorTaps = 0;
+                B.doorOpened = 0;
+                B.doorSince = B.tick;
+                return 1;
+            }
+            B.noDoorTapUntil = B.tick + 2;   /* (doorTick would press it too) */
+            if (B.speedrun && w->door->openstate == DOORSTATE_OPENING)
+            {   /* (speedrun, Frigate: Bond ran into that door's swing and it stopped at 63/90 - both waited for good) */
+                if (w != B.wayDoor || w->door->openPosition > B.wayDoorPos + 0.01f)
+                {
+                    B.wayDoor = w;
+                    B.wayDoorPos = w->door->openPosition;
+                    B.wayDoorTick = B.tick;
+                }
+                else if (B.tick - B.wayDoorTick > 30)
+                {   /* stalled with Bond in its way: step back out of the swing for a moment */
+                    lookAt(w->pos.x, p->prop->pos.y, w->pos.z, 45.0f);
+                    B.dmy = -1;
+                    if (B.tick - B.wayDoorTick > 60)
+                    {
+                        B.wayDoorTick = B.tick;
+                    }
+                    return 1;
+                }
+            }
+            return 0;                        /* follow the route on, through it, toward ours */
+        }
+    }
+    if (dist > 120.0f)
+    {
+        steerTo(d->pos.x, d->pos.y, d->pos.z, 200.0f);
+    }
+    else if (fabsf(lookAt(d->pos.x, p->prop->pos.y, d->pos.z, 15.0f)) > 25.0f)
+    {
+        return 1;
+    }
+    if (dist < 260.0f + fabsf(d->door->frac) * 0.5f && B.tick - B.lastDoorTap >= 25)
+    {
+        B.btn |= BTN_B;
+        B.lastDoorTap = B.tick;
+        B.doorTaps++;
+    }
+    if (B.doorTaps >= 3 && B.subSwitch == NULL)
+    {   /* pressing it does nothing: a console / switch elsewhere may work it (setup "switch" links) */
+        LinkRecord *l;
+        s32 nsw = 0, pick;
+
+        if (B.subTriesDoor != d)
+        {
+            B.subTriesDoor = d;   /* tries are counted per door */
+            B.subTries = 0;
+        }
+        for (l = (LinkRecord *) g_LevelLoadPropSwitch; l != NULL; l = l->next)
+        {
+            nsw += l->second == d && l->first != NULL;
+        }
+        pick = nsw > 0 ? B.subTries % nsw : 0;   /* several switches can work one door: try them in turn */
+        for (l = (LinkRecord *) g_LevelLoadPropSwitch; l != NULL; l = l->next)
+        {
+            if (l->second == d && l->first != NULL && B.subTries < 8 && pick-- == 0)
+            {
+                portConLogf("ge: playerbot: door at %.0f,%.0f,%.0f is worked by a switch at %.0f,%.0f,%.0f - going to it\n",
+                            d->pos.x, d->pos.y, d->pos.z, l->first->pos.x, l->first->pos.y, l->first->pos.z);
+                B.subSwitch = l->first;
+                B.subDoor = d;
+                B.subGoalSet = 0;
+                B.subTries++;
+                B.subPhase = 0;
+                B.subSince = B.tick;
+                B.doorProp = NULL;
+                navReset();
+                return 0;
+            }
+        }
+    }
+    if (B.doorOpened && B.doorTaps > 8)
+    {   /* it opens but we keep missing the gap: start over on this door */
+        B.doorTaps = 0;
+        B.doorOpened = 0;
+        B.doorSince = B.tick;
+    }
+    if (B.doorTaps > 8 || B.tick - B.doorSince > 900)
+    {   /* it will not open for us (a switch or a script opens it): route around it if there is a way */
+        portConLogf("ge: playerbot: door at %.0f,%.0f,%.0f will not open (state %d, keyflags %x) - avoiding it\n", d->pos.x,
+                    d->pos.y, d->pos.z, (s32) d->door->openstate, (u32) d->door->keyflags);
+        {
+            s32 i;
+
+            for (i = 0; i < B.nBlockedDoors && B.blockedDoors[i] != d; i++)
+            {
+            }
+            if (i < 16)
+            {
+                B.blockedDoors[i] = d;
+                B.blockedAt[i] = B.tick;
+                B.nBlockedDoors = i >= B.nBlockedDoors ? i + 1 : B.nBlockedDoors;
+            }
+        }
+        B.doorProp = NULL;
+        navPlan(gx, gy, gz, goalTile);
+        return 0;
+    }
+    return 1;
+}
+
+/* the running step's speedrun knobs: the route file's `side=` / `fast` prefixes, unless the segment optimiser's variant
+ * for this step says otherwise (optKnob) */
+/* ---- the segment optimiser (GE_PLAYERBOT=speedrun with GE_PLAYERBOT_OPT=1) ----------------------------------------
+ * A segment is one route step. At the start of each movement step the bot asks for a solo savestate (port_snap.c), plays
+ * the step with variant 0, scores it (ticks to the step's end, + 1000 per 1.0 health lost; death or over the budget =
+ * no score), puts the savestate back and plays the next variant, then keeps the best (playing it once more if it was not
+ * the last one tried) and goes on to the next step. Variants: the speed-strafe side (left / right), `fast` toggled
+ * (speed-strafe through threats), and for `via` steps the waypoint moved 80 units along x or z.
+ * The decisions go to GE_PLAYERBOT_OPTSTATE ("fix <step> <variant>", "try <step> <variant> <score>"): a later run reads
+ * them back - the clean run plays the chosen variants without savestates, and an optimiser run that hits the mission end
+ * in a trial (the stage ends: no tick to put a savestate back at) exits with status 3 so its driver starts it again, and
+ * it carries on from the file (tools/bot/speedrun_opt.sh). This state is never rewound (portSnapLive). */
+#define OPT_MAXV 14
+#define OPT_NOSCORE 0x3fffffff
+static s32 stepApplies(const PblStep *s);
+static s32 objectivesDone(s32 *needed);
+typedef struct {
+    s32 on;                    /* GE_PLAYERBOT_OPT=1: optimise; else just play the variants in the state file */
+    s32 init;
+    s32 fixed[PBL_MAXSTEPS];   /* -1 = not decided */
+    s32 tried[PBL_MAXSTEPS][OPT_MAXV];   /* scores read back from the file for the step being resumed (0 = none) */
+    s32 phase;                 /* 0 idle, 1 trial running (sOpt.step, sOpt.v), 2 waiting for the restore */
+    s32 step, v, nv, committing;
+    s32 startTick;
+    f32 startLost;
+    s32 score[OPT_MAXV];
+    s32 trials, steps;
+    s32 bestEnd;               /* the best end tick so far in this step (the budget) */
+    s32 carry;                 /* the kept rollout's score: the next optimised step's variant 0 (0 = unknown) */
+    s32 wide;                  /* GE_PLAYERBOT_OPTWIDE=1: `via` waypoints also tried 160 off (14 variants) */
+    char path[256];
+} BotOpt;
+static BotOpt sOpt;
+
+extern int  portSnapSoloAvailable(void);
+extern void portSnapSoloRequest(int what);
+extern int  portSnapSoloPending(void);
+extern void portSnapLive(const char *name, const void *p, unsigned int n);
+extern void portSnapAddRange(const char *name, const void *p, unsigned int n);
+extern void portSnapAddDyn(const char *name, int (*fn)(int, unsigned char **, unsigned int *));
+
+/* the graph's mutable costs as snapshot extents (port_snap.c portSnapAddDyn) */
+static int graphSnapDyn(int i, unsigned char **lo, unsigned int *len)
+{
+    if (B.g.npen == NULL || B.g.cap <= 0)
+    {
+        return 0;
+    }
+    switch (i)
+    {
+        case 0: *lo = (unsigned char *) B.g.npen; *len = (unsigned) B.g.cap * sizeof(float); return 1;
+        case 1: *lo = (unsigned char *) B.g.nbad; *len = (unsigned) B.g.cap; return 1;
+        case 2: *lo = (unsigned char *) B.g.pen; *len = (unsigned) B.g.ecap * sizeof(float); return B.g.ecap > 0;
+        default: return 0;
+    }
+}
+
+static void optLog(const char *line)
+{
+    FILE *f;
+
+    if (sOpt.path[0] == '\0')
+    {
+        return;
+    }
+    f = fopen(sOpt.path, "a");
+    if (f != NULL)
+    {
+        fputs(line, f);
+        fclose(f);
+    }
+}
+
+static void optInit(void)
+{
+    const char *e = getenv("GE_PLAYERBOT_OPTSTATE");
+    FILE *f;
+    s32 i, k;
+
+    if (sOpt.init)
+    {
+        return;
+    }
+    sOpt.init = 1;
+    portSnapLive("playerbot.opt", &sOpt, sizeof(sOpt));
+    for (i = 0; i < PBL_MAXSTEPS; i++)
+    {
+        sOpt.fixed[i] = -1;
+    }
+    sOpt.on = getenv("GE_PLAYERBOT_OPT") != NULL && atoi(getenv("GE_PLAYERBOT_OPT")) != 0 && portSnapSoloAvailable();
+    sOpt.wide = getenv("GE_PLAYERBOT_OPTWIDE") != NULL && atoi(getenv("GE_PLAYERBOT_OPTWIDE")) != 0;
+    snprintf(sOpt.path, sizeof(sOpt.path), "%s", e != NULL ? e : "");
+    f = sOpt.path[0] ? fopen(sOpt.path, "r") : NULL;
+    if (f != NULL)
+    {
+        char line[128];
+        s32 pk = -1, pv = -1;   /* a trial that started and never scored: the process died in it */
+
+        while (fgets(line, sizeof(line), f) != NULL)
+        {
+            s32 a, b, c;
+
+            if (sscanf(line, "fix %d %d", &a, &b) == 2 && a >= 0 && a < PBL_MAXSTEPS && b >= 0 && b < OPT_MAXV)
+            {
+                sOpt.fixed[a] = b;
+            }
+            else if (sscanf(line, "try %d %d %d", &a, &b, &c) == 3 && a >= 0 && a < PBL_MAXSTEPS && b >= 0 && b < OPT_MAXV)
+            {
+                sOpt.tried[a][b] = c > 0 ? c : 1;
+                if (a == pk && b == pv)
+                {
+                    pk = pv = -1;
+                }
+            }
+            else if (sscanf(line, "start %d %d", &a, &b) == 2 && a >= 0 && a < PBL_MAXSTEPS && b >= 0 && b < OPT_MAXV)
+            {
+                pk = a;
+                pv = b;
+            }
+        }
+        fclose(f);
+        if (pk >= 0 && sOpt.tried[pk][pv] == 0 && sOpt.fixed[pk] < 0)
+        {   /* the last run died inside this trial (round 6: a guard's hit test crashed after a restore on Bunker 1):
+             * no score for it; this run gets to the step by replaying the kept variants from the start */
+            char l2[64];
+
+            sOpt.tried[pk][pv] = OPT_NOSCORE;
+            snprintf(l2, sizeof(l2), "try %d %d %d\n", pk, pv, OPT_NOSCORE);
+            optLog(l2);
+            portConLogf("ge: playerbot: optimiser: the last run died in step %d variant %d - no score for it\n", pk + 1, pv);
+        }
+    }
+    for (i = 0, k = 0; i < PBL_MAXSTEPS; i++)
+    {
+        k += sOpt.fixed[i] >= 0;
+    }
+    if (sOpt.on || k > 0)
+    {
+        portConLogf("ge: playerbot: optimiser %s (%d step(s) fixed from %s)\n", sOpt.on ? "on" : "off - playing the fixed variants",
+                    k, sOpt.path[0] ? sOpt.path : "-");
+    }
+}
+
+/* the variant the running step plays. The poll a step begins in plays variant 0, in every mode: the optimiser asks for
+ * the step's savestate in that poll and the save is taken at the next tick's start, after the pad sample of that poll -
+ * so every trial (and the kept variant's replay) starts with variant 0's output for one tick, and the clean run must
+ * too, or it parts from the trial it reproduces by one tick of input (Runway was 4 ticks off; modding/bot-notes.md). */
+static s32 optVariant(void)
+{
+    if (B.tick == B.stepBeganTick)
+    {
+        return 0;
+    }
+    if (sOpt.phase == 1 && B.step == sOpt.step)
+    {
+        return sOpt.v;
+    }
+    return (B.step >= 0 && B.step < PBL_MAXSTEPS && sOpt.fixed[B.step] > 0) ? sOpt.fixed[B.step] : 0;
+}
+
+static s32 optKnob(s32 which, s32 dflt)
+{
+    s32 v = optVariant();
+
+    if (which == 0)
+    {   /* side */
+        return (v == 1 || v == 4) ? -1 : (v == 2 || v == 5) ? 1 : dflt;
+    }
+    return (v >= 3 && v <= 5) ? !dflt : dflt;   /* fast */
+}
+
+static f32 optOffset(s32 axis)
+{
+    s32 v = optVariant();
+
+    if (v < 6)
+    {
+        return 0.0f;
+    }
+    {   /* 6-9: the waypoint 80 along +x -x +z -z; 10-13 (GE_PLAYERBOT_OPTWIDE=1): 160 */
+        const f32 d = v >= 10 ? 160.0f : 80.0f;
+        const s32 k = (v - 6) % 4;
+
+        return axis == 0 ? (k == 0 ? d : k == 1 ? -d : 0.0f) : (k == 2 ? d : k == 3 ? -d : 0.0f);
+    }
+}
+
+static s32 optStepCounts(const PblStep *s)
+{   /* the steps worth varying: the ones that move */
+    return s->op == PBL_GOTO_PAD || s->op == PBL_GOTO_XYZ || s->op == PBL_VIA || s->op == PBL_COLLECT_OBJ ||
+           s->op == PBL_USE_OBJ || s->op == PBL_USE_PAD || s->op == PBL_AUTO || s->op == PBL_HUNT || s->op == PBL_GADGET_OBJ ||
+           s->op == PBL_MEET;
+}
+
+/* stepBegin: a new step - start optimising it if it is a movement step not decided yet */
+static void optStepBegin(void)
+{
+    s32 k = B.step, i;
+
+    if (!B.speedrun || !sOpt.on || sOpt.phase != 0 || k >= B.plan.n || k >= PBL_MAXSTEPS || sOpt.fixed[k] >= 0 ||
+        !optStepCounts(&B.plan.s[k]) || !stepApplies(&B.plan.s[k]))
+    {
+        return;
+    }
+    sOpt.step = k;
+    sOpt.nv = B.plan.s[k].op == PBL_VIA ? (sOpt.wide ? 14 : 10) : 6;
+    sOpt.committing = 0;
+    sOpt.startTick = B.tick;
+    sOpt.startLost = B.hpLost;
+    sOpt.bestEnd = OPT_NOSCORE;
+    if (sOpt.carry > 0 && sOpt.tried[k][0] == 0)
+    {   /* variant 0 here plays exactly the rollout the previous step kept */
+        char line[64];
+
+        sOpt.tried[k][0] = sOpt.carry;
+        snprintf(line, sizeof(line), "try %d 0 %d\n", k, sOpt.carry);
+        optLog(line);
+    }
+    sOpt.carry = 0;
+    for (i = 0; i < OPT_MAXV; i++)
+    {
+        sOpt.score[i] = sOpt.tried[k][i] > 0 ? sOpt.tried[k][i] : 0;
+        if (sOpt.score[i] > 0 && sOpt.score[i] < sOpt.bestEnd)
+        {
+            sOpt.bestEnd = sOpt.score[i];
+        }
+    }
+    for (sOpt.v = 0; sOpt.v < sOpt.nv && sOpt.score[sOpt.v] != 0; sOpt.v++)
+    {
+    }
+    if (sOpt.v >= sOpt.nv)
+    {
+        sOpt.v = 0;   /* (every variant scored by earlier runs: decide now, below, at the first end) */
+    }
+    sOpt.phase = 1;
+    portSnapSoloRequest(1);
+    sOpt.steps++;
+    {
+        char line[48];
+
+        snprintf(line, sizeof(line), "start %d %d\n", sOpt.step, sOpt.v);
+        optLog(line);
+    }
+}
+
+/* the running trial is over (the step ended, Bond died, over budget, the mission ended): score it, then the next variant,
+ * or keep the best. Returns 1 when a savestate goes back at the next tick (the caller stops this tick's work). */
+static s32 optTrialEnd(s32 score, const char *why)
+{
+    char line[96];
+    s32 i, best = 0;
+
+    if (sOpt.phase != 1)
+    {
+        return 0;
+    }
+    if (sOpt.committing)
+    {
+        sOpt.phase = 0;
+        return 0;
+    }
+    sOpt.trials++;
+    sOpt.score[sOpt.v] = score;
+    snprintf(line, sizeof(line), "try %d %d %d\n", sOpt.step, sOpt.v, score);
+    optLog(line);
+    if (B.verbose)
+    {
+        portConLogf("ge: playerbot: opt: step %d '%s' variant %d: %s (%s)\n", sOpt.step + 1, B.plan.s[sOpt.step].text, sOpt.v,
+                    score >= OPT_NOSCORE ? "no score" : "scored", why);
+        if (score < OPT_NOSCORE)
+        {
+            portConLogf("ge: playerbot: opt:   %d ticks\n", score - sOpt.startTick);
+        }
+    }
+    if (score < sOpt.bestEnd)
+    {
+        sOpt.bestEnd = score;
+    }
+    for (i = sOpt.v + 1; i < sOpt.nv && sOpt.score[i] != 0; i++)
+    {
+    }
+    if (i < sOpt.nv)
+    {   /* the next variant, from the savestate */
+        sOpt.v = i;
+        sOpt.phase = 2;
+        portSnapSoloRequest(2);
+        return 1;
+    }
+    for (i = 1; i < sOpt.nv; i++)
+    {
+        if (sOpt.score[i] < sOpt.score[best])
+        {
+            best = i;
+        }
+    }
+    sOpt.fixed[sOpt.step] = best;
+    snprintf(line, sizeof(line), "fix %d %d\n", sOpt.step, best);
+    optLog(line);
+    portConLogf("ge: playerbot: opt: step %d '%s': variant %d kept (mission end at tick %d; variant 0: %d)\n", sOpt.step + 1,
+                B.plan.s[sOpt.step].text, best, sOpt.score[best] >= OPT_NOSCORE ? -1 : sOpt.score[best],
+                sOpt.score[0] >= OPT_NOSCORE ? -1 : sOpt.score[0]);
+    /* the next optimised step's variant 0 is this rollout again: its score is known */
+    sOpt.carry = sOpt.score[best] < OPT_NOSCORE ? sOpt.score[best] : 0;
+    /* back to the step's start and play the kept variant up to the step's end (the next step starts from there) */
+    sOpt.v = best;
+    sOpt.committing = 1;
+    sOpt.phase = 2;
+    portSnapSoloRequest(2);
+    return 1;
+}
+
+/* every bot tick while a trial runs: Bond dead or over the budget ends it */
+static s32 optTick(void)
+{
+    if (sOpt.phase == 2)
+    {
+        return 1;   /* a restore is coming: nothing this tick matters */
+    }
+    if (sOpt.phase != 1 || sOpt.committing)
+    {
+        return 0;
+    }
+    if (bond()->bonddead)
+    {
+        return optTrialEnd(OPT_NOSCORE, "Bond died");
+    }
+    if (B.tick > 0 && (lvlGetControlsLockedFlag() != 0 || bond()->cameramode != 0))
+    {   /* the exit sequence has begun (the end camera, the bungee jump): the mission's time is set - score the whole
+         * rollout and go back while the stage is still there */
+        s32 needed = 0, done = objectivesDone(&needed);
+
+        if (done == needed)
+        {
+            return optTrialEnd(B.tick + (s32) ((B.hpLost - sOpt.startLost) * 1000.0f), "the exit");
+        }
+    }
+    if (B.tick > (sOpt.bestEnd < OPT_NOSCORE ? sOpt.bestEnd + 60 : (B.maxSecs > 0 ? B.maxSecs * 60 - 120 : 60000)))
+    {
+        return optTrialEnd(OPT_NOSCORE, "over the budget");
+    }
+    return 0;
+}
+
+/* the restore went in: the trial that follows starts with phase 1 again (the bot's own state is the save's) */
+static void optAfterRestore(void)
+{
+    if (sOpt.phase == 2)
+    {
+        sOpt.phase = 1;
+        if (!sOpt.committing)
+        {
+            char line[48];
+
+            snprintf(line, sizeof(line), "start %d %d\n", sOpt.step, sOpt.v);
+            optLog(line);
+        }
+    }
+}
+
+static s32 stepSide(void)
+{
+    s32 s = B.step < B.plan.n ? B.plan.s[B.step].side : 0;
+
+    return B.speedrun ? optKnob(0, s) : s;
+}
+
+static s32 stepFast(void)
+{
+    s32 f = B.step < B.plan.n ? B.plan.s[B.step].fast : 0;
+
+    return B.speedrun ? optKnob(1, f) : f;
+}
+
+/* a ladder stan tile under Bond or among the next route tiles */
+extern u8 g_StanTileSpecialFlags[];   /* stan.c */
+
+static s32 tileIsLadder(StandTile *t)
+{
+    return t != NULL && (g_StanTileSpecialFlags[STAN_MID_NIB(t->mid.half, 12)] & STANTILEFLAG_LADDER) != 0;
+}
+
+static s32 nearLadder(void)
+{
+    s32 k;
+
+    if (tileIsLadder(bondTile()))
+    {
+        return 1;
+    }
+    for (k = B.pathAt; k < B.pathN && k < B.pathAt + 4; k++)
+    {
+        if (tileIsLadder(B.tiles[B.path[k]]))
+        {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* steer toward (x,z) at full run, easing off on sharp turns */
+static void steerTo(f32 x, f32 y, f32 z, f32 slowRadius)
+{
+    struct player *p = bond();
+    f32 dx = x - p->prop->pos.x, dz = z - p->prop->pos.z;
+    f32 dist = sqrtf(dx * dx + dz * dz);
+    f32 err, ae;
+    s32 sp = 80;
+
+    B.lastSteerYaw = pblYawTo(dx, dz);
+    if (B.moveOnly)
+    {   /* moving while the look is on a target: walk the heading with the stick (forward/back) and the C strafe
+         * buttons, view-relative. forward(theta + rel) ~ forward(theta) - rel * r1, so a heading to the left of the
+         * view (rel > 0) is a step against r1 = (cos theta, sin theta) */
+        f32 rel = pblWrap180(B.lastSteerYaw - p->vv_theta) * 3.14159265f / 180.0f;
+        f32 fw = cosf(rel), lat = sinf(rel);
+
+        B.sy = (s8) pblClamp(fw * 90.0f, -80.0f, 80.0f);
+        B.sx = (s8) pblClamp(lat * 90.0f, -80.0f, 80.0f);   /* stick +x: toward yaw theta + 90 (rel > 0) */
+        (void) y;
+        (void) slowRadius;
+        return;
+    }
+    if (B.speedMode && (B.tick % 8) == 0)
+    {   /* speed-strafe safety: the 38-degree view offset sees guards ahead late (round 4: Surface 2 and Bunker 2 lost
+         * every speed run). Any armed hostile within 1000 with a line on Bond, or one that has noticed him within 1800,
+         * or one hurting him: run looking where he goes for the next 2 s */
+        s32 n = get_numguards(), i;
+
+        if (B.tick - B.lastHurtTick < 60)
+        {
+            B.ssThreatTick = B.tick;
+        }
+        for (i = 0; i < n && B.ssThreatTick != B.tick; i++)
+        {
+            ChrRecord *c = &g_ChrSlots[i];
+            f32 ex, ey, ez, d2;
+
+            if (!chrHostile(c) || c->prop->stan == NULL)
+            {
+                continue;
+            }
+            ex = c->prop->pos.x - p->prop->pos.x;
+            ey = c->prop->pos.y - p->prop->pos.y;
+            ez = c->prop->pos.z - p->prop->pos.z;
+            d2 = ex * ex + ez * ez;
+            if (fabsf(ey) > 400.0f || d2 > 1800.0f * 1800.0f || (d2 > 1000.0f * 1000.0f && !chrAlert(c)))
+            {
+                continue;
+            }
+            if (botLine(bondTile(), p->prop->pos.x, p->prop->pos.z, c->prop->pos.x, c->prop->pos.z, c->prop->stan,
+                        CDTYPE_OBJS | CDTYPE_DOORS | CDTYPE_PATHBLOCKER | CDTYPE_AIOPAQUE))
+            {
+                B.ssThreatTick = B.tick;
+            }
+        }
+    }
+    if (B.speedrun && nearLadder())
+    {   /* a ladder on Bond's tile or just ahead (Surface 1's to pad 46): climbing wants the view on it and the stick
+         * forward - the normal steering below, no speed-strafe (the 38-degree offset never climbed) */
+        B.ssHeld = 0;
+        B.ssPrevX = p->prop->pos.x;
+        B.ssPrevZ = p->prop->pos.z;
+        err = lookToward(B.lastSteerYaw, 0.0f, 20.0f);
+        B.sy = fabsf(err) > 70.0f ? 0 : 80;
+        (void) y;
+        (void) slowRadius;
+        return;
+    }
+    if (B.speedrun && B.lookDoor != NULL)
+    {   /* speedrun, a door ahead: the view on the door (a B press works the door Bond faces), the digital move carries him
+         * along the route meanwhile, whatever way he looks */
+        f32 lerr = lookAt(B.lookDoor->pos.x, p->prop->pos.y, B.lookDoor->pos.z, 45.0f);
+        f32 rel = pblWrap180(B.lastSteerYaw - (p->vv_theta + pblClamp(lerr, -45.0f, 45.0f)));
+
+        pblDigitalPick(rel, B.ssOff[0], B.ssOff[1], &B.dmx, &B.dmy);
+        B.ssHeld = 0;
+        B.ssPrevX = p->prop->pos.x;
+        B.ssPrevZ = p->prop->pos.z;
+        return;
+    }
+    if (B.speedMode && (slowRadius <= 0.0f || B.speedrun) && (B.doorProp == NULL || B.speedrun) && dist > 30.0f &&
+        (B.tick - B.ssThreatTick > 120 || stepFast()))
+    {   /* speed-strafe: bondview2.c scales the walk animation's forward root motion by speedforwards / maxspeed (maxspeed =
+         * the largest of forward, sideways x MAX_SPEED_FACTOR, turn) and then ADDS the strafe (speedsideways / delta) to it
+         * (bondhead.c bheadUpdate), not normalised: forward + strafe is faster than forward. Turn the view off the travel
+         * direction by the learnt offset and hold both. */
+        s32 si = B.ssSide > 0 ? 1 : 0;
+        f32 mx = p->prop->pos.x - B.ssPrevX, mz = p->prop->pos.z - B.ssPrevZ;
+        s32 forced = stepSide();
+
+        B.ssSide = forced != 0 ? forced : pblStrafeSide(B.ssSide, B.ssTurnHint, B.ssOff[1]);
+        if ((B.ssSide > 0 ? 1 : 0) != si)
+        {
+            si = B.ssSide > 0 ? 1 : 0;
+            B.ssHeld = 0;
+        }
+        err = lookToward(B.lastSteerYaw - B.ssOff[si], 0.0f, B.speedrun ? 45.0f : 20.0f);
+        if (B.speedrun && fabsf(err) >= 30.0f)
+        {   /* turning onto a new heading: never on the spot - move along the heading with whichever digital move points
+             * there from the view as it is after this tick's turn */
+            f32 rel = pblWrap180(B.lastSteerYaw - (p->vv_theta + pblClamp(err, -45.0f, 45.0f)));
+
+            pblDigitalPick(rel, B.ssOff[0], B.ssOff[1], &B.dmx, &B.dmy);
+            B.ssHeld = 0;
+            B.ssPrevX = p->prop->pos.x;
+            B.ssPrevZ = p->prop->pos.z;
+            return;
+        }
+        if (fabsf(err) < 30.0f)
+        {   /* the port's digital move: full forward and full sideways (the stick's gate would cut a diagonal to 65/65);
+             * measured 11.0 u/tick 38 deg off the view, against 8.4 straight on the stick */
+            B.dmy = 1;
+            B.dmx = B.ssSide;
+            B.ssHeld++;
+            if (B.ssHeld > 20 && fabsf(err) < 4.0f)
+            {
+                B.ssDist += sqrtf(mx * mx + mz * mz);
+                B.ssTicks++;
+            }
+            if (B.ssHeld > 20 && fabsf(err) < 4.0f && mx * mx + mz * mz > 4.0f)
+            {   /* learn the offset from the motion: unfiltered for the first samples (the strafe's sign is not assumed),
+                 * then only while the motion runs along the route (sliding on a wall says nothing) */
+                f32 o = pblWrap180(pblYawTo(mx, mz) - p->vv_theta);
+
+                if (fabsf(o) < 85.0f &&
+                    (B.ssLearnN < 40 || fabsf(pblWrap180(pblYawTo(mx, mz) - B.lastSteerYaw)) < 20.0f))
+                {
+                    B.ssOff[si] = pblAngleEma(B.ssOff[si], o, B.ssLearnN < 40 ? 0.15f : 0.03f);
+                    if (++B.ssLearnN == 200 && B.verbose)
+                    {
+                        portConLogf("ge: playerbot: speed-strafe offsets learnt: C-left %.1f, C-right %.1f deg\n", B.ssOff[0],
+                                    B.ssOff[1]);
+                    }
+                }
+            }
+        }
+        else
+        {   /* turning onto a new bend: keep the digital forward on unless it points well away (it only ramps back) */
+            B.dmy = fabsf(err) > 90.0f ? 0 : 1;
+            B.ssHeld = 0;
+        }
+        B.ssPrevX = p->prop->pos.x;
+        B.ssPrevZ = p->prop->pos.z;
+        (void) y;
+        return;
+    }
+    if (B.speedrun)
+    {   /* speedrun, plain running (a threat close, or the last stretch): the view ahead, and still no turning on the spot */
+        f32 rel;
+
+        err = lookToward(B.lastSteerYaw, 0.0f, 45.0f);
+        rel = pblWrap180(B.lastSteerYaw - (p->vv_theta + pblClamp(err, -45.0f, 45.0f)));
+        pblDigitalPick(rel, B.ssOff[0], B.ssOff[1], &B.dmx, &B.dmy);
+        if (B.dmx != 0 && fabsf(rel) < 20.0f)
+        {   /* (straight on: the digital forward alone, the view on the way) */
+            B.dmx = 0;
+        }
+        B.ssHeld = 0;
+        B.ssPrevX = p->prop->pos.x;
+        B.ssPrevZ = p->prop->pos.z;
+        (void) slowRadius;
+        return;
+    }
+    err = lookToward(B.lastSteerYaw, 0.0f, 20.0f);
+    ae = fabsf(err);
+    if (ae < 4.0f && B.ssHeld > 20 && slowRadius <= 0.0f && !B.moveOnly)
+    {   /* (the plain-running speed, for comparison: B.ssHeld counts straight ticks here too) */
+        f32 mx = p->prop->pos.x - B.ssPrevX, mz = p->prop->pos.z - B.ssPrevZ;
+
+        B.wDist += sqrtf(mx * mx + mz * mz);
+        B.wTicks++;
+    }
+    B.ssHeld = ae < 4.0f ? B.ssHeld + 1 : 0;
+    B.ssPrevX = p->prop->pos.x;
+    B.ssPrevZ = p->prop->pos.z;
+
+    (void) y;
+    if (ae > 70.0f)
+    {
+        sp = 0;
+    }
+    else if (ae > 35.0f)
+    {
+        sp = 30;
+    }
+    if (dist < slowRadius)
+    {
+        sp = sp > 45 ? 45 : sp;
+    }
+    B.sy = (s8) sp;
+}
+
+/* the floor under Bond (his prop sits at eye height, ~150 above it): the centre height of his tile */
+static f32 bondGroundY(void)
+{
+    s32 i = bondTile() != NULL ? tileIndex(bondTile()) : -1;
+
+    return i >= 0 ? B.g.y[i] : bond()->prop->pos.y - 150.0f;
+}
+
+static f32 navMetric(f32 dist)
+{
+    return B.pathN > B.pathAt ? (f32) (B.pathN - B.pathAt) * 100.0f + 1000.0f : dist;
+}
+
+/* Walk toward a goal; returns 1 once within `radius` (2D, and within a floor's height). */
+static s32 navTo(f32 x, f32 y, f32 z, f32 radius, StandTile *goalTile)
+{
+    struct player *p = bond();
+    f32 dx = x - p->prop->pos.x, dz = z - p->prop->pos.z, dy = y - bondGroundY();
+    f32 dist = sqrtf(dx * dx + dz * dz);
+    s32 lvl;
+
+    /* arrived: close in x/z and on the same floor (goal heights are floor-ish: pads, objects, doors) */
+    if (dist <= radius && dy > -120.0f && dy < 200.0f)
+    {
+        navReset();
+        return 1;
+    }
+    if (!B.goalValid || fabsf(B.goalX - x) > 30.0f || fabsf(B.goalZ - z) > 30.0f || fabsf(B.goalY - y) > 60.0f)
+    {
+        B.goalX = x;
+        B.goalY = y;
+        B.goalZ = z;
+        B.goalValid = 1;
+        navPlan(x, y, z, goalTile);
+        pblStuckReset(&B.stuck, B.tick, p->prop->pos.x, p->prop->pos.z, navMetric(dist));
+    }
+
+    /* stuck handling: progress = tiles of the route left (or the distance once off the graph) going down */
+    if (B.speedrun && B.tick >= B.recoverUntil && B.pathAt < B.pathN)
+    {   /* (on the route only: at its end the distance to the goal is the measure - a goal Bond cannot stand on, like
+         * Frigate's helicopter, must still read as "stuck" so the gadget step acts from where he is) */   /* speedrun: running fast along the way Bond steers is progress too - on Dam's road and wall one stan tile is
+         * longer than 1.5 s of running, so the tile count alone called a full-speed run "stuck" and detoured */
+        f32 mx = p->prop->pos.x - B.progX, mz = p->prop->pos.z - B.progZ;
+        f32 along = mx * -sinf(B.lastSteerYaw * 3.14159265f / 180.0f) + mz * cosf(B.lastSteerYaw * 3.14159265f / 180.0f);
+
+        if (along > 5.0f)
+        {
+            B.stuck.lastGain = B.tick;
+        }
+    }
+    B.progX = p->prop->pos.x;
+    B.progZ = p->prop->pos.z;
+    lvl = pblStuckFeed(&B.stuck, B.tick, p->prop->pos.x, p->prop->pos.z, navMetric(dist));
+    if (lvl == 0 && B.tick - B.stuck.lastGain < 30)
+    {
+        B.stepFails = 0;   /* moving again: earlier stuck episodes do not count against the step */
+    }
+    if (lvl >= 1 && B.tick >= B.recoverUntil && (B.tick - B.stuck.since) % 75 == 0)
+    {   /* something the tiles do not know about (a crate, a booth, a rail) is in the way: back off, then walk off at an
+         * angle, alternating sides and widening (45, 75, 105 degrees), so the wall sliding of the collision can take us round */
+        s32 side = (B.stuckEvents & 1) ? 1 : -1;
+        f32 mag = 45.0f + 30.0f * (f32) ((B.stuckEvents / 2) % 3);
+
+        B.recoverYaw = B.lastSteerYaw + (f32) side * mag;
+        B.backUntil = B.tick + 12;
+        B.recoverUntil = B.tick + 55;
+        B.stuckEvents++;
+        B.btn |= BTN_B;   /* a door or a switch in the way */
+        if (B.verbose >= 2)
+        {
+            portConLogf("ge: playerbot: stuck level %d: detour heading %+.0f deg at t=%.1fs room %d pos %.0f,%.0f (route %d/%d, "
+                        "goal %.0f away, dy %.0f)\n", lvl, (f32) side * mag, (f32) B.tick / 60.0f, bondRoom(), p->prop->pos.x,
+                        p->prop->pos.z, B.pathAt, B.pathN, dist, dy);
+        }
+    }
+    if (lvl >= 2 && B.tick - B.stuck.since == 0)
+    {
+        /* make the link being walked expensive and plan again */
+        s32 cur = tileIndex(bondTile());
+
+        if (cur >= 0 && B.pathAt < B.pathN)
+        {
+            pblGraphPenalize(&B.g, cur, B.path[B.pathAt], 3000.0f);
+        }
+        navPlan(x, y, z, goalTile);
+        B.stuck.bestDist = navMetric(dist);   /* a new route is not progress, nor a step back */
+    }
+    if (lvl >= 3 && B.tick - B.stuck.since == 0)
+    {
+        stuckReport("no progress for 12 s");
+        B.stepFails++;
+    }
+    if (B.tick < B.recoverUntil)
+    {
+        if (B.tick < B.backUntil)
+        {
+            B.sy = -60;
+            lookToward(p->vv_theta, 0.0f, 0.0f);
+        }
+        else
+        {
+            f32 e = lookToward(B.recoverYaw, 0.0f, 20.0f);
+
+            B.sy = fabsf(e) < 40.0f ? 80 : 0;
+        }
+        return 0;
+    }
+
+    if (doorHandle(x, y, z, goalTile))
+    {
+        return 0;
+    }
+
+    /* follow the tile path: Bond's own tile tells how far along it he is */
+    {
+        StandTile *bt = bondTile();
+        s32 cur = bt != NULL ? tileIndex(bt) : -1, k, found = 0;
+
+        for (k = B.pathAt > 2 ? B.pathAt - 2 : 0; k < B.pathN && k < B.pathAt + 40; k++)
+        {
+            if (B.path[k] == cur)
+            {
+                B.pathAt = k + 1;
+                found = 1;
+                break;
+            }
+        }
+        B.offPath = found ? 0 : B.offPath + 1;
+        if (B.offPath > 90 && B.pathN > 0)
+        {
+            navPlan(x, y, z, goalTile);   /* knocked off the route (or took a shortcut): plan from here */
+            B.stuck.bestDist = navMetric(dist);
+        }
+        if (B.aimAt < B.pathAt)
+        {
+            B.aimAt = B.pathAt;
+        }
+        if (B.pathAt < B.pathN && cur >= 0)
+        {   /* string-pull through the shared edges of the next tiles (the funnel keeps Bond's radius off the walls) */
+            static f32 ax[FUNNEL_N], az[FUNNEL_N], bx[FUNNEL_N], bz[FUNNEL_N], cx[FUNNEL_N + 1], cz[FUNNEL_N + 1];
+            f32 ox[4], oz[4], ex, ez, yy;
+            s32 np = 0, nc, last = cur;
+
+            cx[0] = B.g.x[cur];
+            cz[0] = B.g.z[cur];
+            for (k = B.pathAt; k < B.pathN && np < FUNNEL_N; k++)
+            {
+                s32 nd = B.path[k];
+
+                if (!tilePortalEnds(B.tiles[last], B.tiles[nd], &ax[np], &az[np], &bx[np], &bz[np]))
+                {
+                    break;   /* not linked (off the route): stop here */
+                }
+                cx[np + 1] = B.g.x[nd];
+                cz[np + 1] = B.g.z[nd];
+                np++;
+                last = nd;
+            }
+            if (k >= B.pathN)
+            {
+                ex = x;   /* the whole rest of the route: end at the goal */
+                ez = z;
+            }
+            else
+            {
+                ex = B.g.x[last];
+                ez = B.g.z[last];
+            }
+            nc = pblFunnel(ax, az, bx, bz, cx, cz, np, p->prop->pos.x, p->prop->pos.z, ex, ez, 28.0f, ox, oz, 4);
+            if (nc > 0)
+            {
+                s32 c = 0;
+                f32 ddx = ox[0] - p->prop->pos.x, ddz = oz[0] - p->prop->pos.z;
+
+                if (nc > 1 && ddx * ddx + ddz * ddz < 25.0f * 25.0f)
+                {
+                    c = 1;   /* at the corner already: the next one */
+                }
+                yy = B.g.y[last];
+                /* the route's turn at the corner ahead (speed-strafe picks its side from it) */
+                B.ssTurnHint = c + 1 < nc ? pblWrap180(pblYawTo(ox[c + 1] - ox[c], oz[c + 1] - oz[c]) -
+                                                       pblYawTo(ox[c] - p->prop->pos.x, oz[c] - p->prop->pos.z))
+                                          : 0.0f;
+                steerTo(ox[c], yy, oz[c], (c == nc - 1 && k >= B.pathN) ? radius + 60.0f : 0.0f);
+                doorTick();
+                return 0;
+            }
+        }
+    }
+    if (B.pathN == 0 && B.nAvoid > 0)
+    {
+        return 0;   /* no route: walking straight could take Bond into a room the plan keeps out of - stay put */
+    }
+    steerTo(x, y, z, radius + 60.0f);
+    doorTick();
+    return 0;
+}
+
+/* ---- combat ------------------------------------------------------------------------------------------------------- */
+
+/* Quiet mode: leave alone an unalerted guard who faces away (he cannot see Bond; a body would alert his room) - unless
+ * he is the one in the way of a knock-out, or he is close enough to turn round into us. */
+static s32 quietSpare(ChrRecord *c, f32 dist)
+{
+    if (c == B.koChr && B.koPhase > 0 && !chrAlert(c))
+    {
+        return 1;   /* the knock-out target, still unaware */
+    }
+    if (!B.quiet || alarmIsActive() || chrAlert(c))
+    {
+        return 0;
+    }
+    if (B.spareAll)
+    {
+        return 1;   /* experiment: shoot only guards that have noticed Bond */
+    }
+    return dist > 250.0f && pblOffFacing(getsubroty(c->model), c->prop->pos.x, c->prop->pos.z, bond()->prop->pos.x,
+                                         bond()->prop->pos.z) > 120.0f;
+}
+
+/* a civilian near the line of fire from Bond toward (x, z), `dist` away (the shot would go along yaw). frontOnly: only
+ * one between Bond and the target counts (for an alarm raiser at his panel - the alarm costs more than the risk of a
+ * miss carrying on past his head) */
+static s32 civilianInLineYawEx(f32 yaw, f32 dist, s32 frontOnly)
+{
+    struct player *p = bond();
+    s32 n = get_numguards(), i;
+
+    for (i = 0; i < n; i++)
+    {
+        ChrRecord *c = &g_ChrSlots[i];
+
+        if (!(chrIsCivilian(c) || (c->model != NULL && c->prop != NULL && !chrIsDead(c) && isAllyBody(c->bodynum))) ||
+            c == B.civExempt || fabsf(c->prop->pos.y - p->prop->pos.y) > 300.0f)
+        {   /* (allies too: Archives' Natalya follows Bond and died in his line of fire) */
+            continue;
+        }
+        if (pblInLineOfFire(p->prop->pos.x, p->prop->pos.z, yaw, frontOnly ? dist - 40.0f - 500.0f : dist, c->prop->pos.x,
+                            c->prop->pos.z))
+        {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static s32 civilianInLineYaw(f32 yaw, f32 dist)
+{
+    return civilianInLineYawEx(yaw, dist, 0);
+}
+
+/* Which way should Bond step so no civilian stands in a guard's line of fire at him (between them, or just behind Bond
+ * where the misses go)? +1 along r1 = (cos theta, sin theta), -1 the other way, 0 = nobody exposed. */
+static s32 civilianExposureSide(void)
+{
+    struct player *p = bond();
+    s32 n = get_numguards(), i, k;
+    f32 mx = 0.0f, mz = 0.0f, th;
+
+    for (k = 0; k < B.nThreats; k++)
+    {
+        PropRecord *t = B.threats[k];
+        f32 ux = p->prop->pos.x - t->pos.x, uz = p->prop->pos.z - t->pos.z;
+        f32 len = sqrtf(ux * ux + uz * uz);
+
+        if (len < 1.0f || t->chr == NULL || chrIsDead(t->chr))
+        {
+            continue;
+        }
+        ux /= len;
+        uz /= len;
+        for (i = 0; i < n; i++)
+        {
+            ChrRecord *c = &g_ChrSlots[i];
+            f32 cx, cz, proj, lat;
+
+            if (!chrIsCivilian(c) || fabsf(c->prop->pos.y - p->prop->pos.y) > 300.0f)
+            {
+                continue;
+            }
+            cx = c->prop->pos.x - t->pos.x;
+            cz = c->prop->pos.z - t->pos.z;
+            proj = cx * ux + cz * uz;
+            lat = ux * cz - uz * cx;
+            if (proj < 30.0f || proj > len + 400.0f || fabsf(lat) > 50.0f + 0.03f * proj)
+            {
+                continue;
+            }
+            /* it is on the +lat side of the line (toward n = (-uz, ux)): Bond moves the other way */
+            mx += (lat > 0.0f ? 1.0f : -1.0f) * uz;
+            mz -= (lat > 0.0f ? 1.0f : -1.0f) * ux;
+        }
+    }
+    if (mx == 0.0f && mz == 0.0f)
+    {
+        return 0;
+    }
+    th = p->vv_theta * 3.14159265f / 180.0f;
+    return (mx * cosf(th) + mz * sinf(th)) > 0.0f ? 1 : -1;
+}
+
+/* Which strafe button moves Bond along r1 = (cos theta, sin theta)? Measured once from his own motion while a strafe is
+ * held (20 ticks, theta steady): B.crIsR1 = +1 if C-right does, -1 if C-left does. */
+static void strafeCalibrate(void)
+{
+    struct player *p = bond();
+    u16 sb = B.btn & (BTN_CL | BTN_CR);
+
+    if (B.strafeCal || (sb != BTN_CL && sb != BTN_CR))
+    {
+        B.calTick = 0;
+        return;
+    }
+    if (B.calTick == 0 || sb != B.calBtn || B.tick != B.calLast + 1 || fabsf(pblWrap180(p->vv_theta - B.calTheta)) > 10.0f)
+    {
+        B.calTick = B.tick;
+        B.calBtn = sb;
+        B.calX = p->prop->pos.x;
+        B.calZ = p->prop->pos.z;
+        B.calTheta = p->vv_theta;
+    }
+    else if (B.tick - B.calTick >= 20)
+    {
+        f32 th = B.calTheta * 3.14159265f / 180.0f;
+        f32 s = (p->prop->pos.x - B.calX) * cosf(th) + (p->prop->pos.z - B.calZ) * sinf(th);
+
+        if (fabsf(s) > 25.0f)
+        {
+            B.crIsR1 = ((sb == BTN_CR) == (s > 0.0f)) ? 1 : -1;
+            B.strafeCal = 1;
+            portConLogf("ge: playerbot: strafe calibrated: C-right moves %s (cos t, sin t)\n", B.crIsR1 > 0 ? "along" : "against");
+        }
+        B.calTick = 0;
+    }
+    B.calLast = B.tick;
+}
+
+/* The armed hostile to shoot: every one in a straight line within range, ranked by pblThreatScore (raisers first, then
+ * the ones shooting, then the nearest). Also fills B.threats (the ones with a line on Bond) for the cover logic. */
+static PropRecord *pickTarget(f32 range)
+{
+    struct player *p = bond();
+    s32 n = get_numguards(), i;
+    PropRecord *best = NULL;
+    f32 bs = 1e30f;
+    s32 hurt = B.tick - B.lastHurtTick < 90;
+
+    B.nThreats = 0;
+    for (i = 0; i < n; i++)
+    {
+        ChrRecord *c = &g_ChrSlots[i];
+        f32 dx, dy, dz, d, sc;
+
+        if (!chrHostile(c) || c->prop->stan == NULL)
+        {
+            continue;
+        }
+        dx = c->prop->pos.x - p->prop->pos.x;
+        dy = c->prop->pos.y - p->prop->pos.y;
+        dz = c->prop->pos.z - p->prop->pos.z;
+        d = dx * dx + dy * dy + dz * dz;
+        if (d > range * range || fabsf(dy) > 400.0f)
+        {   /* (tried: attackers out to 2400 - Caverns' and Streets' hits come from 1400-2400 - Surface 2 got slower:
+             * standing to trade shots at that range costs more than it saves; the "hurt by someone unseen" fallback
+             * below still answers them) */
+            continue;
+        }
+        {
+            s32 k, skip = 0;
+
+            for (k = 0; k < 4; k++)
+            {
+                skip |= B.tgtSkip[k] == c->prop && B.tick - B.tgtSkipAt[k] < 600;
+            }
+            if (skip)
+            {
+                continue;
+            }
+        }
+        if (!botLine(bondTile(), p->prop->pos.x, p->prop->pos.z, c->prop->pos.x, c->prop->pos.z, c->prop->stan,
+                     CDTYPE_OBJS | ((B.glassTest && chrIsRaiser(c)) ? 0 : CDTYPE_DOORS) | CDTYPE_PATHBLOCKER | CDTYPE_AIOPAQUE))
+        {
+            continue;
+        }
+        d = sqrtf(d);
+        if (chrAlert(c) && B.nThreats < 6)
+        {
+            B.threats[B.nThreats++] = c->prop;
+        }
+        if ((chrIsRaiser(c) && (chrAlert(c) || (B.quiet && !alarmIsActive()))) || (B.huntAi != 0 && chrAiId(c) == B.huntAi))
+        {   /* (`hunt ai ID`: the hunted - a hostage's captor shoots the hostage 3 s after he has a line on Bond) */
+            sc = pblThreatScore(d, chrAttacking(c), 1, 0);   /* the alarm: before anything else (quiet: before he moves) */
+        }
+        else if (quietSpare(c, d))
+        {
+            continue;
+        }
+        else
+        {
+            sc = pblThreatScore(d, chrAttacking(c), 0, hurt && chrAttacking(c));
+            if (!B.noAimScore)
+            {
+                sc = pblThreatAimScore(sc, c->shotbondsum);   /* nearest to landing his next hit: first */
+            }
+        }
+        if (civilianInLineYawEx(pblYawTo(dx, dz), d, chrIsRaiser(c) && chrAlert(c)))
+        {
+            continue;   /* a bystander in the way: not a target from here (standing still holding fire got Bond shot) */
+        }
+        if (sc < bs)
+        {
+            bs = sc;
+            best = c->prop;
+        }
+    }
+    return best;
+}
+
+/* a civilian near the line of fire toward a target `dist` away: hold the trigger */
+static s32 civilianInLineYawEx(f32 yaw, f32 dist, s32 frontOnly);
+
+/* a civilian near the current line of fire (the view), the target `dist` away */
+static s32 civilianInLine(f32 dist)
+{
+    return civilianInLineYawEx(bond()->vv_theta, dist, B.target != NULL && B.target->chr != NULL && chrIsRaiser(B.target->chr) &&
+                                                       chrAlert(B.target->chr));
+}
+
+/* aim at the prop and fire when lined up; `aimY` = height offset to aim at */
+static void shootAt(f32 x, f32 y, f32 z, f32 width)
+{
+    struct player *p = bond();
+    f32 dx = x - p->prop->pos.x, dz = z - p->prop->pos.z;
+    f32 dist = sqrtf(dx * dx + dz * dz);
+    f32 err = lookAt(x, y, z, 15.0f);
+    f32 tol = pblPitchTo(width, dist) * 1.5f;
+    s32 w = getCurrentPlayerWeaponId(GUNRIGHT);
+
+    if (tol < 1.2f)
+    {
+        tol = 1.2f;   /* the look lands on the exact angle each tick: far heads need it tight */
+    }
+    if (fabsf(err) < tol && civilianInLine(dist))
+    {   /* a bystander in the way: hold fire (and keep the strafe going, the line opens) */
+        B.holdFire = B.tick;
+        B.fireTick = B.tick;
+        return;
+    }
+    if (fabsf(err) < tol && fabsf(B.pitchErr) < tol * 1.2f)
+    {
+        s32 ph = (B.tick - B.fireTick) % 8;
+
+        if (isAuto(w) ? ph < 7 : ph < 2)
+        {
+            B.btn |= BTN_Z;
+            B.fireTicks++;
+            B.lastFireTick = B.tick;
+        }
+    }
+    else
+    {
+        B.fireTick = B.tick;
+    }
+}
+
+/* ---- cover: a tile near Bond that none of the guards with a line on him can see ------------------------------------- */
+
+static s32 sCovQ[512];
+static s32 *sCovStamp;
+static s32 sCovStampN, sCovGen;
+
+static s32 tileSeenBy(s32 node, PropRecord *t)
+{
+    return botLine(t->stan, t->pos.x, t->pos.z, B.g.x[node], B.g.z[node], NULL, CDTYPE_DOORS | CDTYPE_PATHBLOCKER | CDTYPE_AIOPAQUE);
+}
+
+/* the exposure (pblExposure) of tile `node` to the current threats */
+static f32 tileExposure(s32 node)
+{
+    f32 dist[6];
+    s32 seen[6], k;
+
+    for (k = 0; k < B.nThreats && k < 6; k++)
+    {
+        f32 dx = B.threats[k]->pos.x - B.g.x[node], dz = B.threats[k]->pos.z - B.g.z[node];
+
+        dist[k] = sqrtf(dx * dx + dz * dz);
+        seen[k] = B.threats[k]->stan != NULL && tileSeenBy(node, B.threats[k]);
+    }
+    return pblExposure(dist, seen, k, 0.25f);
+}
+
+/* breadth first over the tiles from Bond's, up to ~maxd of walking, on Bond's floor: the tile at least 80 away where the
+ * threats hit Bond least (pblExposure: few guards with a line on it, far ones; one far guard beats hiding, hiding beats a
+ * close one), plus a little for the walk. -1 if none is clearly better than where he stands. GE_PLAYERBOT_OLDCOVER=1:
+ * the round-3 rule (the nearest tile no threat sees). */
+static s32 coverFind(f32 maxd)
+{
+    struct player *p = bond();
+    s32 start = bondTile() != NULL ? tileIndex(bondTile()) : -1, qh = 0, qt = 0, k, best = -1, evals = 0;
+    f32 gy, here = 0.0f, bestSc = 1e30f;
+
+    if (start < 0 || B.nThreats == 0)
+    {
+        return -1;
+    }
+    if (sCovStampN < B.g.n)
+    {
+        free(sCovStamp);
+        sCovStamp = (s32 *) calloc((size_t) B.g.n, sizeof(s32));
+        sCovStampN = sCovStamp != NULL ? B.g.n : 0;
+        if (sCovStamp == NULL)
+        {
+            return -1;
+        }
+    }
+    gy = B.g.y[start];
+    if (!B.oldCover)
+    {
+        here = tileExposure(start);
+    }
+    sCovGen++;
+    sCovStamp[start] = sCovGen;
+    sCovQ[qt++] = start;
+    while (qh < qt)
+    {
+        s32 a = sCovQ[qh++], e;
+        f32 dx = B.g.x[a] - p->prop->pos.x, dz = B.g.z[a] - p->prop->pos.z;
+        f32 d2 = dx * dx + dz * dz;
+
+        if (d2 > maxd * maxd)
+        {
+            continue;
+        }
+        if (d2 > 80.0f * 80.0f && B.g.npen[a] < 1000.0f && B.oldCover)
+        {
+            s32 seen = 0;
+
+            for (k = 0; k < B.nThreats && !seen; k++)
+            {
+                seen = B.threats[k]->stan != NULL && tileSeenBy(a, B.threats[k]);
+            }
+            if (!seen)
+            {
+                return a;
+            }
+        }
+        else if (d2 > 80.0f * 80.0f && B.g.npen[a] < 1000.0f && evals < 120 && (qh & 1) == 0)
+        {   /* (every other tile in the search order: neighbours are near-alike, and the line tests cost) */
+            f32 sc = tileExposure(a) + sqrtf(d2) * 0.0004f;
+
+            evals++;
+            if (sc < bestSc)
+            {
+                bestSc = sc;
+                best = a;
+            }
+        }
+        for (e = B.g.start[a]; e < B.g.start[a + 1]; e++)
+        {
+            s32 b = B.g.to[e];
+
+            if (sCovStamp[b] != sCovGen && qt < (s32) (sizeof(sCovQ) / sizeof(sCovQ[0])) && fabsf(B.g.y[b] - gy) < 120.0f)
+            {
+                sCovStamp[b] = sCovGen;
+                sCovQ[qt++] = b;
+            }
+        }
+    }
+    if (best >= 0 && bestSc < here * 0.75f - 0.05f)
+    {
+        if (B.verbose >= 2)
+        {
+            portConLogf("ge: playerbot: fight spot: exposure %.2f here -> %.2f (%d tiles scored)\n", here, bestSc, evals);
+        }
+        return best;
+    }
+    return -1;
+}
+
+static s32 wantCover(f32 hp)
+{
+    if (B.oldCover)
+    {
+        return (hp < 0.7f && B.nThreats >= 2) || (hp < 0.35f && B.nThreats >= 1) || B.nThreats >= 3;
+    }
+    /* the exposure search only moves when it finds a clearly better spot, so it can look whenever it matters */
+    return B.nThreats >= 2 || (hp < 0.6f && B.nThreats >= 1);
+}
+
+/* fight the current target if any; returns 1 when the bot is busy fighting this tick */
+static s32 combatTick(f32 range)
+{
+    PropRecord *t;
+
+    if (B.peace)
+    {
+        return 0;
+    }
+    if (B.target != NULL && B.target->chr != NULL && chrIsDead(B.target->chr) && (B.verbose >= 2 || B.speedrun))
+    {   /* (the normal bot only drops a dead target here at log level 2 - else at the next pick, up to 4 ticks later: the
+         * log level changed its play. Left as it is for the normal bot (its campaign results stand); speedrun always) */
+        if (B.verbose >= 2)
+        {
+            portConLogf("ge: playerbot: down: chr %d%s after %.1f s\n", (s32) B.target->chr->chrnum,
+                        B.target->chr->ailist == B.raiserList && B.raiserList != NULL ? " (alarm raiser)" : "",
+                        (f32) (B.tick - B.targetSince) / 60.0f);
+        }
+        B.target = NULL;
+    }
+    if ((B.tick % 4) == 0 || B.target == NULL)
+    {
+        t = pickTarget(range);
+        if (t == NULL && B.tick - B.lastHurtTick < 120)
+        {   /* hurt by someone the tile line test cannot see (a catwalk, another floor, through a window): fight the
+             * nearest guard that is in an attack, he has the line on us */
+            struct player *p = bond();
+            s32 n = get_numguards(), i;
+            f32 bd = 2500.0f * 2500.0f;
+
+            for (i = 0; i < n; i++)
+            {
+                ChrRecord *c = &g_ChrSlots[i];
+                f32 dx, dy, dz, d;
+
+                if (!chrHostile(c) || (c->actiontype != ACT_ATTACK && c->actiontype != ACT_ATTACKWALK &&
+                                       c->actiontype != ACT_ATTACKROLL))
+                {
+                    continue;
+                }
+                dx = c->prop->pos.x - p->prop->pos.x;
+                dy = c->prop->pos.y - p->prop->pos.y;
+                dz = c->prop->pos.z - p->prop->pos.z;
+                d = dx * dx + dy * dy + dz * dz;
+                if (d < bd && !civilianInLineYaw(pblYawTo(dx, dz), sqrtf(d)))
+                {
+                    bd = d;
+                    t = c->prop;
+                }
+            }
+        }
+        if (t != B.target)
+        {
+            B.target = t;
+            B.targetSince = B.tick;
+            if (t != NULL && t->chr != NULL && chrIsRaiser(t->chr) && B.verbose >= 2)
+            {
+                portConLogf("ge: playerbot: target: alarm raiser chr %d (action %d)\n", (s32) t->chr->chrnum,
+                            (s32) t->chr->actiontype);
+            }
+        }
+    }
+    t = B.target;
+    if (t != NULL && (t->chr == NULL || !chrHostile(t->chr)))
+    {
+        t = B.target = NULL;
+    }
+    if (t != NULL && B.tick - B.targetSince > 480 && B.tick - B.lastFireTick > 180)
+    {   /* 8 s on this one without a shot (out of reach of the aim, a bystander always in the way): leave him for 10 s */
+        B.tgtSkip[B.tgtSkipN & 3] = t;
+        B.tgtSkipAt[B.tgtSkipN & 3] = B.tick;
+        B.tgtSkipN++;
+        if (B.verbose >= 2)
+        {
+            portConLogf("ge: playerbot: no shot at chr %d for 8 s - leaving him for now\n", (s32) t->chr->chrnum);
+        }
+        t = B.target = NULL;
+    }
+    {   /* cover: outnumbered or hurt -> the nearest tile none of them sees; hold it and shoot whoever comes round */
+        struct player *p = bond();
+        f32 hp = p->bondhealth + p->bondarmour;
+
+        if (B.coverNode < 0 && B.nThreats > 0 && B.tick - B.lastCoverScan > 30 && wantCover(hp) && !B.noCover)
+        {
+            B.lastCoverScan = B.tick;
+            B.coverNode = coverFind(450.0f);
+            if (B.coverNode >= 0)
+            {
+                B.coverSince = B.tick;
+                B.coverUntil = B.tick + 360;
+                if (B.verbose >= 2)
+                {
+                    portConLogf("ge: playerbot: cover: %d threat(s), hp %.2f -> tile at %.0f,%.0f\n", B.nThreats, hp,
+                                B.g.x[B.coverNode], B.g.z[B.coverNode]);
+                }
+            }
+        }
+        if (B.coverNode >= 0)
+        {
+            s32 n = B.coverNode;
+            f32 dx = B.g.x[n] - p->prop->pos.x, dz = B.g.z[n] - p->prop->pos.z;
+            s32 there = dx * dx + dz * dz < 45.0f * 45.0f || (B.stuck.level >= 1 && B.tick - B.coverSince > 60);
+
+            if (B.tick > B.coverUntil || (there && t == NULL && B.tick - B.lastSeenTick > 120 && B.tick - B.coverSince > 150))
+            {
+                B.coverNode = -1;   /* nobody came: go on */
+                navReset();
+            }
+            else if (!there && (t == NULL || B.tick - B.coverSince < 90))
+            {
+                navTo(B.g.x[n], B.g.y[n], B.g.z[n], 30.0f, B.tiles[n]);
+                if (t != NULL)
+                {   /* shoot on the way if the gun happens to bear */
+                    shootAt(t->pos.x, t->pos.y + B.aimY, t->pos.z, 20.0f);
+                    B.yaw = 0.0f;
+                    lookToward(B.lastSteerYaw, 0.0f, 20.0f);
+                }
+                return 1;
+            }
+            else if (t != NULL)
+            {   /* in cover (or caught on the way): fight from here without the strafe */
+                B.lastSeenTick = B.tick;
+                shootAt(t->pos.x, t->pos.y + B.aimY, t->pos.z, 20.0f);
+                return 1;
+            }
+            else
+            {   /* hold, facing where they were: they come to us */
+                lookAt(B.lastTX, B.lastTY, B.lastTZ, 15.0f);
+                return 1;
+            }
+        }
+    }
+    if (t == NULL)
+    {
+        return 0;
+    }
+    B.lastSeenTick = B.tick;
+    B.lastTX = t->pos.x;
+    B.lastTY = t->pos.y;
+    B.lastTZ = t->pos.z;
+    if (B.verbose >= 3)
+    {
+        portConLogf("ge: playerbot: fight chr %d at %.0f,%.0f,%.0f (bond %.0f,%.0f,%.0f)\n", t->chr->chrnum, t->pos.x, t->pos.y,
+                    t->pos.z, bond()->prop->pos.x, bond()->prop->pos.y, bond()->prop->pos.z);
+    }
+    if (bestGun() == ITEM_UNARMED)
+    {   /* no gun (Bunker 2 and Archives start unarmed): close in and punch, the look on him; his gun drops when he
+         * goes down and the loot logic picks it up */
+        f32 dx = t->pos.x - bond()->prop->pos.x, dz = t->pos.z - bond()->prop->pos.z;
+        f32 d = sqrtf(dx * dx + dz * dz);
+
+        B.moveOnly = 1;
+        if (d > 55.0f)
+        {
+            navTo(t->pos.x, t->pos.y, t->pos.z, 50.0f, t->stan);
+        }
+        B.moveOnly = 0;
+        lookAt(t->pos.x, t->pos.y + 10.0f, t->pos.z, 20.0f);
+        if (d < 110.0f && (B.tick % 12) < 2)
+        {
+            B.btn |= BTN_Z;
+        }
+        return 1;
+    }
+    if (chrIsRaiser(t->chr) && chrAlert(t->chr) && !alarmIsActive())
+    {   /* an alarm raiser on his way to the panel (or at it): close in while shooting - far shots miss and the alarm
+         * brings the waves and the response squads */
+        f32 dx = t->pos.x - bond()->prop->pos.x, dz = t->pos.z - bond()->prop->pos.z;
+
+        if (dx * dx + dz * dz > 450.0f * 450.0f)
+        {
+            B.moveOnly = 1;
+            navTo(t->pos.x, t->pos.y, t->pos.z, 300.0f, t->stan);
+            B.moveOnly = 0;
+            shootAt(t->pos.x, t->pos.y + B.aimY, t->pos.z, 20.0f);
+            return 1;
+        }
+    }
+    if (B.rush && B.goalValid)
+    {   /* rush: keep walking the route (moves only; the look stays on the target) */
+        B.moveOnly = 1;
+        navTo(B.goalX, B.goalY, B.goalZ, 30.0f, NULL);
+        B.moveOnly = 0;
+        shootAt(t->pos.x, t->pos.y + B.aimY, t->pos.z, 20.0f);
+        return 1;
+    }
+    shootAt(t->pos.x, t->pos.y + B.aimY, t->pos.z, 20.0f);
+    {   /* a civilian in a guard's line of fire at Bond (his misses carry on): step aside so the line clears it;
+         * otherwise keep a little lateral motion (holding fire for a bystander: one way, to open the line) */
+        /* the strafe is the Move stick's x (bondview2.c, the port's pad path: analogStrafe = stick x, and the C buttons'
+         * digital steps are cleared - C-left / C-right never moved Bond, measured: <1 u/tick). Stick +x moves Bond
+         * toward yaw theta + 90, i.e. against r1 = (cos theta, sin theta). */
+        s32 side = civilianExposureSide();
+
+        if (side != 0)
+        {
+            B.sx = (s8) (side > 0 ? -70 : 70);
+        }
+        else if (B.tick - B.holdFire < 10)
+        {   /* holding fire for a bystander: one way, to open the line */
+            B.sx = ((B.holdFire / 240) & 1) != 0 ? -70 : 70;
+        }
+        else if (B.dodgePeriod > 0)
+        {   /* GE_PLAYERBOT_DODGE=N: strafe N ticks each way while shooting (off by default: until round 4 the strafe was
+             * the C buttons, which never moved Bond, so every measured run stood still; Bunker 2 seeds 1-6 won 1 of 6 with
+             * a 45-tick dodge against 3 of 6 standing) */
+            B.sx = ((B.tick / B.dodgePeriod) & 1) != 0 ? -70 : 70;
+        }
+    }
+    {   /* keep them at range: a guard's aim builds up per shot by 0.48 x min(1, 300 / distance) (chraction.c), so one
+         * at 1500 hits five times less often than one at 300 - and Bond's movement does not matter to it. Back away
+         * from an alert guard inside 450 (or 700 when hurt), unless that is blocked (then hold for 2 s). */
+        struct player *p = bond();
+        f32 hp = p->bondhealth + p->bondarmour;
+        f32 dx = t->pos.x - p->prop->pos.x, dz = t->pos.z - p->prop->pos.z;
+        f32 keep = hp < 0.5f ? 700.0f : 450.0f;
+
+        if (dx * dx + dz * dz < keep * keep && chrAlert(t->chr) && B.nThreats <= 2 && B.tick >= B.kiteBlockedUntil && !B.noKite)
+        {
+            B.sy = -70;
+            if (B.kiteSince == 0)
+            {
+                B.kiteSince = B.tick;
+                B.kiteX = p->prop->pos.x;
+                B.kiteZ = p->prop->pos.z;
+            }
+            else if (B.tick - B.kiteSince > 30)
+            {
+                f32 mx = p->prop->pos.x - B.kiteX, mz = p->prop->pos.z - B.kiteZ;
+
+                if (mx * mx + mz * mz < 25.0f * 25.0f)
+                {
+                    B.kiteBlockedUntil = B.tick + 120;   /* a wall behind us */
+                }
+                B.kiteSince = 0;
+            }
+        }
+        else
+        {
+            B.kiteSince = 0;
+        }
+    }
+    return 1;
+}
+
+/* ---- loot: dropped guns, ammo boxes, body armour close by ------------------------------------------------------ */
+
+static s32 propActive(PropRecord *q)
+{
+    PropRecord *p;
+
+    for (p = chrpropGetActiveTail(); p != NULL; p = p->prev)
+    {
+        if (p == q)
+        {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static s32 isLoot(PropRecord *p)
+{
+    s32 i;
+
+    if (p->type == PROP_TYPE_WEAPON && p->weapon != NULL)
+    {
+        s32 gun = bestGun();
+
+        if (gun != ITEM_UNARMED && currentPlayerGetAmmoCount(get_ammo_type_for_weapon(gun)) >= 60 &&
+            (bondinvItemAvailable(p->weapon->weaponnum) || B.quiet) &&
+            get_ammo_type_for_weapon(p->weapon->weaponnum) != get_ammo_type_for_weapon(gun))
+        {
+            return 0;   /* armed and stocked: a gun we have (or, quiet, a loud one) is only worth its ammo for ours */
+        }
+        for (i = 0; i < (s32) (sizeof(sGunPrefs) / sizeof(sGunPrefs[0])); i++)
+        {
+            if (p->weapon->weaponnum == sGunPrefs[i])
+            {
+                return 1;   /* never grenades or mines: those may be live */
+            }
+        }
+        return 0;
+    }
+    return p->type == PROP_TYPE_OBJ && p->obj != NULL &&
+           (p->obj->type == PROPDEF_AMMO || (p->obj->type == PROPDEF_ARMOUR && bond()->bondarmour < 0.9f));
+}
+
+/* returns 1 while walking to a pick-up */
+static s32 lootTick(void)
+{
+    struct player *p = bond();
+    PropRecord *q;
+    s32 i;
+    s32 gun = bestGun();
+    /* short of ammo: look further for guns and boxes */
+    f32 reach = (gun == ITEM_UNARMED || currentPlayerGetAmmoCount(get_ammo_type_for_weapon(gun)) < 30) ? 900.0f : 420.0f;
+
+    if (B.speedNoLoot && gun != ITEM_UNARMED && currentPlayerGetAmmoCount(get_ammo_type_for_weapon(gun)) >= 30 &&
+        B.lootProp == NULL)
+    {
+        return 0;   /* (GE_PLAYERBOT_SPEED=2: armed with ammo - no detours) */
+    }
+
+    if (B.lootProp != NULL)
+    {
+        if (!propActive(B.lootProp) || B.tick > B.lootUntil)
+        {
+            B.lootProp = NULL;
+            navReset();
+            return 0;
+        }
+        q = B.lootProp;
+        navTo(q->pos.x, q->pos.y, q->pos.z, 8.0f, q->stan);
+        return 1;
+    }
+    if ((B.tick % 30) != 0 || B.noLoot)
+    {
+        return 0;
+    }
+    for (q = chrpropGetActiveTail(); q != NULL; q = q->prev)
+    {
+        f32 dx, dz;
+        s32 seen = 0;
+
+        if (!isLoot(q) || q->stan == NULL)
+        {
+            continue;
+        }
+        dx = q->pos.x - p->prop->pos.x;
+        dz = q->pos.z - p->prop->pos.z;
+        if (dx * dx + dz * dz > reach * reach || fabsf(q->pos.y - p->prop->pos.y) > 220.0f)
+        {
+            continue;
+        }
+        for (i = 0; i < 16; i++)
+        {
+            seen |= B.lootTried[i] == q;
+        }
+        if (seen || !botLine(bondTile(), p->prop->pos.x, p->prop->pos.z, q->pos.x, q->pos.z, q->stan,
+                             CDTYPE_OBJS | CDTYPE_DOORS | CDTYPE_PATHBLOCKER))
+        {
+            continue;
+        }
+        B.lootTried[B.lootN++ & 15] = q;
+        B.lootProp = q;
+        B.lootUntil = B.tick + (reach > 500.0f ? 600 : 300);
+        if (B.verbose >= 2)
+        {
+            portConLogf("ge: playerbot: picking up %s at %.0f away\n", q->type == PROP_TYPE_WEAPON ? "a gun" : "ammo/armour",
+                        sqrtf(dx * dx + dz * dz));
+        }
+        navReset();
+        return 1;
+    }
+    return 0;
+}
+
+/* ---- objectives (the `auto` step) ----------------------------------------------------------------------------- */
+
+/* the next open objective criterion the generic handlers can do: *op = DESTROY / COLLECT / PHOTO, *tag */
+static s32 autoNext(s32 *op, s32 *tag)
+{
+    s32 i;
+
+    for (i = 0; i < objectiveGetCount(); i++)
+    {
+        MissionObjectiveRecord *o;
+        s32 bestOp = 0, bestTag = -1;
+        f32 bestD = 1e30f;
+
+        if (!objectiveOpen(i) || objective_ptrs[i] == NULL)
+        {
+            continue;
+        }
+        /* within an objective: the current target while it lasts, else the NEAREST one - in tag order the bot crossed
+         * Facility's bottling hall back and forth, and once one tank bursts the gas drains Bond anywhere in the level
+         * after 30 s (propobj.c handle_gas_damage: 0.125 every 225 ticks), so every second counts */
+        for (o = (MissionObjectiveRecord *) &objective_ptrs[i]->id; o->type != PROPDEF_OBJECTIVE_END;
+             o = (MissionObjectiveRecord *) (sizepropdef((PropDefHeaderRecord *) o) + (PropDefHeaderRecord *) o))
+        {
+            ObjectRecord *obj;
+            f32 dx, dz, d;
+
+            if (o->type != PROPDEF_OBJECTIVE_DESTROY_OBJECT)
+            {
+                continue;
+            }
+            obj = objByTag(o->ObjRefID);
+            if (obj == NULL || obj->prop == NULL || !objIsHealthy(obj))
+            {
+                continue;
+            }
+            dx = obj->prop->pos.x - bond()->prop->pos.x;
+            dz = obj->prop->pos.z - bond()->prop->pos.z;
+            d = (B.count == o->ObjRefID * 16 + PBL_DESTROY_OBJ) ? -1.0f : dx * dx + dz * dz;
+            if (d < bestD)
+            {
+                bestD = d;
+                bestOp = PBL_DESTROY_OBJ;
+                bestTag = o->ObjRefID;
+            }
+        }
+        if (bestTag >= 0)
+        {
+            *op = bestOp;
+            *tag = bestTag;
+            return 1;
+        }
+        for (o = (MissionObjectiveRecord *) &objective_ptrs[i]->id; o->type != PROPDEF_OBJECTIVE_END;
+             o = (MissionObjectiveRecord *) (sizepropdef((PropDefHeaderRecord *) o) + (PropDefHeaderRecord *) o))
+        {
+            ObjectRecord *obj;
+
+            if (o->type != PROPDEF_OBJECTIVE_DESTROY_OBJECT && o->type != PROPDEF_OBJECTIVE_COLLECT_OBJECT &&
+                o->type != PROPDEF_OBJECTIVE_PHOTOGRAPH)
+            {
+                continue;
+            }
+            obj = objByTag(o->ObjRefID);
+            if (obj == NULL || obj->prop == NULL || !objIsHealthy(obj))
+            {
+                continue;
+            }
+            if (o->type == PROPDEF_OBJECTIVE_DESTROY_OBJECT)
+            {
+                *op = PBL_DESTROY_OBJ;
+            }
+            else if (o->type == PROPDEF_OBJECTIVE_COLLECT_OBJECT)
+            {
+                if (bondinvHasPropInInv(obj->prop))
+                {
+                    continue;
+                }
+                *op = PBL_COLLECT_OBJ;
+            }
+            else
+            {
+                if (o->TextID != 0)
+                {
+                    continue;   /* already photographed */
+                }
+                *op = PBL_PHOTO_OBJ;
+            }
+            *tag = o->ObjRefID;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* ---- plan --------------------------------------------------------------------------------------------------------- */
+
+static void planLoad(void)
+{
+    char path[400];
+    FILE *f;
+    char *buf;
+    long len;
+    char err[160];
+
+    B.planLoaded = 0;
+    if (B.planfile[0] != '\0')
+    {
+        snprintf(path, sizeof(path), "%s", B.planfile);
+    }
+    else if (portModeActive())
+    {   /* a game mode: its own plan, or none (its script feeds steps through the Lua `bot` library) */
+        snprintf(path, sizeof(path), "%s/%s.plan", B.plandir, portModeName());
+    }
+    else
+    {
+        snprintf(path, sizeof(path), "%s/%s.plan", B.plandir, stageName(B.stage));
+    }
+    if (B.speedrun && B.planfile[0] == '\0' && !portModeActive())
+    {   /* speedrun: the stage's route (tools/bot/routes/<stage>.route: the plan language plus `via`, `side=`, `fast`),
+         * else the plan */
+        const char *rd = getenv("GE_PLAYERBOT_ROUTEDIR");
+        char rpath[400];
+        FILE *rf;
+
+        snprintf(rpath, sizeof(rpath), "%s/%s.route", rd != NULL ? rd : "Data/BotRoutes", stageName(B.stage));
+        rf = fopen(rpath, "rb");
+        if (rf != NULL)
+        {
+            fclose(rf);
+            snprintf(path, sizeof(path), "%s", rpath);
+        }
+        else
+        {
+            portConLogf("ge: playerbot: speedrun: no route %s - using the plan\n", rpath);
+        }
+    }
+    f = fopen(path, "rb");
+    if (f == NULL && portModeActive())
+    {   /* keep whatever the script already pushed (its stage_start can run before the bot's first tick) */
+        portConLogf("ge: playerbot: mode %s: no plan %s - following bot.push from the mode script (%d step(s) so far)\n",
+                    portModeName(), path, B.plan.n);
+        B.planLoaded = 1;
+        return;
+    }
+    B.plan.n = 0;
+    if (f == NULL)
+    {
+        portConLogf("ge: playerbot: no plan %s - using 'auto' then 'exit'\n", path);
+        pblParsePlan("auto\nexit\n", &B.plan, err, sizeof(err));
+        B.planLoaded = 1;
+        return;
+    }
+    fseek(f, 0, SEEK_END);
+    len = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    buf = (char *) malloc((size_t) len + 1);
+    if (buf == NULL)
+    {
+        fclose(f);
+        return;
+    }
+    len = (long) fread(buf, 1, (size_t) len, f);
+    buf[len] = '\0';
+    fclose(f);
+    if (pblParsePlan(buf, &B.plan, err, sizeof(err)) < 0)
+    {
+        portConLogf("ge: playerbot: plan %s: %s - using 'auto'\n", path, err);
+        pblParsePlan("auto\nexit\n", &B.plan, err, sizeof(err));
+    }
+    else
+    {
+        portConLogf("ge: playerbot: plan %s: %d steps\n", path, B.plan.n);
+    }
+    free(buf);
+    B.planLoaded = 1;
+}
+
+static void stepBegin(void)
+{
+    B.stepTick = B.tick;
+    B.stepBeganTick = B.tick;
+    B.phase = 0;
+    B.count = 0;
+    B.stepFails = 0;
+    B.huntAi = 0;
+    B.huntLast = NULL;
+    if (B.keepWant > 0)
+    {
+        B.keepWant--;   /* an `equip` holds the item for the steps right after it (press z, wait) */
+    }
+    else
+    {
+        B.wantWeapon = 0;
+    }
+    navReset();
+    optStepBegin();
+}
+
+static void stepNext(const char *why)
+{
+    if (sOpt.phase == 1 && sOpt.committing && B.step == sOpt.step)
+    {   /* the kept variant has been played again up to the end of its step: the next step is the next to optimise */
+        sOpt.phase = 0;
+        sOpt.committing = 0;
+    }
+    if (B.verbose && B.step < B.plan.n)
+    {
+        portConLogf("ge: playerbot: step %d '%s' %s at t=%.1fs\n", B.step + 1, B.plan.s[B.step].text, why,
+                    (f32) B.tick / 60.0f);
+    }
+    if (B.step < B.plan.n && B.plan.s[B.step].op == PBL_EQUIP && B.wantWeapon > 0)
+    {
+        B.keepWant = 2;
+    }
+    B.step++;
+    stepBegin();
+}
+
+static s32 stepApplies(const PblStep *s)
+{
+    s32 d = lvlGetSelectedDifficulty();
+
+    if (d < s->diffMin || d > s->diffMax)
+    {
+        return 0;
+    }
+    if (s->condObj >= 0 && !objectiveOpen(s->condObj))
+    {
+        return 0;
+    }
+    return 1;
+}
+
+/* object interaction: go near, face, act. Returns 1 when finished. */
+static s32 doUse(f32 x, f32 y, f32 z, StandTile *tile, f32 radius, u16 button, s32 taps)
+{
+    if (B.phase == 0)
+    {
+        if (navTo(x, y, z, radius, tile))
+        {
+            B.phase = 1;
+            B.count = 0;
+            B.stepTick = B.tick;
+        }
+        return 0;
+    }
+    if (B.speedrun)
+    {   /* speedrun: turn fast, press as soon as the use test can take it (22.5 deg), then every 8 ticks */
+        f32 e = lookAt(x, y, z, 45.0f);
+
+        if (fabsf(e) < 12.0f && B.tick - B.lastDoorTap >= 8)
+        {
+            B.btn |= button;
+            B.lastDoorTap = B.tick;
+            B.count++;
+        }
+        return B.count >= taps;
+    }
+    lookAt(x, y, z, 15.0f);
+    if (B.tick - B.stepTick > 10 && ((B.tick - B.stepTick) % 20) == 0)
+    {
+        B.btn |= button;
+        B.count++;
+    }
+    return B.count >= taps;
+}
+
+static s32 doShootObj(ObjectRecord *obj)
+{
+    struct player *p = bond();
+    PropRecord *op = obj->prop;
+    f32 dx = op->pos.x - p->prop->pos.x, dz = op->pos.z - p->prop->pos.z;
+    f32 d = sqrtf(dx * dx + dz * dz);
+
+    if (B.shootObj != obj)
+    {
+        B.shootObj = obj;
+        B.shootSince = B.tick;
+    }
+    if (B.tick - B.shootSince > 420 && B.tick - B.shootSince < 600)
+    {   /* shooting it for 7 s did nothing (something in the way, or out of reach): get closer for a while */
+        navTo(op->pos.x, op->pos.y, op->pos.z, 200.0f, op->stan);
+        return 0;
+    }
+    if (B.tick - B.shootSince >= 600)
+    {
+        B.shootSince = B.tick;
+    }
+    /* line of sight to a point just this side of it (a padlock sits on its door, a camera on its wall), from the
+     * same floor (the tile line test is flat: from a roof it would "see" a padlock under it) */
+    if (d < 1400.0f && d > 1.0f && op->pos.y - bondGroundY() > -100.0f && op->pos.y - bondGroundY() < 400.0f &&
+        botLine(bondTile(), p->prop->pos.x, p->prop->pos.z, op->pos.x - dx / d * 40.0f, op->pos.z - dz / d * 40.0f, NULL,
+                (obj == B.subLock ? 0 : CDTYPE_OBJS) | CDTYPE_DOORS | CDTYPE_PATHBLOCKER))   /* a padlock hangs on stuff */
+    {
+        /* aim a little above the prop's origin (most sit on the floor); keep some range so the shots land on it */
+        /* padlocks: their own origin (a hatch's locks lie on the floor); floor objects: a little above it */
+        shootAt(op->pos.x, op->pos.y + (obj == B.subLock ? 0.0f : 35.0f), op->pos.z, obj == B.subLock ? 6.0f : 15.0f);
+        if (obj != B.subLock && d < (obj->type == PROPDEF_GAS_RELEASING ? 650.0f : 450.0f))
+        {   /* many of these explode or gas the room (bottling tanks, barrels): shoot from range */
+            B.btn &= ~BTN_Z;
+            B.sy = -60;
+        }
+        return 1;
+    }
+    if (d < 400.0f && B.tick - B.shootSince > 240 && B.tick - B.shootSince < 420 && obj->type != PROPDEF_GAS_RELEASING)
+    {   /* close and still no line after 4 s: the line test may be what is wrong (Train's brake units sit in the
+         * carriage wall; the test point 40 short of the origin is inside it) - shoot anyway for a few seconds */
+        shootAt(op->pos.x, op->pos.y + 20.0f, op->pos.z, 15.0f);
+        return 1;
+    }
+    /* no line yet: walk toward it until the line is clear (checked again every tick) */
+    navTo(op->pos.x, op->pos.y, op->pos.z, 100.0f, op->stan);
+    return 0;
+}
+
+/* a live chr by number (byAi = 0) or by the AI list it runs or returns to (byAi = 1) */
+static ChrRecord *findChr(s32 byAi, s32 id)
+{
+    s32 n = get_numguards(), i, k;
+    AIRecord *list = NULL;
+
+    if (byAi && g_CurrentSetup.ailists != NULL)
+    {
+        for (k = 0; g_CurrentSetup.ailists[k].ailist != NULL; k++)
+        {
+            if (g_CurrentSetup.ailists[k].ID == id)
+            {
+                list = g_CurrentSetup.ailists[k].ailist;
+                break;
+            }
+        }
+    }
+    for (i = 0; i < n; i++)
+    {
+        ChrRecord *c = &g_ChrSlots[i];
+
+        if (c->model == NULL || c->prop == NULL || chrIsDead(c))
+        {
+            continue;
+        }
+        if (byAi ? ((list != NULL && c->ailist == list) || c->aireturnlist == id) : c->chrnum == id)
+        {
+            return c;
+        }
+    }
+    return NULL;
+}
+
+extern void modelGetAxisExtents(Model *model, f32 *max, f32 *min, s32 axis);   /* chrprop.c (reads only) */
+
+/* The photo objective counts a picture only when the object's whole screen box is inside the screen
+ * (objective_status.c). An object's origin can be its corner or its foot, so aim at the middle of its box: the model's
+ * view-space extents (its render matrices, as the objective test reads them) less its origin, turned back into a world
+ * offset (view +x is the world's -(cos t, sin t), view +y is up). *frac = the box's width over the distance (0.9+
+ * will not fit the picture: back off). 0 when it is not drawn this frame. */
+static s32 photoAim(ObjectRecord *obj, f32 *x, f32 *y, f32 *z, f32 *frac)
+{
+    struct player *p = bond();
+    PropRecord *op = obj->prop;
+    Mtxf *m;
+    f32 xmax, xmin, ymax, ymin, cx, cy, th, depth;
+
+    if (!(op->flags & PROPFLAG_ONSCREEN) || obj->model == NULL || obj->model->render_pos == NULL ||
+        (m = getsubmatrix(obj->model)) == NULL ||
+        !(m->m[3][2] < -1.0f && m->m[3][2] > -1e6f) || !(fabsf(m->m[3][0]) < 1e6f) || !(fabsf(m->m[3][1]) < 1e6f))
+    {
+        return 0;   /* not drawn (behind, or a stale matrix) */
+    }
+    xmax = xmin = ymax = ymin = 1e9f;   /* (left as they are when the model has no bounding box node) */
+    modelGetAxisExtents(obj->model, &xmax, &xmin, 0);
+    modelGetAxisExtents(obj->model, &ymax, &ymin, 1);
+    if (!(fabsf(xmax) < 1e6f && fabsf(xmin) < 1e6f && fabsf(ymax) < 1e6f && fabsf(ymin) < 1e6f))
+    {
+        return 0;
+    }
+    cx = (xmax + xmin) * 0.5f - m->m[3][0];
+    cy = (ymax + ymin) * 0.5f - m->m[3][1];
+    th = p->vv_theta * 3.14159265f / 180.0f;
+    depth = -m->m[3][2];
+    *x = op->pos.x - cx * cosf(th);
+    *y = op->pos.y + cy;
+    *z = op->pos.z - cx * sinf(th);
+    *frac = depth > 1.0f ? fabsf(xmax - xmin) / depth : 9.0f;
+    if (fabsf(ymax - ymin) / (depth > 1.0f ? depth : 1.0f) > *frac)
+    {
+        *frac = fabsf(ymax - ymin) / (depth > 1.0f ? depth : 1.0f);
+    }
+    return 1;
+}
+
+/* a floor tile 350..850 from the object with a clear line to just this side of it: where to take its picture from
+ * (the nearest such tile to Bond; -1 if none) */
+static s32 photoSpot(ObjectRecord *obj)
+{
+    struct player *p = bond();
+    PropRecord *op = obj->prop;
+    s32 a, best = -1;
+    f32 bd = 1e30f;
+
+    for (a = 0; a < B.g.n; a++)
+    {
+        f32 dx = op->pos.x - B.g.x[a], dz = op->pos.z - B.g.z[a], d2 = dx * dx + dz * dz, d, bx, bz;
+
+        if (d2 < 350.0f * 350.0f || d2 > 850.0f * 850.0f || op->pos.y - B.g.y[a] < -100.0f || op->pos.y - B.g.y[a] > 500.0f)
+        {
+            continue;
+        }
+        bx = B.g.x[a] - p->prop->pos.x;
+        bz = B.g.z[a] - p->prop->pos.z;
+        if (bx * bx + bz * bz >= bd)
+        {
+            continue;
+        }
+        d = sqrtf(d2);
+        if (botLine(B.tiles[a], B.g.x[a], B.g.z[a], op->pos.x - dx / d * 40.0f, op->pos.z - dz / d * 40.0f, NULL,
+                    CDTYPE_DOORS | CDTYPE_PATHBLOCKER))
+        {
+            bd = bx * bx + bz * bz;
+            best = a;
+        }
+    }
+    return best;
+}
+
+/* photograph an object: camera in hand, a clear view from up to ~900 away (a big screen high on a wall cannot be
+ * walked to), then pictures. Returns the number of pictures taken so far (B.count). */
+static s32 doPhoto(ObjectRecord *obj)
+{
+    struct player *p = bond();
+    PropRecord *op = obj->prop;
+    f32 dx = op->pos.x - p->prop->pos.x, dz = op->pos.z - p->prop->pos.z;
+    f32 d = sqrtf(dx * dx + dz * dz);
+
+    B.wantWeapon = ITEM_CAMERA;
+    {   /* on screen: centre its box, and back off if it does not fit (about 0.8 rad across fits the 60-degree view) */
+        f32 ax, ay, az, frac;
+
+        if (d < 1600.0f && photoAim(obj, &ax, &ay, &az, &frac))
+        {
+            f32 err = lookAt(ax, ay, az, 10.0f);
+
+            if (frac > 0.75f)
+            {
+                B.sy = -60;
+            }
+            else if (getCurrentPlayerWeaponId(GUNRIGHT) == ITEM_CAMERA && fabsf(err) < 2.0f && fabsf(B.pitchErr) < 2.0f &&
+                     ((B.tick - B.stepTick) % 40) == 39)
+            {
+                B.btn |= BTN_Z;
+                B.count++;
+            }
+            if (B.photoObj != obj)
+            {
+                B.photoObj = obj;
+                B.photoSince = B.tick;
+            }
+            if (B.verbose >= 2 && ((B.tick - B.photoSince) % 120) == 0)
+            {
+                portConLogf("ge: playerbot: photo: %.0f away, box %.2f of the distance, aim %.0f,%.0f,%.0f (origin %.0f,%.0f,%.0f)\n",
+                            d, frac, ax, ay, az, op->pos.x, op->pos.y, op->pos.z);
+            }
+            if (frac <= 0.75f || B.tick - B.photoSince < 900)
+            {
+                return B.count;
+            }
+        }
+    }
+    if (B.photoObj != obj)
+    {
+        B.photoObj = obj;
+        B.photoSince = B.tick;
+    }
+    /* alternate: 4 s trying from here (in range: look at it, shoot when the game has it on screen), then 3 s walking
+     * closer; the whole object must fit in the picture, so not from right under it */
+    if (d < 900.0f && d > 250.0f && ((B.tick - B.photoSince) % 420) < 240)
+    {
+        f32 err = lookAt(op->pos.x, op->pos.y, op->pos.z, 10.0f);
+
+        if (getCurrentPlayerWeaponId(GUNRIGHT) == ITEM_CAMERA && fabsf(err) < 3.0f && (op->flags & PROPFLAG_ONSCREEN) &&
+            ((B.tick - B.stepTick) % 40) == 39)
+        {
+            B.btn |= BTN_Z;
+            B.count++;
+        }
+        return B.count;
+    }
+    if (d <= 250.0f)
+    {
+        B.sy = -60;   /* back away to get it all in */
+        lookAt(op->pos.x, op->pos.y, op->pos.z, 10.0f);
+        return B.count;
+    }
+    if (B.photoSpotObj != obj)
+    {   /* walk to a tile that has a clear line to it (the object itself can be on a wall, its tile on the far side) */
+        B.photoSpotObj = obj;
+        B.photoSpotNode = photoSpot(obj);
+        portConLogf("ge: playerbot: photo spot for the object at %.0f,%.0f,%.0f: %s %.0f,%.0f,%.0f\n", op->pos.x, op->pos.y,
+                    op->pos.z, B.photoSpotNode >= 0 ? "tile at" : "none, walking at it", B.photoSpotNode >= 0 ? B.g.x[B.photoSpotNode] : 0.0f,
+                    B.photoSpotNode >= 0 ? B.g.y[B.photoSpotNode] : 0.0f, B.photoSpotNode >= 0 ? B.g.z[B.photoSpotNode] : 0.0f);
+    }
+    if (B.photoSpotNode >= 0)
+    {
+        s32 n = B.photoSpotNode;
+
+        if (navTo(B.g.x[n], B.g.y[n], B.g.z[n], 40.0f, B.tiles[n]))
+        {
+            lookAt(op->pos.x, op->pos.y, op->pos.z, 10.0f);
+        }
+        return B.count;
+    }
+    navTo(op->pos.x, op->pos.y, op->pos.z, 400.0f, NULL);
+    return B.count;
+}
+
+/* run one plan step; returns 1 when the step is done */
+/* `escort ai ID [dist]`: a chr who follows Bond (Archives' Natalya: her AI runs after him and the exit only counts
+ * with her close) - on a goto, stand (and fight) while she is more than dist behind, until she is within 60% of it */
+static s32 escortWait(void)
+{
+    struct player *p = bond();
+    ChrRecord *c;
+    f32 dx, dz, d2;
+
+    if (B.escortAi == 0 || (c = findChr(1, B.escortAi)) == NULL)
+    {
+        return 0;
+    }
+    dx = c->prop->pos.x - p->prop->pos.x;
+    dz = c->prop->pos.z - p->prop->pos.z;
+    d2 = dx * dx + dz * dz;
+    if (d2 > B.escortDist * B.escortDist || (B.escortHold && d2 > 0.36f * B.escortDist * B.escortDist))
+    {
+        if (!B.escortHold && B.verbose >= 2)
+        {
+            portConLogf("ge: playerbot: escort: chr %d is %.0f behind - waiting\n", (s32) c->chrnum, sqrtf(d2));
+        }
+        if (!B.escortHold)
+        {
+            B.escortSince = B.tick;
+        }
+        B.escortHold = 1;
+        if (B.tick - B.escortSince > 240)
+        {   /* she is not coming (a door shut between them, she lost him): go back to her */
+            navTo(c->prop->pos.x, c->prop->pos.y, c->prop->pos.z, B.escortDist * 0.4f, c->prop->stan);
+            return 1;
+        }
+        B.stuck.lastGain = B.tick;
+        lookAt(c->prop->pos.x, c->prop->pos.y, c->prop->pos.z, 8.0f);
+        return 1;
+    }
+    B.escortHold = 0;
+    return 0;
+}
+
+static s32 stepRun(PblStep *s)
+{
+    struct player *p = bond();
+    ObjectRecord *obj;
+    PadRecord *pad;
+
+    switch (s->op)
+    {
+        case PBL_GOTO_PAD:
+            pad = padGet(s->a);
+            if (pad != NULL && escortWait())
+            {
+                return 0;
+            }
+            return pad == NULL || navTo(pad->pos.x, pad->pos.y, pad->pos.z, s->r, pad->stan);
+        case PBL_ESCORT:
+            B.escortAi = s->a;
+            B.escortDist = s->r;
+            return 1;
+        case PBL_GOTO_XYZ:
+            return navTo(s->x, s->y, s->z, s->r, NULL);
+        case PBL_VIA:
+            if (s->b == 0)
+            {
+                pad = padGet(s->a);
+                return pad == NULL || navTo(pad->pos.x + optOffset(0), pad->pos.y, pad->pos.z + optOffset(1), s->r,
+                                            (optOffset(0) == 0.0f && optOffset(1) == 0.0f) ? pad->stan : NULL);
+            }
+            return navTo(s->x + optOffset(0), s->y, s->z + optOffset(1), s->r, NULL);
+        case PBL_USE_PAD:
+            pad = padGet(s->a);
+            if (pad == NULL)
+            {
+                return 1;
+            }
+            if (B.phase == 0)
+            {
+                if (navTo(pad->pos.x, pad->pos.y, pad->pos.z, s->r < 40.0f ? s->r : 40.0f, pad->stan))
+                {
+                    B.phase = 1;
+                    B.stepTick = B.tick;
+                }
+                return 0;
+            }
+            lookToward(pblYawTo(pad->look.x, pad->look.z), 0.0f, 15.0f);
+            if (B.tick - B.stepTick > 10 && ((B.tick - B.stepTick) % 20) == 0)
+            {
+                B.btn |= BTN_B;
+                B.count++;
+            }
+            return B.count >= 3;
+        case PBL_USE_OBJ:
+            obj = objByTag(s->a);
+            if (obj == NULL || obj->prop == NULL)
+            {
+                return 1;
+            }
+            return doUse(obj->prop->pos.x, obj->prop->pos.y, obj->prop->pos.z, obj->prop->stan, s->r > 100.0f ? s->r : 100.0f,
+                         BTN_B, 3);
+        case PBL_COLLECT_OBJ:
+            obj = objByTag(s->a);
+            if (obj == NULL || obj->prop == NULL || bondinvHasPropInInv(obj->prop))
+            {
+                return 1;
+            }
+            if (s->b == 1)
+            {
+                return navTo(obj->prop->pos.x, obj->prop->pos.y, obj->prop->pos.z, s->r, obj->prop->stan);
+            }
+            if (navTo(obj->prop->pos.x, obj->prop->pos.y, obj->prop->pos.z, 25.0f, obj->prop->stan))
+            {
+                /* on top of it and it did not get picked up: try B (some pickups are used, not walked over) */
+                tap(BTN_B, 30);
+            }
+            return 0;
+        case PBL_DESTROY_OBJ:
+            obj = objByTag(s->a);
+            if (obj == NULL || obj->prop == NULL || !objIsHealthy(obj))
+            {
+                return 1;
+            }
+            doShootObj(obj);
+            return 0;
+        case PBL_GADGET_OBJ:
+        case PBL_THROW_OBJ:
+            obj = objByTag(s->b);
+            if (obj == NULL || obj->prop == NULL || !bondinvItemAvailable(s->a))
+            {
+                return 1;
+            }
+            B.wantWeapon = s->a;
+            if (B.phase == 0)
+            {
+                /* big targets (a helicopter) cannot be walked into: close enough, or as close as the bot gets */
+                if (navTo(obj->prop->pos.x, obj->prop->pos.y, obj->prop->pos.z, s->op == PBL_THROW_OBJ ? 300.0f : 250.0f,
+                          obj->prop->stan) ||
+                    (B.stuck.level >= 1 && B.goalValid &&
+                     (obj->prop->pos.x - p->prop->pos.x) * (obj->prop->pos.x - p->prop->pos.x) +
+                     (obj->prop->pos.z - p->prop->pos.z) * (obj->prop->pos.z - p->prop->pos.z) < 450.0f * 450.0f))
+                {
+                    B.phase = 1;
+                    B.stepTick = B.tick;
+                }
+                return 0;
+            }
+            lookAt(obj->prop->pos.x, obj->prop->pos.y, obj->prop->pos.z, 15.0f);
+            if (getCurrentPlayerWeaponId(GUNRIGHT) == s->a && B.tick - B.stepTick > 30 && ((B.tick - B.stepTick) % 30) < 3)
+            {
+                B.btn |= BTN_Z;
+                if (((B.tick - B.stepTick) % 30) == 2)
+                {
+                    B.count++;
+                }
+            }
+            return B.count >= 4 || B.tick - B.stepTick > 600;
+        case PBL_PHOTO_OBJ:
+            obj = objByTag(s->a);
+            if (obj == NULL || obj->prop == NULL)
+            {
+                return 1;
+            }
+            return doPhoto(obj) >= 6;
+        case PBL_WAIT:
+            return B.tick - B.stepTick >= s->a;
+        case PBL_EQUIP:
+            B.wantWeapon = s->a;
+            if (s->a == ITEM_UNARMED)
+            {
+                return 1;   /* `equip unarmed`: stop wanting anything - the best gun again */
+            }
+            if (getCurrentPlayerWeaponId(GUNRIGHT) == s->a)
+            {
+                return 1;   /* keep wanting it: the next steps use it (gadget / press z) */
+            }
+            if (B.tick - B.stepTick > 600)
+            {
+                portConLogf("ge: playerbot: equip %d failed (in inventory: %d, in hand: %d)\n", s->a, bondinvItemAvailable(s->a),
+                            getCurrentPlayerWeaponId(GUNRIGHT));
+                B.wantWeapon = 0;
+                return 1;
+            }
+            return 0;
+        case PBL_FLAG:
+            if (stageFlag(s->a))
+            {
+                return 1;
+            }
+            if (s->b > 0 && B.tick - B.stepTick > s->b)
+            {
+                portConLogf("ge: playerbot: flag 0x%x not set after %d ticks\n", s->a, s->b);
+                return 1;
+            }
+            return 0;
+        case PBL_PRESS:
+            if (B.tick - B.stepTick < s->b)
+            {
+                B.btn |= (u16) s->a;
+                return 0;
+            }
+            return 1;
+        case PBL_EXIT:
+            /* A presses through an end cut-scene - but A is also "next gun": tapping it through a fight cycled to the
+             * fist (Streets, Depot, Archives died punching). Only once nobody has been in sight for 5 s. */
+            if (B.target == NULL && B.tick - B.lastSeenTick > 300 && B.tick - B.lastHurtTick > 300)
+            {
+                tap(BTN_A, 30);
+            }
+            return 0;
+        case PBL_AUTO:
+        {
+            s32 op = 0, tag = -1;
+
+            if (!autoNext(&op, &tag))
+            {
+                return 1;
+            }
+            if (B.count != tag * 16 + op)
+            {   /* a new objective target */
+                if (B.verbose)
+                {
+                    ObjectRecord *ao = objByTag(tag);
+
+                    portConLogf("ge: playerbot: auto: %s obj %d at %.0f,%.0f,%.0f\n", pblOpName(op), tag,
+                                ao != NULL && ao->prop != NULL ? ao->prop->pos.x : 0.0f,
+                                ao != NULL && ao->prop != NULL ? ao->prop->pos.y : 0.0f,
+                                ao != NULL && ao->prop != NULL ? ao->prop->pos.z : 0.0f);
+                }
+                B.count = tag * 16 + op;
+                B.phase = 0;
+                navReset();
+            }
+            obj = objByTag(tag);
+            if (op == PBL_DESTROY_OBJ)
+            {
+                doShootObj(obj);
+            }
+            else if (op == PBL_COLLECT_OBJ)
+            {
+                navTo(obj->prop->pos.x, obj->prop->pos.y, obj->prop->pos.z, 20.0f, obj->prop->stan);
+            }
+            else
+            {
+                doPhoto(obj);
+            }
+            return 0;
+        }
+        case PBL_KILL:
+            if (combatTick((f32) s->a))
+            {
+                B.stepTick = B.tick;
+                return 0;
+            }
+            return B.tick - B.stepTick > 90;
+        case PBL_FACE:
+            return fabsf(lookAt(s->x, s->y, s->z, 10.0f)) < 2.0f;
+        case PBL_LOOK:
+            lookToward(p->vv_theta, (f32) s->a, 0.0f);
+            return fabsf(p->vv_verta - (f32) s->a) < 1.5f;
+        case PBL_WALK:
+            B.sy = (s8) s->b;
+            B.sx = (s8) s->c;
+            return B.tick - B.stepTick >= s->a;
+        case PBL_PEACE:
+            B.peace = s->a;
+            return 1;
+        case PBL_QUIET:
+            B.quiet = s->a;
+            return 1;
+        case PBL_RUSH:
+            B.rush = s->a;
+            return 1;
+        case PBL_AVOID:
+            if (s->a < 0)
+            {
+                B.nAvoid = 0;   /* `avoid pad -1`: every room open again (the way out) */
+                return 1;
+            }
+            pad = padGet(s->a);
+            if (pad != NULL && pad->stan != NULL && B.nAvoid < 8)
+            {
+                B.avoidRoom[B.nAvoid++] = (s32) pad->stan->room;
+                portConLogf("ge: playerbot: avoiding room %d (pad %d)\n", (s32) pad->stan->room, s->a);
+            }
+            return 1;
+        case PBL_SPARE:
+            if (s->a == 0)
+            {
+                B.nSpare = 0;
+                return 1;
+            }
+            if (g_CurrentSetup.ailists != NULL && B.nSpare < 6)
+            {
+                s32 k;
+
+                for (k = 0; g_CurrentSetup.ailists[k].ailist != NULL; k++)
+                {
+                    if (g_CurrentSetup.ailists[k].ID == s->a)
+                    {
+                        B.spare[B.nSpare++] = (void *) g_CurrentSetup.ailists[k].ailist;
+                        break;
+                    }
+                }
+            }
+            return 1;
+        case PBL_KEY:
+        {
+            ChrRecord *holder = NULL;
+
+            if (bondinvCheckHasKeyFlags((u32) s->a))
+            {
+                return 1;
+            }
+            if (findKeyProp((u32) s->a, &holder) == NULL)
+            {
+                if (B.tick - B.stepTick > 300)
+                {
+                    portConLogf("ge: playerbot: key %x: nowhere in the level\n", (u32) s->a);
+                    return 1;
+                }
+                return 0;
+            }
+            if (B.subKeyNeed == 0)
+            {
+                B.subKeyNeed = (u32) s->a;
+                B.subSince = B.tick;
+                B.keyGiveUpAt = -100000;
+                navReset();
+            }
+            if (B.tick - B.stepTick > 7500)
+            {
+                return 1;
+            }
+            return 0;
+        }
+        case PBL_HUNT:
+        {
+            s32 n = get_numguards(), i;
+            ChrRecord *best = NULL;
+            f32 bd = 1e30f;
+
+            if (s->condObj >= 0 && !objectiveOpen(s->condObj))
+            {
+                return 1;
+            }
+            B.huntAi = s->a ? s->b : 0;
+            /* the quarry: kept until he is down or out of reach (or 30 s), then the one with the SHORTEST ROUTE - by the
+             * straight line the choice flip-flopped between decks as Bond moved and he never got anywhere (Frigate) */
+            if (B.huntLast != NULL && chrHostile(B.huntLast) && B.huntLast->prop->stan != NULL &&
+                (!s->a || chrAiId(B.huntLast) == s->b) && B.tick - B.huntSince < 1800)
+            {
+                best = B.huntLast;
+            }
+            else
+            {
+                static s32 sHuntPath[MAXPATH];
+                s32 from = nodeNear(p->prop->pos.x, p->prop->pos.y, p->prop->pos.z, bondTile());
+
+                graphApplyLocks();
+                for (i = 0; i < n; i++)
+                {
+                    ChrRecord *c = &g_ChrSlots[i];
+                    s32 to, len;
+
+                    if (!chrHostile(c) || c->prop->stan == NULL || (s->a && chrAiId(c) != s->b))
+                    {
+                        continue;
+                    }
+                    {   /* skip a guard we could not get to lately */
+                        s32 k, skip = 0;
+
+                        for (k = 0; k < 8; k++)
+                        {
+                            skip |= B.huntSkip[k] == c && B.tick - B.huntSkipAt[k] < 3600;
+                        }
+                        if (skip)
+                        {
+                            continue;
+                        }
+                    }
+                    to = tileIndex(c->prop->stan);
+                    len = (from >= 0 && to >= 0) ? pblAstar(&B.g, from, to, sHuntPath, MAXPATH) : 0;
+                    if (len > 0 && (f32) len < bd)
+                    {
+                        bd = (f32) len;
+                        best = c;
+                    }
+                }
+                if (best == NULL)
+                {
+                    if (B.tick - B.stepTick > 600 || B.huntSkipN == 0)
+                    {
+                        portConLogf("ge: playerbot: hunt: nobody %sleft that the stan mesh reaches\n", s->a ? "on that AI list " : "");
+                        return 1;
+                    }
+                    return 0;
+                }
+                B.huntLast = best;
+                B.huntSince = B.tick;
+                portConLogf("ge: playerbot: hunt: chr %d (AI list 0x%x) at %.0f,%.0f,%.0f room %d - route %d tiles\n",
+                            (s32) best->chrnum, chrAiId(best), best->prop->pos.x, best->prop->pos.y, best->prop->pos.z,
+                            (s32) best->prop->stan->room, (s32) bd);
+                navReset();
+            }
+            {   /* there: close (250) AND a line on him - "close" alone left Bond standing on the deck above him for
+                 * 400 s; without a line walk right up to his tile (its floor height, not his prop's) */
+                s32 tn = tileIndex(best->prop->stan);
+                f32 fy = tn >= 0 ? B.g.y[tn] : best->prop->pos.y - 110.0f;
+                s32 seen = botLine(bondTile(), p->prop->pos.x, p->prop->pos.z, best->prop->pos.x, best->prop->pos.z,
+                                   best->prop->stan, CDTYPE_OBJS | CDTYPE_DOORS | CDTYPE_PATHBLOCKER | CDTYPE_AIOPAQUE);
+
+                navTo(best->prop->pos.x, fy, best->prop->pos.z, seen ? 250.0f : 60.0f, best->prop->stan);
+            }
+            if (B.stuck.level >= 2)
+            {   /* cannot get to this one: hunt the others for a minute */
+                B.huntSkip[B.huntSkipN & 7] = best;
+                B.huntSkipAt[B.huntSkipN & 7] = B.tick;
+                B.huntSkipN++;
+                B.stepFails = 0;
+                B.huntLast = NULL;
+                navReset();
+            }
+            return 0;
+        }
+        case PBL_MEET:
+        {
+            ChrRecord *c = findChr(s->a, s->b);
+
+            if (c == NULL)
+            {
+                if (B.tick - B.stepTick > 300)
+                {
+                    portConLogf("ge: playerbot: meet: no live chr %s %d\n", s->a ? "with AI list" : "number", s->b);
+                    return 1;
+                }
+                return 0;
+            }
+            if (s->condObj >= 0 && !objectiveOpen(s->condObj))
+            {
+                return 1;
+            }
+            {   /* stand in front of him: a chr's AI "sees" Bond only inside its view cone (chrCanSeeBond), and a
+                 * contact that waits for that never starts if Bond walks up behind (Statue's Valentin) */
+                f32 face = getsubroty(c->model), fr = s->r > 60.0f ? s->r * 0.6f : 40.0f;
+                f32 fx = c->prop->pos.x + sinf(face) * fr, fz = c->prop->pos.z + cosf(face) * fr;
+                f32 ddx = c->prop->pos.x - p->prop->pos.x, ddz = c->prop->pos.z - p->prop->pos.z;
+
+                if (ddx * ddx + ddz * ddz > (s->r + 400.0f) * (s->r + 400.0f) ||
+                    pblOffFacing(face, c->prop->pos.x, c->prop->pos.z, p->prop->pos.x, p->prop->pos.z) > 60.0f)
+                {
+                    if (!navTo(fx, c->prop->pos.y, fz, 40.0f, NULL) && B.stuck.level < 2)
+                    {
+                        return 0;   /* (cannot get round in front of him: walk up to him as he is) */
+                    }
+                }
+            }
+            if (navTo(c->prop->pos.x, c->prop->pos.y, c->prop->pos.z, s->r, c->prop->stan))
+            {
+                lookAt(c->prop->pos.x, c->prop->pos.y + 20.0f, c->prop->pos.z, 10.0f);
+                if (B.phase == 0)
+                {
+                    B.phase = 1;
+                    B.count = B.tick;
+                    portConLogf("ge: playerbot: meet: with chr %d (AI list 0x%x) at %.0f,%.0f,%.0f\n", (s32) c->chrnum,
+                                (u32) s->b, c->prop->pos.x, c->prop->pos.y, c->prop->pos.z);
+                }
+            }
+            return B.phase == 1 && B.tick - B.count >= s->c;
+        }
+        default:
+            return 1;
+    }
+}
+
+/* ---- result ------------------------------------------------------------------------------------------------------- */
+
+static s32 objectivesDone(s32 *needed)
+{
+    s32 i, done = 0;
+
+    *needed = 0;
+    for (i = 0; i < objectiveGetCount(); i++)
+    {
+        if (get_difficulty_for_objective(i) > lvlGetSelectedDifficulty())
+        {
+            continue;
+        }
+        (*needed)++;
+        if (get_status_of_objective(i) == OBJECTIVESTATUS_COMPLETE)
+        {
+            done++;
+        }
+    }
+    return done;
+}
+
+static void result(const char *outcome, s32 code)
+{
+    s32 needed = 0, done;
+    struct player *p = bond();
+
+    if (B.resultDone)
+    {
+        return;
+    }
+    B.resultDone = 1;
+    done = objectivesDone(&needed);
+    if (B.mode == 1)
+    {
+        portConLogf("ge: playerbot: idle: %d of %d ticks (fighting %d, at doors %d, stand-still steps %d, moving steps %d)\n",
+                    B.idle[0] + B.idle[1] + B.idle[2] + B.idle[3], B.tick, B.idle[0], B.idle[1], B.idle[2], B.idle[3]);
+    }
+    portConLogf("ge: playerbot: polls by phase (wait/sim/player+render/done): first of a tick %d/%d/%d/%d, others %d/%d/%d/%d\n",
+                B.pollPhase[4], B.pollPhase[5], B.pollPhase[6], B.pollPhase[7], B.pollPhase[0], B.pollPhase[1],
+                B.pollPhase[2], B.pollPhase[3]);
+    portConLogf("ge: playerbot: RESULT stage=%s diff=%d outcome=%s time=%.1fs mission_time=%ds ticks=%d health_lost=%.2f "
+                "kills=%d fire_ticks=%d shots=%d hits=%d/%d/%d objectives=%d/%d step=%d/%d room=%d pos=%.0f,%.0f,%.0f blocked=%s\n",
+                stageName(B.stage), (s32) lvlGetSelectedDifficulty(), outcome, (f32) B.tick / 60.0f, getMissiontimer() / 60,
+                B.tick, B.hpLost, B.kills, B.fireTicks, get_curplayer_shot_register(SHOT_REGISTER_TOTAL) - B.shotBase[0],
+                get_curplayer_shot_register(SHOT_REGISTER_HEAD) - B.shotBase[1],
+                get_curplayer_shot_register(SHOT_REGISTER_BODY) - B.shotBase[2],
+                get_curplayer_shot_register(SHOT_REGISTER_LIMB) - B.shotBase[3], done, needed, B.step < B.plan.n ? B.step + 1 : B.plan.n, B.plan.n,
+                p != NULL && p->prop != NULL ? bondRoom() : -1, p != NULL && p->prop != NULL ? p->prop->pos.x : 0.0f,
+                p != NULL && p->prop != NULL ? p->prop->pos.y : 0.0f, p != NULL && p->prop != NULL ? p->prop->pos.z : 0.0f,
+                B.blocked[0] ? B.blocked : "-");
+    fflush(stdout);
+    fflush(stderr);
+    if (B.exitOnEnd)
+    {
+        portInputRecFlush();
+        _exit(code);
+    }
+}
+
+void portPlayerBotMissionEnd(s32 stage, s32 allcomplete)
+{
+    if (portPlayerBotMode() == 0 || !B.inStage)
+    {
+        return;
+    }
+    (void) stage;
+    if (sOpt.on && sOpt.phase == 1 && !sOpt.committing)
+    {   /* the mission ended inside a trial: the stage is going, so no savestate can go back. Score it; if variants are
+         * left, exit 3 - the driver starts the optimiser again and it carries on from the state file */
+        s32 sc = allcomplete ? B.tick + (s32) ((B.hpLost - sOpt.startLost) * 1000.0f) : OPT_NOSCORE;
+        s32 i;
+
+        optTrialEnd(sc, allcomplete ? "the mission completed" : "the mission failed");
+        for (i = 0; i < sOpt.nv && sOpt.score[i] != 0; i++)
+        {
+        }
+        if (sOpt.fixed[sOpt.step] < 0 || sOpt.phase == 2)
+        {
+            portConLogf("ge: playerbot: opt: mission over inside a trial (step %d) - exit 3 to be started again\n", sOpt.step + 1);
+            fflush(stdout);
+            portInputRecFlush();
+            _exit(3);
+        }
+    }
+    if (allcomplete)
+    {
+        result("COMPLETE", 0);
+    }
+    else if (B.diedTick > 0)
+    {
+        result("FAILED_DEAD", 1);
+    }
+    else
+    {
+        result("FAILED_OBJECTIVES", 1);
+    }
+}
+
+/* ---- per-tick observe ------------------------------------------------------------------------------------------- */
+
+static void stageBegin(void)
+{
+    s32 i;
+
+    B.inStage = 1;
+    B.stage = bossGetStageNum();
+    B.setupKey = (void *) (uintptr_t) ptr_firstroom_0;
+    B.tick = 0;
+    B.ticksAll = 0;
+    B.resultDone = 0;
+    B.diedTick = 0;
+    B.deadTicks = 0;
+    B.outTicks = 0;
+    B.hpPrev = -1.0f;
+    B.hpLost = 0.0f;
+    B.lastHurtTick = -1000;
+    B.kills = 0;
+    memset(B.idle, 0, sizeof(B.idle));
+    B.escortAi = 0;
+    B.escortHold = 0;
+    B.civDead = 0;
+    B.ssThreatTick = -1000;
+    B.fireTicks = 0;
+    B.lastFireTick = 0;
+    memset(B.tgtSkip, 0, sizeof(B.tgtSkip));
+    B.shotBase[0] = get_curplayer_shot_register(SHOT_REGISTER_TOTAL);
+    B.shotBase[1] = get_curplayer_shot_register(SHOT_REGISTER_HEAD);
+    B.shotBase[2] = get_curplayer_shot_register(SHOT_REGISTER_BODY);
+    B.shotBase[3] = get_curplayer_shot_register(SHOT_REGISTER_LIMB);
+    B.deadAtStart = -1;
+    B.doorProp = NULL;
+    B.nBlockedDoors = 0;
+    B.subSwitch = NULL;
+    B.subLock = NULL;
+    B.lootProp = NULL;
+    memset(B.lootTried, 0, sizeof(B.lootTried));
+    B.noLoot = getenv("GE_PLAYERBOT_NOLOOT") != NULL;
+    B.subKeyNeed = 0;
+    B.keyGiveUpAt = -100000;
+    B.subTries = 0;
+    B.blocked[0] = '\0';
+    B.step = 0;
+    B.peace = 0;
+    B.quiet = 0;
+    B.rush = getenv("GE_PLAYERBOT_RUSH") != NULL;
+    B.moveOnly = 0;
+    B.nAvoid = 0;
+    B.target = NULL;
+    B.stuckEvents = 0;
+    B.coverNode = -1;
+    B.lastCoverScan = -1000;
+    B.noCover = getenv("GE_PLAYERBOT_NOCOVER") != NULL;
+    B.oldCover = getenv("GE_PLAYERBOT_OLDCOVER") != NULL;
+    B.noKite = getenv("GE_PLAYERBOT_NOKITE") != NULL;
+    B.noAimScore = getenv("GE_PLAYERBOT_NOAIMSCORE") != NULL;
+    B.glassTest = getenv("GE_PLAYERBOT_GLASSTEST") != NULL;   /* experiment: shoot raisers through closed doors */
+    B.spareAll = getenv("GE_PLAYERBOT_SPAREALL") != NULL;
+    B.kiteSince = 0;
+    B.kiteBlockedUntil = 0;
+    B.crIsR1 = 1;
+    B.speedMode = getenv("GE_PLAYERBOT_SPEED") != NULL && atoi(getenv("GE_PLAYERBOT_SPEED")) != 0;
+    if (B.speedMode && getenv("GE_PLAYERBOT_SPEED")[0] == '2')
+    {   /* GE_PLAYERBOT_SPEED=2: also fire on the move (rush) and no detours for guns and ammo (body armour when hurt
+         * still) - AC: "speed runners never stop moving unless they have to" */
+        B.rush = 1;
+        B.speedNoLoot = 1;
+    }
+    if (B.speedrun)
+    {   /* GE_PLAYERBOT=speedrun: speed level 2 and the speedrun movement (steerTo / doorHandle) */
+        B.speedMode = 1;
+        B.rush = 1;
+        B.speedNoLoot = 1;
+    }
+    B.ssSide = 1;
+    B.ssHeld = 0;
+    B.ssLearnN = 0;
+    B.ssTest = getenv("GE_PLAYERBOT_SSTEST") != NULL ? atoi(getenv("GE_PLAYERBOT_SSTEST")) : 0;
+    B.dodgePeriod = getenv("GE_PLAYERBOT_DODGE") != NULL ? atoi(getenv("GE_PLAYERBOT_DODGE")) : 0;
+    if (B.dodgePeriod < 0)
+    {
+        B.dodgePeriod = 0;
+    }
+    B.ssTestYaw = 0.0f;
+    B.ssOff[0] = -38.0f;   /* digital forward + left: the motion 38 deg off the view (measured, GE_PLAYERBOT_SSTEST) */
+    B.ssOff[1] = 38.0f;    /* digital forward + right */
+    B.ssLearnN = 40;       /* (start from the measured offsets: only the filtered learning) */
+    B.ssTurnHint = 0.0f;
+    B.strafeCal = 0;
+    B.calTick = 0;
+    B.armourProp = NULL;
+    B.armourSince = 0;
+    B.armourGiveUpUntil = 0;
+    B.photoSpotObj = NULL;
+    B.photoObj = NULL;
+    B.aimY = getenv("GE_PLAYERBOT_AIMY") != NULL ? (f32) atof(getenv("GE_PLAYERBOT_AIMY")) : 52.0f;
+    B.raiserList = ailistFindById(GAILIST_SIMPLE_GUARD_ALARM_RAISER);
+    B.koChr = NULL;
+    B.koPhase = 0;
+    B.nThreats = 0;
+    for (i = 0; i < 10; i++)
+    {
+        B.objStatus[i] = -1;
+    }
+    B.flagsPrev = (u32) objectiveregisters1;
+    B.nSpare = 0;
+    graphBuild();
+    optInit();
+    {   /* the graph's costs change during a run (stuck links, locked doorways): a savestate must take them back too. An
+         * extent (not fixed ranges): the graph is rebuilt per stage, and a range kept from the last one would name freed
+         * memory. The search scratch is reinitialised at every use: never rewound (modding/snapshot-fidelity.md). */
+        static s32 registered;
+
+        if (!registered)
+        {
+            registered = 1;
+            portSnapAddDyn("playerbot.graph", graphSnapDyn);
+            portSnapLive("playerbot.covstamp", &sCovStamp, sizeof(sCovStamp));
+            portSnapLive("playerbot.covstampn", &sCovStampN, sizeof(sCovStampN));
+            portSnapLive("playerbot.covgen", &sCovGen, sizeof(sCovGen));
+            portSnapLive("playerbot.astarfs", &g_PblAstarFs, sizeof(g_PblAstarFs));
+            portSnapLive("playerbot.astarfscap", &g_PblAstarFsCap, sizeof(g_PblAstarFsCap));
+        }
+    }
+    if (getenv("GE_PLAYERBOT_DOORS") != NULL)
+    {
+        doorDump();
+    }
+    planLoad();
+    stepBegin();
+    portConLogf("ge: playerbot: stage %s (%d) difficulty %d: %d objectives\n", stageName(B.stage), B.stage,
+                (s32) lvlGetSelectedDifficulty(), objectiveGetCount());
+    for (i = 0; i < objectiveGetCount(); i++)
+    {
+        portConLogf("ge: playerbot:   objective %d (diff %d)%s\n", i, get_difficulty_for_objective(i),
+                    get_difficulty_for_objective(i) <= lvlGetSelectedDifficulty() ? "" : " - not at this difficulty");
+    }
+}
+
+static void observe(void)
+{
+    struct player *p = bond();
+    s32 i;
+    f32 hp;
+
+    hp = p->bondhealth + p->bondarmour;
+    if (B.hpPrev >= 0.0f && hp < B.hpPrev)
+    {
+        B.hpLost += B.hpPrev - hp;
+        B.lastHurtTick = B.tick;
+        if (B.verbose >= 2)
+        {   /* who could it be: the guards in an attack, with distance and whether the bot's line test sees them */
+            s32 n = get_numguards(), k, shown = 0;
+            char buf[200];
+            s32 len = snprintf(buf, sizeof(buf), "hit -%.2f (hp %.2f) target %d cover %d:", B.hpPrev - hp, hp,
+                               B.target != NULL && B.target->chr != NULL ? (s32) B.target->chr->chrnum : -1, B.coverNode >= 0);
+
+            for (k = 0; k < n && shown < 4 && len < (s32) sizeof(buf) - 30; k++)
+            {
+                ChrRecord *c = &g_ChrSlots[k];
+                f32 dx, dz;
+
+                if (!chrHostile(c) || !chrAttacking(c) || c->prop->stan == NULL)
+                {
+                    continue;
+                }
+                dx = c->prop->pos.x - p->prop->pos.x;
+                dz = c->prop->pos.z - p->prop->pos.z;
+                if (dx * dx + dz * dz > 3000.0f * 3000.0f)
+                {
+                    continue;
+                }
+                len += snprintf(buf + len, sizeof(buf) - (size_t) len, " %d@%.0f%s", (s32) c->chrnum, sqrtf(dx * dx + dz * dz),
+                                botLine(bondTile(), p->prop->pos.x, p->prop->pos.z, c->prop->pos.x, c->prop->pos.z, c->prop->stan,
+                                        CDTYPE_OBJS | CDTYPE_DOORS | CDTYPE_PATHBLOCKER | CDTYPE_AIOPAQUE) ? "" : "(hidden)");
+                shown++;
+            }
+            portConLogf("ge: playerbot: %s\n", buf);
+        }
+    }
+    B.hpPrev = hp;
+    if (!p->bonddead && B.mode == 1 && lvlGetControlsLockedFlag() == 0 && p->cameramode == 0)
+    {   /* idle ticks (Bond moved under 1 unit), by what the bot was doing - for the speedrun round: where it stops (play
+         * ticks only: the intro and exit cameras are not the bot standing still) */
+        f32 mx = p->prop->pos.x - B.idleX, mz = p->prop->pos.z - B.idleZ;
+
+        if (mx * mx + mz * mz < 1.0f)
+        {
+            s32 op = B.step < B.plan.n ? B.plan.s[B.step].op : PBL_EXIT;
+            s32 why = B.target != NULL ? 0 : B.doorProp != NULL ? 1 :
+                      (op == PBL_GOTO_PAD || op == PBL_GOTO_XYZ || op == PBL_VIA || op == PBL_COLLECT_OBJ || op == PBL_AUTO ||
+                       op == PBL_HUNT) ? 3 : 2;
+
+            B.idle[why]++;
+            if (B.idleRun++ == 0)
+            {
+                B.idleWhy = why;
+                B.idleStuck = B.stuck.level;
+            }
+        }
+        else
+        {
+            if (B.idleRun >= 15 && B.verbose >= 2)
+            {   /* a stop worth looking at (speedrun round): how long, where, why */
+                static const char *const nm[4] = { "fighting", "door", "stand-still step", "moving step" };
+
+                portConLogf("ge: playerbot: stopped %d ticks at t=%.1fs room %d pos %.0f,%.0f (%s, stuck level %d, step %d, "
+                            "recovering %d)\n", B.idleRun, (f32) B.tick / 60.0f, bondRoom(), p->prop->pos.x, p->prop->pos.z,
+                            nm[B.idleWhy], B.idleStuck, B.step + 1, B.tick < B.recoverUntil);
+            }
+            B.idleRun = 0;
+        }
+        B.idleX = p->prop->pos.x;
+        B.idleZ = p->prop->pos.z;
+    }
+    if (p->bonddead && B.diedTick == 0)
+    {
+        B.diedTick = B.tick > 0 ? B.tick : 1;
+        snprintf(B.blocked, sizeof(B.blocked), "died at room %d pos %.0f,%.0f,%.0f step %d '%s'", bondRoom(), p->prop->pos.x,
+                 p->prop->pos.y, p->prop->pos.z, B.step + 1, B.step < B.plan.n ? B.plan.s[B.step].text : "-");
+        portConLogf("ge: playerbot: Bond died: %s\n", B.blocked);
+        ge_shot_force = 1;
+    }
+    if (p->bonddead && ++B.deadTicks > 480)
+    {
+        result("FAILED_DEAD", 1);   /* the death camera has had its time; no need to sit through the menus */
+    }
+    for (i = 0; i < objectiveGetCount() && i < 10; i++)
+    {
+        s32 st = get_status_of_objective(i);
+
+        if (st != B.objStatus[i])
+        {
+            if (B.objStatus[i] >= 0)
+            {
+                portConLogf("ge: playerbot: objective %d -> %s at t=%.1fs\n", i,
+                            st == OBJECTIVESTATUS_COMPLETE ? "complete" : (st == OBJECTIVESTATUS_FAILED ? "FAILED" : "incomplete"),
+                            (f32) B.tick / 60.0f);
+                ge_shot_force = 1;
+            }
+            B.objStatus[i] = st;
+        }
+    }
+    if ((u32) objectiveregisters1 != B.flagsPrev)
+    {   /* the stage flags the level's AI sets (objective completions, "Janus walks off", ...): which one fired, when */
+        u32 now = (u32) objectiveregisters1;
+
+        portConLogf("ge: playerbot: flags +0x%x -0x%x at t=%.1fs room %d\n", now & ~B.flagsPrev, B.flagsPrev & ~now,
+                    (f32) B.tick / 60.0f, bondRoom());
+        B.flagsPrev = now;
+    }
+    if ((B.ticksAll % 30) == 1)
+    {   /* guards down since the start (any cause; the bot does nearly all of it) */
+        s32 n = get_numguards(), dead = 0, civ = 0;
+
+        for (i = 0; i < n; i++)
+        {
+            ChrRecord *c = &g_ChrSlots[i];
+
+            if (c->model != NULL && c->prop != NULL && chrIsDead(c))
+            {
+                dead++;
+                civ += (c->chrflags & CHRFLAG_COUNT_DEATH_AS_CIVILIAN) != 0;
+            }
+        }
+        if (civ != B.civDead)
+        {   /* (hostages shot by their captors, bystanders in a crossfire) */
+            portConLogf("ge: playerbot: civilians dead: %d at t=%.1fs room %d\n", civ, (f32) B.tick / 60.0f, bondRoom());
+            B.civDead = civ;
+        }
+        if (B.deadAtStart < 0)
+        {
+            B.deadAtStart = dead;
+        }
+        if (dead - B.deadAtStart > B.kills)
+        {
+            B.kills = dead - B.deadAtStart;
+        }
+    }
+    if (B.maxSecs > 0 && (B.tick > B.maxSecs * 60 || B.ticksAll > (B.maxSecs + 300) * 60))
+    {
+        if (B.blocked[0] == '\0')
+        {
+            stuckReport("timeout");
+        }
+        result("TIMEOUT", 2);
+    }
+    if (B.verbose && (B.tick % 300) == 0 && p->prop != NULL)
+    {
+        portConLogf("ge: playerbot: t=%.0fs room %d pos %.0f,%.0f,%.0f theta %.0f verta %.1f hp %.2f+%.2f step %d/%d '%s' "
+                    "wp %d/%d gun %d%s | out sy %d sx %d btn %04x yaw %.1f\n",
+                    (f32) B.tick / 60.0f, bondRoom(), p->prop->pos.x, p->prop->pos.y, p->prop->pos.z, p->vv_theta, p->vv_verta,
+                    p->bondhealth, p->bondarmour, B.step + 1, B.plan.n, B.step < B.plan.n ? B.plan.s[B.step].text : "-",
+                    B.pathAt, B.pathN, getCurrentPlayerWeaponId(GUNRIGHT), B.target ? " FIGHT" : "", B.lastSy, B.lastSx,
+                    B.lastBtn, B.lastYaw);
+    }
+    if (B.verbose >= 2 && (B.tick % 1800) == 0 && (B.ssTicks > 0 || B.wTicks > 0))
+    {
+        portConLogf("ge: playerbot: speed: strafe-run %.2f u/tick (%d ticks), run %.2f u/tick (%d ticks); offsets L %.1f R %.1f "
+                    "(%d samples)\n", B.ssTicks ? B.ssDist / B.ssTicks : 0.0f, B.ssTicks, B.wTicks ? B.wDist / B.wTicks : 0.0f,
+                    B.wTicks, B.ssOff[0], B.ssOff[1], B.ssLearnN);
+    }
+    if (B.verbose && (B.tick % 1800) == 900)
+    {
+        ge_shot_force = 1;   /* a screenshot every 30 s on the next rendered frame (GE_SIMONLY_TEST windows) */
+    }
+    if (B.verbose >= 2 && B.tick == 300 && B.raiserList != NULL)
+    {   /* the alarm raisers the target choice puts first */
+        s32 n = get_numguards(), k, nr = 0;
+
+        for (k = 0; k < n; k++)
+        {
+            ChrRecord *c = &g_ChrSlots[k];
+
+            if (c->model != NULL && c->prop != NULL && !chrIsDead(c) && c->ailist == B.raiserList)
+            {
+                nr++;
+                portConLogf("ge: playerbot: alarm raiser chr %d at %.0f,%.0f,%.0f\n", (s32) c->chrnum, c->prop->pos.x,
+                            c->prop->pos.y, c->prop->pos.z);
+            }
+        }
+        portConLogf("ge: playerbot: %d alarm raiser(s)\n", nr);
+    }
+}
+
+/* ---- key carriers: knock out from behind, search, rob ------------------------------------------------------------ */
+
+/* press use next to a knocked-out chr until what it carries drops */
+static void searchTick(ChrRecord *c)
+{
+    struct player *p = bond();
+    f32 dx = c->prop->pos.x - p->prop->pos.x, dz = c->prop->pos.z - p->prop->pos.z;
+
+    if (B.wantWeapon == ITEM_FIST)
+    {
+        B.wantWeapon = 0;
+    }
+    if (dx * dx + dz * dz > 70.0f * 70.0f)
+    {
+        navTo(c->prop->pos.x, c->prop->pos.y, c->prop->pos.z, 60.0f, c->prop->stan);
+        return;
+    }
+    lookAt(c->prop->pos.x, c->prop->pos.y - 80.0f, c->prop->pos.z, 15.0f);
+    if (B.tick - B.searchTick >= 30)
+    {
+        B.btn |= BTN_B;
+        B.searchTick = B.tick;
+    }
+}
+
+/* hold a gun on a civilian carrier (heist staff surrender after 0.5 s of aim and hand over what they carry after 2 more):
+ * within 550 with a clear line, the view ray on it, no shot */
+static void robTick(ChrRecord *c)
+{
+    struct player *p = bond();
+    f32 dx = c->prop->pos.x - p->prop->pos.x, dz = c->prop->pos.z - p->prop->pos.z;
+    f32 d = sqrtf(dx * dx + dz * dz);
+    s32 los = d < 550.0f && botLine(bondTile(), p->prop->pos.x, p->prop->pos.z, c->prop->pos.x, c->prop->pos.z, c->prop->stan,
+                                     CDTYPE_DOORS | CDTYPE_PATHBLOCKER);
+
+    if (B.wantWeapon == ITEM_FIST)
+    {
+        B.wantWeapon = 0;
+    }
+    if (!los || d > 450.0f)
+    {   /* (no line: walk right up - "within 200" was met through a shut door and the bot stood there for good) */
+        navTo(c->prop->pos.x, c->prop->pos.y, c->prop->pos.z, los ? 200.0f : 50.0f, c->prop->stan);
+        B.robSince = B.tick;
+        return;
+    }
+    navReset();
+    lookAt(c->prop->pos.x, c->prop->pos.y + 10.0f, c->prop->pos.z, 15.0f);
+    if (d < 110.0f)
+    {
+        B.sy = -40;   /* closer than ~40 straight ahead is a shove, not an aim */
+    }
+    if (B.verbose >= 2 && ((B.tick - B.robSince) % 120) == 0)
+    {
+        portConLogf("ge: playerbot: rob: chr %d at %.0f, state %d\n", (s32) c->chrnum, d, portHeistCivilianState(c->chrnum));
+    }
+}
+
+/* Sneak up behind an unaware guard carrier and slap him twice (a heist mode's knock-out). Returns 0 when that is no
+ * longer the plan (he noticed Bond, or it takes too long): the caller fights him instead. */
+static s32 koTick(ChrRecord *c)
+{
+    struct player *p = bond();
+    f32 face, off, dx, dz, d, bx, bz;
+
+    if (B.koChr != c)
+    {
+        B.koChr = c;
+        B.koPhase = 1;
+        B.koSince = B.tick;
+        B.koSlapTick = 0;
+        portConLogf("ge: playerbot: knock-out: sneaking up on chr %d\n", (s32) c->chrnum);
+    }
+    if (B.koPhase == 0)
+    {
+        return 0;
+    }
+    if (chrAlert(c) || B.tick - B.koSince > 3600)
+    {
+        portConLogf("ge: playerbot: knock-out of chr %d abandoned (%s) - fighting him\n", (s32) c->chrnum,
+                    chrAlert(c) ? "he saw us" : "too long");
+        B.koPhase = 0;
+        if (B.wantWeapon == ITEM_FIST)
+        {
+            B.wantWeapon = 0;
+        }
+        return 0;
+    }
+    face = getsubroty(c->model);
+    bx = c->prop->pos.x - sinf(face) * 70.0f;
+    bz = c->prop->pos.z - cosf(face) * 70.0f;
+    dx = c->prop->pos.x - p->prop->pos.x;
+    dz = c->prop->pos.z - p->prop->pos.z;
+    d = sqrtf(dx * dx + dz * dz);
+    off = pblOffFacing(face, c->prop->pos.x, c->prop->pos.z, p->prop->pos.x, p->prop->pos.z);
+    if (d > 300.0f || off < 120.0f)
+    {   /* get round behind him (the route keeps out of his view: navPlan's cone penalty) */
+        B.koPhase = 1;
+        navTo(bx, c->prop->pos.y, bz, 40.0f, NULL);
+        return 1;
+    }
+    B.koPhase = 2;
+    B.wantWeapon = ITEM_FIST;
+    navReset();
+    lookAt(c->prop->pos.x, c->prop->pos.y + 10.0f, c->prop->pos.z, 20.0f);
+    if (getCurrentPlayerWeaponId(GUNRIGHT) != ITEM_FIST)
+    {
+        return 1;   /* the slappers come out (about a second) */
+    }
+    if (d > 60.0f)
+    {
+        B.sy = 45;
+    }
+    if (d < 95.0f && B.tick - B.koSlapTick > 30)
+    {
+        B.btn |= BTN_Z;
+        B.koSlapTick = B.tick;
+    }
+    return 1;
+}
+
+/* navPlan: keep the route to a knock-out target out of his field of view (220 degrees, in a line) */
+static void koConePenalty(void)
+{
+    ChrRecord *c = B.koChr;
+    f32 face;
+    s32 a;
+
+    if (c == NULL || B.koPhase == 0 || c->model == NULL || c->prop == NULL || c->prop->stan == NULL)
+    {
+        return;
+    }
+    face = getsubroty(c->model);
+    for (a = 0; a < B.g.n; a++)
+    {
+        f32 dx = B.g.x[a] - c->prop->pos.x, dz = B.g.z[a] - c->prop->pos.z;
+
+        if (dx * dx + dz * dz > 1500.0f * 1500.0f || fabsf(B.g.y[a] - (c->prop->pos.y - 110.0f)) > 150.0f ||
+            pblOffFacing(face, c->prop->pos.x, c->prop->pos.z, B.g.x[a], B.g.z[a]) > 115.0f)
+        {
+            continue;
+        }
+        if (botLine(c->prop->stan, c->prop->pos.x, c->prop->pos.z, B.g.x[a], B.g.z[a], NULL, CDTYPE_DOORS | CDTYPE_PATHBLOCKER))
+        {
+            B.g.npen[a] += 3000.0f;
+        }
+    }
+}
+
+/* ---- body armour: when hurt, a lying vest within ~1500 is worth a detour (it doubles what Bond can take) ---------- */
+
+static s32 armourDash(void)
+{
+    struct player *p = bond();
+    f32 hp = p->bondhealth + p->bondarmour;
+    PropRecord *q;
+
+    if (hp >= 0.6f || p->bondarmour >= 0.9f || B.noLoot || B.tick < B.armourGiveUpUntil)
+    {
+        B.armourSince = 0;
+        return 0;
+    }
+    if (B.armourProp == NULL || (B.tick % 15) == 0)
+    {
+        f32 bd = 1500.0f * 1500.0f;
+
+        if (B.armourProp != NULL && !propActive(B.armourProp))
+        {
+            portConLogf("ge: playerbot: armour picked up (health %.2f armour %.2f)\n", p->bondhealth, p->bondarmour);
+        }
+        B.armourProp = NULL;
+        for (q = chrpropGetActiveTail(); q != NULL; q = q->prev)
+        {
+            f32 dx, dz;
+
+            if (q->type != PROP_TYPE_OBJ || q->obj == NULL || q->obj->type != PROPDEF_ARMOUR || q->stan == NULL ||
+                fabsf(q->pos.y - p->prop->pos.y) > 300.0f)
+            {
+                continue;
+            }
+            dx = q->pos.x - p->prop->pos.x;
+            dz = q->pos.z - p->prop->pos.z;
+            if (dx * dx + dz * dz < bd)
+            {
+                bd = dx * dx + dz * dz;
+                B.armourProp = q;
+            }
+        }
+    }
+    q = B.armourProp;
+    if (q == NULL)
+    {
+        B.armourSince = 0;
+        return 0;
+    }
+    if (B.armourSince == 0)
+    {
+        B.armourSince = B.tick;
+        portConLogf("ge: playerbot: hurt (%.2f): going for the body armour at %.0f,%.0f,%.0f\n", hp, q->pos.x, q->pos.y, q->pos.z);
+        navReset();
+    }
+    if (B.tick - B.armourSince > 1800)
+    {
+        portConLogf("ge: playerbot: could not get to the armour in 30 s\n");
+        B.armourGiveUpUntil = B.tick + 3600;
+        B.armourProp = NULL;
+        navReset();
+        return 0;
+    }
+    if (B.target != NULL && B.target->chr != NULL && chrHostile(B.target->chr))
+    {
+        f32 dx = B.target->pos.x - p->prop->pos.x, dz = B.target->pos.z - p->prop->pos.z;
+
+        if (dx * dx + dz * dz < 350.0f * 350.0f)
+        {
+            return 0;   /* one right on us: fight him first */
+        }
+    }
+    if ((B.tick % 4) == 0)
+    {
+        B.target = pickTarget(1600.0f);   /* keep the target fresh: a close one stops the dash (above) */
+    }
+    B.coverNode = -1;
+    navTo(q->pos.x, q->pos.y, q->pos.z, 8.0f, q->stan);
+    return 1;
+}
+
+/* ---- per-tick drive ------------------------------------------------------------------------------------------- */
+
+static void drive(void)
+{
+    struct player *p = bond();
+    PblStep *s;
+    s32 busy = 0;
+
+    outClear();
+    if (p->bonddead)
+    {
+        tap(BTN_A, 40);   /* through the death camera to the end */
+        return;
+    }
+    if (lvlGetControlsLockedFlag() != 0 || p->cameramode != 0)
+    {
+        tap(BTN_A, 30);   /* skip the intro / press through the exit camera */
+        return;
+    }
+    weaponTick();
+
+    if (B.ssTest && B.tick < 10 * 150)
+    {   /* GE_PLAYERBOT_SSTEST=1: measure the movement inputs at the start (an experiment, no plan): 150 ticks each, once
+         * each way along a line (the last 100 ticks measured), the view held: stick forward; stick forward + stick right
+         * (the bot's |x|+|y| <= 130 gate makes it 65/65); digital forward + right; stick right alone; C-right + forward */
+        s32 ph = B.tick / 150, t = B.tick % 150, m = ph / 2;
+        static const char *const names[5] = { "stick forward", "stick forward+right", "digital forward+right",
+                                              "stick right only", "stick forward + C-right" };
+        static const s8 msy[5] = { 80, 80, 0, 0, 80 }, msx[5] = { 0, 80, 0, 80, 0 };
+        static const s32 mdx[5] = { 0, 0, 1, 0, 0 }, mdy[5] = { 0, 0, 1, 0, 0 };
+
+        if (B.tick == 0 || B.ssTestYaw == 0.0f)
+        {
+            B.ssTestYaw = p->vv_theta + 0.01f;
+        }
+        B.sy = msy[m];
+        B.sx = (ph & 1) ? (s8) -msx[m] : msx[m];   /* (back the other way: strafe the mirror side, to stay on the line) */
+        B.dmy = mdy[m];
+        B.dmx = (ph & 1) ? -mdx[m] : mdx[m];
+        B.btn |= m == 4 ? ((ph & 1) ? BTN_CL : BTN_CR) : 0;
+        lookToward(B.ssTestYaw, 0.0f, 20.0f);
+        if (t == 50)
+        {
+            B.ssTestX = p->prop->pos.x;
+            B.ssTestZ = p->prop->pos.z;
+        }
+        if (t == 149)
+        {
+            f32 dx = p->prop->pos.x - B.ssTestX, dz = p->prop->pos.z - B.ssTestZ;
+
+            portConLogf("ge: playerbot: sstest %s (%s): %.2f u/tick, motion %.1f deg off the view\n", names[m],
+                        (ph & 1) ? "back" : "out", sqrtf(dx * dx + dz * dz) / 99.0f, pblWrap180(pblYawTo(dx, dz) - p->vv_theta));
+            B.ssTestYaw += 180.0f;   /* back the other way: stay in the open */
+        }
+        return;
+    }
+
+    /* a mode planner feeds steps one at a time */
+    if (sPlanner != NULL && B.step >= B.plan.n)
+    {
+        PblStep st;
+        s32 r = sPlanner(&st, B.tick);
+
+        if (r > 0 && B.plan.n < PBL_MAXSTEPS)
+        {
+            B.plan.s[B.plan.n++] = st;
+        }
+    }
+    while (B.step < B.plan.n && !stepApplies(&B.plan.s[B.step]))
+    {
+        stepNext("skipped");
+    }
+    s = (B.step < B.plan.n) ? &B.plan.s[B.step] : NULL;
+    if (B.speedrunBase)
+    {   /* a route's `slow` step: the normal bot's movement (Bunker 2's cell: the guard's visit wants Bond on pad 99) */
+        B.speedrun = !(s != NULL && s->slow);
+        B.speedMode = B.speedrun;
+    }
+    if (armourDash())
+    {   /* hurt, and body armour lies close by: it comes first (fights only at close range on the way) */
+        B.stuck.lastGain = B.tick;
+        return;
+    }
+    /* fight first in every step except the ones that hold the buttons themselves (and gadget steps once they act) */
+    if (s == NULL || (s->op != PBL_PRESS && s->op != PBL_WALK && s->op != PBL_KILL &&
+                      !((s->op == PBL_GADGET_OBJ || s->op == PBL_THROW_OBJ) && B.phase == 1)))
+    {
+        busy = combatTick(1600.0f);
+    }
+    if (busy)
+    {
+        B.stuck.lastGain = B.tick;   /* fighting is not being stuck */
+        return;
+    }
+    if (s == NULL)
+    {
+        return;   /* nothing to do (a mode script may push more) */
+    }
+    if (B.subKeyNeed != 0)
+    {   /* detour: fetch a key (kill its carrier, then walk over it) */
+        ChrRecord *holder = NULL;
+        PropRecord *kp = findKeyProp(B.subKeyNeed, &holder);
+
+        if (bondinvCheckHasKeyFlags(B.subKeyNeed) || kp == NULL || B.tick - B.subSince > 7200)
+        {
+            B.stepFails = 0;
+            portConLogf("ge: playerbot: key detour done (%s)\n", bondinvCheckHasKeyFlags(B.subKeyNeed) ? "got it" : "gave up");
+            if (!bondinvCheckHasKeyFlags(B.subKeyNeed))
+            {
+                B.keyGiveUpAt = B.tick;
+            }
+            B.subKeyNeed = 0;
+            B.koChr = NULL;
+            B.koPhase = 0;
+            if (B.wantWeapon == ITEM_FIST)
+            {
+                B.wantWeapon = 0;
+            }
+            navReset();
+            return;
+        }
+        if (holder != NULL)
+        {
+            if (chrIsDead(holder))
+            {
+                return;   /* it drops when the body settles */
+            }
+            if (portHeistKoIs(holder->chrnum))
+            {   /* knocked out: search him (use within 130) */
+                searchTick(holder);
+                return;
+            }
+            if (portHeistCivilianState(holder->chrnum) >= 0)
+            {   /* heist staff: never shoot - hold a gun on it until it hands the key over (a stock civilian carrier, a
+                 * Facility scientist, is handled as before: walked up to and shot, which only Secret Agent up counts) */
+                robTick(holder);
+                return;
+            }
+            if (!chrHostile(holder) && holder->prop != NULL)
+            {   /* an unarmed carrier: walk up and shoot it anyway (the key is the mission) */
+                if (navTo(holder->prop->pos.x, holder->prop->pos.y, holder->prop->pos.z, 250.0f, holder->prop->stan))
+                {
+                    B.civExempt = holder;   /* (it is the target, not a bystander) */
+                    shootAt(holder->prop->pos.x, holder->prop->pos.y + 20.0f, holder->prop->pos.z, 25.0f);
+                    B.civExempt = NULL;
+                }
+                return;
+            }
+            if (B.quiet && !alarmIsActive() && koTick(holder))
+            {
+                return;   /* sneaking up behind him */
+            }
+            if (B.stuck.level >= 1 && B.goalValid && ((B.tick - B.subSince) % 900) > 120)
+            {   /* cannot reach the carrier (often: he is behind the very door his key opens) - wait here for him, the
+                 * combat code shoots him when he shows; try walking again every 15 s */
+                lookAt(holder->prop->pos.x, bond()->prop->pos.y, holder->prop->pos.z, 10.0f);
+                return;
+            }
+            navTo(holder->prop->pos.x, holder->prop->pos.y, holder->prop->pos.z, 200.0f, holder->prop->stan);
+            return;
+        }
+        if (navTo(kp->pos.x, kp->pos.y, kp->pos.z, 10.0f, kp->stan))
+        {
+            tap(BTN_B, 30);
+        }
+        return;
+    }
+    if (B.speedrun && B.subLock == NULL && (B.tick % 15) == 0 && nearLadder())
+    {   /* speedrun: a padlocked hatch at the top of a ladder (Surface 1's vent) is out of the door finder's reach while Bond
+         * climbs (it looks 300 up and down) - he climbed into it for two minutes. Its locks are shot off first. */
+        LockDoorRecord *ld;
+
+        for (ld = g_LevelLoadPropLockDoor; ld != NULL; ld = ld->next)
+        {
+            if (ld->door != NULL && ld->door->prop != NULL && ld->lock != NULL && ld->lock->prop != NULL &&
+                objIsHealthy(ld->lock) && doorShut(ld->door->prop))
+            {
+                f32 ddx = ld->door->prop->pos.x - p->prop->pos.x, ddz = ld->door->prop->pos.z - p->prop->pos.z;
+
+                if (ddx * ddx + ddz * ddz < 1000.0f * 1000.0f && fabsf(ld->door->prop->pos.y - p->prop->pos.y) < 900.0f)
+                {
+                    portConLogf("ge: playerbot: ladder: the hatch at %.0f,%.0f,%.0f is padlocked - shooting the lock at %.0f,%.0f,%.0f\n",
+                                ld->door->prop->pos.x, ld->door->prop->pos.y, ld->door->prop->pos.z, ld->lock->prop->pos.x,
+                                ld->lock->prop->pos.y, ld->lock->prop->pos.z);
+                    B.subLock = ld->lock;
+                    B.subSince = B.tick;
+                    navReset();
+                    break;
+                }
+            }
+        }
+    }
+    if (B.subLock != NULL)
+    {   /* detour: shoot a padlock off */
+        if (B.subLock->prop == NULL || !objIsHealthy(B.subLock) || B.tick - B.subSince > 1800)
+        {
+            portConLogf("ge: playerbot: padlock detour done (%s)\n", B.subLock->prop == NULL || !objIsHealthy(B.subLock) ? "lock destroyed" : "gave up");
+            B.subLock = NULL;
+            navReset();
+            return;
+        }
+        {
+            s32 shooting = doShootObj(B.subLock);
+
+            if (B.verbose >= 2 && ((B.tick - B.subSince) % 120) == 0)
+            {
+                PropRecord *lp = B.subLock->prop;
+                f32 ddx = lp->pos.x - p->prop->pos.x, ddz = lp->pos.z - p->prop->pos.z;
+
+                portConLogf("ge: playerbot: padlock: %.0f away, %s, ground %.0f lock y %.0f, verta %.1f theta %.0f btn %04x\n",
+                            sqrtf(ddx * ddx + ddz * ddz), shooting ? "shooting" : "walking", bondGroundY(), lp->pos.y,
+                            p->vv_verta, p->vv_theta, B.btn);
+            }
+        }
+        return;
+    }
+    if (B.subSwitch != NULL)
+    {   /* detour: work the switch of a door on the route */
+        PropRecord *sw = B.subSwitch;
+        DoorRecord *dr = B.subDoor->door;
+
+        if (dr == NULL || !doorShut(B.subDoor) || dr->openstate == DOORSTATE_OPENING || B.tick - B.subSince > 2400 ||
+            B.subPhase > 12 || (B.subPhase == 0 && B.stuck.level >= 3))
+        {
+            portConLogf("ge: playerbot: switch detour done (door %s)\n", (dr != NULL && !doorShut(B.subDoor)) ||
+                        (dr != NULL && dr->openstate == DOORSTATE_OPENING) ? "opening" : "still shut");
+            B.subSwitch = NULL;
+            B.subDoor = NULL;
+            navReset();
+            return;
+        }
+        if (dr->openstate == DOORSTATE_WAITING)
+        {   /* a paired gate: it opens once its sibling has closed */
+            B.subSince = B.tick;
+            return;
+        }
+        if (B.subPhase == 0)
+        {   /* a wall switch's own tile can be on the far side of the wall: aim for a spot 100 short of it, on our side */
+            f32 ddx = bond()->prop->pos.x - sw->pos.x, ddz = bond()->prop->pos.z - sw->pos.z;
+            f32 dd = sqrtf(ddx * ddx + ddz * ddz);
+            f32 gx = dd > 1.0f ? sw->pos.x + ddx / dd * 100.0f : sw->pos.x;
+            f32 gz = dd > 1.0f ? sw->pos.z + ddz / dd * 100.0f : sw->pos.z;
+
+            if (B.subGoalSet == 0)
+            {
+                B.subGoalX = gx;
+                B.subGoalZ = gz;
+                B.subGoalSet = 1;   /* fixed once chosen, so the route does not wobble */
+            }
+            if (navTo(B.subGoalX, bond()->prop->pos.y, B.subGoalZ, B.speedrun ? 80.0f : 40.0f, NULL) ||
+                (dd < 160.0f && B.stuck.level >= 1) || (B.speedrun && dd < 170.0f))
+            {
+                B.subPhase = 1;
+                B.stepTick = B.tick;
+            }
+            return;
+        }
+        {   /* the use test (objTestForInteract) measures to obj->runtime_pos: within 200 and 22.5 degrees */
+            ObjectRecord *so = sw->type == PROP_TYPE_OBJ ? sw->obj : NULL;
+            f32 tx = so != NULL ? so->runtime_pos.x : sw->pos.x, tz = so != NULL ? so->runtime_pos.z : sw->pos.z;
+            f32 ey = so != NULL ? so->runtime_pos.y : sw->pos.y;
+            f32 err = lookAt(tx, ey, tz, B.speedrun ? 45.0f : 15.0f);
+            f32 ddx = tx - bond()->prop->pos.x, ddz = tz - bond()->prop->pos.z;
+            f32 dd = sqrtf(ddx * ddx + ddz * ddz);
+
+            if (dd > 170.0f)
+            {
+                steerTo(tx, ey, tz, 300.0f);   /* closer */
+            }
+            if (B.speedrun ? (fabsf(err) < 10.0f && dd < 190.0f && B.tick - B.lastDoorTap >= 12)
+                           : (((B.tick - B.stepTick) % 40) == 39 && fabsf(err) < 10.0f))
+            {
+                if (B.speedrun)
+                {
+                    B.lastDoorTap = B.tick;
+                }
+                B.btn |= BTN_B;
+                B.subPhase++;
+                if (B.verbose >= 2)
+                {
+                    portConLogf("ge: playerbot: switch press %d: %.0f away, %.1f deg off, onscreen %d, door state %d\n",
+                                B.subPhase, dd, err, (sw->flags & PROPFLAG_ONSCREEN) != 0, (s32) dr->openstate);
+                }
+            }
+        }
+        return;
+    }
+    if (s->op != PBL_PRESS && s->op != PBL_WALK && s->op != PBL_EXIT && s->op != PBL_MEET && s->op != PBL_FACE &&
+        s->op != PBL_LOOK && lootTick())
+    {
+        return;
+    }
+    if (B.stepFails >= 3)
+    {
+        stepNext("GAVE UP");
+        return;
+    }
+    if (stepRun(s))
+    {
+        stepNext("done");
+    }
+}
+
+static void driveTrace(void)
+{
+    struct player *p = bond();
+
+    if (B.verbose >= 3)
+    {
+        portConLogf("ge: playerbot: trace tick %d all %d step %d phase %d path %d/%d aim %d off %d stuck %d -> sy %d sx %d btn %04x yaw %.2f pitch %.2f (want %.1f, verta %.1f)\n",
+                    B.tick, B.ticksAll, B.step + 1, B.phase, B.pathAt, B.pathN, B.aimAt, B.offPath, B.stuck.level, B.sy, B.sx,
+                    B.btn, B.yaw, B.pitch, B.pitchWant, p->vv_verta);
+    }
+}
+
+/* the bot's work for one sim tick: observe, and (drive mode) decide the input */
+static void botTick(void)
+{
+    struct player *p = bond();
+
+    if (gamemode != 0 /* solo only */ || p == NULL || p->prop == NULL || bossGetStageNum() >= LEVELID_TITLE ||
+        p->prop->stan == NULL || ptr_firstroom_0 == 0 || !(p->vv_theta >= -720.0f && p->vv_theta <= 720.0f))
+    {   /* not in a stage, or Bond not spawned yet */
+        if (B.inStage && ++B.outTicks > 600)
+        {   /* the stage was left without the mission-end hook (death screen, abort) */
+            result(B.diedTick > 0 ? "FAILED_DEAD" : "ABORTED", 1);
+            B.inStage = 0;
+        }
+        outClear();
+        return;
+    }
+    B.outTicks = 0;
+    if (!B.inStage || B.setupKey != (void *) (uintptr_t) ptr_firstroom_0 || B.stage != bossGetStageNum())
+    {
+        stageBegin();
+    }
+    if (sOpt.phase == 2 && portSnapSoloPending() == 0)
+    {
+        optAfterRestore();   /* the savestate is back: B (and the whole sim) is at the step's start */
+    }
+    if (B.mode == 1 && optTick())
+    {
+        outClear();
+        return;   /* a savestate goes back at the next tick */
+    }
+    B.ticksAll++;
+    if (lvlGetControlsLockedFlag() == 0 && p->cameramode == 0)
+    {
+        B.tick++;
+    }
+    B.lastSy = B.sy;
+    B.lastSx = B.sx;
+    B.lastBtn = B.btn;
+    B.lastYaw = B.yaw;
+    observe();
+    if (B.mode == 1)
+    {
+        drive();
+        driveTrace();
+    }
+}
+
+/* ---- inputrec.c hooks --------------------------------------------------------------------------------------------- */
+
+void portPlayerBotPad(OSContPad *pad)
+{
+    u32 t;
+    s32 x, y, ax, ay;
+
+    if (portPlayerBotMode() == 0)
+    {
+        return;
+    }
+    t = portInputRecTickNow();
+    {
+        extern int g_PortTickPhase;   /* boss.c */
+
+        B.pollPhase[(g_PortTickPhase & 3) + (t != B.lastRecTick ? 4 : 0)]++;
+    }
+    if (t != B.lastRecTick)
+    {
+        B.lastRecTick = t;
+        botTick();
+        B.lookFresh = 1;
+    }
+    if (B.mode != 1)
+    {
+        return;
+    }
+    x = B.sx;
+    y = B.sy;
+    ax = x < 0 ? -x : x;
+    ay = y < 0 ? -y : y;
+    if (ax + ay > 130)
+    {
+        x = x * 130 / (ax + ay);
+        y = y * 130 / (ax + ay);
+    }
+    pad->button = B.btn;
+    pad->stick_x = (s8) x;
+    pad->stick_y = (s8) y;
+}
+
+void portPlayerBotLook(f32 *dx, f32 *dy, s32 *direct, f32 *yawdeg, f32 *pitchdeg)
+{
+    if (portPlayerBotMode() != 1)
+    {
+        return;
+    }
+    *dx = 0.0f;
+    *dy = 0.0f;
+    *direct = 1;
+    if (B.lookFresh)
+    {
+        f32 pitch = B.pitch;
+
+        /* bondview2 negates the pitch after this hook when the look is not inverted; pre-compensate */
+        if (get_cur_player_look_vertical_inverted() != 0)
+        {
+            pitch = -pitch;
+        }
+        *yawdeg = B.yaw;
+        *pitchdeg = pitch;
+        B.lookFresh = 0;   /* a look delta applies once */
+    }
+    else
+    {
+        *yawdeg = 0.0f;
+        *pitchdeg = 0.0f;
+    }
+}
+
+void portPlayerBotDigMove(s32 *dx, s32 *dy)
+{
+    if (portPlayerBotMode() == 1)
+    {   /* the port's digital move (bondview2.c: the vanilla digitalStep flags - full forward plus full sideways on a
+         * diagonal, where the stick's gate would cut both down); recorded like the pad */
+        *dx = B.mode == 1 ? B.dmx : 0;
+        *dy = B.mode == 1 ? B.dmy : 0;
+    }
+}
+
+void portPlayerBotActions(u8 *down, s32 count)
+{
+    s32 i;
+
+    if (portPlayerBotMode() == 1)
+    {
+        for (i = 0; i < count; i++)
+        {
+            down[i] = 0;
+        }
+        if (B.actNextInv && count > PORTACT_NEXT_INV_INDEX)
+        {
+            down[PORTACT_NEXT_INV_INDEX] = 1;
+        }
+    }
+}
+
+/* ---- the Lua `bot` library (port/luavm/port_luavm_bot.c) --------------------------------------------------------- */
+
+int portPlayerBotModeForLua(void)
+{
+    return portPlayerBotMode();
+}
+
+int portPlayerBotPushLine(const char *line, char *err, int errlen)
+{
+    static PblPlan one;
+
+    if (pblParsePlan(line, &one, err, errlen) < 0)
+    {
+        return 0;
+    }
+    if (B.plan.n + one.n > PBL_MAXSTEPS)
+    {
+        /* drop the finished steps to make room */
+        s32 done = B.step < B.plan.n ? B.step : B.plan.n;
+
+        memmove(&B.plan.s[0], &B.plan.s[done], (size_t) (B.plan.n - done) * sizeof(PblStep));
+        B.plan.n -= done;
+        B.step -= done;
+    }
+    if (B.plan.n + one.n > PBL_MAXSTEPS)
+    {
+        snprintf(err, errlen, "plan full");
+        return 0;
+    }
+    memcpy(&B.plan.s[B.plan.n], one.s, (size_t) one.n * sizeof(PblStep));
+    B.plan.n += one.n;
+    return 1;
+}
+
+void portPlayerBotClearSteps(void)
+{
+    B.plan.n = B.step;   /* the running step and the rest go */
+    stepBegin();
+}
+
+void portPlayerBotStepInfo(int *step, int *count)
+{
+    *step = B.step + 1;
+    *count = B.plan.n;
+}
+
+/* ---- console ------------------------------------------------------------------------------------------------------ */
+
+void portPlayerBotConsole(const char *arg, const char *arg2)
+{
+    if (!sInit)
+    {
+        botInit();
+    }
+    if (arg == NULL || arg[0] == '\0' || strcmp(arg, "info") == 0)
+    {
+        portConLogf("playerbot: mode %d, stage %s, step %d/%d '%s', tick %d, target %s\n", B.mode, stageName(B.stage), B.step + 1,
+                    B.plan.n, B.step < B.plan.n ? B.plan.s[B.step].text : "-", B.tick, B.target ? "yes" : "no");
+    }
+    else if (strcmp(arg, "on") == 0)
+    {
+        B.mode = 1;
+        B.exitOnEnd = 0;
+        B.inStage = 0;
+    }
+    else if (strcmp(arg, "off") == 0)
+    {
+        B.mode = 0;
+    }
+    else if (strcmp(arg, "watch") == 0)
+    {
+        B.mode = 2;
+    }
+    else if (strcmp(arg, "plan") == 0 && arg2 != NULL)
+    {
+        snprintf(B.planfile, sizeof(B.planfile), "%s", arg2);
+        B.inStage = 0;
+    }
+    else if (strcmp(arg, "step") == 0)
+    {
+        stepNext("skipped (console)");
+    }
+}

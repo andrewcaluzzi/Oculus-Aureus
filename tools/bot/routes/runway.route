@@ -1,0 +1,9 @@
+# Runway, speedrun route. Agent: objective 0 the plane's ignition key (tag 2, carried / lying near the hangar),
+# 1 and 2 destroy the drone-gun / fuel targets the setup names (the `auto` handler), then the plane (tag 3): use it.
+# Same steps as the plan; the speedrun movement and the optimiser do the rest.
+name runway
+obj=0 collect obj 2
+obj=1 auto
+obj=2 auto
+use obj 3 200
+exit

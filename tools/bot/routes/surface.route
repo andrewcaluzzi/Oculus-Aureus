@@ -1,0 +1,8 @@
+# Surface 1, speedrun route. Agent: the communications console (tag 1, objective 0), then down the vent hatch (its
+# four padlocks are shot off on the way: doorHandle's padlock detour) to pad 46.
+name surface
+obj=1 collect obj 0
+obj=2 collect obj 2
+obj=0 use obj 1 120
+goto pad 46 40
+exit

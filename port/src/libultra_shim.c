@@ -858,7 +858,29 @@ static u64 portHostMicroseconds(void)
 
 OSTime osGetTime(void)
 {
-    return (portHostMicroseconds() * 46875ull) / 1000ull;
+    /* GE_CLOCKSCALE=<n> (headless test runs, e.g. the player bot harness): the N64 clock runs n times faster than the
+     * host clock, so the main loop admits ticks n times as often. Pair it with GE_FIXEDTICK=1 (one field per tick) and
+     * GE_NOSLEEP=1 (no pacing); then the sim is the same, only sooner. Unset = real time. */
+    static s32 scale = -1;
+    static u64 base;
+    u64 us = portHostMicroseconds();
+
+    if (scale < 0)
+    {
+        const char *e = getenv("GE_CLOCKSCALE");
+
+        scale = (e != NULL) ? atoi(e) : 1;
+        if (scale < 1)
+        {
+            scale = 1;
+        }
+        base = us;
+    }
+    if (scale > 1)
+    {
+        us = base + (us - base) * (u64) scale;
+    }
+    return (us * 46875ull) / 1000ull;
 }
 
 u32 osGetCount(void)

@@ -1,0 +1,24 @@
+# Bunker 2, speedrun route. Bond starts unarmed in a locked cell (door key 0x1, the key on the floor outside at
+# -3288,167,4993). The magnet watch pulls it in - reliably, from one spot (round 7):
+#   - the pull starts when Z is RELEASED (chrprop.c: holding fire keeps resetting magnetattracttime to 0); from 60 fields
+#     after release until the hum ends (250) anything within 350 (horizontal) whose floor line from Bond is clear comes
+#     in (propobj.c, stanTestLineUnobstructed and the item's own tile);
+#   - round 6 held Z for 3 s and then walked off toward pad 99 (outside the cell: never reached), so the window passed
+#     with Bond on the move by the door, where the line runs into the wall. From -3215,4700, standing still, the key came
+#     in on every seed tried (1-6).
+# After the cell the normal bot's movement (`slow`): with the speedrun movement 2 of 6 seeds died in the fights of
+# rooms 61 / 6; slow: 5 of 5 complete (127-212 s). The speedrun movement is faster where it lives (drop the `slow`
+# from the steps after `wait 200`): seed 3 optimised 110 s, seed 5 144 s - the round-7 result; this file stays the
+# robust one (`slow` steps are not optimised).
+name bunker2
+slow equip watchmagnetattract
+slow goto -3215 157 4700 20
+slow face -3288 120 4993
+slow press z 4
+slow wait 200
+slow obj=1 collect obj 2
+slow key 0x2
+slow use obj 3 120
+slow auto
+slow goto pad 51 40
+exit

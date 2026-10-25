@@ -1057,6 +1057,23 @@ static void portSwapPortalControlBytes(bg_portal_data_entry *list)
         list[i].controlbytes2 = t;
     }
 }
+
+/* rollback / savestates: the current stage's portal table as a snapshot extent (see load_bg_file) */
+static int portBgPortalsDyn(int i, unsigned char **lo, unsigned int *len)
+{
+    s32 n;
+
+    if (i != 0 || g_BgPortals == NULL)
+    {
+        return 0;
+    }
+    for (n = 0; g_BgPortals[n].offset_portal != NULL; n++)
+    {
+    }
+    *lo = (unsigned char *) g_BgPortals;
+    *len = (unsigned int) ((n + 1) * sizeof(bg_portal_data_entry));
+    return 1;
+}
 #endif
 
 
@@ -1245,6 +1262,21 @@ void load_bg_file(LEVEL_INDEX levelid)
         {
             g_BgPortals[i].offset_portal = (bg_portal_entry *) BG_SEG_TO_PTR(ptr_bg_data, g_BgPortals[i].offset_portal);
         }
+#ifndef TARGET_N64
+        {   /* Rollback / savestates (modding/snapshot-fidelity.md): the portal table is sim state. Doors and scripts open and
+             * close portals by writing its control bytes (PORTALFLAG_DISABLED, the fade counters) IN PLACE in the bg file,
+             * and a served bg file is the ROM arena - outside the snapshot. A restore then kept the abandoned ticks' doors:
+             * the next room walk ran through a portal the restored world has shut (Frigate, Bunker 2). */
+            extern void portSnapAddDyn(const char *name, int (*fn)(int, unsigned char **, unsigned int *));
+            static s32 registered;
+
+            if (!registered)
+            {
+                registered = 1;
+                portSnapAddDyn("bgportals", portBgPortalsDyn);
+            }
+        }
+#endif
 
 #ifndef TARGET_N64
         /* served bg: the control-byte pair is already the cart's runtime order

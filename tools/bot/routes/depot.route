@@ -1,0 +1,5 @@
+# Depot, speedrun route. Agent: the one objective the plan works (tag 6: use it), then to the train door (pad 271).
+name depot
+obj=4 use obj 6
+goto pad 271 60
+exit

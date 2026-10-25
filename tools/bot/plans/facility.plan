@@ -1,0 +1,15 @@
+# Facility (Arkangelsk chemical warfare facility). Plan language: modding/bot.md.
+# Objectives (tools/bot/objectives.py assets/obseg/setup/UsetuparkZ.c):
+#   0 gain entry to laboratory area: enter the room with pad 86 (all)
+#   1 minimise scientist casualties (SA+, fails on flag 0x10000)
+#   2 contact double agent (flag 0x100: Dr Doak runs ai_18 (0x413) then ai_19 (0x414); once Bond is near he talks
+#     for ~17 s - stay near him and OUT of the room with pad 99, which aborts the contact)
+#   3 destroy all nerve-gas bottling tanks (tags 1-10)
+#   4 rendezvous with 006 (flag 0x8000: Bond in the room with pad 309 or 135) - the mission ends from there
+name facility
+obj=0 goto pad 86 60
+obj=2 meet ai 0x413 150 2400
+obj=2 meet ai 0x414 150 2400
+obj=3 auto
+obj=4 goto pad 309 60
+exit

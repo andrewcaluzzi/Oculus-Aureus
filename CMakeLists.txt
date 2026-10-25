@@ -581,7 +581,25 @@ if(GE_VIDEO)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/tools/mode_bank_walk.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/bank-walk.lua
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            ${CMAKE_SOURCE_DIR}/tools/heist_bank_map.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/heist_bank_map.lua)
+            ${CMAKE_SOURCE_DIR}/tools/heist_bank_map.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/heist_bank_map.lua
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/tools/bot/heist_bot.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/heist_bot.lua
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/tools/bot/heist_bot_cells.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/heist_bot_cells.lua)
+    # the player bot's level plans (port_playerbot.c reads Data/BotPlans/<stage>.plan)
+    file(GLOB GE_BOT_PLANS CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/tools/bot/plans/*.plan)
+    if(GE_BOT_PLANS)
+        add_custom_command(TARGET ge POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:ge>/Data/BotPlans
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different ${GE_BOT_PLANS} $<TARGET_FILE_DIR:ge>/Data/BotPlans)
+    endif()
+    # ... and its speedrun routes (GE_PLAYERBOT=speedrun reads Data/BotRoutes/<stage>.route)
+    file(GLOB GE_BOT_ROUTES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/tools/bot/routes/*.route)
+    if(GE_BOT_ROUTES)
+        add_custom_command(TARGET ge POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:ge>/Data/BotRoutes
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different ${GE_BOT_ROUTES} $<TARGET_FILE_DIR:ge>/Data/BotRoutes)
+    endif()
     if(WIN32)
         # the arena launchers (set GE_MODE / GE_STAGE, then start the exe), next to the exe
         add_custom_command(TARGET ge POST_BUILD

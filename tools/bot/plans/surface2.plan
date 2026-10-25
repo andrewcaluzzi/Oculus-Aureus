@@ -1,0 +1,9 @@
+# Surface 2 (Severnaya, night). Objectives (tools/bot/objectives.py assets/obseg/setup/UsetupsevxbZ.c):
+#   0 disable the CCTV (tags 3,4,6,8; 00)   1 destroy the targets tags 0 and 1 (all; fails on 0x400000)
+#   2 plant the tracking device (item 0x1d) on the helicopter (tag 9; SA+)
+#   3 enter the room with pad 3 (all) - the bunker entrance
+name surface2
+obj=2 gadget 29 obj 9
+auto
+goto pad 3 40
+exit

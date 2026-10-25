@@ -1,0 +1,21 @@
+# Bunker 2 (Severnaya). Objectives (tools/bot/objectives.py assets/obseg/setup/UsetupsevbZ.c):
+#   0 (SA+, flag 0x200)   1 collect tag 2 (all; fails on 0x1000, it destroyed)   2 CCTV tags 28-33 (SA+)
+#   3 collect tag 34 (00)   4 escape with Natalya: flag 0x800 (ai_12) and enter the room with pad 51 (all)
+# Bond starts locked in a cell (room 40, door key 0x1), unarmed; the key lies on the floor outside (-3288,167,4993,
+# room 39). The magnet watch can pull it in (equip it, face the key, hold fire) - it worked in one run of three; the
+# others got out later (a guard opens the cell). Guns come from the guards Bond punches down.
+# Natalya (ai_8) waits in the other cell (door tag 3, key 0x2 on guard chr 18): once that door has been opened she
+# follows (flag 0x400, then ai_12 sets 0x800).
+# Without the key, the guard comes when Bond stands by pad 99 (ai_4: Bond within 25 of it -> ai_6, the guard's
+# visit); round 4's route happened to pass it, round 5's door logic routes to the other cell door: say it.
+name bunker2
+equip watchmagnetattract
+face -3288 120 4993
+press z 180
+goto pad 99 20
+obj=1 collect obj 2
+key 0x2
+use obj 3 120
+auto
+goto pad 51 40
+exit

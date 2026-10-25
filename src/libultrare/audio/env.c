@@ -374,6 +374,15 @@ static Acmd* _pullSubFrame(void *filter, s16 *inp, s16 *outp, s32 outCount, s32 
     /* filter must be playing and request non-zero output samples to pull. */
     if (!outCount)
         return ptr;
+#ifndef TARGET_N64
+    /* PORT: the stock libultra test (GE's copy only checks outCount). When the synthesizer's update pool runs dry,
+     * alSynStartVoice drops the START and returns; a later volume / pan / stop update on that voice then lands here and
+     * pulls a load filter that never got a wavetable: alAdpcmPull reads table->...->book through NULL (a segfault in
+     * load.c). It shows under the fast-forward (GE_CLOCKSCALE + sim-only ticks: many sim ticks of sound events per audio
+     * frame), randomly, since the audio frames follow the wall clock. A voice that is not playing has nothing to pull. */
+    if (e->motion != AL_PLAYING)
+        return ptr;
+#endif
 
     /*
      * ask all filters upstream from us to build their command

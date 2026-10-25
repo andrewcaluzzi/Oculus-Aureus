@@ -14084,6 +14084,9 @@ static void portSndPanPost(ALSoundState *state, const f32 *pos)
  */
 void portSndApplyPan(ALSoundState *state, coord3d *pos)
 {
+    extern ALSoundState *portSndSimVoice(ALSoundState *h);   /* snd.c: a sim sound's token -> its voice */
+
+    state = portSndSimVoice(state);
     if (state == NULL || pos == NULL)
     {
         return;

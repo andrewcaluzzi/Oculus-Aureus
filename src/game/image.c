@@ -2585,6 +2585,32 @@ void texLoad(s32 *updateword, struct texpool *pool)
         }
 #endif
 
+#if !defined(TARGET_N64) && defined(__linux__)
+        { /* GE_TEXLOADLOG=1 (snapshot fidelity, modding/snapshot-fidelity.md): which tick loads which texture, from where */
+            extern char *getenv(const char *);
+            extern int backtrace(void **, int);
+            extern unsigned int portSimOnlyTickCount(void);
+            extern int g_PortSimOnly;
+            static int on = -1;
+
+            if (on < 0)
+            {
+                on = getenv("GE_TEXLOADLOG") != NULL;
+            }
+            if (on)
+            {
+                void *bt[8];
+                int n = backtrace(bt, 8), k;
+
+                printf("ge: texload: tick %u%s tex %d pool %p:", portSimOnlyTickCount(), g_PortSimOnly ? " (sim-only)" : "", g_TexNumToLoad, (void *) pool);
+                for (k = 1; k < n; k++)
+                {
+                    printf(" %p", bt[k]);
+                }
+                printf("\n");
+            }
+        }
+#endif
         if (TRUE)
         {
             // Copy the compressed texture to RAM

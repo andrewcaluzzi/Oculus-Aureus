@@ -1,0 +1,7 @@
+# Surface 2, speedrun route. Agent: the satellite-dish gadget objective (item 29 on tag 9), the CCTV / computer
+# targets (`auto`), then pad 3 (the bunker entrance).
+name surface2
+obj=2 gadget 29 obj 9
+auto
+goto pad 3 40
+exit

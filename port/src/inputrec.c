@@ -47,6 +47,7 @@ static RecEntry *sPlay[K_COUNT];
 static u32 sPlayN[K_COUNT], sPlayAt[K_COUNT];
 static RecEntry *sPlayLast[K_COUNT]; /* the last record handed out, for repeats */
 static s32 sPlayDoneLogged;
+static s32 sSkipLogged;
 
 static void inputRecInit(void)
 {
@@ -117,14 +118,61 @@ void portInputRecTick(void)
     sTick++;
 }
 
+/** the sim tick the records are being made in (port_playerbot.c decides once per tick) */
+u32 portInputRecTickNow(void)
+{
+    return sTick;
+}
+
+/** joy_port.c: judge the staleness of a latched one-shot press in sim ticks, not wall time? Yes while recording or
+ * replaying, and under GE_FIXEDTICK=1 (the machine-independent mode the bot harness runs in): a wall-clock test makes
+ * the sim depend on how fast the machine ran that tick */
+int portInputRecTickClock(void)
+{
+    static int fixed = -1;
+
+    if (fixed < 0)
+    {
+        const char *e = getenv("GE_FIXEDTICK");
+
+        fixed = e != NULL && e[0] != '\0' && e[0] != '0';
+    }
+    return fixed || inputRecMode() != REC_OFF;
+}
+
+/** flush a recording before the process leaves through _exit (port_playerbot.c result) */
+void portInputRecFlush(void)
+{
+    if (sOut != NULL)
+    {
+        fflush(sOut);
+    }
+}
+
+/* port_playerbot.c: the player bot writes player 1's input here, before it is recorded (GE_PLAYERBOT=1) */
+extern void portPlayerBotPad(OSContPad *pad);
+extern void portPlayerBotLook(f32 *dx, f32 *dy, s32 *direct, f32 *yawdeg, f32 *pitchdeg);
+extern void portPlayerBotDigMove(s32 *dx, s32 *dy);
+extern void portPlayerBotActions(u8 *down, s32 count);
+
 /* the record of kind k for this call: the next one made in the current tick,
  * else (no record left in this tick) the tick's last one again when `repeat`,
  * else NULL = neutral */
 static RecEntry *inputRecNext(s32 k, s32 repeat)
 {
     while (sPlayAt[k] < sPlayN[k] && sPlay[k][sPlayAt[k]].t < sTick)
-    {
-        sPlayLast[k] = &sPlay[k][sPlayAt[k]++]; /* a tick (or call) this run skipped */
+    {   /* a tick (or call) this run skipped: a pad record that was never handed out and differs from the one before it
+         * is input the replay lost (a tick with no controller poll here, where the recording had one) */
+        RecEntry *e = &sPlay[k][sPlayAt[k]++];
+
+        if (k == K_PAD && sPlayLast[k] != NULL && sPlayLast[k] != e && sSkipLogged < 20 &&
+            (e->a != sPlayLast[k]->a || e->b != sPlayLast[k]->b || e->c != sPlayLast[k]->c))
+        {
+            sSkipLogged++;
+            portConLogf("ge: inputrec: LOST pad record of tick %u (btn %x stick %d,%d) at tick %u: no poll in that tick\n",
+                        e->t, e->a, (s8) (u8) e->b, (s8) (u8) e->c, sTick);
+        }
+        sPlayLast[k] = e;
     }
     if (sPlayAt[k] < sPlayN[k] && sPlay[k][sPlayAt[k]].t == sTick)
     {
@@ -147,6 +195,7 @@ static RecEntry *inputRecNext(s32 k, s32 repeat)
 void portInputRecPad(OSContPad *pad)
 {
     s32 m = inputRecMode();
+    portPlayerBotPad(pad);
     if (m == REC_RECORD)
     {
         fprintf(sOut, "P %u %x %x %x\n", sTick, pad->button, (u8) pad->stick_x, (u8) pad->stick_y);
@@ -166,6 +215,7 @@ void portInputRecActions(u8 *down, s32 count)
 {
     s32 m = inputRecMode();
     s32 i;
+    portPlayerBotActions(down, count);
     if (m == REC_RECORD)
     {
         u32 lo = 0, hi = 0;
@@ -192,6 +242,7 @@ void portInputRecActions(u8 *down, s32 count)
 void portInputRecMouse(f32 *dx, f32 *dy, s32 *direct, f32 *yawdeg, f32 *pitchdeg)
 {
     s32 m = inputRecMode();
+    portPlayerBotLook(dx, dy, direct, yawdeg, pitchdeg);
     if (m == REC_RECORD)
     {
         fprintf(sOut, "M %u %u %.9g %.9g %.9g %.9g\n", sTick, (u32) *direct, *dx, *dy, *yawdeg, *pitchdeg);
@@ -211,6 +262,7 @@ void portInputRecMouse(f32 *dx, f32 *dy, s32 *direct, f32 *yawdeg, f32 *pitchdeg
 void portInputRecDigMove(s32 *dx, s32 *dy)
 {
     s32 m = inputRecMode();
+    portPlayerBotDigMove(dx, dy);
     if (m == REC_RECORD)
     {
         fprintf(sOut, "D %u %d %d\n", sTick, *dx, *dy);

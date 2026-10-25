@@ -189,6 +189,14 @@ void texReset(void)
         u8 *hi = (u8 *) &globalDL_0x000 + 0x78;
 
         if (pristine == NULL) {
+            /* Rollback / savestates (modding/snapshot-fidelity.md): the bank is sim state. texLoad and texSelect rewrite an id
+             * into a pointer into the stage texture pool the first time a texture is used - in the middle of a stage too
+             * (bullet impacts, the gun's textures) - and this TU is an asset object, outside the snapshot table. A restore
+             * that rewinds the pool but not the bank leaves the bank pointing at pool memory the restore emptied: the texture
+             * is never loaded again, and every later pool allocation lands elsewhere than the first time. */
+            extern void portSnapAddRange(const char *name, const void *p, unsigned int n);
+
+            portSnapAddRange("oddtextures.bank", lo, (unsigned int) (hi - lo));
             pristine = malloc(hi - lo);
             if (pristine != NULL) {
                 memcpy(pristine, lo, hi - lo);

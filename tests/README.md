@@ -5,7 +5,8 @@ Most of these were written to check the fork's own work. Run them from the repos
 | What | Where | How |
 | --- | --- | --- |
 | Demo oracle (the stock Dam attract demo must reproduce exactly) | `baseline/dam1.a.txt`, `baseline/facility1.a.txt`, `demo_diag.ps1` | `GE_DEMO=dam1 GE_DEMODIAG=1 GE_TICKHZ=60 GE_FRAMES=2400 GE_NOINISAVE=1 ./ProjectMidas \| grep '^ge: demo tick'` and diff with the baseline. See `baseline/README.md`. |
-| Pure-logic C unit tests (bot, events, mod parser, co-op rules, net messages, lockstep, state hash, net stats) | `*_test.c` | `sh tests/run_logic_tests.sh` (needs `gcc -m32`, so run it in the image) |
+| Player bot: one stage played, recorded and replay-verified; the whole campaign with retries | `bot/level.sh`, `bot/campaign.sh`, `bot/dam1_check.sh` | `sh tests/bot/level.sh dam 0`, `sh tests/bot/campaign.sh 0` (see `modding/bot.md`) |
+| Pure-logic C unit tests (bot, player bot, events, mod parser, co-op rules, net messages, lockstep, state hash, net stats) | `*_test.c` | `sh tests/run_logic_tests.sh` (needs `gcc -m32`, so run it in the image) |
 | Lua scenario scripts | `lua/` | Run with `GE_LUA_TEST=<file>` (see the headers of the files and `solo_modes.sh`). |
 | Arena presets and soaks | `arena_a5/`, `arena_a6/` | Copy a preset into `Data/Scripts/modes/` and run `run.sh` / `runpath.sh` in the container. |
 | The generated level (rooms, portal culling, walking and guard routing through doorways) | `levelgen/` | `sh tests/levelgen/run.sh` in the container (see `modding/levelgen.md`). |

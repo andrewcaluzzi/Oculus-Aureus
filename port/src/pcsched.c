@@ -976,9 +976,32 @@ pace_done:
         extern s32 g_ContQueuesCreated;
         extern void joyPoll(void);
         unsigned long long ge_joy_t = portProfNow();
+        /* One controller poll per in-stage sim tick: GE_ONEPOLL=1, and the default under GE_FIXEDTICK=1 + GE_NOSLEEP=1 (the
+         * headless harness mode; netplay's fixed tick keeps the pump's polls; GE_ONEPOLL=0 turns it off). How many pumps fall between two ticks is wall-clock (GE_NOSLEEP /
+         * GE_CLOCKSCALE), and the poll counters and the sample ring follow it: the sim reads the same input either way,
+         * but two runs of the same input (or a savestate's replay) are only bit-identical with a fixed poll count
+         * (modding/snapshot-fidelity.md). */
+        static int onePoll = -1;
+        static unsigned int lastPollTick = 0xFFFFFFFFu;
+        extern unsigned int portSnapTicksBegun(void);   /* port_snap.c: in-stage ticks begun (monotonic: a restore does not rewind it) */
+        extern unsigned int portSimOnlyTickCount(void);
 
-        if (g_ContQueuesCreated)
+        if (onePoll < 0)
         {
+            const char *e = getenv("GE_ONEPOLL");
+            const char *f = getenv("GE_FIXEDTICK");
+            const char *ns = getenv("GE_NOSLEEP");
+
+            onePoll = e != NULL ? e[0] == '1'
+                                : (f != NULL && f[0] != '\0' && f[0] != '0' && ns != NULL && ns[0] != '\0' && ns[0] != '0');
+        }
+        if (g_ContQueuesCreated && onePoll && portSimOnlyTickCount() > 0 && lastPollTick == portSnapTicksBegun())
+        {
+            /* this tick's sample is already in */
+        }
+        else if (g_ContQueuesCreated)
+        {
+            lastPollTick = portSnapTicksBegun();
             joyPoll();
         }
         g_PortJoyUs += portProfNow() - ge_joy_t;

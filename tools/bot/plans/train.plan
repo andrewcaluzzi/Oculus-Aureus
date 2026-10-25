@@ -1,0 +1,12 @@
+# Train. Objectives (tools/bot/objectives.py assets/obseg/setup/u/UsetuptraZ.c):
+#   0 (all) destroy the brake units (tags 8-13): `auto`
+#   1 (all) flag 0x8000 (rescue Natalya): ai_34 sets it 3 s after Bond is within 50 of pad 203, if Natalya (chr 0x46)
+#     lives - and runs the ending. Fails on 0x4000 (Natalya dead: ai_20 / ai_40).
+#   2 (SA+) 0x10000, 3 (00) 0x20000 (ai_20's timers)
+#   4 (all) flag 0x100000: ai_37 sets it once Bond is in the room of pad 98 (the last carriage)
+name train
+auto
+obj=4 goto pad 98 60
+goto pad 203 20
+wait 400
+exit

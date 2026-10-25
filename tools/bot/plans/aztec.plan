@@ -1,0 +1,12 @@
+# Aztec. Objectives (assets/obseg/setup/UsetupaztZ.c, the older macro style; flags byte-swapped: 0x100000 -> 0x1000):
+#   0 (all) flag 0x1000: ai_13 sets it when the guidance computer (tag 19) is used while Bond holds item 0x32 (he starts
+#     with it: ITEM_EXPLOSIVEFLOPPY in this enum - the guidance data)
+#   1 (all) flag 0x8000: ai_15 sets it when the launch countdown ends; the countdown starts 0x2000 (ai_14: tag 15 used
+#     holding item 0x49, ITEM_DATTAPE, then ~5 s)
+# Walk there with a gun in hand; the floppy only for the use.
+name aztec
+obj=0 goto obj 19 150
+obj=0 equip explosivefloppy
+obj=0 use obj 19
+equip unarmed
+exit
