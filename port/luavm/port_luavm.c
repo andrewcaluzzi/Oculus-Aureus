@@ -509,6 +509,8 @@ static const struct { const char *name; int type; int nargs; } sEvents[] = {
     { "civilian_surrendered", PORT_EV_CIVILIAN_SURRENDERED, 2 },   /* civilian chr, player index that aimed at it */
     { "civilian_robbed", PORT_EV_CIVILIAN_ROBBED, 2 },   /* civilian chr, player index; it dropped its key / concealed items */
     { "objective_changed", PORT_EV_OBJECTIVE_CHANGED, 2 },   /* index, status (0 incomplete, 1 complete, 2 failed) */
+    { "cover_blown", PORT_EV_COVER_BLOWN, 3 },   /* guard chr that saw through the disguise, player index, why (cover.why_name) */
+    { "cover_report", PORT_EV_COVER_REPORT, 2 }, /* the witness guard (still up after the radio time), player index */
     { "tick", LUA_EV_TICK, 1 },                  /* seconds since the last tick event */
     { "test_key", LUA_EV_TESTKEY, 1 },           /* name of a test hotkey: "next" "back" "next+" "back+" (PageDown, PageUp, with Shift = +) */
 };
@@ -673,7 +675,7 @@ static int portLuaOn(lua_State *L)
     if (k == LUA_EV_N)
     {
         return luaL_error(L, "unknown event '%s' (chr_died zone_enter zone_leave stage_start bond_died "
-                             "hostage_follow hostage_wait damage chr_spawned item_pickup objective_changed alarm cctv_spotted cctv_view use gadget_used body_found civilian_killed civilian_surrendered civilian_robbed tick test_key)", name);
+                             "hostage_follow hostage_wait damage chr_spawned item_pickup objective_changed alarm cctv_spotted cctv_view use gadget_used body_found civilian_killed civilian_surrendered civilian_robbed cover_blown cover_report tick test_key)", name);
     }
     type = sEvents[k].type;
     lua_getfield(L, LUA_REGISTRYINDEX, LUA_HANDLERS_KEY);

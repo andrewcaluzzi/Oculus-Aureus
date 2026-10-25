@@ -8262,6 +8262,13 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
             noiseRadius = getCurrentPlayerNoise(GUNLEFT);
         }
 
+#ifndef TARGET_N64
+        {   /* PORT: heist cover: the current Bond fired (a guard who sees or hears it sees through him); no-op unless cover is on */
+            extern void portHeistCoverFired(void);
+
+            portHeistCoverFired();
+        }
+#endif
         chrCheckGuardsHeardSound(noiseRadius);
     }
 

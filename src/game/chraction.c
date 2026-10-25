@@ -3603,7 +3603,21 @@ void chrlvTravelTickMagic(ChrRecord *self, struct waydata *arg1, f32 arg2, coord
     {
         chrSetMoving(self, 0);
 
+#ifndef TARGET_N64
+        {   /* PORT: heist door rules (port_heist.c): the offscreen hop teleports to the next pad whatever stands between; a shut door this
+             * guard may not open stops the hop (he falls back to walking, and the door blocks him) */
+            extern int portHeistHopBlocked(ChrRecord *self, coord3d *to);
+
+            if (portHeistHopBlocked(self, arg3))
+            {
+                arg4 = NULL;   /* refused: the "destination blocked" branch below */
+            }
+        }
+#endif
         if (
+#ifndef TARGET_N64
+            arg4 != NULL &&
+#endif
             (stanTestVolume(&arg4, arg3->f[0], arg3->f[2], self->chrwidth, CDTYPE_OBJS | CDTYPE_DOORS | CDTYPE_PLAYERS | CDTYPE_CHRS | CDTYPE_PATHBLOCKER, 0.0f, 1.0f) < 0)
             && chrlvIsPosClearOfObjectBounds(arg3, arg4))
         {
@@ -4568,6 +4582,17 @@ bool chrCheckTargetInSight(ChrRecord *self)
     bool        pass;
     u32         rt;
     s32         distance;
+
+#ifndef TARGET_N64
+    {   /* PORT: heist cover (port_heist.c): a guard treats a disguised Bond whose cover holds with him as staff: not seen (no RNG draw) */
+        extern int portHeistCoverHides(ChrRecord *self);
+
+        if (portHeistCoverHides(self))
+        {
+            return FALSE;
+        }
+    }
+#endif
 
     myprop               = self->prop;
     bondprop             = getCurrentPlayerProp();
@@ -9653,6 +9678,19 @@ void chrlvTravelTick(ChrRecord *self, coord3d *arg1, StandTile *arg2, struct way
     if (((s32) arg3->age % 10) == 0)
     {
         phi_s3 = sub_GAME_7F0B1410(self_prop->stan, self_prop->pos.f[0], self_prop->pos.f[2], arg3->pos_copy.f[0], arg3->pos_copy.f[2], 0x5000);
+
+#ifndef TARGET_N64
+        if (phi_s3 != NULL && phi_s3->type == PROP_TYPE_DOOR)
+        {   /* PORT: heist door rules (port_heist.c mode.guard_doors): a guard may not open a door his role does not hold (the vault
+             * doors: nobody); he walks into it and waits there. Off outside the heist: every guard opens every door (stock). */
+            extern int portHeistChrMayOpenDoor(ChrRecord *self, void *door);
+
+            if (!portHeistChrMayOpenDoor(self, phi_s3->door))
+            {
+                phi_s3 = NULL;
+            }
+        }
+#endif
 
         if (phi_s3 != NULL)
         {

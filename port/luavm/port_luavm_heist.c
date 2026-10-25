@@ -577,6 +577,231 @@ static int objTestDamage(lua_State *L)
     return 1;
 }
 
+/* ---- cover: the banker disguise; power; spawn.go (designs/bank-heist.md section 16) ---- */
+
+static const char *const sCoverClass[] = { "public", "staff", "restricted", NULL };
+static const char *const sMeterState[] = { "off", "unseen", "watched", "suspicious", "blown", "alert" };
+
+/* cover.on([on]) -> the setting */
+static int coverOn(lua_State *L)
+{
+    if (!lua_isnone(L, 1)) portHeistCoverSetOn(lua_toboolean(L, 1));
+    lua_pushboolean(L, portHeistCoverIsOn());
+    return 1;
+}
+
+/* cover.alert([on]) -> the setting: everyone alert (the alarm, a body found): the disguise protects nobody */
+static int coverAlert(lua_State *L)
+{
+    if (!lua_isnone(L, 1)) portHeistCoverSetAlert(lua_toboolean(L, 1));
+    lua_pushboolean(L, portHeistCoverAlert());
+    return 1;
+}
+
+/* cover.guard(chr [, "security"]) -> bool: this guard judges the disguise */
+static int coverGuard(lua_State *L)
+{
+    const char *role = luaL_optstring(L, 2, "guard");
+
+    needStage(L, "cover.guard");
+    lua_pushboolean(L, portHeistCoverGuard((int) luaL_checkinteger(L, 1), strcmp(role, "security") == 0 ? 1 : 0));
+    return 1;
+}
+
+/* cover.room(room, "public" | "staff" | "restricted"); cover.room(room) -> the class */
+static int coverRoom(lua_State *L)
+{
+    int room = (int) luaL_checkinteger(L, 1);
+
+    if (!lua_isnoneornil(L, 2)) portHeistCoverRoom(room, luaL_checkoption(L, 2, NULL, sCoverClass));
+    lua_pushstring(L, sCoverClass[portHeistCoverRoomClass(room)]);
+    return 1;
+}
+
+/* cover.carrying(p, on): Bond p carries loot (a guard who sees him sees through him) */
+static int coverCarrying(lua_State *L)
+{
+    portHeistCoverCarrying((int) luaL_checkinteger(L, 1), lua_toboolean(L, 2));
+    return 0;
+}
+
+/* cover.tune{range=, cone=, armed=, restricted=, staff=, run=, run_speed=, run_range=, close=, close_time=, linger=, decay=, radio=, act=} */
+static int coverTune(lua_State *L)
+{
+    static const char *const keys[] = { "range", "cone", "armed", "restricted", "staff", "run", "run_speed", "run_range", "close",
+                                        "close_time", "linger", "decay", "radio", "act" };
+    float v[14];
+    int i;
+
+    luaL_checktype(L, 1, LUA_TTABLE);
+    for (i = 0; i < 14; i++)
+    {
+        lua_getfield(L, 1, keys[i]);
+        v[i] = lua_isnil(L, -1) ? -1.0f : (float) luaL_checknumber(L, -1);
+        lua_pop(L, 1);
+    }
+    portHeistCoverTune(v, 14);
+    return 0;
+}
+
+/* cover.state(chr) -> {susp, witness, reported, sees, role, why} | nil: the guard's meter (masks by player bit) */
+static int coverState(lua_State *L)
+{
+    float susp;
+    int w, r, s, role, why;
+
+    needStage(L, "cover.state");
+    if (!portHeistCoverState((int) luaL_checkinteger(L, 1), &susp, &w, &r, &s, &role, &why))
+    {
+        lua_pushnil(L);
+        return 1;
+    }
+    lua_createtable(L, 0, 6);
+    setNum(L, "susp", susp);
+    setInt(L, "witness", w);
+    setInt(L, "reported", r);
+    setInt(L, "sees", s);
+    lua_pushstring(L, role ? "security" : "guard");
+    lua_setfield(L, -2, "role");
+    lua_pushstring(L, portHeistCoverWhyName(why));
+    lua_setfield(L, -2, "why");
+    return 1;
+}
+
+/* cover.suspicion(chr, p) -> 0..1 | nil */
+static int coverSuspicion(lua_State *L)
+{
+    float s;
+
+    needStage(L, "cover.suspicion");
+    s = portHeistCoverSusp((int) luaL_checkinteger(L, 1), (int) luaL_checkinteger(L, 2));
+    if (s < 0.0f) lua_pushnil(L); else lua_pushnumber(L, s);
+    return 1;
+}
+
+/* cover.meter(p) -> state ("off" "unseen" "watched" "suspicious" "blown" "alert"), level 0..1, guard chr | nil */
+static int coverMeter(lua_State *L)
+{
+    float level;
+    int chr, st;
+
+    needStage(L, "cover.meter");
+    st = portHeistCoverMeter((int) luaL_checkinteger(L, 1), &level, &chr);
+    lua_pushstring(L, sMeterState[st < 0 || st > 5 ? 0 : st]);
+    lua_pushnumber(L, level);
+    if (chr < 0) lua_pushnil(L); else lua_pushinteger(L, chr);
+    return 3;
+}
+
+static int coverSeen(lua_State *L) { needStage(L, "cover.seen"); lua_pushboolean(L, portHeistCoverSeen((int) luaL_checkinteger(L, 1))); return 1; }
+static int coverCount(lua_State *L) { lua_pushinteger(L, portHeistCoverCount()); return 1; }
+static int coverSpeed(lua_State *L) { lua_pushnumber(L, portHeistCoverBondSpeed((int) luaL_checkinteger(L, 1))); return 1; }
+static int coverWhyName(lua_State *L) { lua_pushstring(L, portHeistCoverWhyName((int) luaL_checkinteger(L, 1))); return 1; }
+
+/* cover.blow(chr, p): that guard sees through Bond p now (a script); cover.test_act(p): test hook, Bond p slapped / robbed / fired */
+static int coverBlow(lua_State *L)
+{
+    needStage(L, "cover.blow");
+    lua_pushboolean(L, portHeistCoverBlow((int) luaL_checkinteger(L, 1), (int) luaL_checkinteger(L, 2)));
+    return 1;
+}
+
+static int coverTestAct(lua_State *L)
+{
+    needStage(L, "cover.test_act");
+    lua_pushboolean(L, portHeistCoverTestAct((int) luaL_checkinteger(L, 1)));
+    return 1;
+}
+
+/* cover.radio(chr [, "relay"]): the radio sound at that guard (presentation: volume and pan from this machine's Bond) */
+static int coverRadio(lua_State *L)
+{
+    const char *k = luaL_optstring(L, 2, "call");
+
+    needStage(L, "cover.radio");
+    lua_pushboolean(L, portHeistRadioSfx((int) luaL_checkinteger(L, 1), strcmp(k, "relay") == 0));
+    return 1;
+}
+
+/* roles: a name or an array of names -> bits (registered on first use) */
+static unsigned roleBits(lua_State *L, int i)
+{
+    unsigned bits = 0;
+    int b;
+
+    if (lua_type(L, i) == LUA_TSTRING)
+    {
+        b = portHeistRoleBit(lua_tostring(L, i));
+        if (b < 0) luaL_error(L, "too many guard roles (32)");
+        return 1u << b;
+    }
+    luaL_checktype(L, i, LUA_TTABLE);
+    for (b = 1; ; b++)
+    {
+        int bit;
+
+        if (lua_rawgeti(L, i, b) == LUA_TNIL) { lua_pop(L, 1); break; }
+        bit = portHeistRoleBit(luaL_checkstring(L, -1));
+        lua_pop(L, 1);
+        if (bit < 0) luaL_error(L, "too many guard roles (32)");
+        bits |= 1u << bit;
+    }
+    return bits;
+}
+
+/* spawn.role(chr, name | {names}): the chr's roles for the guard door rules */
+static int spawnRole(lua_State *L)
+{
+    needStage(L, "spawn.role");
+    lua_pushboolean(L, portHeistSetChrRoles((int) luaL_checkinteger(L, 1), roleBits(L, 2)));
+    return 1;
+}
+
+/* door.guard_access(i, "any" | "never" | name | {names}): who among the guards may open door i (with mode.guard_doors on) */
+static int doorGuardAccess(lua_State *L)
+{
+    int idx = (int) luaL_checkinteger(L, 1);
+    int ok;
+
+    needStage(L, "door.guard_access");
+    if (lua_type(L, 2) == LUA_TSTRING && strcmp(lua_tostring(L, 2), "any") == 0) ok = portHeistDoorGuardAccess(idx, 0, 0);
+    else if (lua_type(L, 2) == LUA_TSTRING && strcmp(lua_tostring(L, 2), "never") == 0) ok = portHeistDoorGuardAccess(idx, 1, 0);
+    else ok = portHeistDoorGuardAccess(idx, 1, roleBits(L, 2));
+    lua_pushboolean(L, ok);
+    return 1;
+}
+
+/* door.guard_stats() -> refused, opened: rule checks that kept a guard out / let a role holder open a shut ruled door */
+static int doorGuardStats(lua_State *L)
+{
+    int r, o;
+
+    portHeistDoorStats(&r, &o);
+    lua_pushinteger(L, r);
+    lua_pushinteger(L, o);
+    return 2;
+}
+
+/* mode.guard_doors([on]) -> the setting */
+static int modeGuardDoors(lua_State *L)
+{
+    if (!lua_isnone(L, 1)) portHeistSetGuardDoors(lua_toboolean(L, 1));
+    lua_pushboolean(L, portHeistGuardDoorsOn());
+    return 1;
+}
+
+/* power.set(on) / power.on(): the mains (out: no alarm can be raised; the mode darkens the cameras) */
+static int powerSet(lua_State *L) { needStage(L, "power.set"); portHeistPowerSet(lua_toboolean(L, 1)); return 0; }
+static int powerIsOn(lua_State *L) { lua_pushboolean(L, portHeistPowerOn()); return 1; }
+
+/* spawn.go(chr, pad [, run]) -> bool: the chr walks (runs) to the pad on the stock route; its list keeps running */
+static int spawnGo(lua_State *L)
+{
+    needStage(L, "spawn.go");
+    lua_pushboolean(L, portHeistChrGo((int) luaL_checkinteger(L, 1), (int) luaL_checkinteger(L, 2), lua_toboolean(L, 3)));
+    return 1;
+}
+
 static void addTo(lua_State *L, const char *lib, const luaL_Reg *reg)
 {
     lua_getglobal(L, lib);
@@ -592,7 +817,7 @@ void portLuaHeistRegister(lua_State *L)
     static const luaL_Reg cctvLib[] = { { "list", cctvList }, { "get", cctvGet }, { "disable", cctvDisable }, { "enable", cctvEnable },
         { "set_alarm_time", cctvSetAlarmTime }, { "alarm_on_spot", cctvAlarmOnSpot }, { NULL, NULL } };
     static const luaL_Reg spawnAdd[] = { { "key", spawnKey }, { "key_at", spawnKeyAt }, { "key_alive", spawnKeyAlive }, { "down", spawnDown }, { "heard", spawnHeard },
-        { "ko", spawnKo }, { "fire_stats", spawnFireStats }, { NULL, NULL } };
+        { "ko", spawnKo }, { "fire_stats", spawnFireStats }, { "go", spawnGo }, { NULL, NULL } };
     static const luaL_Reg bondAdd[] = { { "has_key", bondHasKey }, { "keys", bondKeys }, { "test_gadget", bondTestGadget }, { "face", bondFace }, { "test_noise", bondTestNoise },
         { "equip", bondEquip }, { "weapon", bondWeapon }, { NULL, NULL } };
     static const luaL_Reg missionAdd[] = { { "difficulty", missionDifficulty }, { NULL, NULL } };
@@ -604,7 +829,19 @@ void portLuaHeistRegister(lua_State *L)
     static const luaL_Reg bodiesLib[] = { { "found", bodiesFound }, { NULL, NULL } };
     static const luaL_Reg hudAdd[] = { { "countdown", hudCountdown }, { "countdown_left", hudCountdownLeft }, { NULL, NULL } };
     static const luaL_Reg objLib[] = { { "get", objGet }, { "test_damage", objTestDamage }, { NULL, NULL } };
+    static const luaL_Reg coverLib[] = { { "on", coverOn }, { "alert", coverAlert }, { "guard", coverGuard }, { "room", coverRoom },
+        { "carrying", coverCarrying }, { "tune", coverTune }, { "state", coverState }, { "suspicion", coverSuspicion }, { "meter", coverMeter },
+        { "seen", coverSeen }, { "count", coverCount }, { "speed", coverSpeed }, { "why_name", coverWhyName }, { "blow", coverBlow },
+        { "test_act", coverTestAct }, { "radio", coverRadio }, { NULL, NULL } };
+    static const luaL_Reg doorAdd[] = { { "guard_access", doorGuardAccess }, { "guard_stats", doorGuardStats }, { NULL, NULL } };
+    static const luaL_Reg spawnAdd2[] = { { "role", spawnRole }, { NULL, NULL } };
+    static const luaL_Reg modeAdd2[] = { { "guard_doors", modeGuardDoors }, { NULL, NULL } };
+    static const luaL_Reg powerLib[] = { { "set", powerSet }, { "on", powerIsOn }, { NULL, NULL } };
 
+    luaL_newlib(L, coverLib);
+    lua_setglobal(L, "cover");
+    luaL_newlib(L, powerLib);
+    lua_setglobal(L, "power");
     luaL_newlib(L, doorLib);
     lua_setglobal(L, "door");
     luaL_newlib(L, objLib);
@@ -620,6 +857,9 @@ void portLuaHeistRegister(lua_State *L)
     luaL_newlib(L, koLib);
     lua_setglobal(L, "ko");
     addTo(L, "spawn", spawnAdd);
+    addTo(L, "spawn", spawnAdd2);
+    addTo(L, "door", doorAdd);
+    addTo(L, "mode", modeAdd2);
     addTo(L, "bond", bondAdd);
     addTo(L, "mode", modeAdd);
     addTo(L, "hud", hudAdd);

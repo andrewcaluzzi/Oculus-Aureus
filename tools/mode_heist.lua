@@ -91,6 +91,49 @@ local S = {
   exit_radius     = 300,
   start_weapons   = { "pp7sil", "doordecoder" },
   start_ammo      = 0.5,     -- extra PP7 ammo, fraction of the max
+  -- the banker cover (designs/bank-heist.md section 16, AC 2026-10-25): the crew starts as bank staff, the gun holstered (the slappers in
+  -- hand). A guard treats a Bond as staff until something gives him away; port_heist.c keeps a suspicion meter per guard and per Bond.
+  -- Instant: loot carried, a slap / a robbery / a search / a shot seen (or a shot heard). Fast: a gun in hand (0.4 s), a restricted
+  -- room (1 s). Slow: a staff-only room (5 s), running close past a guard (4 s), lingering right next to one (4 s after 2 s). Full meter:
+  -- "Hey!", that guard alone turns on that Bond and radios it in after cover_tune.radio (5 s) unless he is down first. The alarm or a
+  -- body found ends every disguise. Cameras only time a Bond who looks wrong (a gun, loot, an act, a restricted room) and report to the
+  -- security room, whose staff raise the alarm security_delay seconds later; with all of them down a camera raises nothing.
+  cover           = true,
+  start_hand      = "fist",  -- what the crew holds at the start ("fist" = the slappers: holstered; "pp7sil" = drawn)
+  area_class      = { street = "public", hall = "public", offices = "staff", corridor = "staff", records = "staff", manager = "staff",
+                      dock = "staff", security = "restricted", vault_stairs = "restricted", vault_ante = "restricted", vault = "restricted",
+                      deposit = "restricted", service_ramp = "restricted", power = "restricted" },   -- by the layout's room `area`
+  cover_tune      = {},      -- cover.tune{...} overrides (range 1800, cone 75, armed 0.4, restricted 1, staff 5, run 4, run_speed 450,
+                             -- run_range 400, close 150, linger 2, close_time 4, decay 12, radio 5, act 1.5)
+  security_delay  = 6,       -- seconds from a camera's spot to the security room's alarm (if anyone in the security wing is still up)
+  -- the power (section 16): cut the main breaker in the plant room and no alarm can be raised at all (no panel, no siren, no camera:
+  -- the feeds show static). An arduous job: force the cabinet, then throw the main; the work stops (and loses power_setback seconds)
+  -- when the worker leaves the panel, is seen by a guard or is hurt. A backup generator restores the power generator_after seconds
+  -- later unless it is disabled too, and guards come to look at the outage: one at the breaker for repair_time puts the power back. A
+  -- witness who tries to raise the alarm while the power is out calls it in when the power comes back, if he is still up.
+  power_cabinet   = 8,
+  power_cut       = 50,
+  power_setback   = 10,
+  power_reach     = 150,     -- units from the breaker / the generator
+  generator_after = 90,      -- 0 = no backup generator
+  generator_time  = 20,
+  investigators   = 2,       -- x force (at least 1); 0 = nobody comes
+  investigate_after = 10,
+  repair_time     = 15,
+  -- guard door rules (AC's playtest 2026-10-25: guards who heard Bond in the vault walked over and opened the vault door). A guard opens
+  -- a door on his route only if his role may: "any" (stock), "never", or a list of roles. A guard's role is his post's area (hall,
+  -- offices, corridor, security, dock, records, vault_ante, deposit, manager), or "squad" (crack and heavy squads), "vault" (the vault
+  -- guards), "wave", "response"; "barracks" is for reinforcements that pour out of a barracks door (none on this map yet: section 16).
+  -- Keyed by the DOORS groups of tools/heist_bank_map.lua. A refused guard walks into the shut door and waits there.
+  guard_doors     = true,
+  door_access     = {
+    front = "any", blast = "any",
+    green = { "hall", "offices", "corridor", "security", "records", "manager", "dock", "wave", "response", "squad" },   -- GREEN: staff
+    blue  = { "security", "offices", "wave", "response" },                       -- BLUE: the security staff (and the chief's offices)
+    red   = { "vault_ante", "deposit", "vault", "squad", "response" },           -- RED: the vault level's guards, the squads sent down
+    vault_a = "never", vault_b = "never",                                        -- the time-locked vault: nobody
+    safe = "never", cell_green = "never", cell_floor = "never", dock_shutter = "never",
+  },
   spawn_per_tick  = 24,      -- chrs placed per 0.25 s at the start (no hitch)
   test            = false,   -- test hooks on (HEIST.* below are always there; this only adds log lines)
   -- difficulty (mission.difficulty(): 0 Agent .. 3 007). force: the share of the full force above (posted guards, raisers, vault
@@ -137,8 +180,15 @@ local H = {
   placed = { post = 0, raiser = 0, vault = 0, carrier = 0, civ = 0 },
   cam_off_until = nil, flash = nil, flash_until = 0, civ_limit = 2, trapped = {},
   squads = 0,
+  pflash = {},         -- per Bond: { text, until } (the cover's "Hey!" is his alone)
+  report = nil,        -- a camera's spot on its way through the security room: { at, cam, p }
+  blown = 0, reports = 0,
 }
 HEIST = H
+-- the power (section 16): out, the cabinet step, the work under way, the generator, the investigators, witnesses waiting for the mains
+local PW = { out = false, step = 0, task = nil, by = nil, prog = 0, saved = { cabinet = 0, breaker = 0, generator = 0 }, hp = nil,
+             cut_at = nil, gen_off = false, invest_at = nil, invest = {}, repair = 0, pending = {}, cuts = 0 }
+H.power = PW
 
 local diff = DIFF[1]
 -- a full-force count at this difficulty's share (never below `min`)
@@ -155,6 +205,7 @@ local function money(v)
 end
 local function log(fmt, ...) print(string.format("ge: heist: " .. fmt, ...)) end
 local function flash(text, secs) H.flash = text; H.flash_until = H.elapsed + (secs or 4) end
+local function flash_p(p, text, secs) H.pflash[p] = { text, H.elapsed + (secs or 4) } end
 
 -- ------------------------------------------------------------------------------------------------------------------------------------
 -- spawning helpers
@@ -187,6 +238,12 @@ end
 local function note_guard(c, kind, area)
   H.guards[#H.guards + 1] = { chr = c, kind = kind, area = area }
   H.placed[kind] = (H.placed[kind] or 0) + 1
+  -- the bank's own guards judge the disguise (squads, waves and the vault guards come for a known crew: they do not)
+  if S.cover and (kind == "post" or kind == "raiser" or kind == "carrier" or kind == "investigator") then
+    cover.guard(c, area == "security" and "security" or "guard")
+  end
+  -- the door rules: which keyed doors this guard may open on his way (S.door_access)
+  spawn.role(c, (kind == "squad" and "squad") or (kind == "vault" and "vault") or area)
 end
 
 -- ------------------------------------------------------------------------------------------------------------------------------------
@@ -210,6 +267,31 @@ local function setup_doors()
   door.set_keyflags(DOORS.safe, GOLD)
   door.set_keyflags(DOORS.cell_green, GREEN)
   door.set_keyflags(DOORS.cell_floor, FLOORKEY)
+  -- who among the guards may open which door (S.door_access by DOORS group; a double door is both leaves)
+  mode.guard_doors(S.guard_doors and true or false)
+  if S.guard_doors then
+    for group, rule in pairs(S.door_access) do
+      local list = DOORS[group]
+      if type(list) == "number" then list = { list } end
+      for _, d in ipairs(list or {}) do door.guard_access(d, rule) end
+    end
+    -- bank v2: a door the layout tags itself (LEVEL.objects[name].guard_access: "any" | "never" | "role:a,b" | "barracks") takes that
+    -- rule instead (both leaves of a double door); the bank v2 layout tags every door (designs/bank-heist.md section 17b)
+    for _, o in pairs(LEVEL.objects or {}) do
+      local g = o.guard_access
+      if g and (o.type == "door" or o.type == "safe") then
+        local rule = g
+        if g:sub(1, 5) == "role:" then
+          rule = {}
+          for r in g:sub(6):gmatch("[^,]+") do rule[#rule + 1] = r end
+        elseif g == "barracks" then
+          rule = { "barracks" }
+        end
+        door.guard_access(o.index, rule)
+        if o.pair then door.guard_access(o.pair, rule) end
+      end
+    end
+  end
 end
 
 local vault_want, vault_since = nil, 0
@@ -274,7 +356,8 @@ end
 
 local function refresh_hud()
   local status = H.hot and "ALARM" or "quiet"
-  if H.cam_off_until and H.elapsed < H.cam_off_until then status = status .. " CAMS OFF" end
+  if PW.out then status = status .. " POWER OUT"
+  elseif H.cam_off_until and H.elapsed < H.cam_off_until then status = status .. " CAMS OFF" end
   for p = 0, bond.count() - 1 do
     if cctv.viewing(p) then
       -- on the camera feeds: only the feed's overlay and the intel box (the mode's lines would sit over the picture)
@@ -282,7 +365,9 @@ local function refresh_hud()
     else
       hud.set(1, string.format("JANUS BANK %s  %d bars  %s  [%s]", money(H.loot), H.bars, status, cards_text(p)), p)
       hud.set(2, objective(p), p)
-      if H.flash and H.elapsed < H.flash_until then hud.set(3, H.flash, p) else hud.set(3, "", p) end
+      local pf = H.pflash[p]
+      if pf and H.elapsed < pf[2] then hud.set(3, pf[1], p)
+      elseif H.flash and H.elapsed < H.flash_until then hud.set(3, H.flash, p) else hud.set(3, "", p) end
     end
   end
 end
@@ -310,22 +395,79 @@ local function go_hot(why)
   H.hot = true
   H.hot_at = H.elapsed
   log("ALARM (%s) at %.0f s: hot", why, H.elapsed)
-  flash("ALARM! Guards are on their way - the hall is locked down", 6)
+  flash(PW.out and "ALARM! (no siren: the power is out) Guards are on their way" or "ALARM! Guards are on their way - the hall is locked down", 6)
   lockdown()
-  if not alarm.active() then alarm.start() end
+  if S.cover then cover.alert(true) end   -- the alarm ends every disguise
+  if not alarm.active() then alarm.start() end   -- (does nothing while the power is out; the latch sounds it when it comes back)
 end
 
 on("alarm", function(a)
   if a == 1 and not H.klaxon then go_hot("siren") end
 end)
 
+-- the security room's staff: the guards posted in the security wing (the camera link needs one of them up)
+local function security_up()
+  local n = 0
+  for _, g in ipairs(H.guards) do
+    if g.area == "security" and (g.kind == "post" or g.kind == "raiser") and spawn.alive(g.chr) and not spawn.down(g.chr) then n = n + 1 end
+  end
+  return n
+end
+H.security_up = security_up
+
 on("cctv_spotted", function(cam, p)
   log("camera %d spotted Bond %d", cam, p)
-  go_hot("camera")   -- (the stock alarm also goes off; this catches a spot while the klaxon's siren is already sounding)
+  if not S.cover then go_hot("camera"); return end   -- (the stock alarm also goes off; this catches a spot while the klaxon sounds)
+  -- the cover: a camera reports to the security room; its staff raise the alarm security_delay seconds later
+  if H.hot or H.ended or H.report then return end
+  if security_up() == 0 then
+    log("camera %d saw Bond %d, but nobody in the security room is up to raise it", cam, p)
+    flash_p(p, "A camera saw you - but nobody is watching the screens", 3)
+    return
+  end
+  H.report = { at = H.elapsed + S.security_delay, cam = cam, p = p }
+  log("camera %d saw Bond %d: the security room will raise the alarm in %d s", cam, p, S.security_delay)
+  flash_p(p, "A camera saw you! The security room will raise the alarm", 4)
+  for _, g in ipairs(H.guards) do   -- the relay is heard from the security wing (a burst of radio)
+    if g.area == "security" and spawn.alive(g.chr) and not spawn.down(g.chr) then cover.radio(g.chr, "relay"); break end
+  end
 end)
 
+local function security_tick()
+  local r = H.report
+  if not r or H.elapsed < r.at then return end
+  H.report = nil
+  if H.hot or H.ended then return end
+  if PW.out then log("the security room's camera report died with the power"); return end
+  if security_up() == 0 then log("the security room went quiet before it raised the alarm (camera %d)", r.cam); return end
+  go_hot(string.format("the security room saw camera %d", r.cam))
+end
+
 on("body_found", function(g, b, k)
-  if not H.hot then flash(k == 1 and "A guard found someone out cold" or "A guard found a body", 4) end
+  if not H.hot then flash(k == 1 and "A guard found someone out cold - everyone is on alert" or "A guard found a body - everyone is on alert", 4) end
+  if S.cover and not cover.alert() then cover.alert(true); log("body %d found by guard %d: everyone alert, no more cover", b, g) end
+end)
+
+-- the cover (section 16): a guard saw through a Bond; still up after the radio time, he reports it
+local WHY = { armed = "your gun", loot = "the loot", act = "what you did", restricted = "off limits", staff = "no business here",
+              running = "running", close = "loitering", heard = "the shot", hurt = "you hit him", script = "he knows" }
+on("cover_blown", function(g, p, why)
+  local w = cover.why_name(why)
+  H.blown = H.blown + 1
+  log("cover blown: guard %d saw through Bond %d (%s)", g, p, w)
+  if not H.hot then flash_p(p, "HEY! Seen through (" .. (WHY[w] or w) .. "): drop him before he radios", 5) end
+end)
+
+on("cover_report", function(g, p)
+  if H.hot or H.ended then return end
+  H.reports = H.reports + 1
+  if PW.out then
+    PW.pending[#PW.pending + 1] = g
+    log("guard %d tried to raise the alarm on Bond %d: the power is out", g, p)
+    flash_p(p, "He's at the alarm - but the power is out", 4)
+    return
+  end
+  go_hot(string.format("guard %d raised the alarm on Bond %d", g, p))
 end)
 
 -- ------------------------------------------------------------------------------------------------------------------------------------
@@ -648,6 +790,7 @@ on("cctv_view", function(p, cam, why)
 end)
 
 on("use", function(p, kind, idx, objtype)
+  if idx < 0 or objtype == 3 then H.power_use(p) end   -- the breaker / the generator (plain props: a use press there has no target)
   for _, d in ipairs(DOORS.vault_a) do if idx == d then crack_action(p, "use") end end
   for _, d in ipairs(DOORS.vault_b) do if idx == d then crack_action(p, "use") end end
   -- the security console: blinds every camera for cam_off_time seconds and shows who carries the cards
@@ -701,7 +844,7 @@ function H.intel_lines(p)
   local up, n, covered = cams_up()
   local t = {}
   t[#t + 1] = string.format("%s  cams %d/%d  alarm: %s", cctv.viewing(p) and "CAMERA FEEDS" or "CONTROL ROOM", up, n,
-                            H.hot and "RAISED" or "quiet")
+                            PW.out and "NO POWER" or (H.hot and "RAISED" or "quiet"))
   t[#t + 1] = "VAULT: " .. vault_text()
   for _, cr in ipairs(CARD_ROLES) do
     local c, role
@@ -749,6 +892,148 @@ function H.camera_switch(p)
   log("security console used by Bond %d: cameras off for %d s; carriers: %s", p, S.cam_off_time, table.concat(t, ", "))
   flash("Cameras off " .. S.cam_off_time .. " s. " .. (t[1] or "No cards left on anyone"), 8)
   return true
+end
+
+-- ------------------------------------------------------------------------------------------------------------------------------------
+-- the power (section 16): the plant room's main breaker and the backup generator
+
+local function near_xz(p, xz)
+  if not xz then return false end
+  local x, y, z = bond.pos(p)
+  return x ~= nil and not bond.dead(p) and not cctv.viewing(p) and d2(x, z, xz[1], xz[2]) <= S.power_reach
+end
+
+local function set_cams(on)
+  for _, cam in ipairs(cctv.list()) do if on then cctv.enable(cam) else cctv.disable(cam) end end
+end
+
+function H.cut_power(why)
+  if PW.out then return false end
+  PW.out = true
+  PW.cuts = PW.cuts + 1
+  PW.cut_at = H.elapsed
+  PW.repair = 0
+  power.set(false)
+  if alarm.active() then H.klaxon = true; alarm.stop(); H.klaxon = false end
+  set_cams(false)
+  H.report = nil                                   -- the screens are dead: a camera report on its way dies
+  if S.investigators > 0 and P.power_way then PW.invest_at = H.elapsed + S.investigate_after end
+  log("POWER CUT (%s) at %.0f s: no alarm can be raised, the cameras are dark; generator %s", why or "breaker", H.elapsed,
+      PW.gen_off and "disabled" or (S.generator_after > 0 and string.format("in %d s", S.generator_after) or "none"))
+  flash("POWER CUT: the alarm is dead, the cameras are dark" .. ((PW.gen_off or S.generator_after <= 0) and "" or
+        string.format(" (generator in %d s)", S.generator_after)), 6)
+  return true
+end
+
+function H.restore_power(why)
+  if not PW.out then return false end
+  PW.out = false
+  PW.step = 0                                      -- the breaker is set again: a new cut starts from the cabinet (left open: quick)
+  PW.saved.breaker = 0
+  power.set(true)
+  if not (H.cam_off_until and H.elapsed < H.cam_off_until) then set_cams(true) end
+  log("POWER BACK (%s) at %.0f s", why, H.elapsed)
+  flash("The power is back (" .. why .. "): cameras and alarms are live", 5)
+  -- a witness who tried the alarm in the dark calls it in now, if he is still up
+  for _, g in ipairs(PW.pending) do
+    if spawn.alive(g) and not spawn.down(g) and not H.hot then go_hot(string.format("guard %d called it in when the power came back", g)) end
+  end
+  PW.pending = {}
+  if H.hot and S.siren_latch and not alarm.active() then alarm.start() end
+  return true
+end
+
+local function power_need(task) return task == "cabinet" and S.power_cabinet or (task == "breaker" and S.power_cut or S.generator_time) end
+
+local function power_start(p, task)
+  PW.task, PW.by = task, p
+  PW.prog = PW.saved[task] or 0
+  PW.hp = select(1, bond.vitals(p))
+  log("Bond %d works on the %s (%.0f of %d s)", p, task, PW.prog, power_need(task))
+  flash_p(p, task == "cabinet" and "Forcing the breaker cabinet: stay with it, stay unseen" or
+             (task == "breaker" and "Cutting the main breaker: stay with it, stay unseen" or "Disabling the backup generator"), 4)
+end
+
+local function power_stop(why)
+  local p, task = PW.by, PW.task
+  PW.saved[task] = math.max(0, PW.prog - S.power_setback)
+  PW.task, PW.by = nil, nil
+  log("power work (%s) interrupted: %s (%.0f s kept)", task, why, PW.saved[task])
+  flash_p(p, "Interrupted (" .. why .. "): press use at the panel to go on", 4)
+end
+H.power_stop = power_stop
+
+-- a use press in the plant room: the breaker (cabinet, then the main) or the generator
+local function power_use(p)
+  if H.ended or PW.task then return false end
+  if near_xz(p, P.breaker) and not PW.out then
+    power_start(p, PW.step == 0 and "cabinet" or "breaker")
+    return true
+  elseif near_xz(p, P.generator) and not PW.gen_off and S.generator_after > 0 then
+    power_start(p, "generator")
+    return true
+  end
+  return false
+end
+H.power_use = power_use
+
+local function power_tick(dt)
+  if PW.task then
+    local p, task = PW.by, PW.task
+    local hp = select(1, bond.vitals(p))
+    local xz = task == "generator" and P.generator or P.breaker
+    if bond.dead(p) or not near_xz(p, xz) then power_stop("you left the panel")
+    elseif S.cover and cover.seen(p) then power_stop("a guard can see you")
+    elseif hp and PW.hp and hp < PW.hp - 0.001 then power_stop("you were hit")
+    else
+      PW.hp = hp
+      PW.prog = PW.prog + dt
+      if PW.prog >= power_need(task) then
+        PW.saved[task] = 0
+        PW.task, PW.by = nil, nil
+        if task == "cabinet" then
+          PW.step = 1
+          log("the breaker cabinet is open (Bond %d)", p)
+          power_start(p, "breaker")                -- straight on to the main
+        elseif task == "breaker" then
+          H.cut_power("Bond " .. p .. " threw the main breaker")
+        else
+          PW.gen_off = true
+          log("the backup generator is disabled (Bond %d)", p)
+          flash_p(p, "The backup generator is dead: the power stays out", 4)
+        end
+      end
+    end
+  end
+  if PW.out then
+    if not PW.gen_off and S.generator_after > 0 and H.elapsed >= PW.cut_at + S.generator_after then H.restore_power("the backup generator") end
+  end
+  if PW.out and PW.invest_at and H.elapsed >= PW.invest_at then
+    PW.invest_at = nil
+    local n = scaled(S.investigators, 1)
+    for i = 1, n do
+      local c = spawn_at(P.power_way, guard_opts({ post = true }))
+      if c then
+        note_guard(c, "investigator", "corridor")
+        PW.invest[#PW.invest + 1] = c
+        spawn.go(c, P.power_to, false)
+      end
+    end
+    log("%d guard(s) sent to look at the outage", #PW.invest)
+  end
+  if PW.out and #PW.invest > 0 then
+    local fixing = false
+    for _, c in ipairs(PW.invest) do
+      if spawn.alive(c) and not spawn.down(c) then
+        local x, z = spawn.where(c)
+        if x and d2(x, z, P.breaker[1], P.breaker[2]) <= S.power_reach + 60 then fixing = true end
+      end
+    end
+    if fixing then
+      PW.repair = PW.repair + dt
+      if PW.repair >= S.repair_time then H.restore_power("a guard reset the breaker") end
+    end
+  end
 end
 
 local function vault_tick(dt)
@@ -801,6 +1086,7 @@ on("item_pickup", function(objtype, id, qty, p)
   H.loot = H.loot + v
   H.carried[p] = (H.carried[p] or 0) + v
   if id == 79 then H.bars = H.bars + 1 else H.cash = H.cash + 1 end
+  if S.cover then cover.carrying(p, true) end   -- a staffer with an armful of gold: any guard who sees him sees through him
   flash(string.format("+%s  (%s)", money(v), id == 79 and "gold bar" or "cash"), 2)
   if S.test then log("loot: Bond %d +%d (total %d)", p, v, H.loot) end
 end)
@@ -891,11 +1177,19 @@ on("stage_start", function(stage)
   H.civ_limit = S.civ_limit or diff.civ_limit
   spawn.keep_bodies(true)
   setup_doors()
+  -- the cover (section 16): every room classed by its layout area; cameras report to the security room instead of the alarm
+  cover.on(S.cover and true or false)
+  if S.cover then
+    cover.tune(S.cover_tune or {})
+    for _, r in pairs(LEVEL.rooms) do cover.room(r.id, S.area_class[r.area] or r.zone or "public") end   -- (bank v2: else the room's zone)
+    cctv.alarm_on_spot(false)
+  end
+  H.hand = S.cover and S.start_hand or S.start_weapons[1]
   for p = 0, bond.count() - 1 do
     bond.warp(p, P.start[p % #P.start + 1], (p >= #P.start) and 60 or 0, 0)
     for _, w in ipairs(S.start_weapons) do bond.give(p, w) end
     bond.give_ammo(p, S.start_ammo)
-    bond.equip(p, S.start_weapons[1])
+    bond.equip(p, H.hand)
   end
   local ax, ay, az = pads.pos(P.exit_a)
   local bx, by, bz = pads.pos(P.exit_b)
@@ -911,7 +1205,7 @@ on("stage_start", function(stage)
   queue[#queue + 1] = function()
     H.ready = true
     H.phase = "casing"
-    for p = 0, bond.count() - 1 do bond.equip(p, S.start_weapons[1]) end   -- again: the level start can put the slappers back in hand
+    for p = 0, bond.count() - 1 do bond.equip(p, H.hand) end   -- again: the level start can put the slappers back in hand
     log("ready: %d guards (%d posted, %d alarm raisers, %d card carriers), %d civilians, %d cameras, civilian limit %d, difficulty %d, %d free chr slots",
         #H.guards, H.placed.post, H.placed.raiser, H.placed.carrier, H.placed.civ, #cctv.list(), H.civ_limit, mission.difficulty(), spawn.free())
     log("pools: loose %d, held %d, free weapon slots %d, free props %d", spawn.pools())
@@ -920,15 +1214,17 @@ on("stage_start", function(stage)
     return guard_opts({ behaviour = "chase", body = pick({ "Siberian_Special_Forces", "St_Petersburg_Guard" }), weapon = pick({ "kf7", "d5k", "zmg" }) })
   end
   waves = heist.reinforce{ pads = P.waves_front, interval = S.wave_interval, per_wave = math.max(1, diff.wave), max_alive = scaled(S.wave_max_alive, 4),
-                           first = S.wave_first, reserve = S.reserve_slots, opts = wave_opts,
+                           first = S.wave_first, reserve = S.reserve_slots, opts = wave_opts, on_spawn = function(c) spawn.role(c, "wave") end,
                            active = function() return H.hot and not H.ended and hostiles_alive() < S.hostile_cap end }
   response = heist.reinforce{ pads = { P.waves_front[1], P.waves_dock[1], P.waves_front[2], P.waves_dock[2] }, interval = S.response_interval,
                               per_wave = scaled(S.response_size, 1), max_alive = scaled(S.wave_max_alive, 4), first = 0, reserve = S.reserve_slots,
+                              on_spawn = function(c) spawn.role(c, "response") end,
                               opts = function() return guard_opts({ behaviour = "chase", body = pick({ "Siberian_Special_Forces", "Janus_Special_Forces" }),
                                                                     weapon = pick({ "rcp90", "ar33" }), armour = 1.5, sunglasses = true }) end,
                               active = function() return H.hot and not H.ended and H.hot_at and H.elapsed - H.hot_at >= S.response_after
                                                          and hostiles_alive() < S.hostile_cap end }
-  flash("JANUS BANK, ST PETERSBURG. Steal the gold. Hurt no staff.", 8)
+  flash(S.cover and "JANUS BANK. You're staff: gun holstered, no restricted areas. Steal the gold." or
+        "JANUS BANK, ST PETERSBURG. Steal the gold. Hurt no staff.", 8)
   log("stage start: %s, %d Bond(s), difficulty %d", MAP.label, bond.count(), mission.difficulty())
   refresh_hud()
 end)
@@ -942,6 +1238,10 @@ local function state_text()
     H.loot, H.bars, H.cash, table.concat(carried, ","), H.squads, #H.guards, #H.civs, waves and waves.spawned or 0, waves and waves.waves or 0,
     response and response.spawned or 0, response and response.waves or 0, tostring(H.cam_off_until), #queue, tostring(H.half_squad),
     tostring(H.paused), tostring(safe_done))
+    .. string.format(" cov=%s/%d/%d rep=%s pw=%s/%d/%s/%s/%.3f/%s/%s gen=%s inv=%d/%s fix=%.2f pend=%d",
+      tostring(cover.alert()), H.blown, H.reports, H.report and string.format("%.2f", H.report.at) or "-", tostring(PW.out), PW.step,
+      tostring(PW.task), tostring(PW.by), PW.prog, tostring(PW.cut_at), tostring(PW.saved.cabinet + PW.saved.breaker + PW.saved.generator),
+      tostring(PW.gen_off), #PW.invest, tostring(PW.invest_at), PW.repair, #PW.pending)
 end
 H.state_text = state_text
 
@@ -960,9 +1260,13 @@ on("tick", function(dt)
   if H.hot and S.siren_latch and not alarm.active() then alarm.start() end
   if H.cam_off_until and H.elapsed >= H.cam_off_until then
     H.cam_off_until = nil
-    for _, cam in ipairs(cctv.list()) do cctv.enable(cam) end
-    flash("The cameras are back on", 3)
+    if not PW.out then
+      for _, cam in ipairs(cctv.list()) do cctv.enable(cam) end
+      flash("The cameras are back on", 3)
+    end
   end
+  security_tick()
+  if P.breaker then power_tick(dt) end
   crack_tick(dt)
   vault_tick(dt)
   safe_tick()
