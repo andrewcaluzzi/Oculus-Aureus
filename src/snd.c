@@ -6,6 +6,11 @@
 #include <os_extension.h>
 #include "music.h"
 #include "snd.h"
+#ifndef TARGET_N64
+#include "port_simsnd.h"   /* the sim's own view of its sounds (modding/snapshot-fidelity.md) */
+static void portSndSimUnbind(ALSoundState *tok, ALSoundState *real);
+static ALSoundState *portSndSimReal(ALSoundState *h);
+#endif
 //likely named gslibaudio.c from xbla
 /**
  * EU .data, offset from start of data_seg : 0x3620
@@ -1103,6 +1108,7 @@ s32 portSndKillAllSfx(s32 *voices)
     s32 n = 0, v = 0;
     ALSoundState *state = (ALSoundState *) D_800243E4.node.next;
 
+    portSimSndKillAll();    /* the sim's view of its sounds ends with them (owner words cleared, as below) */
     while (state != NULL)
     {
         ALSoundState *next = (ALSoundState *) state->link.next;
@@ -1168,6 +1174,13 @@ void sndUnlinkClearSound(ALSoundState *state)
 
     state->playingState = AL_STOPPED;
 
+#ifndef TARGET_N64
+    if (state->state != NULL && portSimSndIsToken(state->state))
+    {   /* a sim sound (port_simsnd.c): the token is sim memory, the audio side never writes it; it only forgets its voice */
+        portSndSimUnbind(state->state, state);
+        state->state = NULL;
+    }
+#endif
     if (state->state != NULL)
     {
         if (state == (ALSoundState *)state->state->link.next)
@@ -1185,6 +1198,9 @@ void sndUnlinkClearSound(ALSoundState *state)
  */
 void sndSetPriority(ALSoundState *state, u8 priority)
 {
+#ifndef TARGET_N64
+    state = portSndSimReal(state);
+#endif
     if (state != NULL)
     {
         state->priority = priority;
@@ -1199,6 +1215,12 @@ void sndSetPriority(ALSoundState *state, u8 priority)
  */
 u8 sndGetPlayingState(ALSoundState *state)
 {
+#ifndef TARGET_N64
+    if (portSimSndIsToken(state))
+    {   /* the sim's own sound: answered in sim time (port_simsnd.c), never from the audio clock */
+        return (u8) portSimSndState(state);
+    }
+#endif
     if (state != NULL)
     {
         return state->playingState;
@@ -1206,6 +1228,114 @@ u8 sndGetPlayingState(ALSoundState *state)
 
     return AL_STOPPED;
 }
+
+#ifndef TARGET_N64
+/* ---- the sim's sounds (port_simsnd.c, modding/snapshot-fidelity.md) ----
+ * The voice of each sim token: presentation-side, so a restore never rewinds it. A token whose allocation the restore undid
+ * has another generation here and maps to no voice (that sound of the abandoned ticks plays out unowned). */
+static ALSoundState *s_PortSimVoice[PORT_SIMSND_MAX];
+static s32 s_PortSimVoiceGen[PORT_SIMSND_MAX];
+
+static void portSndSimBind(ALSoundState *tok, ALSoundState *real)
+{
+    const s32 i = portSimSndSlot(tok);
+
+    if (i >= 0)
+    {
+        s_PortSimVoice[i] = real;
+        s_PortSimVoiceGen[i] = portSimSndGen(tok);
+    }
+}
+
+static void portSndSimUnbind(ALSoundState *tok, ALSoundState *real)
+{
+    const s32 i = portSimSndSlot(tok);
+
+    if (i >= 0 && s_PortSimVoice[i] == real)
+    {
+        s_PortSimVoice[i] = NULL;
+    }
+}
+
+/* a token -> its voice (NULL: none now); any other pointer is returned as it is */
+static ALSoundState *portSndSimReal(ALSoundState *h)
+{
+    const s32 i = portSimSndSlot(h);
+
+    if (i < 0)
+    {
+        return h;
+    }
+    return s_PortSimVoiceGen[i] == portSimSndGen(h) ? s_PortSimVoice[i] : NULL;
+}
+
+ALSoundState *portSndSimVoice(ALSoundState *h)   /* propobj.c portSndApplyPan */
+{
+    return portSndSimReal(h);
+}
+
+/* A sound the sim starts. Its life in sim time comes from the same arithmetic as the sound player's events for the state
+ * sndPlaySfx returns (the last of the sequence): PLAY after velocityMax x 33 ms (+1 us; a retriggered member: after the members
+ * before it), then attack and decay, STOP, release, END; times over the state's pitch (pitch_28 from the keymap, pitch_2c 1). A
+ * decayTime of -1 never stops (looped); a retriggered sequence plays itself again (both: until the sim stops them). */
+static ALSoundState *portSndSimPlay(struct ALBankAlt_s *soundBank, s16 soundIndex, ALSoundState *pendingState)
+{
+    ALMicroTime deltaTotal = 0;
+    long startUs = 0, playUs = 0, releaseUs = 0;
+    s32 flags = 0, retrig = 0, guard = 0;
+    s16 idx = soundIndex;
+    ALSoundState *tok;
+
+    if (g_sndBootswitchSound || soundIndex == 0)
+    {
+        return NULL;
+    }
+    do
+    {
+        ALSound *sound = soundBank->instArray[0]->soundArray[idx];
+        ALKeyMap *keyMap = sound->keyMap;
+        const ALMicroTime deltaLoop = keyMap->velocityMax * DELTA_33_MS;
+        const s32 kflags = keyMap->keyMax & 0xf0;
+        const f32 pitch28 = (kflags & SOUND_FLAG_PITCH_SLIDE) ? alCents2Ratio((keyMap->keyBase * 100) + DEFAULT_SETUP_PITCH_SHIFT)
+                                                              : alCents2Ratio(((keyMap->keyBase * 100) + keyMap->detune) + DEFAULT_SETUP_PITCH_SHIFT);
+        const s32 looped = sound->envelope->decayTime == -1;
+
+        if (kflags & SOUND_FLAG_RETRIGGER)
+        {
+            retrig = 1;
+            startUs = (long) deltaTotal + 1;
+        }
+        else
+        {
+            startUs = (long) deltaLoop + 1;
+        }
+        playUs = (s32) (sound->envelope->attackTime / 1.0f / pitch28);
+        if (!looped)
+        {
+            playUs += (s32) (sound->envelope->decayTime / pitch28 / 1.0f);
+        }
+        releaseUs = (s32) (sound->envelope->releaseTime / pitch28 / 1.0f);
+        flags = PORT_SIMSND_FINAL | (looped ? PORT_SIMSND_LOOPED : 0);
+        deltaTotal += deltaLoop;
+        idx = (s16) ((s32) keyMap->velocityMin + ((s32) (keyMap->keyMin & 0xC0) * 4));
+    } while (idx != 0 && ++guard < 64);
+    if (retrig)
+    {
+        flags |= PORT_SIMSND_RETRIGGER;
+    }
+    tok = (ALSoundState *) portSimSndStart(soundIndex, startUs, playUs, releaseUs, flags,
+                                           pendingState != NULL ? (void **) &pendingState->link.next : NULL);
+    if (tok != NULL)
+    {
+        sndPlaySfx(soundBank, soundIndex, tok);     /* the voice (bound to the token at its end) */
+    }
+    if (pendingState != NULL)
+    {
+        pendingState->link.next = (void *) tok;
+    }
+    return tok;
+}
+#endif
 
 #ifdef DEBUG
 #    define sndPlaySfx(sbank, id, state) _sndPlaySfx(sbank, id, state, g_sndSfxVolume, __FILE__, __LINE__)
@@ -1259,6 +1389,13 @@ ALSoundState *sndPlaySfx(struct ALBankAlt_s *soundBank, s16 soundIndex, ALSoundS
 
     if(0); // debug?
 
+#ifndef TARGET_N64
+    if (portSimSndOn() && !s_PortPresent && !portSimSndIsToken(pendingState))
+    {   /* a sound the sim starts: the sim holds a token (port_simsnd.c), the engine plays the voice (the call below, with the
+         * token as its owner) */
+        return portSndSimPlay(soundBank, soundIndex, pendingState);
+    }
+#endif
 #ifndef TARGET_N64
     /* PORT rollback R1/R3: EVERY one-shot sound the sim triggers (guns, hits, yelps, doors, pickups, explosions) funnels through
      * here, called straight from sim code, so a sim-only tick (re-simulation) still starts it. R3 gives each sound an id (tick +
@@ -1344,6 +1481,14 @@ ALSoundState *sndPlaySfx(struct ALBankAlt_s *soundBank, s16 soundIndex, ALSoundS
         }
     }
 
+#ifndef TARGET_N64
+    if (portSimSndIsToken(pendingState))
+    {   /* the engine side of a sim sound (or its retrigger, from the AL_SNDP_PLAY_SFX_EVT handler): the token now names
+         * this voice; nothing is written into the token, which is sim memory */
+        portSndSimBind(pendingState, nextState);
+        return nextState;
+    }
+#endif
     if (pendingState != NULL)
     {
         pendingState->link.next = (void*)nextState;
@@ -1361,6 +1506,13 @@ void sndDeactivate(ALSoundState *state)
 {
     ALSndpEvent evt;
 
+#ifndef TARGET_N64
+    if (portSimSndIsToken(state))
+    {   /* the sim's view stops now (in sim time); the voice gets the event as before */
+        portSimSndStop(state);
+        state = portSndSimReal(state);
+    }
+#endif
     evt.common.type = AL_SNDP_DEACTIVATE_EVT;
     evt.common.state = state;
 
@@ -1385,6 +1537,12 @@ void sndDeactivateAllSfxByFlag(u8 flag)
     ALSndpEvent evt;
     ALSoundState *item;
 
+#ifndef TARGET_N64
+    if (portSimSndOn())
+    {
+        portSimSndStopByFlag(flag);
+    }
+#endif
     mask = osSetIntMask(OS_IM_NONE);
 
     item = (ALSoundState *)D_800243E4.node.next;
@@ -1503,13 +1661,14 @@ ALSoundState *portSndPlaySfxPitched(void *soundBankv, s16 soundIndex, f32 pitch)
 {
     struct ALBankAlt_s *soundBank = (struct ALBankAlt_s *) soundBankv;
     ALSoundState *state = sndPlaySfx(soundBank, soundIndex, NULL);
+    ALSoundState *voice = portSndSimReal(state);
 
-    if (state != NULL && pitch > 0.0f)
+    if (voice != NULL && pitch > 0.0f)
     {
         ALSndpEvent evt;
 
         evt.pitch.type = AL_SNDP_PITCH_EVT;
-        evt.pitch.state = state;
+        evt.pitch.state = voice;
         evt.pitch.pitch = pitch;
         portSndPostEvent(&g_sndPlayerPtr->evtq, (ALEvent *)&evt, 0);
     }
@@ -1548,6 +1707,9 @@ void sndCreatePostEvent(ALSoundState *state, s16 eventType, s32 arg2)
 {
     ALSndpEvent evt;
 
+#ifndef TARGET_N64
+    state = portSndSimReal(state);   /* a sim token -> its voice (none: nothing to post) */
+#endif
     evt.common.type = eventType;
     evt.common.state = state;
     evt.unks32.val8 = arg2;

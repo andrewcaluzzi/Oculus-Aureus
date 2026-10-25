@@ -148,8 +148,12 @@ static void heapSwap(PblGraph *g, int i, int j)
     g->hpos[g->heap[j]] = j;
 }
 
-static float *sFs;
-static int    sFsCap;
+/* the A* f-scores: scratch, every entry read is written in the same search (a savestate leaves it alone: the bot registers
+ * both as live state, modding/snapshot-fidelity.md) */
+float *g_PblAstarFs;
+int    g_PblAstarFsCap;
+#define sFs g_PblAstarFs
+#define sFsCap g_PblAstarFsCap
 
 static void heapUp(PblGraph *g, int i)
 {

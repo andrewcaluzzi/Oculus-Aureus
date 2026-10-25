@@ -1797,6 +1797,23 @@ extern void portSnapSoloRequest(int what);
 extern int  portSnapSoloPending(void);
 extern void portSnapLive(const char *name, const void *p, unsigned int n);
 extern void portSnapAddRange(const char *name, const void *p, unsigned int n);
+extern void portSnapAddDyn(const char *name, int (*fn)(int, unsigned char **, unsigned int *));
+
+/* the graph's mutable costs as snapshot extents (port_snap.c portSnapAddDyn) */
+static int graphSnapDyn(int i, unsigned char **lo, unsigned int *len)
+{
+    if (B.g.npen == NULL || B.g.cap <= 0)
+    {
+        return 0;
+    }
+    switch (i)
+    {
+        case 0: *lo = (unsigned char *) B.g.npen; *len = (unsigned) B.g.cap * sizeof(float); return 1;
+        case 1: *lo = (unsigned char *) B.g.nbad; *len = (unsigned) B.g.cap; return 1;
+        case 2: *lo = (unsigned char *) B.g.pen; *len = (unsigned) B.g.ecap * sizeof(float); return B.g.ecap > 0;
+        default: return 0;
+    }
+}
 
 static void optLog(const char *line)
 {
@@ -4461,11 +4478,21 @@ static void stageBegin(void)
     B.nSpare = 0;
     graphBuild();
     optInit();
-    if (sOpt.on && B.g.npen != NULL)
-    {   /* the graph's costs change during a run (stuck links, locked doorways): a savestate must take them back too */
-        portSnapAddRange("playerbot.npen", B.g.npen, (unsigned) B.g.cap * sizeof(float));
-        portSnapAddRange("playerbot.nbad", B.g.nbad, (unsigned) B.g.cap);
-        portSnapAddRange("playerbot.pen", B.g.pen, (unsigned) B.g.ecap * sizeof(float));
+    {   /* the graph's costs change during a run (stuck links, locked doorways): a savestate must take them back too. An
+         * extent (not fixed ranges): the graph is rebuilt per stage, and a range kept from the last one would name freed
+         * memory. The search scratch is reinitialised at every use: never rewound (modding/snapshot-fidelity.md). */
+        static s32 registered;
+
+        if (!registered)
+        {
+            registered = 1;
+            portSnapAddDyn("playerbot.graph", graphSnapDyn);
+            portSnapLive("playerbot.covstamp", &sCovStamp, sizeof(sCovStamp));
+            portSnapLive("playerbot.covstampn", &sCovStampN, sizeof(sCovStampN));
+            portSnapLive("playerbot.covgen", &sCovGen, sizeof(sCovGen));
+            portSnapLive("playerbot.astarfs", &g_PblAstarFs, sizeof(g_PblAstarFs));
+            portSnapLive("playerbot.astarfscap", &g_PblAstarFsCap, sizeof(g_PblAstarFsCap));
+        }
     }
     if (getenv("GE_PLAYERBOT_DOORS") != NULL)
     {

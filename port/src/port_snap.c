@@ -25,6 +25,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include <ultra64.h>
 #include <memp.h>
 #include "port_snap.h"
@@ -535,6 +536,7 @@ static u32 slotCompare(const Slot *s, const char *label, int verbose)
 {
     int i, shown = 0;
     u32 diff = 0;
+    const int maxShown = getenv("GE_SNAPCMPMAX") != NULL ? atoi(getenv("GE_SNAPCMPMAX")) : 40;   /* DIFF lines printed */
 
     for (i = 0; i < s->nseg; i++)
     {
@@ -561,7 +563,7 @@ static u32 slotCompare(const Slot *s, const char *label, int verbose)
                 }
             }
             diff += cnt;
-            if (verbose && shown < 40)
+            if (verbose && shown < maxShown)
             {
                 char w[96];
                 u32 a, b, ws = o & ~3u, k;
@@ -617,12 +619,18 @@ static void init(void)
         portSnapLive("joy.disables", &ge_joy_disables, sizeof(ge_joy_disables));
         portSnapLive("joy.enables", &ge_joy_enables, sizeof(ge_joy_enables));
         portSnapLive("ft.statfps", &g_PortStatFps, sizeof(g_PortStatFps));
-        {   /* handles into the audio engine (ALSoundState pointers): audio is wholly outside the snapshot, so a restored handle could name a recycled voice */
+        {   /* handles into the audio engine (ALSoundState pointers): audio is wholly outside the snapshot, so a restored handle could name a recycled voice.
+             * With the sim's own sound view (port_simsnd.c, the default) every handle the sim holds is a token of sim state, and these are rewound
+             * like the rest (left live they would keep the abandoned ticks' tokens). */
             extern void *g_ImpactSfxStates[4];   /* gun.c */
             extern void *g_UnusedSfxState;
+            extern int portSimSndOn(void);
 
-            portSnapLive("gun.impactsfx", g_ImpactSfxStates, sizeof(g_ImpactSfxStates));
-            portSnapLive("gun.unusedsfx", &g_UnusedSfxState, sizeof(g_UnusedSfxState));
+            if (!portSimSndOn())
+            {
+                portSnapLive("gun.impactsfx", g_ImpactSfxStates, sizeof(g_ImpactSfxStates));
+                portSnapLive("gun.unusedsfx", &g_UnusedSfxState, sizeof(g_UnusedSfxState));
+            }
         }
         portSnapLive("ft.stattps", &g_PortStatTps, sizeof(g_PortStatTps));
     }
@@ -733,6 +741,14 @@ int portSnapNeedIdle(void)
     if (sSoloReq == 2)
     {
         return 1;   /* a solo savestate goes back at the next tick */
+    }
+    {
+        extern int portSnapSoloTestRestoring(void);
+
+        if (portSnapSoloTestRestoring())
+        {
+            return 1;
+        }
     }
     if (!sOn)
     {
@@ -980,11 +996,433 @@ static void soloTick(void)
     sSoloReq = 0;
 }
 
+/* ---- GE_SNAPSOLOTEST=T,N: the fidelity test of a solo savestate (snapshot-fidelity.md) ----
+ * At the start of tick T save; ticks T..T+N-1 run (pass 1) while every tick's start state is fingerprinted in 4 KB chunks; at
+ * the start of tick T+N the whole state is kept and the save restored; the same ticks run again (pass 2, the same inputs: a
+ * replay) and each tick's chunks are compared with pass 1's. The first tick whose start state differs names the chunks (state
+ * the tick before read from outside the snapshot), and at T+N the whole state is compared byte for byte (DIFF lines). Then
+ * the run carries on. Solo only; the optimiser's own savestate (sSolo) is not touched. */
+static int sStT, sStN, sStExit, sStPass, sStFirstDiff, sStDiffTicks;
+static Slot sStSave, sStRef, sStAt;
+static u32 *sStHash;            /* [N + 1][sStChunks] */
+static int sStChunks;
+static unsigned int sStSaveCount;
+
+static int stChunkHashes(u32 *out, int cap)
+{
+    int i, n = 0;
+
+    currentSegs();
+    for (i = 0; i < sNCur; i++)
+    {
+        u32 o;
+
+        for (o = 0; o < sCur[i].n; o += PAGE)
+        {
+            const u32 len = sCur[i].n - o < PAGE ? sCur[i].n - o : PAGE;
+            u32 x = 0x811C9DC5u, k;
+
+            for (k = 0; k + 4 <= len; k += 4)
+            {
+                u32 w;
+
+                memcpy(&w, sCur[i].p + o + k, 4);
+                x = (x ^ w) * 0x9E3779B1u;
+                x ^= x >> 15;
+            }
+            for (; k < len; k++)
+            {
+                x = (x ^ sCur[i].p[o + k]) * 0x01000193u;
+            }
+            if (n < cap)
+            {
+                out[n] = x;
+            }
+            n++;
+        }
+    }
+    return n;
+}
+
+static u8 *stChunkAddr(int idx, u32 *len)
+{
+    int i, n = 0;
+
+    for (i = 0; i < sNCur; i++)
+    {
+        const int k = (int) ((sCur[i].n + PAGE - 1) / PAGE);
+
+        if (idx < n + k)
+        {
+            const u32 o = (u32) (idx - n) * PAGE;
+
+            *len = sCur[i].n - o < PAGE ? sCur[i].n - o : PAGE;
+            return sCur[i].p + o;
+        }
+        n += k;
+    }
+    *len = 0;
+    return NULL;
+}
+
+#ifdef __linux__
+static void stOutHash(int report);
+#endif
+
+static void soloTestTick(void)
+{
+    static int init0;
+    const unsigned int tick = stageTicks() + 1u;
+
+    if (!init0)
+    {
+        const char *e = getenv("GE_SNAPSOLOTEST");
+
+        init0 = 1;
+        if (e == NULL || sscanf(e, "%d,%d,%d", &sStT, &sStN, &sStExit) < 2 || sStT < 1 || sStN < 1)
+        {
+            sStT = 0;
+        }
+        else
+        {
+            portConLogf("ge: snaptest: armed: save at tick %d, restore at %d, replay and compare\n", sStT, sStT + sStN);
+        }
+    }
+    if (sStT == 0 || sStPass >= 3 || !sTableOk)
+    {
+        return;
+    }
+    if (sStPass == 0 && (int) tick == sStT)
+    {
+        sStSaveCount = stageTicks();
+        slotSave(&sStSave, tick);
+        sStChunks = stChunkHashes(NULL, 0) + 2048;     /* the pools and arenas grow over the run: room for 8 MB more */
+        sStHash = (u32 *) calloc((size_t) (sStN + 1) * (size_t) sStChunks, sizeof(u32));
+        sStPass = 1;
+        portConLogf("ge: snaptest: pass 1 from tick %u (%u KB, %d chunks)\n", tick, sStSave.size / 1024u, sStChunks);
+#ifdef __linux__
+        if (getenv("GE_SNAPTESTOUT") != NULL)
+        {
+            stOutHash(0);
+        }
+#endif
+    }
+    if (sStPass == 1)
+    {
+        const int d = (int) tick - sStT;
+
+        if (d < sStN)
+        {
+            u32 *h = sStHash + (size_t) d * (size_t) sStChunks;
+            const int n = stChunkHashes(h + 1, sStChunks - 1);
+
+            h[0] = (u32) n;
+            if (getenv("GE_SNAPTESTAT") != NULL && atoi(getenv("GE_SNAPTESTAT")) == (int) tick)
+            {   /* GE_SNAPTESTAT=<tick>: keep the whole state of that tick too; pass 2 compares it byte for byte */
+                slotSave(&sStAt, tick);
+            }
+            return;
+        }
+        slotSave(&sStRef, tick);
+#ifdef __linux__
+        if (getenv("GE_SNAPTESTOUT") != NULL)
+        {
+            stOutHash(1);
+        }
+#endif
+        {
+            u32 dirty = slotRestore(&sStSave);
+
+            forgetDirty();
+            portSimOnlySetTickCount(sStSaveCount);
+            portConLogf("ge: snaptest: pass 2: restored tick %d at tick %u (%u KB differed)\n", sStT, tick, dirty / 1024u);
+        }
+        sStPass = 2;
+        sStFirstDiff = -1;
+        sStDiffTicks = 0;
+        return;     /* tick T runs again */
+    }
+    if (sStPass == 2)
+    {
+        const int d = (int) tick - sStT;
+
+        if (d < sStN)
+        {
+            u32 *h = sStHash + (size_t) d * (size_t) sStChunks;
+            u32 *now = (u32 *) malloc((size_t) sStChunks * sizeof(u32));
+            const int n = stChunkHashes(now, sStChunks);
+
+            if (sStAt.valid && sStAt.tick == tick)
+            {
+                char lab[32];
+
+                snprintf(lab, sizeof(lab), "at-%u", tick);
+                portConLogf("ge: snaptest: tick %u compared byte for byte: %u bytes differ\n", tick, slotCompare(&sStAt, lab, 1));
+                {   /* and the extents themselves (a pool / arena that grew differently) */
+                    int g;
+
+                    currentSegs();
+                    for (g = 0; g < sNCur || g < sStAt.nseg; g++)
+                    {
+                        if (g >= sNCur || g >= sStAt.nseg || sCur[g].p != sStAt.seg[g].p || sCur[g].n != sStAt.seg[g].n)
+                        {
+                            char w[96];
+
+                            portConLogf("ge: snaptest:   segment %d: now %s len %u, pass 1 len %u at %p\n", g,
+                                        g < sNCur ? whatIs(sCur[g].p, w, sizeof(w)) : "-", g < sNCur ? sCur[g].n : 0u,
+                                        g < sStAt.nseg ? sStAt.seg[g].n : 0u, g < sStAt.nseg ? (void *) sStAt.seg[g].p : NULL);
+                        }
+                    }
+                }
+            }
+            int i, bad = 0;
+
+            if ((u32) n != h[0])
+            {
+                bad = 1;
+                if (sStFirstDiff < 0)
+                {
+                    portConLogf("ge: snaptest: tick %u: the state's layout differs (%d chunks, pass 1 %u)\n", tick, n, h[0]);
+                }
+            }
+            else if (n > sStChunks - 1)
+            {
+                bad = 1;
+                if (sStFirstDiff < 0)
+                {
+                    portConLogf("ge: snaptest: tick %u: %d chunks, more than the %d the test keeps: not compared\n", tick, n, sStChunks - 1);
+                }
+            }
+            else
+            {
+                for (i = 0; i < n; i++)
+                {
+                    if (now[i] != h[1 + i])
+                    {
+                        bad++;
+                    }
+                }
+            }
+            if (bad)
+            {
+                static u8 *seen;        /* chunks already reported */
+                static int shownTotal;
+
+                sStDiffTicks++;
+                if (sStFirstDiff < 0)
+                {
+                    sStFirstDiff = (int) tick;
+                    portConLogf("ge: snaptest: FIRST DIFFERENCE at the start of tick %u (%d chunks differ): tick %u read state outside the snapshot\n",
+                                tick, bad, tick - 1u);
+                }
+                if (seen == NULL)
+                {
+                    seen = (u8 *) calloc((size_t) sStChunks, 1);
+                }
+                /* every chunk once, at the first tick it differs: where each divergence entered */
+                for (i = 0; i < n && (u32) n == h[0] && shownTotal < 300; i++)
+                {
+                    if (now[i] != h[1 + i] && !seen[i])
+                    {
+                        char w[96];
+                        u32 len;
+                        u8 *p = stChunkAddr(i, &len);
+
+                        seen[i] = 1;
+                        shownTotal++;
+                        portConLogf("ge: snaptest:   tick %u: chunk %d: %s (%u bytes)\n", tick, i, whatIs(p, w, sizeof(w)), len);
+                        if (sStAt.valid && sStAt.tick == tick)
+                        {   /* where in the chunk, against the whole state GE_SNAPTESTAT kept */
+                            int g;
+
+                            for (g = 0; g < sStAt.nseg; g++)
+                            {
+                                const Seg *sg = &sStAt.seg[g];
+
+                                if (p >= sg->p && p < sg->p + sg->n)
+                                {
+                                    const u8 *old = sStAt.buf + sg->off + (p - sg->p);
+                                    u32 k, lim = (u32) (sg->p + sg->n - p) < len ? (u32) (sg->p + sg->n - p) : len;
+
+                                    for (k = 0; k + 4 <= lim; k += 4)
+                                    {
+                                        u32 a, b;
+
+                                        memcpy(&a, p + k, 4);
+                                        memcpy(&b, old + k, 4);
+                                        if (a != b)
+                                        {
+                                            portConLogf("ge: snaptest:     +0x%x: now %08x, pass 1 %08x\n", k, a, b);
+                                            break;
+                                        }
+                                    }
+                                    if (k + 4 > lim)
+                                    {
+                                        portConLogf("ge: snaptest:     the same as pass 1 over the %u bytes pass 1 had (its segment ends %u bytes in)\n", lim, lim);
+                                    }
+                                    break;
+                                }
+                            }
+                            if (g == sStAt.nseg)
+                            {
+                                portConLogf("ge: snaptest:     not in pass 1's segments at this tick\n");
+                            }
+                        }
+                    }
+                }
+            }
+            free(now);
+            return;
+        }
+        {
+            const u32 diff = slotCompare(&sStRef, "snaptest", 1);
+
+            portConLogf("ge: snaptest: RESULT ticks %d..%d: %s (first difference %d, %d of %d tick starts differed, %u bytes differ at tick %u)\n", sStT,
+                        sStT + sStN - 1, diff == 0 && sStDiffTicks == 0 ? "BIT-EXACT" : "DIFFERENT", sStFirstDiff, sStDiffTicks, sStN, diff, tick);
+        }
+        sStPass = 3;
+        free(sStHash);
+        sStHash = NULL;
+        if (sStExit)
+        {   /* GE_SNAPSOLOTEST=T,N,1: the test is all this run is for */
+            fflush(stdout);
+            fflush(stderr);
+            _exit(0);
+        }
+    }
+}
+
+#ifdef __linux__
+/* GE_SNAPTESTOUT=1: the exe's writable data outside the snapshot, hashed in 4 KB chunks at the save and again at the restore:
+ * the chunks that changed over pass 1 are what pass 2 starts from that pass 1 did not (the candidates for a sim read of
+ * state outside the snapshot). */
+extern char __data_start[], _end[];
+static u32 *sStOut;
+static int sStOutN;
+
+static int stInStatics(const u8 *p, u32 n)
+{
+    int i;
+
+    for (i = 0; i < sNStatic; i++)
+    {
+        if (p >= sStatic[i].lo && p + n <= sStatic[i].lo + sStatic[i].n)
+        {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static u8 *sStOutCopy;
+
+static void stOutHash(int report)
+{
+    const u8 *lo = (const u8 *) (((uintptr_t) __data_start) & ~(uintptr_t) (PAGE - 1)), *hi = (const u8 *) _end;
+    const int n = (int) ((hi - lo + PAGE - 1) / PAGE);
+    int i, shown = 0;
+
+    if (!report)
+    {   /* a copy of all of it, for the word-level report */
+        free(sStOutCopy);
+        sStOutCopy = (u8 *) malloc((size_t) (hi - lo));
+        if (sStOutCopy != NULL)
+        {
+            memcpy(sStOutCopy, lo, (size_t) (hi - lo));
+        }
+    }
+    else if (sStOutCopy != NULL)
+    {
+        u32 o = 0, total = (u32) (hi - lo);
+        int runs = 0;
+
+        while (o + 4 <= total && runs < 4000)
+        {
+            u32 a, b, e;
+
+            memcpy(&a, lo + o, 4);
+            memcpy(&b, sStOutCopy + o, 4);
+            if (a == b || lo + o < (const u8 *) __data_start || stInStatics(lo + o, 4)
+                || (lo + o >= (const u8 *) &sStOutCopy && lo + o < (const u8 *) &sStOutCopy + sizeof(sStOutCopy)))
+            {
+                o += 4;
+                continue;
+            }
+            for (e = o + 4; e + 4 <= total && e - o < 4096; e += 4)
+            {
+                memcpy(&a, lo + e, 4);
+                memcpy(&b, sStOutCopy + e, 4);
+                if (a == b || stInStatics(lo + e, 4))
+                {
+                    break;
+                }
+            }
+            memcpy(&a, lo + o, 4);
+            memcpy(&b, sStOutCopy + o, 4);
+            portConLogf("ge: snaptest: outside word run @%08x len %u: now %08x was %08x\n", (unsigned) (uintptr_t) (lo + o), e - o, a, b);
+            runs++;
+            o = e;
+        }
+    }
+    if (sStOut == NULL)
+    {
+        sStOut = (u32 *) calloc((size_t) n, sizeof(u32));
+        sStOutN = n;
+    }
+    for (i = 0; i < n && i < sStOutN; i++)
+    {
+        const u8 *p = lo + (size_t) i * PAGE;
+        u32 x = 0x811C9DC5u, k, len = (u32) (hi - p < (long) PAGE ? hi - p : PAGE);
+
+        if (p < (const u8 *) __data_start)
+        {
+            p = (const u8 *) __data_start;
+            len = PAGE - (u32) ((uintptr_t) __data_start & (PAGE - 1));
+        }
+        if (stInStatics(p, len))
+        {
+            continue;
+        }
+        for (k = 0; k + 4 <= len; k += 4)
+        {
+            u32 w;
+
+            if (stInStatics(p + k, 4))
+            {
+                continue;   /* (a page that is partly in the snapshot: only its other bytes count) */
+            }
+            memcpy(&w, p + k, 4);
+            x = (x ^ w) * 0x9E3779B1u;
+            x ^= x >> 15;
+        }
+        if (report && x != sStOut[i] && shown < 400)
+        {
+            portConLogf("ge: snaptest: outside the snapshot, changed over pass 1: @%08x (%u bytes)\n", (unsigned) (uintptr_t) p, len);
+            shown++;
+        }
+        sStOut[i] = x;
+    }
+}
+#endif
+
+int portSnapSoloTestRestoring(void)
+{
+    return sStT > 0 && sStPass == 1 && (int) (stageTicks() + 1u) == sStT + sStN;
+}
+
+static unsigned int sTicksBegun;    /* in-stage ticks begun in this process: presentation, never rewound */
+
+unsigned int portSnapTicksBegun(void)
+{
+    return sTicksBegun;
+}
+
 void portSnapTickBegin(void)
 {
     unsigned int tick;
     Slot *s;
 
+    sTicksBegun++;
     if (!sInit)
     {
         init();
@@ -993,6 +1431,7 @@ void portSnapTickBegin(void)
     {
         soloTick();
     }
+    soloTestTick();
     if (!sOn)
     {
         return;

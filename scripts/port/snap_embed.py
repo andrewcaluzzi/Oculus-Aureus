@@ -30,6 +30,10 @@ SIM_PORT = {
     'port_cctvview.c',
     # input latches the sim reads (held / edge / zoom state per pad); its live accumulators are excluded by portSnapLive()
     'joy_port.c',
+    # the sim's own view of the sounds it starts (tokens, end times in sim fields): modding/snapshot-fidelity.md
+    'port_simsnd.c',
+    # the player bot: its decisions are state the optimiser's savestates rewind (its scratch buffers are registered live)
+    'port_playerbot.c', 'port_playerbotgraph.c',
 }
 # port/src files that are presentation or transport: never rewound.
 PRES_PORT = {

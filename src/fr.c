@@ -204,6 +204,32 @@ void viInitVideoSettings(void)
     #else
     D_800232A0 = 0xffffffe0;
     #endif
+#ifndef TARGET_N64
+    {   /* Rollback / savestates (modding/snapshot-fidelity.md): the sim's camera model reads the back VI settings (fovy,
+         * aspect, view size: viGetFovY, viGetViewX...) and the sim writes them every pass, so they are sim state, though
+         * this file is presentation. The front/back pair flips at every drawn frame (video_related_8): a restore that
+         * leaves the pointer where the abandoned ticks put it hands the sim the other entry, set by those ticks
+         * (Frigate: a different room walk in the very next tick). The VI mode ring (D_800232C0) goes with the pair. */
+        extern void portSnapAddRange(const char *name, const void *p, unsigned int n);
+        static s32 registered;
+
+        if (!registered)
+        {
+            registered = 1;
+            portSnapAddRange("fr.vidata", g_ViDataArray, sizeof(g_ViDataArray));
+            portSnapAddRange("fr.vifront", &g_ViFrontData, sizeof(g_ViFrontData));
+            portSnapAddRange("fr.viback", &g_ViBackData, sizeof(g_ViBackData));
+            portSnapAddRange("fr.vifrontindex", &g_ViFrontIndex, sizeof(g_ViFrontIndex));
+            portSnapAddRange("fr.vibackindex", &g_ViBackIndex, sizeof(g_ViBackIndex));
+            portSnapAddRange("fr.vimodering", &D_800232C0, sizeof(D_800232C0));
+            /* the projection the view setup builds from them: the player keeps a POINTER to this matrix
+             * (currentPlayerSetProjectionMatrixF) and the sim's onscreen and portal tests read it */
+            portSnapAddRange("fr.projf", g_viProjectionMatrixF, sizeof(g_viProjectionMatrixF));
+            portSnapAddRange("fr.proj", &g_viProjectionMatrix, sizeof(g_viProjectionMatrix));
+            portSnapAddRange("fr.perspnorm", &g_viPerspNorm, sizeof(g_viPerspNorm));
+        }
+    }
+#endif
 }
 
 void viInitBuffers(void)

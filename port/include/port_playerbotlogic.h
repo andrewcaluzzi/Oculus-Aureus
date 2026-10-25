@@ -38,6 +38,8 @@ void  pblGraphClearMarks(PblGraph *g);                          /* npen = 0, nba
 /* A*: path of node indices from `from` to `to` inclusive into out[max]; returns its length, 0 = unreachable.
  * A route longer than max is cut to its first max nodes (the caller plans again at the end). */
 int   pblAstar(PblGraph *g, int from, int to, int *out, int max);
+extern float *g_PblAstarFs;      /* its f-score scratch (allocated on first use; savestates leave it alone) */
+extern int    g_PblAstarFsCap;
 /* nearest node to a point (3D, vertical distance weighted x3); -1 if empty */
 int   pblNearest(const PblGraph *g, float x, float y, float z);
 /* connected components (edges taken as given): number of them, and the size of the largest */

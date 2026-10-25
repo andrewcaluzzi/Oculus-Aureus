@@ -99,6 +99,11 @@ static void bossSimStep(s32 portSimOnly)
         if (portCoopActive() && g_StageNum != LEVELID_TITLE) { set_cur_player(0); }
     }
     if (portSimOnly) { portSimOnlySect(8); }
+    { /* PORT: the sim's view of its sounds runs on the sim clock (port_simsnd.c): sounds that ended give their owner words back */
+        extern void portSimSndTick(int fields);
+        extern s32 currentFrameCounter;   /* frametiming.c: fields */
+        portSimSndTick(currentFrameCounter);
+    }
 #endif
     // Primary game tick function.
     lvlTick();
