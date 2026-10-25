@@ -15,6 +15,8 @@
 --                                  attribute, near, weight_<kind>
 --   patrols = true                some posted guards walk patrol routes (the layout's patrol_<route>_<n> pads, else the named
 --                                  routes below: patrols_named = false turns those off)
+--   station_late = 60            a patrol guard who punches no watchclock station (bank v3's M.STATIONS) this long has missed his
+--                                  round: someone is sent to the station
 --   ai_difficulty                 per difficulty (0 Agent .. 3 007) ai.tune values on top (below: harder = quicker to react, a shorter
 --                                  check-in, more backup)
 
@@ -60,9 +62,9 @@ function A.guard(c, kind)
   if A.on and c then ai.guard(c, KIND_CODE[kind] or 0) end
 end
 
--- the layout's patrol routes: pads named patrol_<route>_<n> (n = 1, 2, ...). The posted guard nearest each route's first pad walks it
--- in a loop while he is unaware (bank v2: tools/levelgen/build_janus_bank.py; the bank3 layout uses the same names).
--- without patrol_* pads in the layout: these routes by pad name (bank v2), each a loop on one floor with no keyed door on the way
+-- Patrol routes, from (first that has any): the map's guard tours (heist_bank_map() M.PATROLS: route -> pad ids in walking order, a
+-- loop; bank v3), the layout's pads named patrol_<route>_<n> (n = 1, 2, ...), else these loops by pad name on bank v2 (each on one
+-- floor with no keyed door on the way). The posted guard nearest each route's first pad walks it while he is unaware.
 local NAMED_ROUTES = {
   { name = "hall", pads = { "hall_post_sw", "hall_post_nw", "hall_post_ne", "hall_post_se" } },
   { name = "offices", pads = { "ocorr_s", "ocorr_mid", "ocorr_n", "ocorr_mid" } },
@@ -72,17 +74,29 @@ local NAMED_ROUTES = {
   { name = "gallery", pads = { "gal_w_s", "gal_w_mid", "gal_w_n", "gal_w_mid" } },
 }
 
+local function sorted_keys(t)
+  local k = {}
+  for r in pairs(t) do k[#k + 1] = r end
+  table.sort(k, function(a, b) return tostring(a) < tostring(b) end)
+  return k
+end
+
 local function routes()
+  local out = {}
+  local M = A.H and A.H.M or {}
+  if type(M.PATROLS) == "table" then
+    for _, r in ipairs(sorted_keys(M.PATROLS)) do
+      local list = M.PATROLS[r]
+      if #list >= 2 then out[#out + 1] = { name = tostring(r), pads = list } end
+    end
+    if #out > 0 then return out end
+  end
   local R = {}
   for name, id in pairs((LEVEL and LEVEL.pads) or {}) do
     local r, n = tostring(name):match("^patrol_([%w]+)_(%d+)$")
     if r then R[r] = R[r] or {}; R[r][tonumber(n)] = id end
   end
-  local names = {}
-  for r in pairs(R) do names[#names + 1] = r end
-  table.sort(names)
-  local out = {}
-  for _, r in ipairs(names) do
+  for _, r in ipairs(sorted_keys(R)) do
     local list = {}
     for i = 1, 16 do if R[r][i] then list[#list + 1] = R[r][i] else break end end
     if #list >= 2 then out[#out + 1] = { name = r, pads = list } end
@@ -100,8 +114,11 @@ end
 function A.assign_routes()
   if not A.on or A.routes_done then return end
   A.routes_done = true
+  A.tours = {}
   if A.S.patrols == false then return end
   local H = A.H
+  local stations = {}
+  for _, id in ipairs((H.M and H.M.STATIONS) or {}) do stations[id] = true end
   local taken, n = {}, 0
   for _, route in ipairs(routes()) do
     local x, _, z = pads.pos(route.pads[1])
@@ -117,15 +134,50 @@ function A.assign_routes()
       taken[best.chr] = true
       best.route = route.name
       n = n + 1
-      log("guard %d patrols route %s (%d pads)", best.chr, route.name, #route.pads)
+      local st = {}
+      for _, id in ipairs(route.pads) do if stations[id] then st[#st + 1] = id end end
+      A.tours[#A.tours + 1] = { chr = best.chr, route = route.name, stations = st, punched = H.elapsed, at = nil, missed = false }
+      log("guard %d patrols route %s (%d pads, %d watchclock stations)", best.chr, route.name, #route.pads, #st)
     end
   end
   A.patrols = n
 end
 
+-- the watchclock (bank v3's stations, M.STATIONS): a patrol guard punches each station on his tour as he passes it (within 150 units).
+-- One who has punched none for station_late seconds (down, or held up) has missed his round: the nearest free guard is sent to the
+-- station he should have punched next.
+local function watchclock()
+  local H = A.H
+  local late = A.S.station_late or 60
+  for _, t in ipairs(A.tours or {}) do
+    if #t.stations > 0 then
+      local up = spawn.alive(t.chr) and not spawn.down(t.chr)
+      local x, z = spawn.where(t.chr)
+      if up and x then
+        for i, id in ipairs(t.stations) do
+          local px, _, pz = pads.pos(id)
+          if px and (px - x) ^ 2 + (pz - z) ^ 2 < 150 * 150 then t.punched, t.at, t.missed = H.elapsed, i, false end
+        end
+      end
+      if not t.missed and H.elapsed - t.punched > late and not H.hot then
+        t.missed = true
+        local nxt = t.stations[((t.at or 0) % #t.stations) + 1]
+        local px, py, pz = pads.pos(nxt)
+        local c = px and ai.nearest_free(px, py, pz, 0, t.chr)
+        log("guard %d missed his watchclock station (%s, %.0f s): %s", t.chr, t.route, H.elapsed - t.punched, c and ("chr " .. c .. " sent") or "nobody free")
+        if c then ai.send(c, px, py, pz, false, "The " .. t.route .. " round missed a station. Checking.") end
+      end
+    end
+  end
+end
+
 -- the mode's tick (H.ready)
+local wc_acc = 0
 function A.tick()
-  if A.on and not A.routes_done then A.assign_routes() end
+  if not A.on then return end
+  if not A.routes_done then A.assign_routes() end
+  wc_acc = wc_acc + 0.25
+  if wc_acc >= 1 then wc_acc = 0; watchclock() end
 end
 
 -- a camera's report of a body (port_ai.c: cctv_spotted with player -1): say so on every HUD

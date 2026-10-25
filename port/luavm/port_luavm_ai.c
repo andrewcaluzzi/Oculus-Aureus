@@ -9,6 +9,7 @@
  *   ai.awareness(chr) -> state, level, lastx, lastz | nil    (state: 0 unaware, 1 suspicious, 2 searching, 3 alert, 4 combat)
  *   ai.state_name(state)      ai.info(chr) -> {state, name, level, sub, x, z, post_x, post_z, looks, down, heard_ago} | nil
  *   ai.tune{turn = 1.2, look = 2.5, search_time = 30, checkin = 25, backup = 2, weight_slap = 1.2, ...}
+ *   ai.nearest_free(x, y, z [, range [, exclude]]) -> chr | nil      ai.send(chr, x, y, z [, run [, radio text]]) -> bool
  *   ai.bark(chr, kind, text)      ai.counts() -> {barks, searches, giveups, checkins, backups, cam_acts, cam_bodies}
  * Events (on(...)): noise(x, y, z, radius, kind, src), guard_bark(chr, kind, text). */
 #include <string.h>
@@ -36,6 +37,8 @@ extern const char *portAiStateName(int st);
 extern int portAiInfo(int chrnum, int *sub, const char **subName, float *postx, float *postz, int *looks, int *down, float *heardAgo);
 extern int portAiTune(const char *name, float v);
 extern float portAiFace(int chrnum);
+extern int portAiNearestFree(float x, float y, float z, float range, int exclude);
+extern int portAiSend(int chrnum, float x, float y, float z, int run, const char *text);
 extern int portAiBark(int chrnum, const char *kind, const char *text);
 extern int portAiBarkArgs(int *chr, const char **kind, const char **text);
 extern void portAiCounts(int *barks, int *searches, int *giveups, int *checkins, int *backups, int *camacts, int *cambodies);
@@ -182,6 +185,25 @@ static int aiInfo(lua_State *L)
     return 1;
 }
 
+static int aiNearestFree(lua_State *L)
+{
+    int c;
+
+    needStage(L, "ai.nearest_free");
+    c = portAiNearestFree((float) luaL_checknumber(L, 1), (float) luaL_checknumber(L, 2), (float) luaL_checknumber(L, 3),
+                          (float) luaL_optnumber(L, 4, 0.0), (int) luaL_optinteger(L, 5, -1));
+    if (c < 0) lua_pushnil(L); else lua_pushinteger(L, c);
+    return 1;
+}
+
+static int aiSend(lua_State *L)
+{
+    needStage(L, "ai.send");
+    lua_pushboolean(L, portAiSend((int) luaL_checkinteger(L, 1), (float) luaL_checknumber(L, 2), (float) luaL_checknumber(L, 3),
+                                  (float) luaL_checknumber(L, 4), lua_toboolean(L, 5), luaL_optstring(L, 6, "")));
+    return 1;
+}
+
 static int aiBark(lua_State *L)
 {
     lua_pushboolean(L, portAiBark((int) luaL_checkinteger(L, 1), luaL_checkstring(L, 2), luaL_optstring(L, 3, "")));
@@ -241,7 +263,7 @@ void portLuaAiRegister(lua_State *L)
         { "last", noiseLast }, { NULL, NULL } };
     static const luaL_Reg aiLib[] = { { "enable", aiEnable }, { "on", aiIsOn }, { "guard", aiGuard }, { "patrol", aiPatrol },
         { "awareness", aiAwareness }, { "state_name", aiStateName }, { "info", aiInfo }, { "tune", aiTune }, { "bark", aiBark },
-        { "counts", aiCounts }, { NULL, NULL } };
+        { "counts", aiCounts }, { "nearest_free", aiNearestFree }, { "send", aiSend }, { NULL, NULL } };
 
     luaL_newlib(L, noiseLib);
     lua_setglobal(L, "noise");

@@ -95,7 +95,10 @@ it steers him with `check_set_actor_standing_still(TARGET_COMPASS, angle)` (a co
 `getsubroty`), `plot_course_for_actor` / `chrGoToPad` and `chrTrySurprisedLookAround`, only while `chr->ailist` is still the list he
 was spawned with (the stock simple guard's detection loop issues no movement, so the two do not fight). The moment that list jumps
 (it saw Bond, heard a shot, saw a death) the layer lets go. GoldenEye's guards have no speech lines; a bark plays a throat-clear
-(`COUGH2_SFX`), a grunt (`GET_HIT_MALE*`) or the radio (`RADIO_SFX`, `RADIO_MESSAGE_SFX`).
+(`COUGH2_SFX`), a grunt (`GET_HIT_MALE*`) or the radio (`RADIO_SFX`, `RADIO_MESSAGE_SFX`). Pitfall found on the way: a chr spawned by
+`spawn.chr` is an arena enemy, and `portArenaDirect` re-plots its walk toward Bond unless `portHeistChrWaking` says something
+else steers it; a guard walking to a search pad ended up in the street where the test Bond stood. The layer answers through
+`portAiSteers`.
 
 ## How a guard's shot hits Bond
 

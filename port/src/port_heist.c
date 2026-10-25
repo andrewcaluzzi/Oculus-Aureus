@@ -867,6 +867,7 @@ void portHeistPatrolLater(int chrnum, int path)
 
 int portHeistBodiesFound(void) { return sFoundN; }
 void portHeistBodyCheck(int on) { sBodyCheck = on ? 1 : 0; }
+int portHeistBodyCheckOn(void) { return sBodyCheck; }   /* port_ai.c: the cameras find bodies only while bodies can be found */
 
 static int koIsDown(s32 chrnum);
 
@@ -1487,6 +1488,11 @@ int portHeistChrWaking(const ChrRecord *c)
     extern int portHeistChrOnGo(const ChrRecord *c);
 
     if (c != NULL && portHeistChrOnGo(c)) return 1;   /* a scripted walk (spawn.go) keeps the stock route to its pad too */
+    {
+        extern int portAiSteers(const ChrRecord *c);   /* port_ai.c: a guard walking to a noise, a search pad, his post, his patrol */
+
+        if (c != NULL && portAiSteers(c)) return 1;
+    }
     if (sKoBusy <= 0 || c == NULL) return 0;
     for (i = 0; i < sKoN; i++)
     {

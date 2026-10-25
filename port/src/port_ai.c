@@ -56,6 +56,7 @@ extern s32 plot_course_for_actor(ChrRecord *self, coord3d *arg1, StandTile *stan
 extern void bondviewUpdateGuardTankFlagsRelated(PropRecord *prop, s32 flag);
 extern int portHeistKoIs(int chrnum);
 extern int portHeistChrWaking(const ChrRecord *c);
+static int othersSteer(const ChrRecord *c);
 extern int portHeistCoverIsOn(void);
 extern int portHeistCoverAlert(void);
 extern int portHeistCoverActing(int p);
@@ -63,6 +64,7 @@ extern int portHeistCoverNoise(int chrnum, int p, float add, int blow);
 extern int portHeistCctvList(int *out, int max);
 extern void *portHeistCctvRecord(int idx);
 extern int portHeistCivilianState(int chrnum);
+extern int portHeistBodyCheckOn(void);
 extern int portGameSfxPlay(int sfx, float vol, float pitch, float delay, float pan);
 extern int portLocalPlayer(void);
 extern void portNoiseEmitRoom(float x, float y, float z, float radius, int kind, int srcChr, int room);
@@ -91,7 +93,7 @@ typedef struct
     u8 used, state, sub, nkind, down, missed, backup, run, looks, lookMax, kind, alertOnly;
     s16 postPad, route, ridx;
     s32 stateAt, subAt, heardAt, downAt, plotAt, seenAt, barkAt, plots;
-    f32 level, nx, ny, nz, tx, tz, postx, postz, postFace;
+    f32 level, nx, ny, nz, tx, tz, postx, posty, postz, postFace;
     s32 nroom, src;
     AIRecord *idle;            /* the list it was spawned with (its detection loop); a cache, not hashed: compared each scan */
     ChrRecord *slot;           /* chrFindByLiteralId cache (re-checked by chrnum) */
@@ -330,6 +332,7 @@ int portAiGuardAdd(int chrnum, int kind)
     g->slot = c;
     g->idle = c->ailist;
     g->postx = c->prop->pos.x;
+    g->posty = c->prop->pos.y;
     g->postz = c->prop->pos.z;
     g->postFace = getsubroty(c->model);
     g->route = -1;
@@ -465,10 +468,9 @@ static void giveUp(AiG *g, ChrRecord *c)
     if (g->state < AS_ALERT && g->level > sT.suspLevel * 0.5f) g->level = sT.suspLevel * 0.5f;   /* calmed down: the next noise starts over */
     setSub(g, SUB_RETURN);
     g->plotAt = sNow;
-    if (g->postPad < 0 || !chrGoToPad(c, g->postPad, SPEED_WALK))
-    {
-        if (!goToPoint(c, g->postx, c->prop->pos.y, g->postz, 0)) setSub(g, SUB_NONE);
-    }
+    printf("ge: ai: chr %d gives up at %.0f,%.0f: back to his post %.0f,%.0f (pad %d)\n", (int) c->chrnum, c->prop->pos.x, c->prop->pos.z,
+           g->postx, g->postz, (int) g->postPad);
+    if (!goToPoint(c, g->postx, g->posty, g->postz, 0) && (g->postPad < 0 || !chrGoToPad(c, g->postPad, SPEED_WALK))) setSub(g, SUB_NONE);
 }
 
 /* ---- hearing (port_noise.c calls this for every tracked guard in range) ---- */
@@ -522,7 +524,7 @@ void portAiHear(int i, int kind, float loud, float x, float y, float z, int room
     }
     if (g->state == AS_COMBAT) return;
     if (kind == NOISE_ALARM) { setState(g, AS_ALERT); if (g->level < 0.8f) g->level = 0.8f; return; }
-    if (portHeistChrWaking(c) || c->ailist != g->idle) return;   /* a waker / a scripted walk / his own list took over: not steered */
+    if (othersSteer(c) || c->ailist != g->idle) return;   /* a waker / a scripted walk / his own list took over: not steered */
     if ((close || kind == NOISE_SHOT || kind == NOISE_GLASS) && (g->state < AS_SEARCHING || g->sub == SUB_RETURN || g->sub == SUB_PATROL))
     {
         if (g->state < AS_SEARCHING) setState(g, AS_SEARCHING);
@@ -570,7 +572,7 @@ static int seesProp(ChrRecord *g, PropRecord *bp, f32 maxd)
 /* a free guard: up, his own detection loop running, nobody else steering him, not already busy */
 static int freeGuard(AiG *g, ChrRecord *c)
 {
-    return chrUp(c) && c->ailist == g->idle && !portHeistChrWaking(c) && g->state != AS_COMBAT
+    return chrUp(c) && c->ailist == g->idle && !othersSteer(c) && g->state != AS_COMBAT
         && (g->sub == SUB_NONE || g->sub == SUB_RETURN || g->sub == SUB_PATROL);
 }
 
@@ -631,6 +633,59 @@ static void callBackup(AiG *g, ChrRecord *c)
     }
 }
 
+/* ai.nearest_free(x, y, z [, range]) -> the nearest free tracked guard (up, his own list idle, not busy), -1 none */
+int portAiNearestFree(float x, float y, float z, float range, int exclude)
+{
+    int who[1];
+
+    if (!portAiOn() || nearestFree(x, y, z, range > 0.0f ? range : 20000.0f, who, 1, exclude) != 1) return -1;
+    return sG[who[0]].chrnum;
+}
+
+/* ai.send(chr, x, y, z [, run [, text]]): a script sends a tracked guard to search a point (a missed watchclock station ...) */
+int portAiSend(int chrnum, float x, float y, float z, int run, const char *text)
+{
+    AiG *g = gFind(chrnum);
+    ChrRecord *c;
+
+    if (!portAiOn() || g == NULL || !chrUp(c = gChr(g))) return 0;
+    if (text != NULL && text[0] != '\0')
+    {
+        static char keep[4][96];
+        static int at;
+
+        snprintf(keep[at], sizeof(keep[0]), "%s", text);
+        bark(g, c, BK_RADIO, keep[at]);
+        at = (at + 1) & 3;
+    }
+    sendTo(g, c, x, y, z, run, AS_SUSPICIOUS);
+    return 1;
+}
+
+/* port_heist.c portHeistChrWaking (so port_arenamode.c portArenaDirect keeps the stock route): this layer is walking him somewhere
+ * (to a noise, a search pad, back to his post, his patrol). Without it the arena's direct route re-aims a spawned guard at Bond. */
+static int sSelfAsk;
+
+int portAiSteers(const ChrRecord *c)
+{
+    AiG *g;
+
+    if (sSelfAsk || c == NULL || !portAiOn()) return 0;
+    g = gFind(c->chrnum);
+    return g != NULL && g->sub != SUB_NONE && g->state != AS_COMBAT && c->ailist == g->idle;
+}
+
+/* a KO waker or a scripted walk (spawn.go) steers him: not this layer */
+static int othersSteer(const ChrRecord *c)
+{
+    int r;
+
+    sSelfAsk = 1;
+    r = portHeistChrWaking(c);
+    sSelfAsk = 0;
+    return r;
+}
+
 /* ---- the per-guard step ---- */
 
 static void guardStep(AiG *g, f32 dt)
@@ -678,7 +733,7 @@ static void guardStep(AiG *g, f32 dt)
         if (st == AS_COMBAT && !g->backup && sT.backupN > 0) callBackup(g, c);
         return;
     }
-    if (portHeistChrWaking(c)) { setSub(g, SUB_NONE); return; }   /* the KO waker / a scripted walk steers him */
+    if (othersSteer(c)) { setSub(g, SUB_NONE); return; }   /* the KO waker / a scripted walk steers him */
     switch (g->sub)
     {
         case SUB_TURN:
@@ -762,7 +817,7 @@ static void guardStep(AiG *g, f32 dt)
                 else if (sNow - g->plotAt > 120)
                 {
                     g->plotAt = sNow;
-                    if (g->postPad < 0 || !chrGoToPad(c, g->postPad, SPEED_WALK)) goToPoint(c, g->postx, c->prop->pos.y, g->postz, 0);
+                    if (!goToPoint(c, g->postx, g->posty, g->postz, 0) && g->postPad >= 0) chrGoToPad(c, g->postPad, SPEED_WALK);
                 }
             }
             break;
@@ -1008,8 +1063,8 @@ static void cameras(void)
             }
         }
     }
-    /* bodies: a dead or knocked-out chr lying in a camera's view */
-    if (g_ChrSlots == NULL) return;
+    /* bodies: a dead or knocked-out chr lying in a camera's view (not with mode.body_check(false): bodies are not found at all) */
+    if (g_ChrSlots == NULL || !portHeistBodyCheckOn()) return;
     for (i = 0; i < g_NumChrSlots; i++)
     {
         ChrRecord *b = &g_ChrSlots[i];

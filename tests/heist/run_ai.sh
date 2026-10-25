@@ -13,7 +13,7 @@ cp /home/dev/project/port/levelgen/levelgen_layout.lua /home/dev/project/build_p
 LOGDIR=${LOGDIR:-/tmp}
 mkdir -p $LOGDIR /home/dev/project/build_pc/heist_ai_shots
 cd /home/dev/project/build_pc/heist_ai_shots || exit 1
-for run in ${RUNS:-hear slap door giveup camko camact camdown checkin}; do
+for run in ${RUNS:-hear slap door giveup camko camact camdown checkin patrol}; do
     flag=GE_AI_$(echo $run | tr a-z A-Z)=1
     echo "HEIST RUN $run"
     env $flag DISPLAY=:99 GE_MODE=heist_ai_test GE_STAGE=levelgen GE_SKIPINTRO=1 GE_NOINISAVE=1 GE_FIXEDTICK=1 GE_TICKHZ=60 GE_SEED=7 \

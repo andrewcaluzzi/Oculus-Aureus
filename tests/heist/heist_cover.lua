@@ -159,9 +159,12 @@ local function gun_path()
   for _, c in ipairs(hall) do if c ~= g and witness(c) then others = others + 1 end end
   print(string.format("HEIST   %d other hall guard(s) also saw the gun", others))
   check("the guards that did not see it do not know", others < #hall - 1, string.format("%d of %d others", others, #hall - 1))
-  local rep = wait_for(8, function() return #reports > 0 end)
-  check("still up after the radio time, he raises the alarm", rep and HEIST.hot and cover.alert(),
-        string.format("reports=%d hot=%s", #reports, tostring(HEIST.hot)))
+  -- (section 18: a civilian killed in the guards' crossfire in a camera's view is reported by the camera, and that alarm can come first)
+  local cam_body = false
+  on("cctv_spotted", function(c, p) if p == -1 then cam_body = true end end)
+  local rep = wait_for(8, function() return #reports > 0 or (cam_body and HEIST.hot) end)
+  check("still up after the radio time, he raises the alarm (or a camera saw the crossfire's victim first)", rep and HEIST.hot and cover.alert(),
+        string.format("reports=%d camera body=%s hot=%s", #reports, tostring(cam_body), tostring(HEIST.hot)))
 end
 
 local function loot_path()
