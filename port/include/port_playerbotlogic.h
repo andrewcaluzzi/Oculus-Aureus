@@ -70,6 +70,9 @@ float pblOffFacing(float facingRad, float cx, float cz, float x, float z);
 /* Threat ranking for target choice, lower = shoot first: distance, less for a guard who is shooting at Bond, much less for
  * one running to raise the alarm or one that hurt Bond lately. */
 float pblThreatScore(float dist, int attacking, int alarmRaiser, int hurtUsLately);
+/* ...scaled down by how far the guard's aim at Bond has built (his shotbondsum, 0..1: at 1 Bond takes a hit,
+ * chraction.c): x(1 - 0.6 aim) - the one about to land a hit is shot first. Negative scores (raisers) are left. */
+float pblThreatAimScore(float score, float aimSum);
 /* How fast Bond gets hit at a spot: the sum, over the n guards with seen[k] set, of min(1, 300 / dist[k]) (a guard's aim
  * builds per shot by that factor, chraction.c; Bond's movement does not enter it). A spot none of them sees scores
  * `noShot` instead: safe for now, but Bond cannot shoot back and they walk round to it, close. */

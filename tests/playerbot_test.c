@@ -441,6 +441,13 @@ static void test_combat_geometry(void)
     CHECK(pblParsePlan("spare ai 0x419\nspare ai 0\n", &plan, err, sizeof(err)) == 2);
     CHECK(plan.s[0].op == PBL_SPARE && plan.s[0].a == 0x419 && plan.s[1].a == 0);
     CHECK(pblParsePlan("spare 0x419\n", &plan, err, sizeof(err)) == -1);
+    /* the aim-progress weight: a guard whose aim is 90% built beats a nearer one that has just started */
+    CHECK(NEAR(pblThreatAimScore(1000.0f, 0.0f), 1000.0f, 0.01f));
+    CHECK(NEAR(pblThreatAimScore(1000.0f, 0.5f), 700.0f, 0.01f));
+    CHECK(NEAR(pblThreatAimScore(1000.0f, 3.0f), 400.0f, 0.01f));     /* clamped to 1 */
+    CHECK(NEAR(pblThreatAimScore(1000.0f, -1.0f), 1000.0f, 0.01f));
+    CHECK(pblThreatAimScore(1000.0f, 0.9f) < pblThreatAimScore(700.0f, 0.0f));
+    CHECK(NEAR(pblThreatAimScore(-100.0f, 1.0f), -100.0f, 0.01f));    /* raisers stay first */
     CHECK(pblParsePlan("hunt\nhunt ai 0x403\n", &plan, err, sizeof(err)) == 2);
     CHECK(plan.s[0].op == PBL_HUNT && plan.s[0].a == 0);
     CHECK(plan.s[1].op == PBL_HUNT && plan.s[1].a == 1 && plan.s[1].b == 0x403);

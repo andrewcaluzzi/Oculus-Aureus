@@ -1,0 +1,12 @@
+# Control. Objectives (tools/bot/objectives.py assets/obseg/setup/UsetupcontrolZ.c; flags byte-swapped there):
+#   0 (all) flag 0x1000 (protect Natalya): ai_3 sets it when she reaches pad 224 at the end; fails on 0x2000 (dead)
+#   1 (all) flag 0x4000: ai_2 (Natalya at her terminal, pad 227) after a long typing timer while she lives
+#   2 (all) destroy the main computers (tags 21-26): `auto`
+#   The exit: ai_24 - Bond in the room of pad 168 (ends the mission; the good ending only with all objectives done).
+#   Natalya first runs to pad 220 and types (ai_1), then pad 227 (ai_2).
+name control
+goto pad 220 200
+flag 0x4000 12000
+auto
+goto pad 168 60
+exit

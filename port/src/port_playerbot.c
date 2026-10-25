@@ -130,6 +130,7 @@ typedef struct {
      * travel direction by ssOff ([0] left, [1] right: measured +-38 deg, refined from Bond's real motion), the side kept
      * per route bend (ssSide: -1 left, +1 right) */
     s32 speedMode, ssSide, ssHeld, ssLearnN;
+    s32 ssThreatTick;          /* last tick a hostile was close / in sight / hurting Bond: no speed-strafe for 2 s after */
     f32 ssDist, wDist;         /* distance covered on straight stretches: speed-strafing / plain running (ticks below) */
     s32 ssTicks, wTicks;
     s32 ssTest;
@@ -439,7 +440,9 @@ static s32 stageFlag(s32 mask)
 
 static s32 isAllyBody(s32 body)
 {
-    return body == BODY_Natalya_Skirt || body == BODY_Trevelyan_006;
+    /* (Boris: Control fails its objective 0 the moment he dies - ai_23, chr 0 gone - and he carries a gun) */
+    return body == BODY_Natalya_Skirt || body == BODY_Natalya_Jungle_Fatigues || body == BODY_Trevelyan_006 ||
+           body == BODY_Boris;
 }
 
 /* on a `spare ai ID` list (a hostage's captors: shooting one has the hostage killed) */
@@ -1304,11 +1307,17 @@ static PropRecord *routeDoor(void)
         {
             continue;
         }
-        for (k = B.pathAt; k < B.pathN && k < B.pathAt + 12 && k <= bestK; k++)
+        /* (from two tiles back: Bond's tile can already be the far side's while the door, shutting, still holds him -
+         * Caverns' key-8 door, which stands open at the start and closes later) */
+        for (k = B.pathAt > 2 ? B.pathAt - 2 : 0; k < B.pathN && k < B.pathAt + 12 && k <= bestK; k++)
         {
             s32 nd = B.path[k];
             f32 ex = B.g.x[nd] - d->pos.x, ez = B.g.z[nd] - d->pos.z;
 
+            if (k < B.pathAt && dx * dx + dz * dz > 150.0f * 150.0f)
+            {
+                continue;   /* (behind Bond and not right at him: passed) */
+            }
             if (ex * ex + ez * ez < reach * reach && fabsf(B.g.y[nd] - d->pos.y) < 300.0f &&
                 (doorRoomCount(d) < 2 || (k > 0 && linkThroughDoor(B.path[k - 1], nd, d))))
             {   /* (a door between rooms: only when the route goes through its doorway, not past it) */
@@ -1624,7 +1633,41 @@ static void steerTo(f32 x, f32 y, f32 z, f32 slowRadius)
         (void) slowRadius;
         return;
     }
-    if (B.speedMode && slowRadius <= 0.0f && B.doorProp == NULL && dist > 30.0f)
+    if (B.speedMode && (B.tick % 8) == 0)
+    {   /* speed-strafe safety: the 38-degree view offset sees guards ahead late (round 4: Surface 2 and Bunker 2 lost
+         * every speed run). Any armed hostile within 1000 with a line on Bond, or one that has noticed him within 1800,
+         * or one hurting him: run looking where he goes for the next 2 s */
+        s32 n = get_numguards(), i;
+
+        if (B.tick - B.lastHurtTick < 60)
+        {
+            B.ssThreatTick = B.tick;
+        }
+        for (i = 0; i < n && B.ssThreatTick != B.tick; i++)
+        {
+            ChrRecord *c = &g_ChrSlots[i];
+            f32 ex, ey, ez, d2;
+
+            if (!chrHostile(c) || c->prop->stan == NULL)
+            {
+                continue;
+            }
+            ex = c->prop->pos.x - p->prop->pos.x;
+            ey = c->prop->pos.y - p->prop->pos.y;
+            ez = c->prop->pos.z - p->prop->pos.z;
+            d2 = ex * ex + ez * ez;
+            if (fabsf(ey) > 400.0f || d2 > 1800.0f * 1800.0f || (d2 > 1000.0f * 1000.0f && !chrAlert(c)))
+            {
+                continue;
+            }
+            if (botLine(bondTile(), p->prop->pos.x, p->prop->pos.z, c->prop->pos.x, c->prop->pos.z, c->prop->stan,
+                        CDTYPE_OBJS | CDTYPE_DOORS | CDTYPE_PATHBLOCKER | CDTYPE_AIOPAQUE))
+            {
+                B.ssThreatTick = B.tick;
+            }
+        }
+    }
+    if (B.speedMode && slowRadius <= 0.0f && B.doorProp == NULL && dist > 30.0f && B.tick - B.ssThreatTick > 120)
     {   /* speed-strafe: bondview2.c scales the walk animation's forward root motion by speedforwards / maxspeed (maxspeed =
          * the largest of forward, sideways x MAX_SPEED_FACTOR, turn) and then ADDS the strafe (speedsideways / delta) to it
          * (bondhead.c bheadUpdate), not normalised: forward + strafe is faster than forward. Turn the view off the travel
@@ -2050,8 +2093,8 @@ static PropRecord *pickTarget(f32 range)
         dy = c->prop->pos.y - p->prop->pos.y;
         dz = c->prop->pos.z - p->prop->pos.z;
         d = dx * dx + dy * dy + dz * dz;
-        if (d > range * range || fabsf(dy) > 400.0f)
-        {
+        if ((d > range * range && !(chrAttacking(c) && d < 2400.0f * 2400.0f)) || fabsf(dy) > 400.0f)
+        {   /* (a guard shooting at Bond counts out to 2400: Caverns' and Streets' hits came from 1400-2400) */
             continue;
         }
         {
@@ -2087,6 +2130,7 @@ static PropRecord *pickTarget(f32 range)
         else
         {
             sc = pblThreatScore(d, chrAttacking(c), 0, hurt && chrAttacking(c));
+            sc = pblThreatAimScore(sc, c->shotbondsum);   /* nearest to landing his next hit: first */
         }
         if (civilianInLineYawEx(pblYawTo(dx, dz), d, chrIsRaiser(c) && chrAlert(c)))
         {
@@ -2850,6 +2894,12 @@ static s32 doShootObj(ObjectRecord *obj)
         }
         return 1;
     }
+    if (d < 400.0f && B.tick - B.shootSince > 240 && B.tick - B.shootSince < 420 && obj->type != PROPDEF_GAS_RELEASING)
+    {   /* close and still no line after 4 s: the line test may be what is wrong (Train's brake units sit in the
+         * carriage wall; the test point 40 short of the origin is inside it) - shoot anyway for a few seconds */
+        shootAt(op->pos.x, op->pos.y + 20.0f, op->pos.z, 15.0f);
+        return 1;
+    }
     /* no line yet: walk toward it until the line is clear (checked again every tick) */
     navTo(op->pos.x, op->pos.y, op->pos.z, 100.0f, op->stan);
     return 0;
@@ -3565,6 +3615,7 @@ static void stageBegin(void)
     B.lastHurtTick = -1000;
     B.kills = 0;
     B.civDead = 0;
+    B.ssThreatTick = -1000;
     B.fireTicks = 0;
     B.lastFireTick = 0;
     memset(B.tgtSkip, 0, sizeof(B.tgtSkip));

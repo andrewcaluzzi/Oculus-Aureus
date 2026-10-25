@@ -95,6 +95,13 @@ float pblOffFacing(float facingRad, float cx, float cz, float x, float z)
     return fabsf(pblWrap180(to - f));
 }
 
+float pblThreatAimScore(float score, float aimSum)
+{
+    float a = aimSum < 0.0f ? 0.0f : (aimSum > 1.0f ? 1.0f : aimSum);
+
+    return score > 0.0f ? score * (1.0f - 0.6f * a) : score;
+}
+
 float pblThreatScore(float dist, int attacking, int alarmRaiser, int hurtUsLately)
 {
     float s = dist;

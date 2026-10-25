@@ -2,7 +2,9 @@
 #   0-2 (SA+) destroy the monitors (tags 0-8)   3 (00) flag 0x400000 (ai_23: a timer once the radio, tag 9, is used)
 #   4 (all) flag 0x800000: ai_25 sets it once Bond is in the room of pad 369 (the exit); fails on 0x1000000 (more than
 #     two civilians killed, ai_27).
+# Guards respawn (chr_try_spawning_at_pad loops) and hit from 1400-2400 away: keep walking while shooting.
 name caverns
+rush 1
 auto
 goto pad 369 60
 exit
