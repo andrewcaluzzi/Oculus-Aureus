@@ -103,7 +103,8 @@ enum PblOp {
     PBL_WALK,           /* a = ticks, b = stick y, c = stick x (raw stick, no navigation) */
     PBL_PEACE,          /* a = 1: do not shoot from here on (stealth / civilian levels), 0 = shoot again */
     PBL_THROW_OBJ,      /* a = item id, b = tag: like GADGET but throws (fire held, then released) */
-    PBL_HUNT,           /* walk to the nearest live armed hostile and fight, until none is left (or obj= completes) */
+    PBL_HUNT,           /* walk to the nearest live armed hostile and fight, until none is left (or obj= completes);
+                         * a = 1: only chrs running AI list b (`hunt ai ID`), and those are shot before anyone else */
     PBL_MEET,           /* a = 0 chr number / 1 AI list id, b = the number: walk up to that chr (r) and stay c ticks
                          * (or until the step's obj= objective completes) - e.g. a double agent who talks first */
     PBL_QUIET,          /* a = 1: stealth - prefer silenced guns while no alarm sounds, knock key carriers out from behind

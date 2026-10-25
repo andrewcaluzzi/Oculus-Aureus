@@ -142,6 +142,37 @@ static void test_astar_penalty_detour(void)
     pblGraphFree(&g);
 }
 
+/* a locked door's doorway: the bot makes the LINKS through it expensive (both ways) for one plan and takes the
+ * penalty back before the next (port_playerbot.c graphApplyLocks) - the cost must come back exactly */
+static void test_astar_link_penalty_undo(void)
+{
+    PblGraph g;
+    int path[256], n, i, hit = 0, e;
+    float before[64];
+
+    grid(&g, 5, 3, -1, 0);
+    for (e = 0; e < g.ne; e++)
+    {
+        before[e] = g.pen[e];
+    }
+    pblGraphPenalize(&g, 6, 7, 20000.0f);      /* the middle row's doorway 6 <-> 7 */
+    pblGraphPenalize(&g, 7, 6, 20000.0f);      /* (found again from the other tile: recorded twice) */
+    n = pblAstar(&g, 5, 9, path, 256);
+    for (i = 1; i < n; i++)
+    {
+        hit |= (path[i - 1] == 6 && path[i] == 7) || (path[i - 1] == 7 && path[i] == 6);
+    }
+    CHECK(n == 7 && !hit);                     /* round it, through the next row */
+    pblGraphPenalize(&g, 7, 6, -20000.0f);
+    pblGraphPenalize(&g, 6, 7, -20000.0f);
+    for (e = 0; e < g.ne; e++)
+    {
+        CHECK(g.pen[e] == before[e]);
+    }
+    CHECK(pblAstar(&g, 5, 9, path, 256) == 5);
+    pblGraphFree(&g);
+}
+
 static void test_astar_truncate(void)
 {
     PblGraph g;
@@ -410,6 +441,11 @@ static void test_combat_geometry(void)
     CHECK(pblParsePlan("spare ai 0x419\nspare ai 0\n", &plan, err, sizeof(err)) == 2);
     CHECK(plan.s[0].op == PBL_SPARE && plan.s[0].a == 0x419 && plan.s[1].a == 0);
     CHECK(pblParsePlan("spare 0x419\n", &plan, err, sizeof(err)) == -1);
+    CHECK(pblParsePlan("hunt\nhunt ai 0x403\n", &plan, err, sizeof(err)) == 2);
+    CHECK(plan.s[0].op == PBL_HUNT && plan.s[0].a == 0);
+    CHECK(plan.s[1].op == PBL_HUNT && plan.s[1].a == 1 && plan.s[1].b == 0x403);
+    CHECK(pblParsePlan("hunt 0x403\n", &plan, err, sizeof(err)) == -1);
+    CHECK(pblParsePlan("hunt ai\n", &plan, err, sizeof(err)) == -1);
 }
 
 int main(void)
@@ -419,6 +455,7 @@ int main(void)
     test_astar_wall_gap();
     test_astar_unreachable_and_bad();
     test_astar_penalty_detour();
+    test_astar_link_penalty_undo();
     test_astar_truncate();
     test_astar_big();
     test_funnel();

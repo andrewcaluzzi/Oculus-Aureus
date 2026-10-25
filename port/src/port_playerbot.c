@@ -122,6 +122,7 @@ typedef struct {
     f32 hpLost;
     s32 lastHurtTick;
     s32 kills;
+    s32 civDead;               /* civilians dead (logged as it changes) */
     s32 deadAtStart;
     s32 objStatus[10];
     u32 flagsPrev;             /* objectiveregisters1 last tick: changes are logged (which AI flag fired, for plans) */
@@ -145,6 +146,7 @@ typedef struct {
     StandTile **tiles;         /* node -> tile, ascending addresses (binary searched) */
     s32 ntiles;
     f32 maxStep;               /* tallest step up Bond can walk (GE_PLAYERBOT_MAXSTEP, default 45) */
+    s32 lockClosed;            /* GE_PLAYERBOT_LOCKCLOSED=1: doors Bond cannot open close their tiles (diagnosis) */
     s32 climbCut;
 
     /* plan */
@@ -167,7 +169,7 @@ typedef struct {
     s32 stuckEvents;
     s32 recoverUntil, recoverDir, backUntil;
     f32 recoverYaw, lastSteerYaw;
-    s32 lastDoorTap;
+    s32 lastDoorTap, noDoorTapUntil;
     s32 lastNoRouteLog;
     PropRecord *doorProp;      /* the shut door being opened */
     s32 doorTaps, doorSince, doorOpened, doorOpenTick;
@@ -178,6 +180,9 @@ typedef struct {
     ObjectRecord *subLock;     /* a detour: shoot this padlock off a door on the route */
     ChrRecord *huntSkip[8];    /* guards the hunt step could not reach, and when */
     s32 huntSkipAt[8], huntSkipN;
+    ChrRecord *huntLast;       /* the hunt's current quarry (logged when it changes), chosen at huntSince */
+    s32 huntSince;
+    s32 huntAi;                /* `hunt ai ID` running: chrs on that AI list are shot before anyone else (0 = none) */
     ObjectRecord *photoObj;    /* the object being photographed, and since when */
     s32 photoSince;
     ObjectRecord *photoSpotObj;   /* ...and the tile chosen to photograph it from (-1 none) */
@@ -452,6 +457,24 @@ static s32 chrSpared(ChrRecord *c)
     return 0;
 }
 
+/* the setup AI list id a chr runs now (0x401 + N for ai_N), or its return list while in a stock list; 0 if unknown */
+static s32 chrAiId(ChrRecord *c)
+{
+    s32 k;
+
+    if (g_CurrentSetup.ailists != NULL)
+    {
+        for (k = 0; g_CurrentSetup.ailists[k].ailist != NULL; k++)
+        {
+            if ((void *) g_CurrentSetup.ailists[k].ailist == (void *) c->ailist)
+            {
+                return g_CurrentSetup.ailists[k].ID;
+            }
+        }
+    }
+    return c->aireturnlist;
+}
+
 static s32 chrHostile(ChrRecord *c)
 {
     if (c == NULL || c->model == NULL || c->prop == NULL || chrIsDead(c) || chrSpared(c))
@@ -719,11 +742,14 @@ static s32 tilePortal(StandTile *t, StandTile *to, f32 *x, f32 *y, f32 *z)
     return 0;
 }
 
+static s32 sDoorPenN;   /* doorway links penalised by graphApplyLocks (a new graph has none) */
+
 static void graphBuild(void)
 {
     StandTile *first = (StandTile *) ptr_firstroom_0, *t;
     s32 n = 0, i, k, big = 0, nc;
 
+    sDoorPenN = 0;
     if (B.g.cap > 0)
     {
         pblGraphFree(&B.g);
@@ -733,6 +759,8 @@ static void graphBuild(void)
     B.ntiles = 0;
     B.climbCut = 0;
     B.maxStep = getenv("GE_PLAYERBOT_MAXSTEP") != NULL ? (f32) atof(getenv("GE_PLAYERBOT_MAXSTEP")) : 45.0f;
+    /* (diagnosis) 1: doors Bond cannot open close their tiles - is there a way round? 2: keyed doors are ignored */
+    B.lockClosed = getenv("GE_PLAYERBOT_LOCKCLOSED") != NULL ? atoi(getenv("GE_PLAYERBOT_LOCKCLOSED")) : 0;
     if (first == NULL)
     {
         portConLogf("ge: playerbot: this stage has no stan tiles\n");
@@ -827,10 +855,77 @@ static s32 doorIsBlocked(PropRecord *d);
 static s32 doorShut(PropRecord *d);
 
 /* a door Bond cannot get through: it needs a key he lacks (a padlock is not counted: the bot shoots those off) */
-static s32 doorLocked(DoorRecord *d)
+static s32 doorLocked1(DoorRecord *d)
 {
     return d->keyflags != 0 && !bondinvCheckHasKeyFlags(d->keyflags);
 }
+
+/* the leaf of a linked set (doorActivate opens every linked door) that Bond can work: `d` itself if it needs no key he
+ * lacks, else a linked partner that does not (Depot's train door: leaf tag 7 wants key 8, which no key in the level has;
+ * its partner, tag 6, has no lock and opens both). NULL if none. */
+static DoorRecord *doorWorkable(DoorRecord *d)
+{
+    DoorRecord *l;
+    s32 n = 0;
+
+    if (!doorLocked1(d))
+    {
+        return d;
+    }
+    for (l = d->linkedDoor; l != NULL && l != d && n < 8; l = l->linkedDoor, n++)
+    {
+        if (!doorLocked1(l))
+        {
+            return l;
+        }
+    }
+    return NULL;
+}
+
+static s32 doorLocked(DoorRecord *d)
+{
+    return doorWorkable(d) == NULL;
+}
+
+/* the rooms a door prop stands in (its doorway joins them; -1 terminated): how many, and is `room` one of them */
+static s32 doorRoomCount(PropRecord *d)
+{
+    s32 n = 0;
+
+    while (n < PROPRECORD_STAN_ROOM_LEN && d->rooms[n] != 0xff)
+    {
+        n++;
+    }
+    return n;
+}
+
+static s32 doorHasRoom(PropRecord *d, s32 room)
+{
+    s32 k;
+
+    for (k = 0; k < PROPRECORD_STAN_ROOM_LEN && d->rooms[k] != 0xff; k++)
+    {
+        if ((s32) d->rooms[k] == room)
+        {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* the link a -> b goes through this door's doorway: from one of the door's rooms into another. A door in a side wall
+ * of a corridor (Depot: the key-8 door beside the only way to the train) stands near the corridor's tiles but on none
+ * of the links a route along the corridor takes - "tiles near a locked door" made every route past it look locked. */
+static s32 linkThroughDoor(s32 a, s32 b, PropRecord *d)
+{
+    s32 ra = (s32) B.tiles[a]->room, rb = (s32) B.tiles[b]->room;
+
+    return ra != rb && doorHasRoom(d, ra) && doorHasRoom(d, rb);
+}
+
+/* doorway links of locked doors made expensive by the last graphApplyLocks (undone at the next one) */
+#define DOORPEN_MAX 512
+static s32 sDoorPenA[DOORPEN_MAX], sDoorPenB[DOORPEN_MAX];
 
 /* make tiles at a door Bond cannot open expensive (re-done before each plan; a key picked up opens them again) */
 static s32 graphApplyLocks(void)
@@ -839,6 +934,11 @@ static s32 graphApplyLocks(void)
     s32 a, nd = 0;
 
     pblGraphClearMarks(&B.g);
+    while (sDoorPenN > 0)
+    {   /* last time's doorway links */
+        sDoorPenN--;
+        pblGraphPenalize(&B.g, sDoorPenA[sDoorPenN], sDoorPenB[sDoorPenN], -20000.0f);
+    }
     if (B.nAvoid > 0)
     {   /* rooms a plan said to keep out of */
         for (a = 0; a < B.g.n; a++)
@@ -871,7 +971,7 @@ static s32 graphApplyLocks(void)
     }
     for (p = chrpropGetActiveTail(); p != NULL; p = p->prev)
     {
-        if (p->type != PROP_TYPE_DOOR || p->door == NULL ||
+        if (p->type != PROP_TYPE_DOOR || p->door == NULL || (B.lockClosed == 2 && p->door->keyflags != 0) ||
             !(doorLocked(p->door) || doorIsBlocked(p) || (p == B.subDoor && doorShut(p))))
         {   /* (while walking to a door's switch, the shut door itself is not a way to it) */
             continue;
@@ -879,14 +979,40 @@ static s32 graphApplyLocks(void)
         nd++;
         {
             f32 reach = 90.0f + fabsf(p->door->frac) * 0.5f;   /* a gate is as wide as it slides */
+            s32 byLink = doorRoomCount(p) >= 2;   /* a door between rooms: only the links through its doorway */
 
+            if (byLink)
+            {
+                reach += 150.0f;   /* (tile centres: the doorway's tiles can be big) */
+            }
             for (a = 0; a < B.g.n; a++)
             {
                 f32 dx = B.g.x[a] - p->pos.x, dz = B.g.z[a] - p->pos.z;
 
-                if (dx * dx + dz * dz < reach * reach && fabsf(B.g.y[a] - p->pos.y) < 250.0f)
+                if (byLink && dx * dx + dz * dz < reach * reach && fabsf(B.g.y[a] - p->pos.y) < 250.0f)
+                {
+                    s32 e;
+
+                    for (e = B.g.start[a]; e < B.g.start[a + 1]; e++)
+                    {
+                        s32 b = B.g.to[e];
+
+                        if (linkThroughDoor(a, b, p) && sDoorPenN < DOORPEN_MAX)
+                        {
+                            pblGraphPenalize(&B.g, a, b, 20000.0f);
+                            sDoorPenA[sDoorPenN] = a;
+                            sDoorPenB[sDoorPenN++] = b;
+                        }
+                    }
+                    continue;
+                }
+                if (!byLink && dx * dx + dz * dz < reach * reach && fabsf(B.g.y[a] - p->pos.y) < 250.0f)
                 {
                     B.g.npen[a] += 20000.0f;
+                    if (B.lockClosed && doorLocked(p->door))
+                    {
+                        B.g.nbad[a] = 1;   /* GE_PLAYERBOT_LOCKCLOSED=1 (diagnosis): is there a way round at all? */
+                    }
                 }
             }
         }
@@ -927,6 +1053,24 @@ static void navPlan(f32 x, f32 y, f32 z, StandTile *goalTile)
     B.aimAt = 0;
     B.offPath = 0;
     B.planTick = B.tick;
+    if (B.verbose >= 2 && B.pathN > 0)
+    {   /* the rooms the route crosses (nav diagnosis: lifts, doors) */
+        char rs[200];
+        s32 k, len = 0, last = -1, nr = 0;
+
+        rs[0] = '\0';
+        for (k = 0; k < B.pathN && len < (s32) sizeof(rs) - 8; k++)
+        {
+            s32 r = (s32) B.tiles[B.path[k]]->room;
+
+            if (r != last)
+            {
+                len += snprintf(rs + len, sizeof(rs) - (size_t) len, "%s%d", nr++ ? " " : "", r);
+                last = r;
+            }
+        }
+        portConLogf("ge: playerbot: route %d tiles, rooms %s\n", B.pathN, rs);
+    }
     if (B.pathN == 0 && B.verbose && (B.tick - B.lastNoRouteLog > 600 || B.lastNoRouteLog == 0))
     {
         B.lastNoRouteLog = B.tick > 0 ? B.tick : 1;
@@ -972,13 +1116,73 @@ static void stuckReport(const char *what)
     }
 }
 
+/* GE_PLAYERBOT_DOORS=1: every door at stage start (position, room, state, link, flags) and the pairs that share a
+ * doorway: two doors within 320 (x/z) of each other on one floor - a linked pair (opened together, or an airlock when
+ * flags2 & 0x40000000: opening one closes the other first) or stacked leaves (each opened on its own). */
+static void doorDump(void)
+{
+    PropRecord *d, *e;
+    s32 n = 0;
+
+    for (d = chrpropGetActiveTail(); d != NULL; d = d->prev)
+    {
+        DoorRecord *r;
+
+        if (d->type != PROP_TYPE_DOOR || d->door == NULL)
+        {
+            continue;
+        }
+        r = d->door;
+        n++;
+        {
+            s32 t, tag = -1;
+
+            for (t = 0; t < 128 && tag < 0; t++)
+            {
+                if ((void *) objByTag(t) == (void *) r)
+                {
+                    tag = t;
+                }
+            }
+            portConLogf("ge: playerbot: door %.0f,%.0f,%.0f tag %d room %d (rooms %d %d %d) frac %.0f max %.2f state %d pos %.2f"
+                        " key %x flags %x/%x portal %d linked %s%s\n", d->pos.x, d->pos.y, d->pos.z, tag,
+                        d->stan != NULL ? (s32) d->stan->room : -1, doorRoomCount(d) > 0 ? (s32) d->rooms[0] : -1,
+                        doorRoomCount(d) > 1 ? (s32) d->rooms[1] : -1, doorRoomCount(d) > 2 ? (s32) d->rooms[2] : -1,
+                        r->frac, r->maxFrac, (s32) r->openstate, r->openPosition, (u32) r->keyflags, (u32) r->flags,
+                        (u32) r->flags2, r->portalNumber, r->linkedDoor != NULL ? "yes" : "no",
+                        (r->flags2 & 0x40000000) ? " AIRLOCK" : "");
+        }
+        for (e = d->prev; e != NULL; e = e->prev)
+        {
+            f32 dx, dz;
+
+            if (e->type != PROP_TYPE_DOOR || e->door == NULL)
+            {
+                continue;
+            }
+            dx = e->pos.x - d->pos.x;
+            dz = e->pos.z - d->pos.z;
+            if (dx * dx + dz * dz < 320.0f * 320.0f && fabsf(e->pos.y - d->pos.y) < 150.0f)
+            {
+                s32 linked = r->linkedDoor == e->door || e->door->linkedDoor == r;
+
+                portConLogf("ge: playerbot:   pair: with door %.0f,%.0f,%.0f (%.0f apart) %s\n", e->pos.x, e->pos.y, e->pos.z,
+                            sqrtf(dx * dx + dz * dz), linked ? "linked" : "NOT linked (stacked / side by side)");
+            }
+        }
+    }
+    portConLogf("ge: playerbot: %d doors\n", n);
+}
+
+static PropRecord *doorInTheWay(PropRecord *target);
+
 /* open doors ahead: tap B when a closed, openable door is close and roughly in front */
 static void doorTick(void)
 {
     struct player *p = bond();
     PropRecord *d;
 
-    if (B.tick - B.lastDoorTap < 20)
+    if (B.tick - B.lastDoorTap < 20 || B.tick < B.noDoorTapUntil)
     {
         return;
     }
@@ -1002,8 +1206,8 @@ static void doorTick(void)
             continue;
         }
         ang = pblWrap180(pblYawTo(dx, dz) - p->vv_theta);
-        if (fabsf(ang) < 60.0f || dist < 90.0f)
-        {
+        if ((fabsf(ang) < 60.0f || dist < 90.0f) && doorInTheWay(d) == NULL)
+        {   /* (not with another door nearer in front: the press would work - and maybe close - that one) */
             B.btn |= BTN_B;
             B.lastDoorTap = B.tick;
             return;
@@ -1076,14 +1280,19 @@ static s32 doorIsBlocked(PropRecord *d)
 static PropRecord *routeDoor(void)
 {
     struct player *p = bond();
-    PropRecord *d;
-    s32 k;
+    PropRecord *d, *best = NULL;
+    s32 k, bestK = 1 << 30;
+    f32 bestD = 1e30f;
 
+    /* the FIRST shut door along the route (then the nearest): two doors in one doorway (Caverns' stacked doors, double
+     * leaves) must be opened in the order Bond meets them - a B press works the nearest door he faces, so aiming at the
+     * far one presses the near one (and closes it again if it is open) */
     for (d = chrpropGetActiveTail(); d != NULL; d = d->prev)
     {
         f32 dx, dz, reach;
 
-        if (d->type != PROP_TYPE_DOOR || d->door == NULL || !doorShut(d) || doorIsBlocked(d) || d == B.subDoor)
+        if (d->type != PROP_TYPE_DOOR || d->door == NULL || !doorShut(d) || doorIsBlocked(d) || d == B.subDoor ||
+            (B.lockClosed == 2 && d->door->keyflags != 0))
         {
             continue;
         }
@@ -1095,15 +1304,57 @@ static PropRecord *routeDoor(void)
         {
             continue;
         }
-        for (k = B.pathAt; k < B.pathN && k < B.pathAt + 12; k++)
+        for (k = B.pathAt; k < B.pathN && k < B.pathAt + 12 && k <= bestK; k++)
         {
             s32 nd = B.path[k];
             f32 ex = B.g.x[nd] - d->pos.x, ez = B.g.z[nd] - d->pos.z;
 
-            if (ex * ex + ez * ez < reach * reach && fabsf(B.g.y[nd] - d->pos.y) < 300.0f)
-            {
-                return d;
+            if (ex * ex + ez * ez < reach * reach && fabsf(B.g.y[nd] - d->pos.y) < 300.0f &&
+                (doorRoomCount(d) < 2 || (k > 0 && linkThroughDoor(B.path[k - 1], nd, d))))
+            {   /* (a door between rooms: only when the route goes through its doorway, not past it) */
+                if (k < bestK || dx * dx + dz * dz < bestD)
+                {
+                    best = d;
+                    bestK = k;
+                    bestD = dx * dx + dz * dz;
+                }
+                break;
             }
+        }
+    }
+    if (best != NULL && doorLocked1(best->door) && doorWorkable(best->door) != NULL && doorWorkable(best->door)->prop != NULL)
+    {
+        best = doorWorkable(best->door)->prop;   /* a keyed leaf: its partner opens both */
+    }
+    return best;
+}
+
+/* another door that a B press now would work instead of `target`: within the game's use range (200, doorTestForInteract),
+ * nearer Bond than the target and roughly in front of him. The press would close it if it is open (doorActivateWrapper
+ * toggles) - so walk on toward the target first. */
+static PropRecord *doorInTheWay(PropRecord *target)
+{
+    struct player *p = bond();
+    PropRecord *d;
+    f32 tx = target->pos.x - p->prop->pos.x, tz = target->pos.z - p->prop->pos.z, td = tx * tx + tz * tz;
+
+    for (d = chrpropGetActiveTail(); d != NULL; d = d->prev)
+    {
+        f32 dx, dz, dd;
+
+        if (d == target || d->type != PROP_TYPE_DOOR || d->door == NULL || d->door->maxFrac <= 0.0f ||
+            (d->door->flags & PROPFLAG_CANNOT_ACTIVATE) || d->door->linkedDoor == target->door ||
+            target->door->linkedDoor == d->door)
+        {
+            continue;
+        }
+        dx = d->pos.x - p->prop->pos.x;
+        dz = d->pos.z - p->prop->pos.z;
+        dd = dx * dx + dz * dz;
+        if (dd < 200.0f * 200.0f && dd < td && fabsf(d->pos.y - p->prop->pos.y) < 200.0f &&
+            fabsf(pblWrap180(pblYawTo(dx, dz) - p->vv_theta)) < 60.0f)
+        {
+            return d;
         }
     }
     return NULL;
@@ -1161,6 +1412,21 @@ static s32 doorHandle(f32 gx, f32 gy, f32 gz, StandTile *goalTile)
             }
         }
     }
+    if (doorLocked1(d->door) && doorWorkable(d->door) != NULL && doorWorkable(d->door)->prop != NULL)
+    {   /* a locked leaf of a linked pair whose partner opens both: press the partner */
+        PropRecord *pp = doorWorkable(d->door)->prop;
+
+        if (B.verbose)
+        {
+            portConLogf("ge: playerbot: door at %.0f,%.0f,%.0f wants key %x - its linked leaf at %.0f,%.0f,%.0f opens both\n",
+                        d->pos.x, d->pos.y, d->pos.z, (u32) d->door->keyflags, pp->pos.x, pp->pos.y, pp->pos.z);
+        }
+        B.doorProp = pp;
+        B.doorTaps = 0;
+        B.doorOpened = 0;
+        B.doorSince = B.tick;
+        return 1;
+    }
     if (d->door->keyflags != 0 && !bondinvCheckHasKeyFlags(d->door->keyflags) && B.subKeyNeed == 0)
     {   /* a key door: fetch the key if it is anywhere in the level (on the floor, or on a guard to take down) */
         ChrRecord *holder = NULL;
@@ -1212,6 +1478,52 @@ static s32 doorHandle(f32 gx, f32 gy, f32 gz, StandTile *goalTile)
     }
     B.doorOpenTick = 0;
     B.doorOpenPos = 0.0f;
+    if ((B.tick % 10) == 5)
+    {   /* a shut door nearer along the route than this one (stacked doors): that one first */
+        PropRecord *nd = routeDoor();
+
+        if (nd != NULL && nd != d)
+        {
+            f32 nx = nd->pos.x - p->prop->pos.x, nz = nd->pos.z - p->prop->pos.z;
+
+            if (nx * nx + nz * nz < dist * dist)
+            {
+                if (B.verbose >= 2)
+                {
+                    portConLogf("ge: playerbot: door at %.0f,%.0f,%.0f comes first (stacked doors)\n", nd->pos.x, nd->pos.y,
+                                nd->pos.z);
+                }
+                B.doorProp = nd;
+                B.doorTaps = 0;
+                B.doorOpened = 0;
+                B.doorSince = B.tick;
+                return 1;
+            }
+        }
+    }
+    {
+        PropRecord *w = doorInTheWay(d);
+
+        if (w != NULL)
+        {   /* B would work that door, not ours (and close it if it is open): get past it, toward ours */
+            if (B.verbose >= 2 && B.tick - B.lastDoorTap > 60 && (B.tick % 60) == 0)
+            {
+                portConLogf("ge: playerbot: door at %.0f,%.0f,%.0f is in the way of a press on the one at %.0f,%.0f,%.0f - walking on\n",
+                            w->pos.x, w->pos.y, w->pos.z, d->pos.x, d->pos.y, d->pos.z);
+            }
+            B.stuck.lastGain = B.tick;
+            if (doorShut(w))
+            {   /* (shut too: then it is the one to open - the route check above did not see it) */
+                B.doorProp = w;
+                B.doorTaps = 0;
+                B.doorOpened = 0;
+                B.doorSince = B.tick;
+                return 1;
+            }
+            B.noDoorTapUntil = B.tick + 2;   /* (doorTick would press it too) */
+            return 0;                        /* follow the route on, through it, toward ours */
+        }
+    }
     if (dist > 120.0f)
     {
         steerTo(d->pos.x, d->pos.y, d->pos.z, 200.0f);
@@ -1764,8 +2076,8 @@ static PropRecord *pickTarget(f32 range)
         {
             B.threats[B.nThreats++] = c->prop;
         }
-        if (chrIsRaiser(c) && (chrAlert(c) || (B.quiet && !alarmIsActive())))
-        {
+        if ((chrIsRaiser(c) && (chrAlert(c) || (B.quiet && !alarmIsActive()))) || (B.huntAi != 0 && chrAiId(c) == B.huntAi))
+        {   /* (`hunt ai ID`: the hunted - a hostage's captor shoots the hostage 3 s after he has a line on Bond) */
             sc = pblThreatScore(d, chrAttacking(c), 1, 0);   /* the alarm: before anything else (quiet: before he moves) */
         }
         else if (quietSpare(c, d))
@@ -2436,6 +2748,8 @@ static void stepBegin(void)
     B.phase = 0;
     B.count = 0;
     B.stepFails = 0;
+    B.huntAi = 0;
+    B.huntLast = NULL;
     if (B.keepWant > 0)
     {
         B.keepWant--;   /* an `equip` holds the item for the steps right after it (press z, wait) */
@@ -3029,48 +3343,81 @@ static s32 stepRun(PblStep *s)
             {
                 return 1;
             }
-            for (i = 0; i < n; i++)
+            B.huntAi = s->a ? s->b : 0;
+            /* the quarry: kept until he is down or out of reach (or 30 s), then the one with the SHORTEST ROUTE - by the
+             * straight line the choice flip-flopped between decks as Bond moved and he never got anywhere (Frigate) */
+            if (B.huntLast != NULL && chrHostile(B.huntLast) && B.huntLast->prop->stan != NULL &&
+                (!s->a || chrAiId(B.huntLast) == s->b) && B.tick - B.huntSince < 1800)
             {
-                ChrRecord *c = &g_ChrSlots[i];
-                f32 dx, dy, dz, d;
+                best = B.huntLast;
+            }
+            else
+            {
+                static s32 sHuntPath[MAXPATH];
+                s32 from = nodeNear(p->prop->pos.x, p->prop->pos.y, p->prop->pos.z, bondTile());
 
-                if (!chrHostile(c) || c->prop->stan == NULL)
+                graphApplyLocks();
+                for (i = 0; i < n; i++)
                 {
-                    continue;
-                }
-                {   /* skip a guard we could not get to lately */
-                    s32 k, skip = 0;
+                    ChrRecord *c = &g_ChrSlots[i];
+                    s32 to, len;
 
-                    for (k = 0; k < 8; k++)
-                    {
-                        skip |= B.huntSkip[k] == c && B.tick - B.huntSkipAt[k] < 3600;
-                    }
-                    if (skip)
+                    if (!chrHostile(c) || c->prop->stan == NULL || (s->a && chrAiId(c) != s->b))
                     {
                         continue;
                     }
+                    {   /* skip a guard we could not get to lately */
+                        s32 k, skip = 0;
+
+                        for (k = 0; k < 8; k++)
+                        {
+                            skip |= B.huntSkip[k] == c && B.tick - B.huntSkipAt[k] < 3600;
+                        }
+                        if (skip)
+                        {
+                            continue;
+                        }
+                    }
+                    to = tileIndex(c->prop->stan);
+                    len = (from >= 0 && to >= 0) ? pblAstar(&B.g, from, to, sHuntPath, MAXPATH) : 0;
+                    if (len > 0 && (f32) len < bd)
+                    {
+                        bd = (f32) len;
+                        best = c;
+                    }
                 }
-                dx = c->prop->pos.x - p->prop->pos.x;
-                dy = c->prop->pos.y - p->prop->pos.y;
-                dz = c->prop->pos.z - p->prop->pos.z;
-                d = dx * dx + dz * dz + dy * dy * 9.0f;
-                if (d < bd)
+                if (best == NULL)
                 {
-                    bd = d;
-                    best = c;
+                    if (B.tick - B.stepTick > 600 || B.huntSkipN == 0)
+                    {
+                        portConLogf("ge: playerbot: hunt: nobody %sleft that the stan mesh reaches\n", s->a ? "on that AI list " : "");
+                        return 1;
+                    }
+                    return 0;
                 }
+                B.huntLast = best;
+                B.huntSince = B.tick;
+                portConLogf("ge: playerbot: hunt: chr %d (AI list 0x%x) at %.0f,%.0f,%.0f room %d - route %d tiles\n",
+                            (s32) best->chrnum, chrAiId(best), best->prop->pos.x, best->prop->pos.y, best->prop->pos.z,
+                            (s32) best->prop->stan->room, (s32) bd);
+                navReset();
             }
-            if (best == NULL)
-            {
-                return 1;
+            {   /* there: close (250) AND a line on him - "close" alone left Bond standing on the deck above him for
+                 * 400 s; without a line walk right up to his tile (its floor height, not his prop's) */
+                s32 tn = tileIndex(best->prop->stan);
+                f32 fy = tn >= 0 ? B.g.y[tn] : best->prop->pos.y - 110.0f;
+                s32 seen = botLine(bondTile(), p->prop->pos.x, p->prop->pos.z, best->prop->pos.x, best->prop->pos.z,
+                                   best->prop->stan, CDTYPE_OBJS | CDTYPE_DOORS | CDTYPE_PATHBLOCKER | CDTYPE_AIOPAQUE);
+
+                navTo(best->prop->pos.x, fy, best->prop->pos.z, seen ? 250.0f : 60.0f, best->prop->stan);
             }
-            navTo(best->prop->pos.x, best->prop->pos.y, best->prop->pos.z, 250.0f, best->prop->stan);
             if (B.stuck.level >= 2)
             {   /* cannot get to this one: hunt the others for a minute */
                 B.huntSkip[B.huntSkipN & 7] = best;
                 B.huntSkipAt[B.huntSkipN & 7] = B.tick;
                 B.huntSkipN++;
                 B.stepFails = 0;
+                B.huntLast = NULL;
                 navReset();
             }
             return 0;
@@ -3217,6 +3564,7 @@ static void stageBegin(void)
     B.hpLost = 0.0f;
     B.lastHurtTick = -1000;
     B.kills = 0;
+    B.civDead = 0;
     B.fireTicks = 0;
     B.lastFireTick = 0;
     memset(B.tgtSkip, 0, sizeof(B.tgtSkip));
@@ -3288,6 +3636,10 @@ static void stageBegin(void)
     B.flagsPrev = (u32) objectiveregisters1;
     B.nSpare = 0;
     graphBuild();
+    if (getenv("GE_PLAYERBOT_DOORS") != NULL)
+    {
+        doorDump();
+    }
     planLoad();
     stepBegin();
     portConLogf("ge: playerbot: stage %s (%d) difficulty %d: %d objectives\n", stageName(B.stage), B.stage,
@@ -3379,7 +3731,7 @@ static void observe(void)
     }
     if ((B.ticksAll % 30) == 1)
     {   /* guards down since the start (any cause; the bot does nearly all of it) */
-        s32 n = get_numguards(), dead = 0;
+        s32 n = get_numguards(), dead = 0, civ = 0;
 
         for (i = 0; i < n; i++)
         {
@@ -3388,7 +3740,13 @@ static void observe(void)
             if (c->model != NULL && c->prop != NULL && chrIsDead(c))
             {
                 dead++;
+                civ += (c->chrflags & CHRFLAG_COUNT_DEATH_AS_CIVILIAN) != 0;
             }
+        }
+        if (civ != B.civDead)
+        {   /* (hostages shot by their captors, bystanders in a crossfire) */
+            portConLogf("ge: playerbot: civilians dead: %d at t=%.1fs room %d\n", civ, (f32) B.tick / 60.0f, bondRoom());
+            B.civDead = civ;
         }
         if (B.deadAtStart < 0)
         {

@@ -490,6 +490,19 @@ int pblParsePlan(const char *text, PblPlan *plan, char *err, int errlen)
             case PBL_KILL:
                 st.a = (nt - k >= 1) ? (int) num(tok[k]) : 1500;
                 break;
+            case PBL_HUNT:
+                if (nt - k >= 1)
+                {   /* hunt ai ID: only chrs running that AI list */
+                    NEED(2);
+                    if (strcmp(tok[k], "ai") != 0)
+                    {
+                        snprintf(err, errlen, "line %d: want 'hunt' or 'hunt ai ID'", lineno);
+                        return -1;
+                    }
+                    st.a = 1;
+                    st.b = (int) strtol(tok[k + 1], NULL, 0);
+                }
+                break;
             case PBL_EQUIP:
                 NEED(1);
                 st.a = pblItemByName(tok[k]);
