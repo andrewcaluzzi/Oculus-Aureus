@@ -23,7 +23,8 @@ while [ $n -lt "${OPTRUNS:-40}" ]; do
     OUT="$OUT" TAG=opt$n SEED=$SEED REPLAY=0 NOSHOTS=1 BOTMODE=speedrun \
         EXTRA="GE_PLAYERBOT_OPT=1 GE_PLAYERBOT_OPTSTATE=$OUT/opt.state $EXTRA" sh "$HERE/level.sh" "$ST" 0 > "$OUT/opt$n.row"
     rm -f "$OUT/opt$n.rec"
-    grep -aq "exit 3 to be started again" "$OUT/opt$n.log" || break
+    # again after a mission end inside a trial (exit 3) or a crash (the state file marks the trial it died in)
+    grep -aq "exit 3 to be started again" "$OUT/opt$n.log" || grep -q "CRASH" "$OUT/opt$n.row" || break
 done
 echo "optimiser: $n run(s), $(grep -c '^try' "$OUT/opt.state" 2>/dev/null) trials, $(grep -c '^fix' "$OUT/opt.state" 2>/dev/null) steps fixed"
 best=$(OUT="$OUT" TAG=best SEED=$SEED NOSHOTS=1 BOTMODE=speedrun EXTRA="GE_PLAYERBOT_OPTSTATE=$OUT/opt.state $EXTRA" \

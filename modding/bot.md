@@ -57,6 +57,29 @@ objectives and with no position drift; `failure_point` says where it died or got
 | `GE_PLAYERBOT_NOAIMSCORE=1` | A/B: rank targets without the aim-progress weight |
 | `GE_PLAYERBOT_DOORS=1` | at stage start, log every door (tag, rooms, key, link, flags) and the door pairs sharing a doorway |
 | `GE_PLAYERBOT_LOCKCLOSED=N` | diagnosis: 1 doors Bond cannot open close their tiles (is there a way round?), 2 keyed doors are ignored, 3 the round-4 lock rule |
+| `GE_PLAYERBOT=speedrun` | the speedrun mode (below): the stage's route, never stopping to turn, doors on the move |
+| `GE_PLAYERBOT_ROUTEDIR` | where the routes are (default `Data/BotRoutes`, filled from `tools/bot/routes`) |
+| `GE_PLAYERBOT_OPT=1` + `GE_PLAYERBOT_OPTSTATE=<file>` | speedrun: the segment optimiser (savestates); with only `OPTSTATE`, play the variants the file chose |
+
+## Speedrun mode
+
+`GE_PLAYERBOT=speedrun` is opt-in; the normal bot stays the default for campaign testing. It plays
+`tools/bot/routes/<stage>.route` (the plan if there is none): the plan language plus `via pad N [r]` / `via X Y Z [r]`
+(a waypoint passed at full speed) and step prefixes `side=l|r` (speed-strafe side), `fast` (speed-strafe through
+threats) and `slow` (the normal bot's movement for that step). On top of speed level 2 it never turns on the spot (the
+digital move that points along the route from wherever the view is), opens doors on the move (B as soon as the game's
+use test can take it, running on while the door swings; switch-worked doors go to their switch first) and counts
+running along the route as progress (no false "stuck" detours on long tiles).
+
+```sh
+sh tests/bot/speedrun.sh dam          # optimise the route, then the clean run (recorded, replayed without the bot)
+BOTMODE=speedrun sh tests/bot/level.sh dam 0     # one speedrun-mode run, no optimiser
+```
+
+The optimiser plays every variant of each route step (strafe side, `fast` toggled, `via` moved 80 units) from a solo
+savestate (`port/src/port_snap.c`), each to the start of the exit sequence, keeps the earliest, and goes on to the next
+step. Its choices land in `opt.state`; the clean run replays them without savestates and `level.sh` verifies the
+recording without the bot. Details and results: `modding/bot-notes.md` "Round 6".
 
 For speed and determinism the harness also sets `GE_FIXEDTICK=1` (one 60 Hz field per sim tick, so a run does not
 depend on how fast the machine is), `GE_NOSLEEP=1` (no frame pacing), `GE_CLOCKSCALE=20` (the N64 clock runs 20x so

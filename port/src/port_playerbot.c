@@ -274,6 +274,9 @@ typedef struct {
     s32 doorFastTaps;
     s32 idleRun, idleWhy, idleStuck;   /* the current stop: ticks, why (B.idle index), stuck level when it began */
     f32 progX, progZ;          /* Bond's position last navTo tick (speedrun: running along the steer is progress) */
+    PropRecord *wayDoor;       /* a nearer door being walked through on the way to the target door: is its swing stalled? */
+    f32 wayDoorPos;
+    s32 wayDoorTick;
 } PlayerBot;
 
 static PlayerBot B;
@@ -1657,6 +1660,25 @@ static s32 doorHandle(f32 gx, f32 gy, f32 gz, StandTile *goalTile)
                 return 1;
             }
             B.noDoorTapUntil = B.tick + 2;   /* (doorTick would press it too) */
+            if (B.speedrun && w->door->openstate == DOORSTATE_OPENING)
+            {   /* (speedrun, Frigate: Bond ran into that door's swing and it stopped at 63/90 - both waited for good) */
+                if (w != B.wayDoor || w->door->openPosition > B.wayDoorPos + 0.01f)
+                {
+                    B.wayDoor = w;
+                    B.wayDoorPos = w->door->openPosition;
+                    B.wayDoorTick = B.tick;
+                }
+                else if (B.tick - B.wayDoorTick > 30)
+                {   /* stalled with Bond in its way: step back out of the swing for a moment */
+                    lookAt(w->pos.x, p->prop->pos.y, w->pos.z, 45.0f);
+                    B.dmy = -1;
+                    if (B.tick - B.wayDoorTick > 60)
+                    {
+                        B.wayDoorTick = B.tick;
+                    }
+                    return 1;
+                }
+            }
             return 0;                        /* follow the route on, through it, toward ours */
         }
     }
@@ -1814,6 +1836,7 @@ static void optInit(void)
     if (f != NULL)
     {
         char line[128];
+        s32 pk = -1, pv = -1;   /* a trial that started and never scored: the process died in it */
 
         while (fgets(line, sizeof(line), f) != NULL)
         {
@@ -1826,9 +1849,28 @@ static void optInit(void)
             else if (sscanf(line, "try %d %d %d", &a, &b, &c) == 3 && a >= 0 && a < PBL_MAXSTEPS && b >= 0 && b < OPT_MAXV)
             {
                 sOpt.tried[a][b] = c > 0 ? c : 1;
+                if (a == pk && b == pv)
+                {
+                    pk = pv = -1;
+                }
+            }
+            else if (sscanf(line, "start %d %d", &a, &b) == 2 && a >= 0 && a < PBL_MAXSTEPS && b >= 0 && b < OPT_MAXV)
+            {
+                pk = a;
+                pv = b;
             }
         }
         fclose(f);
+        if (pk >= 0 && sOpt.tried[pk][pv] == 0 && sOpt.fixed[pk] < 0)
+        {   /* the last run died inside this trial (round 6: a guard's hit test crashed after a restore on Bunker 1):
+             * no score for it; this run gets to the step by replaying the kept variants from the start */
+            char l2[64];
+
+            sOpt.tried[pk][pv] = OPT_NOSCORE;
+            snprintf(l2, sizeof(l2), "try %d %d %d\n", pk, pv, OPT_NOSCORE);
+            optLog(l2);
+            portConLogf("ge: playerbot: optimiser: the last run died in step %d variant %d - no score for it\n", pk + 1, pv);
+        }
     }
     for (i = 0, k = 0; i < PBL_MAXSTEPS; i++)
     {
@@ -1923,6 +1965,12 @@ static void optStepBegin(void)
     sOpt.phase = 1;
     portSnapSoloRequest(1);
     sOpt.steps++;
+    {
+        char line[48];
+
+        snprintf(line, sizeof(line), "start %d %d\n", sOpt.step, sOpt.v);
+        optLog(line);
+    }
 }
 
 /* the running trial is over (the step ended, Bond died, over budget, the mission ended): score it, then the next variant,
@@ -2029,6 +2077,13 @@ static void optAfterRestore(void)
     if (sOpt.phase == 2)
     {
         sOpt.phase = 1;
+        if (!sOpt.committing)
+        {
+            char line[48];
+
+            snprintf(line, sizeof(line), "start %d %d\n", sOpt.step, sOpt.v);
+            optLog(line);
+        }
     }
 }
 
@@ -2044,6 +2099,32 @@ static s32 stepFast(void)
     s32 f = B.step < B.plan.n ? B.plan.s[B.step].fast : 0;
 
     return B.speedrun ? optKnob(1, f) : f;
+}
+
+/* a ladder stan tile under Bond or among the next route tiles */
+extern u8 g_StanTileSpecialFlags[];   /* stan.c */
+
+static s32 tileIsLadder(StandTile *t)
+{
+    return t != NULL && (g_StanTileSpecialFlags[STAN_MID_NIB(t->mid.half, 12)] & STANTILEFLAG_LADDER) != 0;
+}
+
+static s32 nearLadder(void)
+{
+    s32 k;
+
+    if (tileIsLadder(bondTile()))
+    {
+        return 1;
+    }
+    for (k = B.pathAt; k < B.pathN && k < B.pathAt + 4; k++)
+    {
+        if (tileIsLadder(B.tiles[B.path[k]]))
+        {
+            return 1;
+        }
+    }
+    return 0;
 }
 
 /* steer toward (x,z) at full run, easing off on sharp turns */
@@ -2102,6 +2183,18 @@ static void steerTo(f32 x, f32 y, f32 z, f32 slowRadius)
                 B.ssThreatTick = B.tick;
             }
         }
+    }
+    if (B.speedrun && nearLadder())
+    {   /* a ladder on Bond's tile or just ahead (Surface 1's to pad 46): climbing wants the view on it and the stick
+         * forward - the normal steering below, no speed-strafe (the 38-degree offset never climbed) */
+        B.ssHeld = 0;
+        B.ssPrevX = p->prop->pos.x;
+        B.ssPrevZ = p->prop->pos.z;
+        err = lookToward(B.lastSteerYaw, 0.0f, 20.0f);
+        B.sy = fabsf(err) > 70.0f ? 0 : 80;
+        (void) y;
+        (void) slowRadius;
+        return;
     }
     if (B.speedrun && B.lookDoor != NULL)
     {   /* speedrun, a door ahead: the view on the door (a B press works the door Bond faces), the digital move carries him
@@ -4967,6 +5060,31 @@ static void drive(void)
             tap(BTN_B, 30);
         }
         return;
+    }
+    if (B.speedrun && B.subLock == NULL && (B.tick % 15) == 0 && nearLadder())
+    {   /* speedrun: a padlocked hatch at the top of a ladder (Surface 1's vent) is out of the door finder's reach while Bond
+         * climbs (it looks 300 up and down) - he climbed into it for two minutes. Its locks are shot off first. */
+        LockDoorRecord *ld;
+
+        for (ld = g_LevelLoadPropLockDoor; ld != NULL; ld = ld->next)
+        {
+            if (ld->door != NULL && ld->door->prop != NULL && ld->lock != NULL && ld->lock->prop != NULL &&
+                objIsHealthy(ld->lock) && doorShut(ld->door->prop))
+            {
+                f32 ddx = ld->door->prop->pos.x - p->prop->pos.x, ddz = ld->door->prop->pos.z - p->prop->pos.z;
+
+                if (ddx * ddx + ddz * ddz < 1000.0f * 1000.0f && fabsf(ld->door->prop->pos.y - p->prop->pos.y) < 900.0f)
+                {
+                    portConLogf("ge: playerbot: ladder: the hatch at %.0f,%.0f,%.0f is padlocked - shooting the lock at %.0f,%.0f,%.0f\n",
+                                ld->door->prop->pos.x, ld->door->prop->pos.y, ld->door->prop->pos.z, ld->lock->prop->pos.x,
+                                ld->lock->prop->pos.y, ld->lock->prop->pos.z);
+                    B.subLock = ld->lock;
+                    B.subSince = B.tick;
+                    navReset();
+                    break;
+                }
+            }
+        }
     }
     if (B.subLock != NULL)
     {   /* detour: shoot a padlock off */
