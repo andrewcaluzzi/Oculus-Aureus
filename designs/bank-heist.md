@@ -594,3 +594,30 @@ The older suites run with the cover where they test it and without where they te
 **dam1.** The committed baseline (`tests/baseline/dam1.a.txt`) no longer matches at HEAD 5b7a138 itself: built and run alone, HEAD differs from it at tick 185 (one more RNG draw per tick there, and its live hash then matches the demo's recording, which the baseline's did not). This build's dam1 tick log is byte-identical to HEAD's own, so nothing here changes dam1; the baseline needs re-cutting by whoever owns it.
 
 **Limits and open tuning.** Running counts only within 400 units (full stick is how keyboard players always move). The meter is per guard per Bond; there is no shared "the guards talk to each other" suspicion. The witness's radio and the security room do not need a line to a panel (he just radios). No emergency lighting (the bank's light is baked). An allowed guard off screen hops through a shut door without opening it (stock). Not yet: a disguise taken from a knocked-out staff member, choosing loud or quiet at the van (AC: later).
+
+## 18. Bank v3 (stream `bank3`, 2026-10-26)
+
+AC asked for a deep dive into real bank designs and a v3 built on informed views. The research is in [`bank-v3-research.md`](bank-v3-research.md), with 42 sources: halls, vaults, the day gate, the time lock, dual-key boxes, mantraps, guard tours, staffing, and seven real heists. The design is in [`bank-v3.md`](bank-v3.md): the room programme, the security layers, the staffing roster, guard tours, the vault, procedures as gameplay, heist approaches and the interfaces.
+
+**The level** comes from `tools/levelgen/build_janus_bank_v3.py`, which writes `tools/levelgen/janus_bank_v3.json`. It is now the compiled bank on this branch (`port/levelgen/`). v2's builder and JSON stay. It has 119 rooms, 186 portals and 31 cameras, and keeps every name the mode and its tests use.
+
+The new spaces:
+- the hall's 17.6 m lantern, seen from three roof terraces;
+- the officers' platform;
+- the safe-deposit department, down its own stair from the west aisle, with coupon booths and a box vault whose door needs GREEN **and** the floor key;
+- the round door's vestibule and a barred day gate;
+- the vault's inspection ring;
+- the goods-lift shaft;
+- the sally port;
+- the staff entrance mantrap.
+
+**How to play it:** launch the heist as before (`Play Heist.bat`, `GE_STAGE=levelgen`). New ways in:
+- **The safe-deposit stair** (GREEN grille), then the box vault (GREEN plus the floor key from records).
+- **The lift shaft**, from the rear corridor's landing down to the vault corridor, which skips the RED stairs. It needs the gadgets stream's grapple.
+- **The ring** behind RED `ring_gate`.
+- **The dig** from the deep archive (the canal tunnel), which needs the gadgets stream's vents.
+- **The roof**, then a rappel into the hall (grapple).
+
+**Interfaces:** the pads `grapple_<id>_low/_high` (`lantern_w`, `lantern_e`, `gallery`, `facade`, `liftshaft`) and `vent_<id>_a/_b` (`records`, `lounge`, `server`, `vault`, `sewer`, `plant`). There are 36 guard-tour pads, `patrol_<route>_<n>`, on 8 routes, with 10 watchclock stations. `heist_bank_map()` returns them as `M.GRAPPLES`, `M.VENTS`, `M.PATROLS` and `M.STATIONS`. `gen_level.py` passes a layout's `script` key through as `LEVEL.script`, and `heist_bank_map.lua` takes v3's area and camera tables from `LEVEL.script.heist`.
+
+**Tests and open items:** see the stream report (below, filled in at the end of the run).
