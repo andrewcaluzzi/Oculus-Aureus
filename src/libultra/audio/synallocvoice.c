@@ -64,11 +64,17 @@ s32 alSynAllocVoice(ALSynth *drvr, ALVoice *voice, ALVoiceConfig *vc)
              * ramp down stolen voice
              */
             update = __allocParam();
+#ifndef TARGET_N64
+            if (update) {   /* PORT: the pool can run dry (env.c _pullSubFrame); the stock code wrote through NULL here */
+#endif
             update->delta      = drvr->paramSamples;
             update->type       = AL_FILTER_SET_VOLUME;
             update->data.i     = 0;
             update->moredata.i = pvoice->offset - 64;
             (*f->setParam)(f, AL_FILTER_ADD_UPDATE, update);
+#ifndef TARGET_N64
+            }
+#endif
 
             /*
              * stop stolen voice
