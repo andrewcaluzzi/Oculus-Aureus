@@ -1,19 +1,23 @@
--- Bank heist (GE_MODE=heist on Bunker 2: GE_STAGE=bunker2). Shipped to Data/Scripts/modes/heist.lua by the build (with heist_lib.lua).
--- designs/bank-heist.md (P0 job 6). The Janus front bank, St Petersburg branch: get in, climb the keycard ladder, crack the vault, carry out
--- every gold bar you can, and get every Bond out alive.
+-- Bank heist (GE_MODE=heist, GE_STAGE=levelgen: the generated Janus bank, tools/levelgen/janus_bank.json on the levelgen slot; the
+-- "Play Heist.bat" launcher). Shipped to Data/Scripts/modes/heist.lua by the build with heist_lib.lua, levelgen_layout.lua and
+-- heist_bank_map.lua. designs/bank-heist.md (the bank: sections 14 and 15). The Janus front bank, St Petersburg branch: get in, climb
+-- the keycard ladder, crack the vault, carry out every gold bar you can, and get every Bond out alive. The map's tables (doors, areas,
+-- pads, cameras) come from LEVEL by name (heist_bank_map(), at stage start). (P0 to P2.3 ran on Bunker 2; since P2.4 the heist is the
+-- bank only.)
 --
--- The flow on Bunker 2 (rooms and pads: designs/bank-heist-bunker2.md):
---   street / van (north tunnel, pad 51)  ->  front door (open)  ->  blast doors (open; LOCKDOWN on alarm: BLUE card to pass)
---   -> banking hall (room 6: tellers, staff, guards, camera)  ->  central corridors (camera)
---   -> GREEN doors: offices (rooms 11/12, camera)        GREEN card: the head teller OR the lobby captain (random each run)
---   -> BLUE doors: security wing (rooms 43/44/46, 2 cameras, the camera console)   BLUE card: the security chief (offices)
---   -> RED doors: the two vault antechambers (east wing, rooms 51/54)   RED card: the branch manager (security wing)
---   -> plant the cracker at vault door A (antechamber room 51): equip the door decoder and fire at the door, or press use on it
+-- The flow:
+--   the street (the van)  ->  the front double door (open)  ->  the vestibule's two blast shutters (open; LOCKDOWN on alarm: BLUE)
+--   -> the banking hall (tellers, customers, guards, 2 cameras, the screen wall: the camera feeds) and the counter's flap
+--   -> GREEN doors: the offices (camera)            GREEN card: the head teller OR the lobby captain (random each run)
+--   -> BLUE doors: the security office (camera console) and the manager's office    BLUE card: the security chief (offices)
+--   -> RED: the double door down the stairs to the vault level     RED card: the branch manager (in his own office)
+--   -> plant the cracker at vault door A in the antechamber (camera): equip the door decoder and fire at the door, or press use on it
 --   -> crack it (hold the zone; it jams now and then: get back in and restart it), the vault opens on a timer: grab the gold
---   -> T-15 s klaxon; at 0 the vault doors close and relock and the alarm goes off: anyone inside re-cracks from the inside (alarm + a
---      heavy squad). The manager's safe (GOLD card, the vault captain) and the deposit cells (GREEN / the floor key) hold more.
---   -> exits: A the van (where you came in), B the loading dock (west wing). Every living Bond must be in an exit (in co-op too,
---      whatever coop_exits says), and the crew must carry at least something.
+--   -> T-15 s klaxon; at 0 the vault doors close and relock: anyone inside is trapped (alarm + a heavy squad) and re-cracks from the
+--      inside. The manager's safe (GOLD card, the vault captain) and the deposit cells (GREEN / the floor key in records) hold more.
+--   -> exits: A the van, B the loading dock (from inside through the staff corridor, from the alley through the padlocked shutter; from
+--      the deposit hall up the service ramp and its RED shutter). Every living Bond must be in an exit (in co-op too, whatever
+--      coop_exits says), and the crew must carry at least something.
 -- Fail: every Bond down, or more civilians killed than the stock Frigate rule allows (Agent 4, Secret Agent 2, 00 Agent / 007 1).
 -- Knock-outs never count. Score = the loot (bars and cash), +25% for a run that never went loud, minus a fine per civilian killed.
 -- The best score this session is kept (HEIST_BEST) and logged ("ge: heist: HIGH SCORE"); modes have no save file.
@@ -23,6 +27,9 @@
 -- generator, the same on both machines); the script reads only per-player state (bond.pos(p), bond.has_key(p, ...)), never the local player.
 
 include("heist_lib")
+include("levelgen_layout")                     -- LEVEL: the generated level's layout (include() works at the top level only)
+include("heist_bank_map")                      -- heist_bank_map(): the mode's tables from LEVEL by name
+local STAGE_LEVELGEN = 52                      -- LEVELID_LEE: the generated level's slot
 
 local S = {
   -- people: the FULL force (007). Each difficulty takes its `force` share of these (difficulty below): Agent about 30 posted guards,
@@ -52,9 +59,8 @@ local S = {
   lockdown        = true,    -- the alarm closes and locks the blast doors at the hall: BLUE card to pass (exit B is always open)
   -- cameras: stock (10 s of unbroken sight on Agent, 5 s above); the security console blinds every camera for cam_off_time seconds
   cam_off_time    = 90,
-  -- the screens in the banking hall (room 6): use one to watch the camera feeds (cctv.view); the intel box shows in that room or on a feed
+  -- the screen wall in the banking hall: use a screen to watch the camera feeds (cctv.view); the intel box shows in the hall or on a feed
   monitor_reach   = 170,     -- units from a screen at which a use press watches the feeds
-  intel_room      = 6,
   -- the cracker (the door decoder: equip it and fire at the vault door, or press use there)
   crack_time      = 90,      -- seconds of progress to open the vault (progress runs only while a Bond is in the zone)
   crack_radius    = 260,
@@ -107,58 +113,12 @@ local DIFF = S.difficulty
 local GREEN, BLUE, RED, GOLD, FLOORKEY, VAULT = 0x2, 0x4, 0x8, 0x10, 0x1, 0x40000000
 local CARD_NAMES = { { GREEN, "GREEN" }, { BLUE, "BLUE" }, { RED, "RED" }, { GOLD, "GOLD" } }
 
--- Bunker 2 map data (designs/bank-heist-bunker2.md; doors are setup indices, pads are pad ids)
-local DOORS = {
-  front = { 72 },
-  blast = { 80, 81, 82, 83, 84, 85 },
-  green = { 46, 47, 48, 49 },
-  blue = { 50, 51, 52, 53 },
-  red = { 58, 59, 60, 61 },
-  vault_a = { 68, 69 },          -- the crack door (rooms 56/51)
-  vault_b = { 70, 71 },          -- the second vault door (rooms 47/54)
-  safe = 102,
-  cell_floor = 75, cell_green = 77,
-}
-local AREAS = {   -- name, pads (waypoint pads first), alarm panel pad, posted share, raisers
-  { name = "hall",     pads = { 54, 55, 58, 59, 60, 61, 62, 63, 64, 65, 52, 56, 53, 57, 66, 6, 7, 26, 27, 2, 3, 0, 1 }, panel = 64, share = 14, raisers = 2 },
-  { name = "central",  pads = { 67, 68, 69, 70, 71, 84, 4 }, panel = 67, share = 9, raisers = 1 },
-  { name = "offices",  pads = { 72, 73, 74, 75, 76, 77, 5 }, panel = 74, share = 7, raisers = 1 },
-  { name = "security", pads = { 78, 79, 82, 83, 38 }, panel = 82, share = 5, raisers = 1 },
-  { name = "west",     pads = { 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 23, 24, 48 }, panel = 104, share = 14, raisers = 2 },
-  { name = "south",    pads = { 90, 92, 93, 101, 117, 10, 11, 15, 21, 22, 47 }, panel = 92, share = 10, raisers = 1 },
-  { name = "east",     pads = { 80, 81, 85, 86, 87, 13 }, panel = 86, share = 14, raisers = 3 },
-  { name = "cells",    pads = { 91, 96, 99, 100, 16 }, panel = 99, share = 7, raisers = 1 },
-  { name = "safe",     pads = { 12 }, panel = nil, share = 1, raisers = 0 },
-}
-local AREA_LABEL = { hall = "banking hall", central = "central corridor", offices = "offices", security = "security wing",
-                     west = "west wing", south = "records", east = "east wing", cells = "deposit cells", vault = "vault", safe = "manager's safe" }
-local VAULT_PADS = { 9, 18, 30, 31, 32, 33, 34, 35, 36, 37, 8, 17, 89, 20, 19, 88 }   -- rooms 55, 56, 57, 58, 47
-local VAULT_CRATE_PADS = { [30] = true, [31] = true, [32] = true, [33] = true, [34] = true, [35] = true, [36] = true, [37] = true }
-local CIV_PLACES = {   -- area, pads (tellers and customers in the hall, office staff, ...)
-  { "hall", { 58, 59, 65, 63, 54, 55, 62, 64, 52, 56 }, 8 },
-  { "offices", { 72, 73, 75, 76 }, 4 },
-  { "security", { 83, 79 }, 2 },
-  { "south", { 93, 101, 10 }, 2 },
-  { "east", { 87, 13 }, 2 },
-}
-local P = {
-  start = { 51, 118, 119, 120 },          -- the street (north tunnel, room 68)
-  exit_a = 51, exit_b = 116,              -- the van; the loading dock (west wing, room 67)
-  crack = 85,                             -- the vault antechamber, outside vault door A (room 51, behind the RED doors 58/59)
-  crack_xz = { 892, 2913 },               -- the crack zone centre (pad 85; door 68/69 is 170 units north)
-  inside = { { 905, 3313 }, { 925, 4567 } },   -- re-crack zones inside door A (pad 89) and door B (pad 88)
-  vault = { { 650, 3380, 380 }, { 1400, 3950, 560 }, { 1233, 4671, 200 }, { 925, 4567, 200 }, { 356, 3703, 200 }, { 365, 4200, 220 } },
-                                          -- the vault interior (rooms 56, 55, 47, 57, 58) as circles x, z, r
-  console = 82,                           -- the security console (room 43)
-  monitors = { { -455, 200 }, { -455, 330 }, { -455, 470 }, { -455, 610 }, { -455, 750 }, { 890, 383 }, { 890, 511 } },
-                                          -- the banking hall's screens (room 6): the monitor wall at x -477 (z 148..794), the two desk screens
-  waves_front = { 60, 61, 53, 57 },       -- just inside the blast doors (hall north end)
-  waves_dock = { 102, 103, 105 },         -- the loading dock (west wing)
-  squad = { 86, 87, 13, 80 },             -- east wing: crack squads come in here
-  heavy = { 85, 81, 86, 80 },             -- outside the vault doors
-  safe_loot = { 12 },                     -- the floor in front of the manager's safe (the bars spill out when it opens)
-  cell_loot = { { 95, 97, 98 }, { 49, 94 } },   -- cell 77 (GREEN), cell 75 (floor key)
-}
+-- the map: filled at stage start from heist_bank_map() (tools/heist_bank_map.lua; the shapes are documented there): doors are setup
+-- indices, pads are pad ids. DOORS, AREAS (name, pads, alarm panel pad, posted share, raisers), AREA_LABEL, VAULT_ROOMS, VAULT_PADS,
+-- VAULT_CRATE_PADS, CIV_PLACES (area, pads, count), P (start, exits, crack, monitors, wave / squad pads, loot ...), CARRIERS (the card
+-- carriers' candidate pads), CAM_LABEL / CAM_AREA (by camera index), GUARD_AREAS (the areas a camera covers), MAP (labels), intel_room.
+local DOORS, AREAS, AREA_LABEL, VAULT_ROOMS, VAULT_PADS, VAULT_CRATE_PADS, CIV_PLACES, P, CARRIERS
+local CAM_LABEL, CAM_AREA, GUARD_AREAS, MAP, intel_room = {}, {}, {}, { name = "none" }, nil
 local OFFS = { { 0, 0 }, { 110, 0 }, { -110, 0 }, { 0, 110 }, { 0, -110 }, { 110, 110 }, { -110, -110 }, { 110, -110 }, { -110, 110 },
                { 200, 0 }, { -200, 0 }, { 0, 200 }, { 0, -200 } }
 
@@ -297,7 +257,7 @@ end
 local function objective(p)
   local ph = H.phase
   if ph == "casing" then
-    if bond.has_key(p, RED) then return "Crack the vault (east wing, RED doors)" end
+    if bond.has_key(p, RED) then return "Crack the vault (" .. MAP.vault_hint .. ")" end
     if bond.has_key(p, BLUE) then return "RED card: the branch manager" end
     if bond.has_key(p, GREEN) then return "BLUE card: the security chief" end
     return "GREEN card: head teller or lobby captain"
@@ -432,28 +392,28 @@ local function queue_carriers()
   queue[#queue + 1] = function()
     -- GREEN: the head teller (a civilian at the counter) or the lobby captain (a guard on the hall floor), chosen at random
     if math.random(2) == 1 then
-      local pad = pick({ 58, 59, 65 })
+      local pad = pick(CARRIERS.teller)
       local c = spawn_at(pad, { behaviour = "civilian", body = "Civilian_1_Female" })
       if c then H.civs[#H.civs + 1] = { chr = c, area = "hall" }; H.placed.civ = H.placed.civ + 1 end
       give_card(c, GREEN, "head teller", "hall", pad)
     else
-      local pad = pick({ 54, 55, 62 })
+      local pad = pick(CARRIERS.captain)
       local c = spawn_at(pad, guard_opts({ post = true, body = "St_Petersburg_Guard" }))
       if c then note_guard(c, "carrier", "hall") end
       give_card(c, GREEN, "lobby captain", "hall", pad)
     end
     -- BLUE: the security chief, in the offices
-    local pad = pick({ 72, 73, 74, 75, 76 })
+    local pad = pick(CARRIERS.chief)
     local c = spawn_at(pad, guard_opts({ post = true, body = S.chief_body, health = 1.5 }))
     if c then note_guard(c, "carrier", "offices") end
     give_card(c, BLUE, "security chief", "offices", pad)
-    -- RED: the branch manager, in the security wing
-    pad = pick({ 78, 79, 83 })
+    -- RED: the branch manager, in his own office (behind BLUE)
+    pad = pick(CARRIERS.manager)
     c = spawn_at(pad, { behaviour = "civilian", body = S.manager_body })
-    if c then H.civs[#H.civs + 1] = { chr = c, area = "security" }; H.placed.civ = H.placed.civ + 1 end
-    give_card(c, RED, "branch manager", "security", pad)
+    if c then H.civs[#H.civs + 1] = { chr = c, area = MAP.manager_area }; H.placed.civ = H.placed.civ + 1 end
+    give_card(c, RED, "branch manager", MAP.manager_area, pad)
     -- GOLD: the vault captain, inside the vault (the manager's safe needs it)
-    pad = pick({ 9, 18 })
+    pad = pick(CARRIERS.vault_captain)
     c = spawn_at(pad, guard_opts({ post = true, body = "Russian_Commandant", health = 2, armour = 1 }))
     if c then note_guard(c, "carrier", "vault") end
     give_card(c, GOLD, "vault captain", "vault", pad)
@@ -478,10 +438,11 @@ end
 local function queue_loot()
   queue[#queue + 1] = function()
     local n, k = 0, 0
+    local list = P.vault_loot or VAULT_PADS   -- the bank: its named loot pads (LEVEL.loot.vault_gold), stacks of bars round each
     while n < S.vault_bars and k < S.vault_bars * 4 do
       k = k + 1
-      local pad = VAULT_PADS[(k - 1) % #VAULT_PADS + 1]
-      local ring = math.floor((k - 1) / #VAULT_PADS) + 1
+      local pad = list[(k - 1) % #list + 1]
+      local ring = math.floor((k - 1) / #list) + 1
       local offs
       if VAULT_CRATE_PADS[pad] then offs = { CRATE_OFFS[(ring - 1) % #CRATE_OFFS + 1] } else offs = { LOOT_OFFS[(ring - 1) % #LOOT_OFFS + 1] } end
       if place_loot(pad, "goldbar", offs, "vault") then n = n + 1 end
@@ -525,11 +486,7 @@ local function in_inside_zone(p)
   for _, c in ipairs(P.inside) do if in_circle(p, c, S.crack_radius) then return true end end
   return false
 end
-local VAULT_ROOMS = { [55] = true, [56] = true, [57] = true, [58] = true, [47] = true }
-local function in_vault(p)
-  for _, c in ipairs(P.vault) do if in_circle(p, c, c[3]) then return true end end
-  -- the circles miss the west end of room 56 (x below ~300 along z 3141): a Bond there at the time lock was "sealed" in, with
-  -- no re-crack (the player bot found it: locked in for good). The vault's own rooms count too.
+local function in_vault(p)   -- by room (Bunker 2's circle test once missed a corner and sealed a Bond in for good)
   return not bond.dead(p) and VAULT_ROOMS[bond.room(p)] == true
 end
 H.in_vault = in_vault
@@ -657,16 +614,13 @@ end)
 -- ------------------------------------------------------------------------------------------------------------------------------------
 -- the camera feeds (designs/bank-heist.md P1 T2) and the control-room intel (P1 T1)
 
-local CAM_LABEL = { [87] = "SECURITY WING", [89] = "OFFICES", [91] = "CENTRAL CORRIDOR", [93] = "SECURITY STAIRS", [95] = "BANKING HALL",
-                    [97] = "EAST WING" }
-local CAM_AREA = { [87] = "security", [89] = "offices", [91] = "central", [93] = "security", [95] = "hall", [97] = "east" }
 H.cctv_left = {}       -- per Bond: when he last left a feed (a held use press must not re-open it)
 H.cctv_last = {}       -- per Bond: the camera he watched last (the screens reopen on it)
 H.seen = {}            -- card role -> { area, at } where a working camera last saw its carrier
 
 local function near_monitor(p)
   local x, _, z = bond.pos(p)
-  if x == nil or bond.room(p) ~= S.intel_room then return false end
+  if x == nil or bond.room(p) ~= intel_room then return false end
   for _, m in ipairs(P.monitors) do
     if d2(x, z, m[1], m[2]) <= S.monitor_reach then return true end
   end
@@ -720,7 +674,6 @@ local function intel_scan()
 end
 
 local CARD_ROLES = { { GREEN, "GREEN" }, { BLUE, "BLUE" }, { RED, "RED" }, { GOLD, "GOLD" } }
-local GUARD_AREAS = { "hall", "offices", "security", "central", "east" }   -- the areas a camera covers
 
 local function cams_up()
   local up, n = 0, 0
@@ -774,14 +727,14 @@ function H.intel_lines(p)
     gl[#gl + 1] = string.format("%s %s", a, covered[a] and tostring(counts[a] or 0) or "?")
   end
   t[#t + 1] = "GUARDS " .. table.concat(gl, "  ", 1, 3)
-  t[#t + 1] = "  " .. table.concat(gl, "  ", 4) .. "  (west, records, cells: no cams)"
+  t[#t + 1] = "  " .. table.concat(gl, "  ", 4) .. "  " .. MAP.no_cams
   return t
 end
 
 local function intel_tick()
   intel_scan()
   for p = 0, bond.count() - 1 do
-    if not H.ended and (cctv.viewing(p) or bond.room(p) == S.intel_room) then hud.panel(H.intel_lines(p), p) else hud.panel(nil, p) end
+    if not H.ended and (cctv.viewing(p) or bond.room(p) == intel_room) then hud.panel(H.intel_lines(p), p) else hud.panel(nil, p) end
   end
 end
 
@@ -916,13 +869,24 @@ mode.keep_locks()
 mode.per_player_keys()
 mode.hold_fire(S.hold_fire)
 
+-- the map's tables from LEVEL (heist_bank_map(): it reads pad positions, so the stage must be up)
+local function load_map()
+  local M = heist_bank_map()
+  DOORS, AREAS, AREA_LABEL, VAULT_ROOMS, VAULT_PADS, VAULT_CRATE_PADS = M.DOORS, M.AREAS, M.AREA_LABEL, M.VAULT_ROOMS, M.VAULT_PADS, M.VAULT_CRATE_PADS
+  CIV_PLACES, P, CARRIERS, CAM_LABEL, CAM_AREA, GUARD_AREAS = M.CIV_PLACES, M.P, M.CARRIERS, M.CAM_LABEL, M.CAM_AREA, M.GUARD_AREAS
+  intel_room, MAP = M.intel_room, M.MAP
+  H.M = M
+end
+
 on("stage_start", function(stage)
-  if stage ~= 27 then   -- LEVELID 27 = Bunker 2 (GE_STAGE=bunker2)
-    hud.set(1, "HEIST MODE: run it on Bunker 2 (GE_STAGE=bunker2)")
-    log("not Bunker 2 (stage %d): nothing set up", stage)
+  if stage ~= STAGE_LEVELGEN or type(LEVEL) ~= "table" or type(LEVEL.objects) ~= "table" or LEVEL.objects.vault_door_a == nil then
+    hud.set(1, "HEIST MODE: run it on the Janus bank (GE_STAGE=levelgen, janus_bank.json on the slot)")
+    log("not the Janus bank (stage %d): nothing set up", stage)
     H.phase = "off"
     return
   end
+  load_map()
+  H.map = MAP.name
   diff = DIFF[mission.difficulty()] or DIFF[1]
   H.civ_limit = S.civ_limit or diff.civ_limit
   spawn.keep_bodies(true)
@@ -965,7 +929,7 @@ on("stage_start", function(stage)
                               active = function() return H.hot and not H.ended and H.hot_at and H.elapsed - H.hot_at >= S.response_after
                                                          and hostiles_alive() < S.hostile_cap end }
   flash("JANUS BANK, ST PETERSBURG. Steal the gold. Hurt no staff.", 8)
-  log("stage start: Bunker 2, %d Bond(s), difficulty %d", bond.count(), mission.difficulty())
+  log("stage start: %s, %d Bond(s), difficulty %d", MAP.label, bond.count(), mission.difficulty())
   refresh_hud()
 end)
 

@@ -97,17 +97,17 @@
         { "type": "camera", "name": "cam_hall_s", "wall": "z0", "along": 1550, "y": 460, "watch": "cust_1", "sweep": [35, -35] },
         { "type": "camera", "name": "cam_hall_n", "wall": "z1", "along": -150, "y": 460, "watch": "teller_mid", "sweep": [30, -30] },
         { "type": "alarm", "name": "alarm_hall", "wall": "z1", "along": 300, "y": 140 },
-        { "type": "monitor", "name": "screen_1", "wall": "x0", "along": -180, "y": 150, "width": 100, "height": 72 },
-        { "type": "monitor", "name": "screen_2", "wall": "x0", "along": -60, "y": 150, "width": 100, "height": 72 },
-        { "type": "monitor", "name": "screen_3", "wall": "x0", "along": 60, "y": 150, "width": 100, "height": 72 },
-        { "type": "monitor", "name": "screen_4", "wall": "x0", "along": 180, "y": 150, "width": 100, "height": 72 },
-        { "type": "monitor", "name": "screen_5", "wall": "x0", "along": -180, "y": 232, "width": 100, "height": 72 },
-        { "type": "monitor", "name": "screen_6", "wall": "x0", "along": -60, "y": 232, "width": 100, "height": 72 },
-        { "type": "monitor", "name": "screen_7", "wall": "x0", "along": 60, "y": 232, "width": 100, "height": 72 },
-        { "type": "monitor", "name": "screen_8", "wall": "x0", "along": 180, "y": 232, "width": 100, "height": 72 },
+        { "type": "monitor", "name": "screen_1", "wall": "x0", "along": -180, "y": 150, "width": 100, "height": 72, "image": 15 },
+        { "type": "monitor", "name": "screen_2", "wall": "x0", "along": -60, "y": 150, "width": 100, "height": 72, "image": 11 },
+        { "type": "monitor", "name": "screen_3", "wall": "x0", "along": 60, "y": 150, "width": 100, "height": 72, "image": 3 },
+        { "type": "monitor", "name": "screen_4", "wall": "x0", "along": 180, "y": 150, "width": 100, "height": 72, "image": 16 },
+        { "type": "monitor", "name": "screen_5", "wall": "x0", "along": -180, "y": 232, "width": 100, "height": 72, "image": 9 },
+        { "type": "monitor", "name": "screen_6", "wall": "x0", "along": -60, "y": 232, "width": 100, "height": 72, "image": 16 },
+        { "type": "monitor", "name": "screen_7", "wall": "x0", "along": 60, "y": 232, "width": 100, "height": 72, "image": 4 },
+        { "type": "monitor", "name": "screen_8", "wall": "x0", "along": 180, "y": 232, "width": 100, "height": 72, "image": 10 },
         { "type": "prop", "name": "teller_desk_1", "model": 38, "at": [0, 845], "face": [0, 400], "flags": "0x101" },
         { "type": "prop", "name": "teller_desk_2", "model": 38, "at": [600, 845], "face": [600, 400], "flags": "0x101" },
-        { "type": "prop", "name": "teller_desk_3", "model": 38, "at": [1000, 845], "face": [1000, 400], "flags": "0x101" },
+        { "type": "prop", "name": "teller_desk_3", "model": 38, "at": [850, 845], "face": [850, 400], "flags": "0x101" },
         { "type": "prop", "name": "writing_table", "model": 85, "at": [700, -60], "face": [700, 400], "flags": "0x101" }
       ] },
 
@@ -198,8 +198,8 @@
         { "type": "camera", "name": "cam_security", "wall": "z1", "along": 1850, "y": 280, "watch": "sec_mid", "sweep": [30, -30] },
         { "type": "alarm", "name": "alarm_security", "wall": "z1", "along": 2250, "y": 140 },
         { "type": "prop", "name": "console_desk", "model": 25, "at": [2580, 760], "face": [2300, 760], "flags": "0x101" },
-        { "type": "monitor", "name": "sec_screen_1", "wall": "x1", "along": 440, "y": 200, "width": 90, "height": 66 },
-        { "type": "monitor", "name": "sec_screen_2", "wall": "x1", "along": 540, "y": 200, "width": 90, "height": 66 }
+        { "type": "monitor", "name": "sec_screen_1", "wall": "x1", "along": 440, "y": 200, "width": 90, "height": 66, "image": 11 },
+        { "type": "monitor", "name": "sec_screen_2", "wall": "x1", "along": 540, "y": 200, "width": 90, "height": 66, "image": 15 }
       ] },
 
     { "name": "guard_room", "area": "security", "rect": [1740, -380, 2660, 260],
@@ -226,7 +226,7 @@
         { "type": "alarm", "name": "alarm_dock", "wall": "x0", "along": 1560, "y": 140 },
         { "type": "prop", "name": "dock_crate_1", "model": 79, "at": [1600, 1800], "face": [2660, 1800], "flags": "0x101" },
         { "type": "prop", "name": "dock_crate_2", "model": 80, "at": [1600, 1950], "face": [2660, 1950], "flags": "0x101" },
-        { "type": "prop", "name": "dock_boxes", "model": 90, "at": [2520, 1950], "face": [1500, 1950], "flags": "0x101" }
+        { "type": "prop", "name": "dock_boxes", "model": 90, "at": [2340, 1985], "face": [2340, 1290], "flags": "0x101" }
       ] },
 
     { "name": "stairs", "area": "vault_stairs", "rect": [700, 1290, 1100, 2400], "height": 360,

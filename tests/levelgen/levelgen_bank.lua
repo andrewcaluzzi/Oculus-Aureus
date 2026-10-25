@@ -208,9 +208,10 @@ local function body()
     for _ in pairs(M.CAM_LABEL) do n_cams = n_cams + 1 end
   end
   check("heist_map_resolves", okm and #M.DOORS.green == 3 and #M.DOORS.red == 3 and #M.DOORS.vault_a == 2 and #M.P.monitors == 8 and
-    n_cams == 7 and n_area_pads > 200 and M.P.crack_xz[1] ~= nil,
-    okm and string.format("doors green %d blue %d red %d vault %d/%d, %d area pads, %d cameras, crack at (%.0f, %.0f)", #M.DOORS.green,
-      #M.DOORS.blue, #M.DOORS.red, #M.DOORS.vault_a, #M.DOORS.vault_b, n_area_pads, n_cams, M.P.crack_xz[1], M.P.crack_xz[2]) or tostring(M))
+    n_cams == 7 and n_area_pads > 150 and M.P.crack_xz[1] ~= nil,   -- (P2.4: grid pads by furniture and doorways are kept off the posts)
+    okm and string.format("doors green %d blue %d red %d vault %d/%d, %d area pads (%d grid pads kept off), %d cameras, crack at (%.0f, %.0f)",
+      #M.DOORS.green, #M.DOORS.blue, #M.DOORS.red, #M.DOORS.vault_a, #M.DOORS.vault_b, n_area_pads, M.dropped or -1, n_cams, M.P.crack_xz[1],
+      M.P.crack_xz[2]) or tostring(M))
 
   -- 2: a double door culls and shows the stairs; one leaf opened opens both
   local red = LEVEL.objects.red_stairs

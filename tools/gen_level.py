@@ -28,6 +28,7 @@ import argparse
 import json
 import math
 import os
+import re
 import sys
 import zlib
 
@@ -210,6 +211,86 @@ def in_block(R, x, z):
         if B.x0 <= x <= B.x1 and B.z0 <= z <= B.z1:
             return B
     return None
+
+
+_PROP_NAMES = None
+
+
+def prop_half_extents(root, model):
+    """(half width along the model's x, half depth along its z) in world units of a stock prop model: its file's bounding box
+    (assets/obseg/prop/<name>/Model.c, the first BoundingBoxRecord) times its file scale (propFileRecord.inc.c). The model id is the
+    PROP_* index (the "PROP_..." name list in src/bondconstants.h). None if the model's files are not found."""
+    global _PROP_NAMES
+    if _PROP_NAMES is None:
+        _PROP_NAMES = []
+        with open(os.path.join(root, "src", "bondconstants.h")) as f:
+            for line in f:
+                m = re.match(r'\s*"PROP_(\w+)",', line)
+                if m:
+                    _PROP_NAMES.append(m.group(1).lower())
+    if not 0 <= model < len(_PROP_NAMES):
+        return None
+    d = os.path.join(root, "assets", "obseg", "prop", _PROP_NAMES[model])
+    try:
+        with open(os.path.join(d, "Model.c")) as f:
+            src = f.read()
+        with open(os.path.join(d, "propFileRecord.inc.c")) as f:
+            rec = f.read()
+    except OSError:
+        return None
+    m = re.search(r"BoundingBoxRecord_\w+\s*=\s*\{\s*0x[0-9a-fA-F]+,\s*\{([^}]*)\}", src)
+    s = re.search(r"PROPFILERECORD\(\s*\w+\s*,\s*([0-9.eE+-]+)\s*\)", rec)
+    if not m or not s:
+        return None
+    b = [float(v) for v in m.group(1).split(",")]
+    k = float(s.group(1))
+    return max(abs(b[0]), abs(b[1])) * k, max(abs(b[4]), abs(b[5])) * k
+
+
+def footprint(root, o):
+    """A floor prop's footprint as an x/z box (x0, z0, x1, z1): its model's box turned to face `face` (the model's +z points along the
+    facing). A prop may give "size": [width, depth] itself (a model whose files are not found must)."""
+    at = o["at"]
+    face = o.get("face", [at[0], at[1] + 100])
+    if "size" in o:
+        hx, hz = float(o["size"][0]) / 2.0, float(o["size"][1]) / 2.0
+    else:
+        e = prop_half_extents(root, ival(o.get("model")))
+        if e is None:
+            sys.exit("prop %s: no footprint for model %s (give it \"size\": [width, depth])" % (o.get("name"), o.get("model")))
+        hx, hz = e
+    fx, fz = face[0] - at[0], face[1] - at[1]
+    ln = math.hypot(fx, fz) or 1.0
+    fx, fz = fx / ln, fz / ln
+    ex = abs(fz) * hx + abs(fx) * hz             # the turned box's half extents along world x and z (the model's x is the
+    ez = abs(fx) * hx + abs(fz) * hz             # facing turned a quarter turn)
+    return at[0] - ex, at[1] - ez, at[0] + ex, at[1] + ez
+
+
+def check_door_clearance(d, rooms, doors, root):
+    """P2.4: no furniture in a doorway's way. Each doorway keeps clear a box on both sides: the opening widened by `door_clearance`
+    (default 60) each way along the wall, and from the wall out to the approach pad plus the clearance (`door_approach` 110 + 60).
+    A floor prop (its model's box, turned) or a furniture block that comes into that box on a room's side stops the generator: a desk
+    across a jamb, half in front of the opening, is what AC walked into in the bank's hall."""
+    clr = float(d.get("door_clearance", 60))
+    depth = float(d.get("door_approach", 110)) + clr
+    bad = []
+    for D in doors:
+        for R, face in ((D.a, D.fa), (D.b, D.fb)):
+            inward = 1 if ((R.x0 + R.x1) / 2.0 if D.axis == "x" else (R.z0 + R.z1) / 2.0) > face else -1
+            a0, a1 = sorted((face, face + inward * depth))
+            if D.axis == "x":   # the wall runs along z at x = face
+                zone = (a0, D.lo - clr, a1, D.hi + clr)
+            else:
+                zone = (D.lo - clr, a0, D.hi + clr, a1)
+            boxes = [("block " + B.name, (B.x0, B.z0, B.x1, B.z1)) for B in R.blocks]
+            boxes += [("prop " + o.get("name", "?"), footprint(root, o)) for o in R.objects if o.get("type") == "prop"]
+            for what, (x0, z0, x1, z1) in boxes:
+                if x0 < zone[2] and zone[0] < x1 and z0 < zone[3] and zone[1] < z1:
+                    bad.append("%s in room %s (%.0f..%.0f x %.0f..%.0f) is within %d units of doorway %s (keep-out %.0f..%.0f x %.0f..%.0f)" % (
+                        what, R.name, x0, x1, z0, z1, clr, D.name, zone[0], zone[2], zone[1], zone[3]))
+    if bad:
+        sys.exit("furniture in a doorway's way (move it, or lower \"door_clearance\" in the defaults):\n  " + "\n  ".join(bad))
 
 
 def seg_hits_rect(ax, az, bx, bz, x0, z0, x1, z1):
@@ -1081,8 +1162,11 @@ def build_objects(rooms, byname, doors, pads, tris, objs_first_pad):
             elif kind == "monitor":
                 w, h = float(o.get("width", 70)), float(o.get("height", 52))
                 bp = mount(R, o, w, h, 4, "monitor " + name)
+                # the image (monitorSetImageByNum, propobj.c): Bunker 2's records say 51 (monAnim33BlackSolid) and its AI lists switch the
+                # screens to their pictures (tv_change_screen_bank); a generated level has no AI lists, so 51 stayed black (P2.2 / P2.3).
+                # The default is 16 (monAnim10GlobalMap, one of Bunker 2's); "image" picks another (0-51; 20 = off, 51 = black).
                 tail = ", ".join(["0"] * 24) + ", _mkshort(0, 0), _mkshort(0, 0), _mkshort(0, 0), 0, 0, 0xffffffff, 0xffffffff, %d" % (
-                    ival(o.get("image"), 51))
+                    ival(o.get("image"), 16))
                 O.tag("monitor " + name)            # a use target: the `use` event names the monitor
                 idx = O.rec("SingleMonitor %s" % name, obj_head(PROPDEF["monitor"], ival(o.get("model"), MODEL["monitor"]), 10000 + bp,
                                                                   F_ONSCREEN | F_SCALE_XY) + ", " + tail)
@@ -1282,6 +1366,7 @@ def main():
     out = a.out or os.path.join(root, "port", name)
     os.makedirs(out, exist_ok=True)
     maxcell = int(d.get("cell", 300))
+    check_door_clearance(d, rooms, doors, root)
     src = os.path.relpath(os.path.abspath(a.layout), root).replace("\\", "/")
     describe = "%s: %d rooms, %d doorways (from %s)" % (name, len(rooms), len(doors), src)
 

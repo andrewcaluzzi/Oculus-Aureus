@@ -1,9 +1,20 @@
--- Heist knock-out test mode (P0 job 5) on Bunker 2. Prints "HEIST PASS|FAIL <name> ..." and "HEIST DONE n passed, m failed".
--- The mode name starts with "heist": 250 extra chr slots and slaps_to_ko defaults to 2.
+-- Heist knock-out test mode (P0 job 5; in the Janus bank's hall since P2.4). Prints "HEIST PASS|FAIL <name> ..." and "HEIST DONE n passed,
+-- m failed". The mode name starts with "heist": 250 extra chr slots and slaps_to_ko defaults to 2.
 -- Run: tests/heist/run_ko.sh (inside the build container, Xvfb on :99).
 -- Slaps go through ko.test_slap, which calls the stock hit path (handles_shot_actors with ITEM_FIST, as Bond's punch does).
+include("levelgen_layout")
 mode.keep_locks()
 spawn.keep_bodies(true)
+
+-- the bank's banking hall (designs/bank-heist.md section 14)
+local PD = LEVEL.pads
+local PG, PVICTIM, PWITNESS, PBOND, PCIV = PD.hall_mid, PD.cust_5, PD.hall_post_nw, PD.hall_entry_w, PD.cust_1
+local PG0, PFAR = PD.cust_5, PD.vest_mid
+local ALARM_CAND = { LEVEL.objects.alarm_hall.pad }   -- a stock raiser sounds the alarm only at an alarm box: the hall's (its bound pad)
+local function ppos(p)   -- pads.pos, or the alarm box's own x, y, z for its bound pad (pads.pos takes floor pads only)
+  if p == LEVEL.objects.alarm_hall.pad then local o = LEVEL.objects.alarm_hall; return o.x, o.y, o.z end
+  return pads.pos(p)
+end
 
 local pass, fail = 0, 0
 local function check(name, ok, extra)
@@ -34,13 +45,13 @@ local function died(chr) for _, d in ipairs(ev.died) do if d[1] == chr then retu
 local function body()
   wait(1)
   heal = true
-  cctv.alarm_on_spot(false)   -- Bunker 2's cameras must not sound the alarm under the alarm.stop check
+  cctv.alarm_on_spot(false)   -- the bank's cameras must not sound the alarm under the alarm.stop check
   check("slaps_to_ko defaults to 2 in a heist mode", mode.slaps_to_ko() == 2, "n=" .. tostring(mode.slaps_to_ko()))
 
   -- A. civilian: 1 slap is not a KO, 2 slaps are; a KO is not a death; it stays down; searching it drops its key; a gun still kills it
-  bond.warp(0, 61)
+  bond.warp(0, PBOND)
   wait(1)
-  local civ = spawn.chr(62, { behaviour = "civilian", body = "Civilian_1_Female" })
+  local civ = spawn.chr(PCIV, { behaviour = "civilian", body = "Civilian_1_Female" })
   local kh = spawn.key(civ, 0x80)
   wait(1)
   check("civilian spawned with a key", civ ~= nil and kh ~= nil and select(2, spawn.key_alive(kh)) == true)
@@ -71,21 +82,24 @@ local function body()
   local _, held = spawn.key_alive(kh)
   check("its key stays on it", held == true)
   check("search out of reach finds nothing", ko.search(0) == nil)
-  bond.warp(0, 62, -60, 0)
+  bond.warp(0, PCIV, -60, 0)
   wait(0.5)
   local bx, _, bz = bond.pos(0)
   print(string.format("HEIST Bond %.0f from the KO'd civilian", dist2(bx, bz, x1, z1)))
   local s = ko.search(0)
   wait(0.5)
   local alive2, held2 = spawn.key_alive(kh)
-  check("search drops its key (chr_searched)", s == civ and alive2 and not held2 and #ev.searched == 1, string.format("s=%s held=%s", tostring(s), tostring(held2)))
+  -- (the dropped card lands where Bond stands, and he picks it up at once: held by him counts)
+  check("search drops its key (chr_searched)", s == civ and alive2 and (not held2 or bond.has_key(0, 0x80)) and #ev.searched == 1,
+        string.format("s=%s held=%s bond has it=%s", tostring(s), tostring(held2), tostring(bond.has_key(0, 0x80))))
   spawn.kill(civ)
   wait(1.5)
   check("killing a KO'd civilian is a death", civilian.killed() == 1 and #ev.ckilled == 1 and not ko.is(civ), string.format("killed=%d", civilian.killed()))
+  spawn.remove(civ)   -- (the body out of the hall: a raiser who sees it later would go for Bond, not for the alarm)
 
   -- B. slaps_to_ko(0): slaps are stock hits again
   mode.slaps_to_ko(0)
-  local g0 = spawn.chr(56, { behaviour = "hold", weapon = "none", health = 50 })
+  local g0 = spawn.chr(PG0, { behaviour = "hold", weapon = "none", health = 50 })
   wait(1)
   ko.test_slap(0, g0)
   ko.test_slap(0, g0)
@@ -96,16 +110,16 @@ local function body()
   wait(1)
 
   -- C. a guard KO'd; with guards_wake off a witness finds it (body_found ko=1) and it stays down
-  bond.warp(0, 50)
+  bond.warp(0, PFAR)
   wait(1)
   mode.guards_wake(false)
-  local v1 = spawn.chr(58, { behaviour = "hold", weapon = "none" })
+  local v1 = spawn.chr(PVICTIM, { behaviour = "hold", weapon = "none" })
   wait(1)
   ko.test_slap(0, v1); wait(0.25); ko.test_slap(0, v1)
   wait(2)
   check("guard KO'd", ko.is(v1) and spawn.down(v1))
   local b0 = #ev.body
-  local w1 = spawn.chr(59, { behaviour = "hold", weapon = "none" })
+  local w1 = spawn.chr(PWITNESS, { behaviour = "hold", weapon = "none" })
   wait(3)
   local e = ev.body[b0 + 1]
   check("witness fires body_found(guard, body, ko=1) for the KO'd chr", e ~= nil and e[1] == w1 and e[2] == v1 and e[3] == 1,
@@ -117,14 +131,14 @@ local function body()
 
   -- D. stretch: guards_wake on (default): the witness walks over and wakes it
   mode.guards_wake(true)
-  local v2 = spawn.chr(58, { behaviour = "hold", weapon = "none" })
+  local v2 = spawn.chr(PVICTIM, { behaviour = "hold", weapon = "none" })
   wait(1)
   ko.test_slap(0, v2); wait(0.25); ko.test_slap(0, v2)
   wait(2)
   local vx, vz = spawn.where(v2)
   b0 = #ev.body
   local w0 = #ev.woken
-  local w2 = spawn.chr(59, { behaviour = "hold", weapon = "none" })
+  local w2 = spawn.chr(PWITNESS, { behaviour = "hold", weapon = "none" })
   local wx0, wz0 = spawn.where(w2)
   wait(1.5)
   check("waker assigned", ko.waker(v2) == w2, "waker=" .. tostring(ko.waker(v2)))
@@ -153,16 +167,16 @@ local function body()
 
   -- E. alarm.stop sticks while a raiser's alarm animation is still playing
   alarm.stop(); wait(1)
-  local best, bestd = 55, 1e9
-  local p54x, _, p54z = pads.pos(54)
-  for _, c in ipairs({ 55, 58, 59, 60, 61, 62, 63, 64, 65 }) do
-    local cx, _, cz = pads.pos(c)
+  local best, bestd = ALARM_CAND[1], 1e9
+  local p54x, _, p54z = pads.pos(PG)
+  for _, c in ipairs(ALARM_CAND) do
+    local cx, _, cz = ppos(c)
     local dd = dist2(p54x, p54z, cx, cz)
     if dd >= 300 and dd < 600 and dd < bestd then best, bestd = c, dd end
   end
-  local g = spawn.chr(54, { behaviour = "hold", weapon = "none", alarm_pad = best, vision = 20000 })
+  local g = spawn.chr(PG, { behaviour = "hold", weapon = "none", alarm_pad = best, vision = 20000 })
   wait(1)
-  bond.warp(0, 54, -200, 0); wait(0.5)
+  bond.warp(0, PG, -200, 0); wait(0.5)
   bond.test_noise(0, 3.0)
   t = 0
   while t < 25 and not alarm.active() do wait(0.25); t = t + 0.25 end

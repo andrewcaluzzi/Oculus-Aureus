@@ -988,11 +988,14 @@ int portHeistCivilianKilled(void) { return sCivKilled; }
 
 /* ---- hold fire (mode.hold_fire; AC delegated, Claude's call 2026-10-25) ----
  * A guard about to fire holds the shot while a bank civilian (standing, cowering or knocked out) is near his line of fire to his
- * target: within HOLD_RADIUS of the segment, and short of the target. He keeps his stance and aim and fires when the line clears.
+ * target: within HOLD_RADIUS of the segment and short of the target, or within HOLD_NEAR of the target on any side (P2.4). He keeps
+ * his stance and aim and fires when the line clears.
  * Only with mode.hold_fire(true) (the heist); stock behaviour otherwise. The check reads only sim state (positions, the civilian
  * table) and the shot it drops is decided the same way on every machine; the counters below are for tests and feed nothing back. */
-#define HOLD_RADIUS 40.0f
+#define HOLD_RADIUS 60.0f   /* P2.4: 40 -> 60 (a miss scatters round the line) */
 #define HOLD_SHORT  30.0f
+#define HOLD_NEAR   90.0f   /* P2.4: a civilian this close to the target, on any side of him, also holds the shot: a miss lands round
+                             * Bond, and on the bank a Bond among the tellers had all four killed by guards' misses in ~10 s */
 #define FIRESTAT_N  64
 static int sHoldFire;
 static struct { s32 chrnum; s32 fired, held; } sFireStat[FIRESTAT_N];
@@ -1069,6 +1072,13 @@ int portHeistHoldFire(ChrRecord *self)
         if (c == NULL || c->prop == NULL || c == self || (chrIsDead(c) && !koIsDown(c->chrnum))) continue;
         px = c->prop->pos.x - me->pos.x;
         pz = c->prop->pos.z - me->pos.z;
+        ex = c->prop->pos.x - target->pos.x;
+        ez = c->prop->pos.z - target->pos.z;
+        if (ex * ex + ez * ez < HOLD_NEAR * HOLD_NEAR && c->prop->pos.y < target->pos.y + 200.0f && c->prop->pos.y > target->pos.y - 250.0f)
+        {
+            hold = 1;                                                    /* beside (or just behind) the target */
+            continue;
+        }
         t = (px * dx + pz * dz) / len2;
         if (t <= 0.0f || t >= 1.0f) continue;
         along = t * len;

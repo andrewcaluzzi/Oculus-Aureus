@@ -1,10 +1,10 @@
--- Heist CCTV test (P1 T1 + T2): the camera feeds and the control-room intel, on the real tools/mode_heist.lua (Bunker 2).
+-- Heist CCTV test (P1 T1 + T2): the camera feeds and the control-room intel, on the real tools/mode_heist.lua (the Janus bank since P2.4).
 -- Run: tests/heist/run_cctv.sh (headless; GE_FULLHEIGHT=0 GE_EDGEINSET=1 under Xvfb). Screenshots via cctv.test_shot() land in
 -- build_pc/heist_cctv_shots/ (the "gfx: wrote shot_N.bmp" line follows each "HEIST SHOT <name>").
 -- Covers: a B press at the hall's screens does NOT open the feeds (B is also reload), the use action does (cctv_view event), the mode's own
 -- HUD lines are hidden on the feed and back after it, the feed's room walk starts at the camera, Bond is held
 -- (the stick does not move him), A / C-left cycle, a camera that is off shows static (offline), damage throws him out, B leaves (and the
--- held B does not reopen), cctv.view / view_off / viewing, the intel box (in room 6 and on a feed, not elsewhere), coverage (cctv.sees).
+-- held B does not reopen), cctv.view / view_off / viewing, the intel box (in the banking hall and on a feed, not elsewhere), coverage (cctv.sees).
 HEIST_SETTINGS = { test = true }
 include("heist")
 mods.set("invincible", true)   -- a hundred guards around a warping test Bond
@@ -50,18 +50,22 @@ local function shot(name)
   wait(0.5)
 end
 
+local CAM_HALL, CAM_SEC, CAM_VAULT, CAM_CORR   -- the bank's cameras by name (LEVEL.objects)
+
 local function body()
   while not HEIST.ready do wait(0.25) end
+  local O = LEVEL.objects
+  CAM_HALL, CAM_SEC, CAM_VAULT, CAM_CORR = O.cam_hall_s.index, O.cam_security.index, O.cam_vault.index, O.cam_corridor.index
   wait(1)
   local cams = cctv.list()
-  check("six cameras", #cams == 6, "n=" .. #cams)
-  check("camera names from the mode", cctv.name(95) == "BANKING HALL" and cctv.name(87) == "SECURITY WING", cctv.name(95))
+  check("every camera of the bank", #cams == #LEVEL.cameras, "n=" .. #cams)
+  check("camera names from the mode", cctv.name(CAM_HALL) == "BANKING HALL" and cctv.name(CAM_SEC) == "SECURITY", cctv.name(CAM_HALL))
 
   -- 1. a real use press (B) at the hall's screen wall opens the feeds
-  warp_xz(-385, 470)
-  bond.face(0, -477, 470)
+  warp_xz(HEIST.M.P.screens_at[1], HEIST.M.P.screens_at[2])
+  bond.face(0, HEIST.M.P.screens_face[1], HEIST.M.P.screens_face[2])
   wait(1)
-  check("Bond is in the control room (room 6)", bond.room(0) == 6, "room=" .. tostring(bond.room(0)))
+  check("Bond is in the control room (the banking hall)", bond.room(0) == HEIST.M.intel_room, "room=" .. tostring(bond.room(0)))
   check("at a screen", HEIST.near_monitor(0))
   local lines = hud.panel_lines()
   check("intel box in the control room", #lines >= 7 and lines[1]:find("CONTROL ROOM") ~= nil, lines[1] or "none")
@@ -108,7 +112,7 @@ local function body()
 
   -- 5. three feeds for the screenshots; each walk starts in that camera's room; people only the camera sees are drawn
   local most = 0
-  for _, cam in ipairs({ 95, 87, 97 }) do
+  for _, cam in ipairs({ CAM_HALL, CAM_SEC, CAM_VAULT }) do
     cctv.view(0, cam)
     wait(1.5)
     local r = cctv.render_info()
@@ -121,18 +125,18 @@ local function body()
   check("the feeds show people Bond cannot see (posed for the camera)", most > 0, "most=" .. most)
 
   -- 6. a camera that is off shows static
-  cctv.disable(91)
-  cctv.view(0, 91)
+  cctv.disable(CAM_CORR)
+  cctv.view(0, CAM_CORR)
   wait(1)
   local r6 = cctv.render_info()
-  check("an offline camera's feed is static", r6 ~= nil and r6.offline == true and cctv.viewing(0) == 91, r6 and tostring(r6.offline) or "nil")
-  shot("feed_91_offline")
-  cctv.enable(91)
+  check("an offline camera's feed is static", r6 ~= nil and r6.offline == true and cctv.viewing(0) == CAM_CORR, r6 and tostring(r6.offline) or "nil")
+  shot("feed_corridor_offline")
+  cctv.enable(CAM_CORR)
   wait(0.5)
   check("back on: no static", cctv.render_info().offline == false)
 
   -- 7. damage throws him out
-  cctv.view(0, 95)
+  cctv.view(0, CAM_HALL)
   wait(0.5)
   bond.heal(0, -0.1, 0)
   wait(0.5)
@@ -161,16 +165,16 @@ local function body()
   end)())
 
   -- 9. the API
-  check("cctv.view", cctv.view(0, 87) == true and cctv.viewing(0) == 87)
+  check("cctv.view", cctv.view(0, CAM_SEC) == true and cctv.viewing(0) == CAM_SEC)
   check("cctv.view_off", cctv.view_off(0) == true and cctv.viewing(0) == nil)
   check("cctv.view_off again: false", cctv.view_off(0) == false)
-  check("cctv.view: not a camera", cctv.view(0, 75) == false)
+  check("cctv.view: not a camera", cctv.view(0, LEVEL.objects.front_door.index) == false)
 
   -- 10. the intel box: not outside the control room, back on a feed anywhere
-  bond.warp(0, 104)   -- the west wing
+  bond.warp(0, LEVEL.pads.dock_mid)   -- the loading dock
   wait(1)
   check("no intel box outside the control room", #hud.panel_lines() == 0, "lines=" .. #hud.panel_lines())
-  cctv.view(0, 95)
+  cctv.view(0, CAM_HALL)
   wait(1)
   local il = hud.panel_lines()
   local joined = table.concat(il, " | ")
@@ -190,27 +194,14 @@ local function body()
     wait(0.25)
   end
   check("a working camera sees a guard (cctv.sees)", any, "camera " .. tostring(seen_by))
-  if not any then   -- diagnostics: camera 97 against the east wing guards
-    local g97 = cctv.get(97)
-    print(string.format("HEIST dbg cam97 %.0f,%.0f face %.0f room %d", g97.x, g97.z, g97.face, g97.room))
-    local k = 0
-    for _, g in ipairs(HEIST.guards) do
-      if g.area == "east" and k < 6 then
-        k = k + 1
-        local x, z = spawn.where(g.chr)
-        local b = math.deg(math.atan(x - g97.x, z - g97.z)) % 360
-        print(string.format("HEIST dbg guard %d at %.0f,%.0f bearing %.0f room %s sees %s", g.chr, x or 0, z or 0, b, tostring(spawn.room(g.chr)), tostring(cctv.sees(97, g.chr))))
-      end
-    end
-  end
-  cctv.disable(95)
+  cctv.disable(CAM_HALL)
   local none = true
-  for _, g in ipairs(HEIST.guards) do if cctv.sees(95, g.chr) then none = false end end
+  for _, g in ipairs(HEIST.guards) do if cctv.sees(CAM_HALL, g.chr) then none = false end end
   check("a camera that is off sees nothing", none)
-  cctv.enable(95)
+  cctv.enable(CAM_HALL)
   wait(1)
   local up = (hud.panel_lines()[1] or "")
-  check("the box is gone after leaving the feed (west wing)", up == "", up)
+  check("the box is gone after leaving the feed (the dock)", up == "", up)
 
   print(string.format("HEIST DONE %d passed, %d failed", pass, fail))
   finished_ok = true

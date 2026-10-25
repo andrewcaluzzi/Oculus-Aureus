@@ -1,5 +1,6 @@
--- Heist determinism scenario (designs/bank-heist.md P3): the real tools/mode_heist.lua on Bunker 2, driven by a fixed script so two runs
--- with the same seed must be hash-identical tick for tick (tests/heist/run_determinism.sh compares the GE_HASHLOG files).
+-- Heist determinism scenario (designs/bank-heist.md P3): the real tools/mode_heist.lua on Bunker 2 (or on the Janus bank, STAGE=levelgen:
+-- the pads come from the mode's map, HEIST.M), driven by a fixed script so two runs with the same seed must be hash-identical tick for
+-- tick (tests/heist/run_determinism.sh compares the GE_HASHLOG files).
 -- Everything that touches sim state happens at a fixed point of the script (seconds of sim time, never the wall clock):
 --   the camera feeds (a use press at the hall's screens, A to cycle, B out; a feed kept open while the waves come), knock-outs (two real
 --   slaps through the stock hit path, and spawn.ko), the alarm (hot, the lockdown, the waves), the crack with a forced jam and a restart,
@@ -45,9 +46,11 @@ on("alarm", function(a) note("alarm %d", a) end)
 
 local worker = P1 and bond.count() > 1 and 1 or 0   -- the Bond who slaps and cracks
 local watcher = 0
+local MP                                            -- the map's pads (set once the mode is ready)
 
 local function body()
   while not HEIST.ready do wait(0.25) end
+  MP = HEIST.M.P   -- the map's pads (Bunker 2, or the bank: heist_bank_map)
   note("ready: %d guards, %d civilians, phase %s", #HEIST.guards, #HEIST.civs, HEIST.phase)
   wait(1)
 
@@ -55,8 +58,8 @@ local function body()
   -- (cctv.test_press holds raw buttons on pad 0, which in co-op feeds the LOCAL Bond: the co-op runs switch the local player, so they
   -- cycle and leave through the API; cctv.test_use taps the use action in Bond p's own tick, the same for any local player)
   local coop = bond.count() > 1
-  warp_xz(watcher, -385, 470)
-  bond.face(watcher, -477, 470)
+  warp_xz(watcher, MP.screens_at[1], MP.screens_at[2])
+  bond.face(watcher, MP.screens_face[1], MP.screens_face[2])
   wait(1)
   cctv.test_use(watcher)
   wait(1)
@@ -97,7 +100,7 @@ local function body()
   note("hot %s", tostring(HEIST.hot))
 
   -- 4. the crack: plant, a forced jam, the restart, the vault opens
-  bond.warp(worker, 85)
+  bond.warp(worker, MP.crack)
   wait(0.5)
   bond.test_gadget(worker, "doordecoder")
   wait(4)
@@ -111,16 +114,16 @@ local function body()
 
   -- 5. while it cracks: the watcher back on a feed (it is kept open while the waves come)
   if watcher ~= worker then
-    HEIST.watch(watcher, 95)
+    HEIST.watch(watcher, MP.feed_cam)
   end
   local t = 0
   while HEIST.phase ~= "open" and t < 40 do wait(0.5); t = t + 0.5 end
   note("vault %s", HEIST.phase)
   if watcher == worker then
-    warp_xz(watcher, -385, 470)
-    bond.face(watcher, -477, 470)
+    warp_xz(watcher, MP.screens_at[1], MP.screens_at[2])
+    bond.face(watcher, MP.screens_face[1], MP.screens_face[2])
     wait(0.5)
-    HEIST.watch(watcher, 95)
+    HEIST.watch(watcher, MP.feed_cam)
   end
   wait(1)
 
@@ -130,16 +133,16 @@ local function body()
     if it.where == "vault" and n < 4 and spawn.item_alive(it.h) then bond.warp(worker, it.pad, it.dx, it.dz); wait(0.5); n = n + 1 end
   end
   note("loot %d bars %d", HEIST.loot, HEIST.bars)
-  bond.warp(worker, 86)
+  bond.warp(worker, MP.outside)
   t = 0
   while HEIST.phase ~= "sealed" and HEIST.phase ~= "trapped" and t < 30 do wait(0.5); t = t + 0.5 end
   note("vault %s, waves %d, squads %d", HEIST.phase, HEIST.squads, #HEIST.guards)
   note("watcher on camera %s", tostring(cctv.viewing(watcher)))
   if not cctv.viewing(watcher) then   -- (solo: the worker left the screens for the loot) back on a feed while the waves come
-    warp_xz(watcher, -385, 470)
-    bond.face(watcher, -477, 470)
+    warp_xz(watcher, MP.screens_at[1], MP.screens_at[2])
+    bond.face(watcher, MP.screens_face[1], MP.screens_face[2])
     wait(0.5)
-    HEIST.watch(watcher, 95)
+    HEIST.watch(watcher, MP.feed_cam)
   end
   while true do
     wait(3)

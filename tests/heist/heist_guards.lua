@@ -1,9 +1,26 @@
--- Heist guards + civilians test mode (P0 jobs 3-4) on Bunker 2. Prints "HEIST PASS|FAIL <name> ..." and "HEIST DONE n passed, m failed".
--- The mode name starts with "heist", so the mode gets the 250-slot reservation (GE_MODE_SLOTS overrides).
+-- Heist guards + civilians test mode (P0 jobs 3-4; in the Janus bank's hall since P2.4). Prints "HEIST PASS|FAIL <name> ..." and
+-- "HEIST DONE n passed, m failed". The mode name starts with "heist", so the mode gets the 250-slot reservation (GE_MODE_SLOTS overrides).
 -- Run: tests/heist/run_guards.sh (inside the build container, Xvfb on :99).
 include("heist_lib")
+include("levelgen_layout")
 mode.keep_locks()
 spawn.keep_bodies(true)
+
+-- the bank's banking hall (designs/bank-heist.md section 14): its customer side is one open floor between the vestibule and the counter
+local PD = LEVEL.pads
+local PG, PVICTIM, PWITNESS, PBOND = PD.hall_mid, PD.cust_5, PD.hall_post_nw, PD.hall_entry_w   -- (victim and witness 255 apart:
+                                                                                                -- within a stock guard's sight of a body)
+local PCIV, PARMED, PBYST, PSHOOT = PD.cust_1, PD.teller_back, PD.hall_mid, PD.cust_2   -- (the armed guard behind the counter: in the room, out of sight of Bond)
+local PWAVE1, PWAVE2 = PD.vest_mid, PD.hall_post_se
+local ALARM_CAND = { LEVEL.objects.alarm_hall.pad }   -- a stock raiser sounds the alarm only at an alarm box: the hall's (its bound pad)
+local function ppos(p)   -- pads.pos, or the alarm box's own x, y, z for its bound pad (pads.pos takes floor pads only)
+  if p == LEVEL.objects.alarm_hall.pad then local o = LEVEL.objects.alarm_hall; return o.x, o.y, o.z end
+  return pads.pos(p)
+end
+local HALL_PADS = {}
+for _, n in ipairs({ "hall_mid", "hall_post_sw", "hall_post_se", "hall_post_ne", "hall_post_nw", "hall_entry_w", "hall_entry_e", "cust_1",
+                     "cust_2", "cust_3", "cust_4", "cust_5", "teller_mid", "teller_back", "flap_s", "flap_n" }) do HALL_PADS[#HALL_PADS + 1] = PD[n] end
+for _, p in ipairs(LEVEL.rooms.hall.pads) do HALL_PADS[#HALL_PADS + 1] = p end
 
 local pass, fail = 0, 0
 local function check(name, ok, extra)
@@ -25,7 +42,7 @@ local function wait(sec)
   local t = 0
   while t < sec do
     t = t + coroutine.yield()
-    if pin then bond.warp(0, 61) end
+    if pin then bond.warp(0, PBOND) end
     if aim then bond.face(0, aim[1], aim[2]) end
     if heal then bond.heal(0, 1, 1) end
   end
@@ -34,6 +51,8 @@ local function dist2(x1, z1, x2, z2) return math.sqrt((x1 - x2) ^ 2 + (z1 - z2) 
 
 local function body()
   wait(1)
+  cctv.alarm_on_spot(false)   -- the bank's two hall cameras see Bond: only this test's own alarms count
+  for _, c in ipairs(cctv.list()) do cctv.disable(c) end
   bond.give(0, "pp7sil")
   bond.equip(0, "pp7sil")   -- in hand: the slappers no longer count as a gun for the civilians
   local free0 = spawn.free()
@@ -42,12 +61,12 @@ local function body()
 
   if not mode.env_flag("GE_HEIST_CIV") then
   -- A. hearing: silenced first shot = loudness 1, unsilenced first shot = 3, at the cap 12 (radius = hearing * noise * 100 units).
-  -- One guard at a time on pad 54, Bond warped ~200 units away; the expectation is computed from the measured distance.
+  -- One guard at a time on the hall's middle pad, Bond warped ~200 units away; the expectation is computed from the measured distance.
   local function hear_case(label, opts, noise)
     opts.behaviour = "hold"; opts.weapon = "none"
-    local g = spawn.chr(54, opts)
+    local g = spawn.chr(PG, opts)
     wait(0.3)
-    bond.warp(0, 54, -200, 0)
+    bond.warp(0, PG, -200, 0)
     wait(0.5)
     local bx, _, bz = bond.pos(0)
     local gx, gz = spawn.where(g)
@@ -72,19 +91,19 @@ local function body()
   alarm.stop(); wait(1)
   check("alarm idle before the alarm guard acts", not alarm.active())
   local a0 = #ev.alarm
-  local best, bestd = 55, 1e9
-  local p54x, _, p54z = pads.pos(54)
-  for _, c in ipairs({ 55, 58, 59, 60, 61, 62, 63, 64, 65 }) do
-    local cx, _, cz = pads.pos(c)
+  local best, bestd = ALARM_CAND[1], 1e9
+  local p54x, _, p54z = pads.pos(PG)
+  for _, c in ipairs(ALARM_CAND) do
+    local cx, _, cz = ppos(c)
     local dd = dist2(p54x, p54z, cx, cz)
     print(string.format("HEIST pad %d is %.0f from pad 54", c, dd))
     if dd >= 300 and dd < 600 and dd < bestd then best, bestd = c, dd end
   end
-  local rpx, _, rpz = pads.pos(best)
-  local g = spawn.chr(54, { behaviour = "hold", weapon = "none", alarm_pad = best, vision = 20000 })
+  local rpx, _, rpz = ppos(best)
+  local g = spawn.chr(PG, { behaviour = "hold", weapon = "none", alarm_pad = best, vision = 20000 })
   check("alarm guard spawned", g ~= nil)
   wait(1)
-  bond.warp(0, 54, -200, 0); wait(0.5)
+  bond.warp(0, PG, -200, 0); wait(0.5)
   local sx, sz = spawn.where(g)
   bond.test_noise(0, 3.0)        -- guard hears Bond: the raiser list runs to the pad
   local arrived, t = false, 0
@@ -105,13 +124,13 @@ local function body()
   wait(1)
 
   -- C. body found: a corpse already lying there; a witness comes in later, notices it, and goes on alert
-  local victim = spawn.chr(58, { behaviour = "hold", weapon = "none" })
+  local victim = spawn.chr(PVICTIM, { behaviour = "hold", weapon = "none" })
   wait(1)
   spawn.kill(victim)
   wait(4)
   check("victim is down", spawn.down(victim) == true)
   local b0 = #ev.body
-  local witness = spawn.chr(59, { behaviour = "hold", weapon = "none" })
+  local witness = spawn.chr(PWITNESS, { behaviour = "hold", weapon = "none" })
   local wx0, wz0 = spawn.where(witness)
   local bx, by, bz = bond.pos(0)
   local d0 = dist2(wx0, wz0, bx, bz)
@@ -127,14 +146,14 @@ local function body()
   -- D. reinforcement waves while the alarm is on
   local spawnat = {}
   on("chr_spawned", function(c) local x, z = spawn.where(c); if x then spawnat[c] = { x, z } end end)
-  local r = heist.reinforce{ pads = { 50, 25 }, interval = 3, per_wave = 3, max_alive = 6, opts = { weapon = "none", behaviour = "chase" } }
+  local r = heist.reinforce{ pads = { PWAVE1, PWAVE2 }, interval = 3, per_wave = 3, max_alive = 6, opts = { weapon = "none", behaviour = "chase" } }
   wait(4)
   check("no wave without alarm", r.spawned == 0)
   alarm.start()
   wait(4)
   local nwave = r.spawned
-  local epx, _, epz = pads.pos(50)
-  local epx2, _, epz2 = pads.pos(25)
+  local epx, _, epz = pads.pos(PWAVE1)
+  local epx2, _, epz2 = pads.pos(PWAVE2)
   local atent = 0
   for chr in pairs(r.mine) do
     local x, z = (spawnat[chr] or {})[1], (spawnat[chr] or {})[2]
@@ -154,9 +173,9 @@ local function body()
   end
   -- E. civilians
   heal = true
-  bond.warp(0, 61)
+  bond.warp(0, PBOND)
   wait(1)
-  local civ = spawn.chr(62, { behaviour = "civilian", weapon = "ak47", body = "Civilian_1_Female" })
+  local civ = spawn.chr(PCIV, { behaviour = "civilian", weapon = "ak47", body = "Civilian_1_Female" })
   check("civilian spawned", civ ~= nil and civilian.state(civ) == "idle")
   local kh = spawn.key(civ, 0x80)
   check("civilian carries a key", kh ~= nil and select(2, spawn.key_alive(kh)) == true)
@@ -165,7 +184,7 @@ local function body()
   local dc = dist2(px, pz, cx, cz)
   print(string.format("HEIST civilian at %.0f,%.0f, Bond %.0f,%.0f dist %.0f", cx, cz, px, pz, dc))
   -- a guard with a gun in the same room does not target it
-  local gd = spawn.chr(63, { behaviour = "standard", weapon = "ak47" })
+  local gd = spawn.chr(PARMED, { behaviour = "standard", weapon = "ak47" })
   wait(2)
   check("civilian idle while nobody aims", civilian.state(civ) == "idle" and spawn.alive(civ))
   bond.test_noise(0, 12.0)   -- a loud shot: the civilian cowers (before anyone aims at it)
@@ -187,8 +206,8 @@ local function body()
   check("bond.equip draws the PP7 again", bond.weapon(0) == 5, "weapon=" .. tostring(bond.weapon(0)))
   -- bystanders: one right beside Bond, one 400 units out but well off the line of fire; neither is being aimed at
   local bys = {}
-  local b1 = spawn.chr(61, { behaviour = "civilian", body = "Civilian_2", offset = { 0, 150 } })
-  local b2 = spawn.chr(64, { behaviour = "civilian", body = "Civilian_2" })   -- pad 64: ~500 out, ~170 off the line to the civilian
+  local b1 = spawn.chr(PBOND, { behaviour = "civilian", body = "Civilian_2", offset = { 150, 0 } })   -- beside him, ~150 off the line
+  local b2 = spawn.chr(PBYST, { behaviour = "civilian", body = "Civilian_2" })   -- ~430 out, ~260 off the line to the civilian
   if b1 then bys[#bys + 1] = b1 end
   if b2 then bys[#bys + 1] = b2 end
   check("two bystander civilians placed", #bys == 2, string.format("b1=%s b2=%s", tostring(b1), tostring(b2)))
@@ -223,12 +242,12 @@ local function body()
   -- G. hold fire (mode.hold_fire; AC delegated, Claude's call 2026-10-25): a guard with a bank civilian in his line of fire to Bond
   -- holds his shots; once the line is clear he fires
   mode.hold_fire(true)
-  bond.warp(0, 61)
+  bond.warp(0, PBOND)
   wait(1)
-  pin = true                              -- Bond is held on pad 61 (the hits would push him about and swing the line of fire)
+  pin = true                              -- Bond is held on his pad (the hits would push him about and swing the line of fire)
   local bx, _, bz = bond.pos(0)
-  local gx, _, gz = pads.pos(64)
-  local shooter = spawn.chr(64, { behaviour = "snipe", weapon = "kf7", vision = 20000, face = { bx, bz } })
+  local gx, _, gz = pads.pos(PSHOOT)
+  local shooter = spawn.chr(PSHOOT, { behaviour = "snipe", weapon = "kf7", vision = 20000, face = { bx, bz } })
   aim = { gx, gz }
   local t0 = 0
   while t0 < 15 and select(1, spawn.fire_stats(shooter or -1)) == 0 do wait(0.25); t0 = t0 + 0.25 end
@@ -273,7 +292,7 @@ local function body()
 
   -- F. crowd of guards: many chrs in one stage
   local made = 0
-  local hall = { 0, 1, 2, 3, 6, 7, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66 }   -- control-room hall pads
+  local hall = HALL_PADS   -- the banking hall's named and grid pads
   for round = 1, 12 do
     for _, pad in ipairs(hall) do
       local c = spawn.chr(pad, { behaviour = "chase", weapon = "none" })

@@ -1,7 +1,7 @@
--- The Janus bank's map for the heist mode (designs/bank-heist.md section 14). P2.4 replaces the Bunker 2 numbers in mode_heist.lua
--- (DOORS, AREAS, VAULT_PADS, VAULT_CRATE_PADS, CIV_PLACES, P, the card carriers' pads, CAM_LABEL / CAM_AREA, intel_room, VAULT_ROOMS)
--- with the tables built here, in the same shapes. Everything is looked up by name in LEVEL (tools/gen_level.py's levelgen_layout.lua,
--- from tools/levelgen/janus_bank.json), so the layout can change without touching the mode.
+-- The Janus bank's map for the heist mode (designs/bank-heist.md sections 14 and 15): mode_heist.lua's tables (DOORS, AREAS, VAULT_PADS,
+-- VAULT_CRATE_PADS, CIV_PLACES, P, CARRIERS, CAM_LABEL / CAM_AREA, GUARD_AREAS, intel_room, VAULT_ROOMS, MAP) are built here, at stage
+-- start. Everything is looked up by name in LEVEL (tools/gen_level.py's levelgen_layout.lua, from tools/levelgen/janus_bank.json), so
+-- the layout can change without touching the mode. (Their shapes are those of the Bunker 2 tables the mode had until P2.4.)
 --   include("levelgen_layout"); include("heist_bank_map")      -- at the script's top level (include() works only there)
 --   on("stage_start", function() local M = heist_bank_map() ... end)   -- called once the stage is up (it reads pad positions)
 -- Shipped as Data/Scripts/modes/heist_bank_map.lua. heist_bank_map() raises on a name the layout lacks.
@@ -23,11 +23,34 @@ function heist_bank_map()
     for _, t in ipairs({ ... }) do for _, v in ipairs(t) do out[#out + 1] = v end end
     return out
   end
-  -- an area's pads: its named pads first (posts, patrol points), then every grid pad of its rooms
+  -- a grid pad a guard may stand on: not against a furniture block (the counter, a pillar, a shelf: the generator only drops a grid cell
+  -- whose centre is inside one), not on a prop (desks, crates, the safe: nothing else keeps pads off them), not in a doorway (a guard
+  -- there holds the door open or blocks it)
+  local function clear(p, rname)
+    local x, _, z = pads.pos(p)
+    if x == nil then return false end
+    for _, b in ipairs(room(rname).blocks or {}) do
+      local r = b.rect
+      if x > r[1] - 70 and x < r[3] + 70 and z > r[2] - 70 and z < r[4] + 70 then return false end
+    end
+    for _, o in pairs(L.objects) do
+      if (o.type == "prop" or o.type == "safe") and o.room == rname and o.x and (x - o.x) ^ 2 + (z - o.z) ^ 2 < 120 * 120 then return false end
+    end
+    for _, d in ipairs(L.doors) do
+      if (x - d.x) ^ 2 + (z - d.z) ^ 2 < 140 * 140 then return false end
+    end
+    return true
+  end
+  local dropped = 0
+  -- an area's pads: its named pads first (posts, patrol points), then every clear grid pad of its rooms
   local function area_pads(named, rooms)
     local out = {}
     for _, n in ipairs(named) do out[#out + 1] = pad(n) end
-    for _, r in ipairs(rooms) do for _, p in ipairs(room(r).pads) do out[#out + 1] = p end end
+    for _, r in ipairs(rooms) do
+      for _, p in ipairs(room(r).pads) do
+        if clear(p, r) then out[#out + 1] = p else dropped = dropped + 1 end
+      end
+    end
     return out
   end
   local function loot(n) return need(L.loot[n], "loot " .. n) end
@@ -53,7 +76,7 @@ function heist_bank_map()
   M.AREAS = {
     { name = "hall", pads = area_pads({ "hall_post_sw", "hall_post_se", "hall_post_ne", "hall_post_nw", "hall_mid", "hall_entry_w",
         "hall_entry_e", "teller_mid", "teller_back", "flap_s", "flap_n", "vest_mid" }, { "hall", "vestibule" }),
-      panel = obj("alarm_hall").pad, share = 14, raisers = 2 },
+      panel = obj("alarm_hall").pad, share = 14, raisers = 3 },   -- (12 raisers in all at the full force, as on Bunker 2)
     { name = "corridor", pads = area_pads({ "back_w", "back_1", "back_2", "back_3", "back_4", "back_e" }, { "back_corr" }),
       panel = obj("alarm_corridor").pad, share = 9, raisers = 1 },
     { name = "offices", pads = area_pads({ "ocorr_s", "ocorr_mid", "ocorr_n", "office_a_mid", "office_a_1", "office_a_2", "office_a_3",
@@ -75,8 +98,7 @@ function heist_bank_map()
                    records = "records", vault_ante = "vault antechamber", deposit = "deposit hall", manager = "manager's office", vault = "vault" }
   M.VAULT_ROOMS = { [room("vault").id] = true }
   M.VAULT_PADS = area_pads({ "vault_in_a", "vault_in_b", "vault_captain", "vault_g1", "vault_g2", "vault_g3" }, { "vault" })
-  M.VAULT_CRATE_PADS = {}
-  for _, p in ipairs(loot("vault_gold")) do M.VAULT_CRATE_PADS[p] = true end
+  M.VAULT_CRATE_PADS = {}   -- (Bunker 2's crate pads, whose bars go a step aside; the bank's crates stand by the walls, off every pad)
   M.CIV_PLACES = {
     { "hall", { pad("teller_1"), pad("teller_2"), pad("teller_3"), pad("cust_1"), pad("cust_2"), pad("cust_3"), pad("cust_4"), pad("cust_5"),
                 pad("teller_mid"), pad("teller_back") }, 8 },
@@ -109,7 +131,15 @@ function heist_bank_map()
     heavy = { pad("ante_1"), pad("ante_2"), pad("dep_1"), pad("dep_2") },       -- outside the vault doors
     safe_loot = loot("safe_loot"),
     cell_loot = { loot("cell1_cash"), loot("cell2_cash") },      -- cell_green (GREEN), cell_floor (the floor key in records)
+    vault_loot = loot("vault_gold"),                             -- the vault's loot pads: the bars are stacked round each
+    outside = pad("ante_1"),                                     -- (tests) outside the crack zone and the vault
+    screens_at = xz("screens"),                                  -- (tests) in front of the screen wall, facing it
+    screens_face = { obj("screen_2").x, (obj("screen_2").z + obj("screen_3").z) / 2 },
+    feed_cam = obj("cam_hall_s").index,                          -- (tests) the hall's customer-side camera
   }
+  M.MAP = { name = "bank", label = "the Janus bank", manager_area = "manager", vault_hint = "down the RED stairs",
+            no_cams = "(records, deposit: no cams)" }
+  M.dropped = dropped                                            -- grid pads kept off (blocks, props, doorways)
   M.intel_room = room("hall").id                                 -- the hall shows the intel box (the screens are there)
   M.CAM_LABEL, M.CAM_AREA = {}, {}
   for _, c in ipairs({ { "cam_hall_s", "BANKING HALL", "hall" }, { "cam_hall_n", "TELLERS", "hall" }, { "cam_offices", "OFFICES", "offices" },

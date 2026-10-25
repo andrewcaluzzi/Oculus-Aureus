@@ -9,15 +9,19 @@
 #          the local player switched (GE_COOP_VIEW=1), which is the netplay condition: two machines differ only in who is local
 #   net    lockstep netplay: a host and a guest process on loopback (GE_NET=host / join), the same scenario; the two processes'
 #          hash logs must be identical tick for tick, and neither may report a DESYNC (the link's own 30-tick hash check)
+# On the Janus bank (GE_STAGE=levelgen) since P2.4. OUT=<dir> keeps parallel runs apart.
 # usage: run_determinism.sh [solo|coop|net|all]   -> "HEIST DET <case>: ..." lines; last line "HEIST DET DONE <n> passed, <m> failed"
 # Logs: /tmp/heist_det/<case>.<run>.{hash,log}. On a difference the first differing tick is printed; rerun one side with
 # GE_HASHLOG_DUMP=<tick>-<tick> for the text dump of that tick (both runs, then diff the dumps).
 WHICH=${1:-all}
-OUT=/tmp/heist_det
+STAGE=levelgen   # the Janus bank (P2.4; Bunker 2 until then)
+OUT=${OUT:-/tmp/heist_det}
 mkdir -p $OUT
 cp /home/dev/project/tests/heist/heist_determinism.lua /home/dev/project/build_pc/Data/Scripts/modes/heist_determinism.lua
 cp /home/dev/project/tools/mode_heist.lua /home/dev/project/build_pc/Data/Scripts/modes/heist.lua
 cp /home/dev/project/tools/heist_lib.lua /home/dev/project/build_pc/Data/Scripts/modes/heist_lib.lua
+cp /home/dev/project/tools/heist_bank_map.lua /home/dev/project/build_pc/Data/Scripts/modes/heist_bank_map.lua
+cp /home/dev/project/port/levelgen/levelgen_layout.lua /home/dev/project/build_pc/Data/Scripts/modes/levelgen_layout.lua
 cd /home/dev/project/build_pc || exit 1
 FRAMES=${GE_FRAMES:-4500}   # (about 540 of them are the boot and the intro before the stage's first-person play)
 NEED=${NEED:-3000}
@@ -29,7 +33,7 @@ run() {
     c=$1
     r=$2
     shift 2
-    env DISPLAY=:99 GE_MODE=heist_determinism GE_STAGE=bunker2 GE_SKIPINTRO=1 GE_NOINISAVE=1 GE_SEED=7 GE_FIXEDTICK=1 GE_TICKHZ=60 \
+    env DISPLAY=:99 GE_MODE=heist_determinism GE_STAGE=$STAGE GE_SKIPINTRO=1 GE_NOINISAVE=1 GE_SEED=7 GE_FIXEDTICK=1 GE_TICKHZ=60 \
         GE_FRAMES=$FRAMES GE_HASHLOG=$OUT/$c.$r.hash "$@" timeout 600 ./ProjectMidas > $OUT/$c.$r.log 2>&1
     grep -a "HEIST DET" $OUT/$c.$r.log > $OUT/$c.$r.det
 }
@@ -110,7 +114,7 @@ if [ "$WHICH" = net ] || [ "$WHICH" = all ]; then
     rm -f $OUT/net.*.hash
     for pr in hdet_h hdet_g; do mkdir -p Data/Profiles/$pr; done
     NETCOMMON="DISPLAY=:99 GE_SKIPINTRO=1 GE_NOINISAVE=1 GE_HEIST_DET_P1=1 GE_FRAMES=$((FRAMES + 2000)) GE_NET_STOP=$NETTICKS"
-    env $NETCOMMON GE_PROFILE=hdet_h GE_NET=host:$PORT GE_STAGE=bunker2 GE_SEED=7 GE_MODE=heist_determinism GE_HASHLOG=$OUT/net.host.hash \
+    env $NETCOMMON GE_PROFILE=hdet_h GE_NET=host:$PORT GE_STAGE=$STAGE GE_SEED=7 GE_MODE=heist_determinism GE_HASHLOG=$OUT/net.host.hash \
         timeout -s KILL 1500 ./ProjectMidas > $OUT/net.host.log 2>&1 &
     HP=$!
     sleep 2

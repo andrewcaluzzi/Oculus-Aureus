@@ -1,5 +1,7 @@
--- Heist mode test (P0 job 6): the real tools/mode_heist.lua on Bunker 2, driven headless through its test window (HEIST).
--- Three runs (tests/heist/run_winpath.sh does all three), one scenario each:
+-- Heist mode test (P0 job 6; on the Janus bank since P2.4, GE_STAGE=levelgen): the real tools/mode_heist.lua, driven headless through its
+-- test window (HEIST). The doors, pads and rooms come from the mode's map tables (HEIST.M) and LEVEL, by name. Bank checks: the cameras,
+-- the manager behind BLUE, posts clear of the furniture, the feeds from the hall's screens, exit B, tellers in a crossfire.
+-- Five runs (tests/heist/run_winpath.sh does all of them), one scenario each:
 --   default                  the solo win path: every card (knock-out + search), the tiered doors, the crack with one forced jam and a
 --                            restart (and the zone rule: no progress and no restart outside it), the vault, the loot, the exit, the win
 --   GE_HEIST_TEST_TRAPPED=1  the vault closes on Bond: trapped, alarm, re-crack from the inside (heavy squad), out, win
@@ -113,6 +115,80 @@ local function grab(where, maxn)
   return got, HEIST.bars + HEIST.cash - n0
 end
 
+-- the bank's doors, pads and rooms (HEIST.M / LEVEL by name); filled once the mode is ready
+local W = {}
+local BANK = true
+local function setup_map()
+  local M = HEIST.M
+  W.D, W.P = M.DOORS, M.P
+  W.crack, W.outside, W.exit_a, W.exit_b = M.P.crack, M.P.outside, M.P.exit_a, M.P.exit_b
+  do
+    local O = LEVEL.objects
+    local function approach(doorway) for _, d in ipairs(LEVEL.doors) do if d.name == doorway then return d.pad_a end end end
+    W.cams = 7
+    W.green_door, W.office_at, W.office_door = O.green_hall.index, approach("hall-office_corr"), O.green_hall.index
+    W.sec_at, W.sec_door = approach("hall-sec_office"), O.blue_hall.index
+    W.console_at = LEVEL.pads.console
+    W.console_press = function() cctv.test_use(0) end         -- a real use press (nothing in reach: the console zone takes it)
+    W.mgr_at, W.mgr_door = approach("back_corr-manager"), O.manager_door.index
+    W.red_at, W.red_door = approach("back_corr-stairs"), O.red_stairs.index
+    W.safe_at, W.safe_door = LEVEL.pads.safe_front, O.mgr_safe.index
+    W.cell_at, W.cell_door = approach("deposit-cell_1"), O.cell_green.index
+    W.inside = LEVEL.pads.vault_in_a
+    W.vault_a = O.vault_door_a.index
+    W.corner = { 340, 3180 }                                  -- the vault's south-west corner, far from both doors
+    W.corner_ok = function(room) return room == LEVEL.rooms.vault.id end
+    W.corner_label = "Bond stands in the vault's far corner"
+  end
+end
+
+local function all_flags(list, flags)
+  for _, d in ipairs(list) do local g = door.get(d); if not g or g.keyflags ~= flags then return false end end
+  return #list > 0
+end
+
+-- the bank's own checks (P2.4): the map's people and rooms
+local function bank_checks()
+  local mgr = HEIST.carriers["branch manager"]
+  check("bank: the branch manager sits in his own office (behind BLUE)", mgr and mgr.chr and spawn.room(mgr.chr) == LEVEL.rooms.manager.id
+        and door.get(W.mgr_door).keyflags == 0x4, mgr and string.format("room %s", tostring(spawn.room(mgr.chr))) or "no manager")
+  local bad, posts = {}, 0
+  for _, g in ipairs(HEIST.guards) do
+    if g.kind == "post" and spawn.alive(g.chr) then
+      posts = posts + 1
+      local x, z = spawn.where(g.chr)
+      for _, R in pairs(LEVEL.rooms) do
+        for _, b in ipairs(R.blocks or {}) do
+          local r = b.rect
+          if x > r[1] - 10 and x < r[3] + 10 and z > r[2] - 10 and z < r[4] + 10 then bad[#bad + 1] = b.name end
+        end
+      end
+    end
+  end
+  check("bank: no posted guard stands in a furniture block", posts > 20 and #bad == 0, string.format("%d posts, in blocks: %s", posts, table.concat(bad, ",")))
+  local sides = {}
+  for _, g in ipairs(HEIST.guards) do sides[g.area] = (sides[g.area] or 0) + 1 end
+  check("bank: guards posted in every area (hall, corridor, offices, security, dock, records, antechamber, deposit)",
+        (sides.hall or 0) >= 3 and (sides.corridor or 0) >= 2 and (sides.offices or 0) >= 2 and (sides.security or 0) >= 1 and (sides.dock or 0) >= 2
+        and (sides.records or 0) >= 1 and (sides.vault_ante or 0) >= 2 and (sides.deposit or 0) >= 1,
+        string.format("hall %s corridor %s offices %s security %s dock %s records %s ante %s deposit %s", tostring(sides.hall), tostring(sides.corridor),
+        tostring(sides.offices), tostring(sides.security), tostring(sides.dock), tostring(sides.records), tostring(sides.vault_ante), tostring(sides.deposit)))
+  check("bank: exit B: the staff door to the dock needs no card, the alley shutter is padlocked",
+        door.get(LEVEL.objects.dock_door.index).keyflags == 0 and LEVEL.objects.dock_shutter.padlock ~= nil)
+  -- the camera feeds from the hall's screen wall: a real use press there
+  local sx, sz = W.P.screens_at[1], W.P.screens_at[2]
+  bond.warp(0, LEVEL.pads.screens)
+  bond.face(0, W.P.screens_face[1], W.P.screens_face[2])
+  wait(1)
+  check("bank: Bond at the screens is in the intel room, near a screen", HEIST.near_monitor(0), string.format("room %s at %.0f, %.0f", tostring(bond.room(0)), sx, sz))
+  cctv.test_use(0)
+  wait(1)
+  local v = cctv.viewing(0)
+  check("bank: a use press at the hall's screens opens the camera feeds", v ~= nil, "viewing " .. tostring(v))
+  cctv.view_off(0)
+  wait(1)
+end
+
 local function win_path()
   -- the setup
   local want = HEIST.want or { post = -100, raiser = -100 }
@@ -121,47 +197,54 @@ local function win_path()
         string.format("difficulty %d, guards=%d (posted %d of %d, raisers %d of %d, carriers %d)", mission.difficulty(), #HEIST.guards,
         HEIST.placed.post, want.post, HEIST.placed.raiser, want.raiser, HEIST.placed.carrier))
   check("bank staff placed", HEIST.placed.civ >= 15, "civilians=" .. HEIST.placed.civ)
-  check("six cameras live", #cctv.list() == 6)
-  check("tiered doors: GREEN offices, BLUE security, RED antechambers, vault, GOLD safe",
-        door.get(46).keyflags == 0x2 and door.get(49).keyflags == 0x2 and door.get(50).keyflags == 0x4 and door.get(53).keyflags == 0x4
-        and door.get(58).keyflags == 0x8 and door.get(61).keyflags == 0x8 and door.get(68).keyflags == 0x40000000
-        and door.get(71).keyflags == 0x40000000 and door.get(102).keyflags == 0x10 and door.get(72).keyflags == 0)
-  check("vault doors are no longer one-way", door.one_way(68) == false and door.one_way(71) == false and door.one_way(58) == false)
+  check(W.cams .. " cameras live", #cctv.list() == W.cams, "cameras=" .. #cctv.list())
+  local D = W.D
+  check("tiered doors: GREEN offices, BLUE security, RED vault approach, vault, GOLD safe",
+        all_flags(D.green, 0x2) and all_flags(D.blue, 0x4) and all_flags(D.red, 0x8) and all_flags(D.vault_a, 0x40000000)
+        and all_flags(D.vault_b, 0x40000000) and door.get(D.safe).keyflags == 0x10 and all_flags(D.front, 0))
+  check("vault doors are no longer one-way", door.one_way(D.vault_a[1]) == false and door.one_way(D.vault_b[#D.vault_b]) == false
+        and door.one_way(D.red[1]) == false)
   check("loot in the vault and the cells", #HEIST.loot_items >= 30, "items=" .. #HEIST.loot_items)
   check("Bond starts with the silenced PP7 in hand and the cracker", bond.weapon(0) == 5, "weapon=" .. tostring(bond.weapon(0)))
   check("phase casing", HEIST.phase == "casing", HEIST.phase)
-  check("per-player keys: no card, the GREEN door refuses", door.try(0, 46) == false)
+  check("per-player keys: no card, the GREEN door refuses", door.try(0, W.green_door) == false)
+  if BANK then bank_checks() end
 
   -- the ladder
   take_card(0x2, "GREEN")
-  bond.warp(0, 68)                       -- room 13, at the offices door pair 48/49
+  bond.warp(0, W.office_at)
   wait(0.5)
-  check("GREEN opens the office doors", door.try(0, 48) == true)
+  check("GREEN opens the office doors", door.try(0, W.office_door) == true)
   take_card(0x4, "BLUE")
-  bond.warp(0, 69)                       -- room 14, at the security doors 50/51
+  bond.warp(0, W.sec_at)
   wait(0.5)
-  check("BLUE opens the security wing", door.try(0, 50) == true)
-  bond.warp(0, 82)                       -- room 43: the security console (a use press there with BLUE)
+  check("BLUE opens the security wing", door.try(0, W.sec_door) == true)
+  bond.warp(0, W.console_at)
   wait(0.5)
-  door.try(0, 52)
+  W.console_press()
   wait(0.5)
   local cam = cctv.get(cctv.list()[1])
   check("the security console blinds the cameras", HEIST.cam_off_until ~= nil and cam and cam.disabled, "until=" .. tostring(HEIST.cam_off_until))
   local until0 = HEIST.cam_off_until
   wait(1)
-  door.try(0, 52)                        -- more use presses in the console zone while the cameras are off: ignored
+  W.console_press()                      -- more use presses in the console zone while the cameras are off: ignored
   wait(0.5)
-  door.try(0, 52)
+  W.console_press()
   wait(0.5)
   check("a second console press while the cameras are off does nothing", HEIST.cam_off_until == until0,
         string.format("until %s -> %s", tostring(until0), tostring(HEIST.cam_off_until)))
+  if BANK then
+    bond.warp(0, W.mgr_at)               -- the staff corridor, at the manager's door
+    wait(0.5)
+    check("bank: BLUE opens the manager's office", door.try(0, W.mgr_door) == true)
+  end
   take_card(0x8, "RED")
-  bond.warp(0, 86)                       -- room 49, at the antechamber doors 58/59
+  bond.warp(0, W.red_at)
   wait(0.5)
-  check("RED opens the vault antechamber", door.try(0, 58) == true)
+  check("RED opens the vault approach", door.try(0, W.red_door) == true)
 
   -- the crack, with a forced jam and the zone rule
-  bond.warp(0, 85)
+  bond.warp(0, W.crack)
   wait(0.5)
   bond.equip(0, "doordecoder")
   wait(1)
@@ -172,21 +255,21 @@ local function win_path()
   wait(3)
   local p0 = HEIST.progress
   check("progress runs while Bond holds the zone", p0 > 0.15, string.format("%.2f", p0))
-  bond.warp(0, 86)
+  bond.warp(0, W.outside)
   wait(2)
   check("no progress with nobody in the zone", math.abs(HEIST.progress - p0) < 0.03, string.format("%.2f -> %.2f", p0, HEIST.progress))
-  bond.warp(0, 85)
+  bond.warp(0, W.crack)
   wait(1)
   check("forced jam", HEIST.force_jam() == true and HEIST.phase == "jammed")
   local pj = HEIST.progress
   wait(2)
   check("a jammed cracker makes no progress", HEIST.progress == pj and HEIST.phase == "jammed")
-  bond.warp(0, 86)
+  bond.warp(0, W.outside)
   wait(0.5)
   bond.test_gadget(0, "doordecoder")
   wait(0.5)
   check("restart refused outside the zone", HEIST.phase == "jammed", HEIST.phase)
-  bond.warp(0, 85)
+  bond.warp(0, W.crack)
   wait(0.5)
   bond.test_gadget(0, "doordecoder")
   wait(0.5)
@@ -194,7 +277,7 @@ local function win_path()
   local opened = crack_to_open()
   check("the vault opens", opened, "phase=" .. HEIST.phase)
   wait(1.5)
-  local da = door.get(68)
+  local da = door.get(W.vault_a)
   check("vault door A is opening/open", da and da.open > 0.1, da and string.format("%s %.2f", da.state, da.open) or "nil")
   check("countdown running", (hud.countdown_left() or 0) > 30, tostring(hud.countdown_left()))
 
@@ -207,9 +290,9 @@ local function win_path()
 
   -- the manager's safe: GOLD from the vault captain
   if take_card(0x10, "GOLD") then
-    bond.warp(0, 12)                     -- room 26, at the safe
+    bond.warp(0, W.safe_at)                -- at the safe (Bunker 2: room 26)
     wait(0.5)
-    check("GOLD opens the manager's safe", door.try(0, 102) == true)
+    check("GOLD opens the manager's safe", door.try(0, W.safe_door) == true)
     local spilled = wait_for(4, function() for _, it in ipairs(HEIST.loot_items) do if it.where == "safe" then return true end end return false end)
     check("the safe's gold appears when it opens", spilled)
     local b0 = HEIST.bars
@@ -217,17 +300,34 @@ local function win_path()
     check("safe gold collected", HEIST.bars >= b0 + 3, string.format("%d -> %d", b0, HEIST.bars))
   end
 
-  -- a deposit cell: GREEN opens cell 77 (the cash bundles inside)
-  bond.warp(0, 91)                       -- room 39, the cell corridor
+  -- a deposit cell: GREEN opens one (Bunker 2: cell 77; the bank: cell_green), the cash bundles inside
+  bond.warp(0, W.cell_at)                -- at the GREEN cell (Bunker 2: room 39, the cell corridor)
   wait(0.5)
-  check("GREEN opens deposit cell 77", door.try(0, 77) == true)
+  check("GREEN opens the GREEN deposit cell", door.try(0, W.cell_door) == true)
   wait(1.5)
   local c0 = HEIST.cash
   grab("cell_green")
   check("cash from the cell", HEIST.cash > c0, string.format("%d -> %d", c0, HEIST.cash))
 
+  -- the tellers in a crossfire (P2.4): Bond stands among the staff behind the counter with the alarm up; the guards' misses used to land
+  -- round him and kill the tellers (4 in ~10 s in the screenshot run). They hold their fire now while a civilian is beside him.
+  local function shots()
+    local f, h = 0, 0
+    for c = 8000, 8400 do local a, b = spawn.fire_stats(c); f, h = f + (a or 0), h + (b or 0) end
+    return f, h
+  end
+  if not alarm.active() then alarm.start() end
+  local tx, _, tz = pads.pos(LEVEL.pads.teller_2)
+  warp_xz(tx + 40, tz + 60)
+  local k0 = civilian.killed()
+  local f0, h0 = shots()
+  wait(15)
+  local f1, h1 = shots()
+  check("bank: Bond among the tellers with the alarm up: the guards hold their fire, no teller dies", civilian.killed() == k0 and h1 > h0,
+        string.format("killed %d, shots fired %d, held %d in 15 s", civilian.killed() - k0, f1 - f0, h1 - h0))
+
   -- the exit
-  bond.warp(0, 51)
+  bond.warp(0, W.exit_a)
   local won = wait_for(4, function() return ended.win ~= nil end)
   check("exit at the van wins", won and HEIST.ended, tostring(ended.win))
   local fine = civilian.killed() * 100000
@@ -238,18 +338,18 @@ end
 
 local function trapped_path()
   check("phase casing", HEIST.phase == "casing", HEIST.phase)
-  bond.warp(0, 85)
+  bond.warp(0, W.crack)
   wait(0.5)
   bond.test_gadget(0, "doordecoder")
   check("crack opens the vault", crack_to_open(), HEIST.phase)
   local _, n = grab("vault", 2)
   check("bars grabbed", n >= 2, "n=" .. n)
-  -- the west end of room 56 (x below ~300 along z 3141): the old circle test missed it, and a Bond there at the time lock was "sealed"
-  -- in for good with no re-crack (the player bot found it). He counts as inside by his room now.
-  warp_xz(250, 3141)
+  -- Bunker 2: the west end of room 56 (x below ~300 along z 3141): the old circle test missed it, and a Bond there at the time lock was
+  -- "sealed" in for good with no re-crack (the player bot found it). He counts as inside by his room now. The bank: a far corner.
+  warp_xz(W.corner[1], W.corner[2])
   wait(0.5)
   local wx, _, wz = bond.pos(0)
-  check("Bond stands in the vault's west end (room 56, x < 300)", bond.room(0) == 56 and wx < 300,
+  check(W.corner_label, W.corner_ok(bond.room(0), wx),
         string.format("room %s at (%.0f, %.0f)", tostring(bond.room(0)), wx, wz))
   check("Bond is inside the vault", HEIST.in_vault(0))
   local sq = HEIST.squads
@@ -259,23 +359,24 @@ local function trapped_path()
   check("the vault closes on Bond in the west end: trapped", trapped and HEIST.trapped[0] == true, HEIST.phase)
   check("the time lock raises the alarm (hot) when it traps a Bond", HEIST.hot and alarm.active())
   check("... and sends the heavy squad", HEIST.squads == sq + 1, string.format("squads %d -> %d", sq, HEIST.squads))
-  bond.warp(0, 89)                        -- to the re-crack zone inside door A
+  bond.warp(0, W.inside)                      -- to the re-crack zone inside door A
   wait(2.5)
-  local da = door.get(68)
+  local da = door.get(W.vault_a)
   check("vault door A closed and relocked", da and da.open < 0.05 and da.keyflags == 0x40000000, da and string.format("%s %.2f", da.state, da.open) or "nil")
-  check("vault door A does not open from the inside", door.try(0, 68) == false)
+  check("vault door A does not open from the inside", door.try(0, W.vault_a) == false)
   wait(0.5)
-  local da2 = door.get(68)
+  local da2 = door.get(W.vault_a)
   check("... and stays shut", da2 and da2.open < 0.05, da2 and string.format("%.2f", da2.open) or "nil")
   if HEIST.phase ~= "recracking" then bond.test_gadget(0, "doordecoder") end   -- (the use press itself restarts the cracker)
   wait(0.5)
   check("re-crack from the inside", HEIST.phase == "recracking", HEIST.phase)
   local out = wait_for(15, function() return HEIST.phase == "escaped" end)
   check("re-crack done: escaped", out, HEIST.phase)
-  wait(1.5)
-  da = door.get(68)
+  -- (the heavy squad crowds door A from outside on the bank and stops the leaves; the mode snaps a blocked vault door after 1.5 s)
+  wait_for(3, function() local g = door.get(W.vault_a); return g and g.open > 0.1 end)
+  da = door.get(W.vault_a)
   check("vault door A open again", da and da.open > 0.1, da and string.format("%.2f", da.open) or "nil")
-  bond.warp(0, 116)                       -- exit B, the loading dock
+  bond.warp(0, W.exit_b)                     -- exit B, the loading dock
   local won = wait_for(4, function() return ended.win ~= nil end)
   check("exit at the loading dock wins", won, tostring(ended.win))
 end
@@ -283,13 +384,20 @@ end
 -- the quiet win (AC delegated, Claude's call 2026-10-25): the time lock closing on an empty vault raises no alarm
 local function quiet_path()
   check("phase casing, quiet", HEIST.phase == "casing" and not HEIST.hot, HEIST.phase)
-  bond.warp(0, 85)
+  if BANK then
+    -- the bank's vault-approach camera watches the cracker's spot (Agent: 10 s of sight raises the alarm; the crack takes longer), so a
+    -- quiet run switches the cameras off at the security console first (BLUE: what a player does; the ladder is the win path's job)
+    HEIST.camera_switch(0)
+    local cv = cctv.get(LEVEL.objects.cam_vault.index)
+    check("bank: the security console blinds the vault camera before the crack", cv and cv.disabled and HEIST.cam_off_until ~= nil)
+  end
+  bond.warp(0, W.crack)
   wait(0.5)
   bond.test_gadget(0, "doordecoder")
   check("crack opens the vault", crack_to_open(), HEIST.phase)
   local _, n = grab("vault", 3)
   check("bars grabbed", n >= 3, "n=" .. n)
-  bond.warp(0, 86)                        -- out of the vault, in the east wing
+  bond.warp(0, W.outside)                      -- out of the vault, in the east wing
   wait(0.5)
   check("Bond is out of the vault", not HEIST.in_vault(0))
   local sealed = wait_for(20, function() return HEIST.phase == "sealed" end)
@@ -297,9 +405,9 @@ local function quiet_path()
   wait(1)
   check("the time lock on an empty vault raises no alarm", not HEIST.hot and not alarm.active(),
         string.format("hot=%s alarm=%s", tostring(HEIST.hot), tostring(alarm.active())))
-  local da = door.get(68)
+  local da = door.get(W.vault_a)
   check("vault door A shut and relocked", da and da.open < 0.05 and da.keyflags == 0x40000000, da and string.format("%.2f", da.open) or "nil")
-  bond.warp(0, 51)                        -- exit A, the van
+  bond.warp(0, W.exit_a)                        -- exit A, the van
   local won = wait_for(4, function() return ended.win ~= nil end)
   check("a quiet exit wins", won and not HEIST.hot, tostring(ended.win))
   local bonus = math.floor(HEIST.loot * 0.25)
@@ -334,7 +442,8 @@ end
 local finished = false
 local function body()
   local ready = wait_for(20, function() return HEIST.ready end)
-  check("mode ready", ready, "phase=" .. tostring(HEIST.phase))
+  check("mode ready", ready, "phase=" .. tostring(HEIST.phase) .. " map=" .. tostring(HEIST.map))
+  if ready then setup_map() end
   wait(1.5)
   if TRAPPED then trapped_path() elseif FAILRUN then fail_path() elseif QUIET then quiet_path() elseif COUNT then count_path() else win_path() end
   summary()
