@@ -736,3 +736,57 @@ their state hashes are identical for all 5864 ticks; an unseeded develop run sco
 projected box. Occlusion is the game's own chr visibility (rooms and frustum), so a guard behind a pillar in a room you can see still
 shows his "?". The head marker sits over the standing height (a crouching guard's floats a little). The camera cone is the camera's
 heading, not its exact sight test. The diagnostics' text overlaps when many chrs stand close together.
+
+## 22. Bank v3 (stream `bank3`, 2026-10-26)
+
+AC asked for a deep dive into real bank designs and a v3 built on informed views. The research is in [`bank-v3-research.md`](bank-v3-research.md), with 42 sources: halls, vaults, the day gate, the time lock, dual-key boxes, mantraps, guard tours, staffing, and seven real heists. The design is in [`bank-v3.md`](bank-v3.md): the room programme, the security layers, the staffing roster, guard tours, the vault, procedures as gameplay, heist approaches and the interfaces.
+
+**The level** comes from `tools/levelgen/build_janus_bank_v3.py`, which writes `tools/levelgen/janus_bank_v3.json`. It is now the compiled bank on this branch (`port/levelgen/`). v2's builder and JSON stay. It has 119 rooms, 186 portals and 31 cameras, and keeps every name the mode and its tests use.
+
+The new spaces:
+- the hall's 17.6 m lantern, seen from three roof terraces;
+- the officers' platform;
+- the safe-deposit department, down its own stair from the west aisle, with coupon booths and a box vault whose door needs GREEN **and** the floor key;
+- the round door's vestibule and a barred day gate;
+- the vault's inspection ring;
+- the goods-lift shaft;
+- the sally port;
+- the staff entrance mantrap.
+
+**How to play it:** launch the heist as before (`Play Heist.bat`, `GE_STAGE=levelgen`). New ways in:
+- **The safe-deposit stair** (GREEN grille), then the box vault (GREEN plus the floor key from records).
+- **The lift shaft**, from the rear corridor's landing down to the vault corridor, which skips the RED stairs. It needs the gadgets stream's grapple.
+- **The ring** behind RED `ring_gate`.
+- **The dig** from the deep archive (the canal tunnel), which needs the gadgets stream's vents.
+- **The roof**, then a rappel into the hall (grapple).
+
+**Interfaces:** the pads `grapple_<id>_low/_high` (`lantern_w`, `lantern_e`, `gallery`, `facade`, `liftshaft`) and `vent_<id>_a/_b` (`records`, `lounge`, `server`, `vault`, `sewer`, `plant`). There are 36 guard-tour pads, `patrol_<route>_<n>`, on 8 routes, with 10 watchclock stations. `heist_bank_map()` returns them as `M.GRAPPLES`, `M.VENTS`, `M.PATROLS` and `M.STATIONS`. `gen_level.py` passes a layout's `script` key through as `LEVEL.script`, and `heist_bank_map.lua` takes v3's area and camera tables from `LEVEL.script.heist`.
+
+**Tests (2026-10-26, on v3, headless, two containers):**
+
+| Check | v2 | v3 |
+| --- | --- | --- |
+| `tests/levelgen/run_bank.sh` static / route A / route B / guards | 14 / 2 / 3 / 4 | **16 / 2 / 3 / 5** |
+| `tests/levelgen/test_gen_level.py` | 11 | **12** |
+| win path / trapped / civilian fail / quiet / 007 count | 59 / 17 / 5 / 11 / 2 | **59 / 17 / 5 / 11 / 2** (007: 104 guards, 89 of 90 posted, 12 raisers) |
+| bindings / cctv / ko | 38 / 40 / 26 | **38 / 40 / 26** |
+| guards | ≥36 of 37 | 36 of 37 (the witness check) |
+| cover | 11 of 12 runs | 11 of 12 runs; `doors` fails as on v2 (§17c item 1) |
+
+The levelgen counts change because the test now covers more.
+- **Static** adds two checks: `v3_interfaces`, which checks that every patrol, station, vent and grapple pad resolves, in the right room; and `roof_sees_hall_lantern`, which checks that the hall is drawn through the clerestory.
+- **Route A** walks down the safe-deposit stair and through the booth, the box vault, the roof terraces, the day gate and the staff entrance.
+- **Route B** walks the ring and the lift shaft.
+- **Guards** adds a guard climbing the safe-deposit stair.
+
+The guards suite failed once in 3 runs on `body_found` and once on the witness check. Both are the random rolls noted as flaky in §17c item 3.
+
+Not run: the dam1 oracle, the logic tests, and determinism. This stream changes nothing in `src/` or `port/src/`. Determinism hashes the level's sim, so it is worth a run on v3.
+
+**Screenshots** (`E:\midas-tempank3\shots\`): the roof terrace looking down through the clerestory into the hall, the hall looking up to the lantern, the officers' platform, the safe-deposit reception with the box vault's round door, the round door open onto the day gate, the inspection ring, looking down the lift shaft, and the sally port. The new mode `tests/levelgen/levelgen_bank_shots.lua` picks v3's list when the layout has the ring.
+
+**Open:**
+- Guards do not walk the tours yet. `M.PATROLS` and `M.STATIONS` are ready for the ai stream.
+- The mantrap and sally-port interlocks are not enforced.
+- `vent_vault` (the emergency ventilator) bypasses the crack. AC needs to decide whether the gadgets stream lets gold out through it.
+- The time-lock clock and the drill-the-wall alternative (Hatton Garden) are designed (`bank-v3.md` §6, §7) but not built.

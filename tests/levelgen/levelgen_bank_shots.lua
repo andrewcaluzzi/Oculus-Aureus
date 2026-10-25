@@ -1,4 +1,4 @@
--- The Janus bank v2's signature spaces, one screenshot each (designs/bank-heist.md section 17). Run: tests/levelgen/run_bank_shots.sh
+-- The Janus bank's signature spaces (v2, or v3's when the layout is v3), one screenshot each (designs/bank-heist.md section 17). Run: tests/levelgen/run_bank_shots.sh
 -- (headless, Xvfb; build_pc built with tools/levelgen/janus_bank.json on the slot). No guards: the architecture only. Each shot follows a
 -- "LEVELGEN SHOT <name>" line in the log; build_pc/levelgen_bank_shots_v2/shot_NNNNN.bmp (convert with tests/bmp2png.py).
 include("levelgen_layout")
@@ -53,9 +53,24 @@ local SHOTS = {
   { "canal", "canal_s", 9080, 8400, 6 },                        -- the canal under the night sky
 }
 
+-- bank v3 (designs/bank-v3.md): its new spaces, used when the layout is v3 (it has the vault's inspection ring); the 8th field names doors
+-- opened before the shot
+local SHOTS_V3 = {
+  { "v3_lantern_from_roof", "grapple_lantern_w_high", 1200, 1900, -38 },       -- the roof terrace: down through the clerestory into the hall
+  { "v3_hall_up_to_lantern", "hall_mid", -1200, 1300, 48 },                    -- from the hall floor up to the lantern's clerestory
+  { "v3_officers_platform", "platform_gate", 1150, 1600, -10, -250, 0 },       -- the officers' platform behind its rail
+  { "v3_safe_deposit", "sd_mid", -1520, 3800, 0, 0, -150, { "boxes_door" } },  -- the reception, the grille, the box vault's round door
+  { "v3_day_gate", "crack", 0, 8000, 0, 0, -150, { "vault_door_a" } },         -- the round door open: the vestibule and the barred day gate
+  { "v3_inspection_ring", "patrol_ring_1", -1240, 8600, 0 },                   -- the ring round the vault's west face
+  { "v3_lift_shaft", "grapple_liftshaft_high", -1240, 5300, -55 },             -- from the rear corridor's landing down the goods-lift shaft
+  { "v3_sally_port", "sally_in", 4400, 2700, 2 },                              -- the armoured-car sally port
+}
+
 local function body()
   wait(1.5)
-  for _, s in ipairs(SHOTS) do
+  local list = LEVEL.rooms.ring_w and SHOTS_V3 or SHOTS
+  for _, s in ipairs(list) do
+    for _, d in ipairs(s[8] or {}) do door.open(LEVEL.objects[d].index) end
     local where = stand(s[2], s[3], s[4], s[5], s[6], s[7])
     shot(s[1], where)
   end
