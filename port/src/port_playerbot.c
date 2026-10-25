@@ -124,6 +124,16 @@ typedef struct {
     s32 kills;
     s32 deadAtStart;
     s32 objStatus[10];
+    u32 flagsPrev;             /* objectiveregisters1 last tick: changes are logged (which AI flag fired, for plans) */
+    /* speed-strafing (`speed 1` / GE_PLAYERBOT_SPEED=1): forward + a C strafe held together, the view turned off the travel
+     * direction by ssOff (learnt from Bond's real motion per strafe side: [0] C-left, [1] C-right), the side kept per
+     * route segment (ssSide: -1 C-left, +1 C-right) */
+    s32 speedMode, ssSide, ssHeld, ssLearnN;
+    f32 ssDist, wDist;         /* distance covered on straight stretches: speed-strafing / plain running (ticks below) */
+    s32 ssTicks, wTicks;
+    f32 ssOff[2], ssPrevX, ssPrevZ, ssTurnHint;
+    void *spare[6];            /* `spare ai ID`: AI lists whose chrs are never shot (a hostage's captors) */
+    s32 nSpare;
     s32 alarmLogged;
     char blocked[160];
 
@@ -199,7 +209,7 @@ typedef struct {
     s32 nThreats;              /* armed hostiles with a line on Bond (last scan) */
     PropRecord *threats[6];
     AIRecord *raiserList;      /* the stock alarm raiser list: those guards are shot first */
-    s32 coverNode, coverUntil, coverSince, lastCoverScan, noCover;
+    s32 coverNode, coverUntil, coverSince, lastCoverScan, noCover, oldCover;
     s32 kiteSince, kiteBlockedUntil, noKite, glassTest, spareAll;
     s32 avoidRoom[8], nAvoid;  /* rooms the routes keep out of (the `avoid` step) */
     ChrRecord *civExempt;      /* a civilian carrier being shot on purpose (not a bystander for the line-of-fire check) */
@@ -423,9 +433,24 @@ static s32 isAllyBody(s32 body)
     return body == BODY_Natalya_Skirt || body == BODY_Trevelyan_006;
 }
 
+/* on a `spare ai ID` list (a hostage's captors: shooting one has the hostage killed) */
+static s32 chrSpared(ChrRecord *c)
+{
+    s32 k;
+
+    for (k = 0; k < B.nSpare; k++)
+    {
+        if ((void *) c->ailist == B.spare[k])
+        {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static s32 chrHostile(ChrRecord *c)
 {
-    if (c == NULL || c->model == NULL || c->prop == NULL || chrIsDead(c))
+    if (c == NULL || c->model == NULL || c->prop == NULL || chrIsDead(c) || chrSpared(c))
     {
         return 0;
     }
@@ -580,7 +605,7 @@ static void weaponTick(void)
 {
     s32 cur = getCurrentPlayerWeaponId(GUNRIGHT);
     /* a fight always gets the best gun, whatever gadget a step wants */
-    s32 want = (B.wantWeapon > 0 && B.target == NULL) ? B.wantWeapon : bestGun();
+    s32 want = (B.wantWeapon > 0 && (B.target == NULL || B.peace)) ? B.wantWeapon : bestGun();
 
     if (want < 0 || !bondinvItemAvailable(want) || cur == want)
     {
@@ -1284,8 +1309,70 @@ static void steerTo(f32 x, f32 y, f32 z, f32 slowRadius)
         (void) slowRadius;
         return;
     }
+    if (B.speedMode && slowRadius <= 0.0f && B.doorProp == NULL && dist > 120.0f)
+    {   /* speed-strafe: bondview2.c scales the walk animation's forward root motion by speedforwards / maxspeed (maxspeed =
+         * the largest of forward, sideways x MAX_SPEED_FACTOR, turn) and then ADDS the strafe (speedsideways / delta) to it
+         * (bondhead.c bheadUpdate), not normalised: forward + strafe is faster than forward. Turn the view off the travel
+         * direction by the learnt offset and hold both. */
+        s32 si = B.ssSide > 0 ? 1 : 0;
+        f32 mx = p->prop->pos.x - B.ssPrevX, mz = p->prop->pos.z - B.ssPrevZ;
+
+        B.ssSide = pblStrafeSide(B.ssSide, B.ssTurnHint, B.ssOff[1]);
+        if ((B.ssSide > 0 ? 1 : 0) != si)
+        {
+            si = B.ssSide > 0 ? 1 : 0;
+            B.ssHeld = 0;
+        }
+        err = lookToward(B.lastSteerYaw - B.ssOff[si], 0.0f, 20.0f);
+        if (fabsf(err) < 30.0f)
+        {
+            B.sy = 80;
+            B.btn |= B.ssSide > 0 ? BTN_CR : BTN_CL;
+            B.ssHeld++;
+            if (B.ssHeld > 20 && fabsf(err) < 4.0f)
+            {
+                B.ssDist += sqrtf(mx * mx + mz * mz);
+                B.ssTicks++;
+            }
+            if (B.ssHeld > 20 && fabsf(err) < 4.0f && mx * mx + mz * mz > 4.0f)
+            {   /* learn the offset from the motion: unfiltered for the first samples (the strafe's sign is not assumed),
+                 * then only while the motion runs along the route (sliding on a wall says nothing) */
+                f32 o = pblWrap180(pblYawTo(mx, mz) - p->vv_theta);
+
+                if (fabsf(o) < 85.0f &&
+                    (B.ssLearnN < 40 || fabsf(pblWrap180(pblYawTo(mx, mz) - B.lastSteerYaw)) < 20.0f))
+                {
+                    B.ssOff[si] = pblAngleEma(B.ssOff[si], o, B.ssLearnN < 40 ? 0.15f : 0.03f);
+                    if (++B.ssLearnN == 200 && B.verbose)
+                    {
+                        portConLogf("ge: playerbot: speed-strafe offsets learnt: C-left %.1f, C-right %.1f deg\n", B.ssOff[0],
+                                    B.ssOff[1]);
+                    }
+                }
+            }
+        }
+        else
+        {
+            B.sy = fabsf(err) > 70.0f ? 0 : 30;
+            B.ssHeld = 0;
+        }
+        B.ssPrevX = p->prop->pos.x;
+        B.ssPrevZ = p->prop->pos.z;
+        (void) y;
+        return;
+    }
     err = lookToward(B.lastSteerYaw, 0.0f, 20.0f);
     ae = fabsf(err);
+    if (ae < 4.0f && B.ssHeld > 20 && slowRadius <= 0.0f && !B.moveOnly)
+    {   /* (the plain-running speed, for comparison: B.ssHeld counts straight ticks here too) */
+        f32 mx = p->prop->pos.x - B.ssPrevX, mz = p->prop->pos.z - B.ssPrevZ;
+
+        B.wDist += sqrtf(mx * mx + mz * mz);
+        B.wTicks++;
+    }
+    B.ssHeld = ae < 4.0f ? B.ssHeld + 1 : 0;
+    B.ssPrevX = p->prop->pos.x;
+    B.ssPrevZ = p->prop->pos.z;
 
     (void) y;
     if (ae > 70.0f)
@@ -1466,6 +1553,10 @@ static s32 navTo(f32 x, f32 y, f32 z, f32 radius, StandTile *goalTile)
                     c = 1;   /* at the corner already: the next one */
                 }
                 yy = B.g.y[last];
+                /* the route's turn at the corner ahead (speed-strafe picks its side from it) */
+                B.ssTurnHint = c + 1 < nc ? pblWrap180(pblYawTo(ox[c + 1] - ox[c], oz[c + 1] - oz[c]) -
+                                                       pblYawTo(ox[c] - p->prop->pos.x, oz[c] - p->prop->pos.z))
+                                          : 0.0f;
                 steerTo(ox[c], yy, oz[c], (c == nc - 1 && k >= B.pathN) ? radius + 60.0f : 0.0f);
                 doorTick();
                 return 0;
@@ -1752,13 +1843,31 @@ static s32 tileSeenBy(s32 node, PropRecord *t)
     return botLine(t->stan, t->pos.x, t->pos.z, B.g.x[node], B.g.z[node], NULL, CDTYPE_DOORS | CDTYPE_PATHBLOCKER | CDTYPE_AIOPAQUE);
 }
 
-/* breadth first over the tiles from Bond's, up to ~maxd of walking; the first tile (nearest by steps) at least 80 away
- * that no threat sees, on Bond's floor. -1 if none. */
+/* the exposure (pblExposure) of tile `node` to the current threats */
+static f32 tileExposure(s32 node)
+{
+    f32 dist[6];
+    s32 seen[6], k;
+
+    for (k = 0; k < B.nThreats && k < 6; k++)
+    {
+        f32 dx = B.threats[k]->pos.x - B.g.x[node], dz = B.threats[k]->pos.z - B.g.z[node];
+
+        dist[k] = sqrtf(dx * dx + dz * dz);
+        seen[k] = B.threats[k]->stan != NULL && tileSeenBy(node, B.threats[k]);
+    }
+    return pblExposure(dist, seen, k, 0.25f);
+}
+
+/* breadth first over the tiles from Bond's, up to ~maxd of walking, on Bond's floor: the tile at least 80 away where the
+ * threats hit Bond least (pblExposure: few guards with a line on it, far ones; one far guard beats hiding, hiding beats a
+ * close one), plus a little for the walk. -1 if none is clearly better than where he stands. GE_PLAYERBOT_OLDCOVER=1:
+ * the round-3 rule (the nearest tile no threat sees). */
 static s32 coverFind(f32 maxd)
 {
     struct player *p = bond();
-    s32 start = bondTile() != NULL ? tileIndex(bondTile()) : -1, qh = 0, qt = 0, k;
-    f32 gy;
+    s32 start = bondTile() != NULL ? tileIndex(bondTile()) : -1, qh = 0, qt = 0, k, best = -1, evals = 0;
+    f32 gy, here = 0.0f, bestSc = 1e30f;
 
     if (start < 0 || B.nThreats == 0)
     {
@@ -1775,6 +1884,10 @@ static s32 coverFind(f32 maxd)
         }
     }
     gy = B.g.y[start];
+    if (!B.oldCover)
+    {
+        here = tileExposure(start);
+    }
     sCovGen++;
     sCovStamp[start] = sCovGen;
     sCovQ[qt++] = start;
@@ -1788,7 +1901,7 @@ static s32 coverFind(f32 maxd)
         {
             continue;
         }
-        if (d2 > 80.0f * 80.0f && B.g.npen[a] < 1000.0f)
+        if (d2 > 80.0f * 80.0f && B.g.npen[a] < 1000.0f && B.oldCover)
         {
             s32 seen = 0;
 
@@ -1799,6 +1912,17 @@ static s32 coverFind(f32 maxd)
             if (!seen)
             {
                 return a;
+            }
+        }
+        else if (d2 > 80.0f * 80.0f && B.g.npen[a] < 1000.0f && evals < 120 && (qh & 1) == 0)
+        {   /* (every other tile in the search order: neighbours are near-alike, and the line tests cost) */
+            f32 sc = tileExposure(a) + sqrtf(d2) * 0.0004f;
+
+            evals++;
+            if (sc < bestSc)
+            {
+                bestSc = sc;
+                best = a;
             }
         }
         for (e = B.g.start[a]; e < B.g.start[a + 1]; e++)
@@ -1812,12 +1936,25 @@ static s32 coverFind(f32 maxd)
             }
         }
     }
+    if (best >= 0 && bestSc < here * 0.75f - 0.05f)
+    {
+        if (B.verbose >= 2)
+        {
+            portConLogf("ge: playerbot: fight spot: exposure %.2f here -> %.2f (%d tiles scored)\n", here, bestSc, evals);
+        }
+        return best;
+    }
     return -1;
 }
 
 static s32 wantCover(f32 hp)
 {
-    return (hp < 0.7f && B.nThreats >= 2) || (hp < 0.35f && B.nThreats >= 1) || B.nThreats >= 3;
+    if (B.oldCover)
+    {
+        return (hp < 0.7f && B.nThreats >= 2) || (hp < 0.35f && B.nThreats >= 1) || B.nThreats >= 3;
+    }
+    /* the exposure search only moves when it finds a clearly better spot, so it can look whenever it matters */
+    return B.nThreats >= 2 || (hp < 0.6f && B.nThreats >= 1);
 }
 
 /* fight the current target if any; returns 1 when the bot is busy fighting this tick */
@@ -2706,6 +2843,10 @@ static s32 stepRun(PblStep *s)
             return B.tick - B.stepTick >= s->a;
         case PBL_EQUIP:
             B.wantWeapon = s->a;
+            if (s->a == ITEM_UNARMED)
+            {
+                return 1;   /* `equip unarmed`: stop wanting anything - the best gun again */
+            }
             if (getCurrentPlayerWeaponId(GUNRIGHT) == s->a)
             {
                 return 1;   /* keep wanting it: the next steps use it (gadget / press z) */
@@ -2737,7 +2878,12 @@ static s32 stepRun(PblStep *s)
             }
             return 1;
         case PBL_EXIT:
-            tap(BTN_A, 30);
+            /* A presses through an end cut-scene - but A is also "next gun": tapping it through a fight cycled to the
+             * fist (Streets, Depot, Archives died punching). Only once nobody has been in sight for 5 s. */
+            if (B.target == NULL && B.tick - B.lastSeenTick > 300 && B.tick - B.lastHurtTick > 300)
+            {
+                tap(BTN_A, 30);
+            }
             return 0;
         case PBL_AUTO:
         {
@@ -2813,6 +2959,26 @@ static s32 stepRun(PblStep *s)
             {
                 B.avoidRoom[B.nAvoid++] = (s32) pad->stan->room;
                 portConLogf("ge: playerbot: avoiding room %d (pad %d)\n", (s32) pad->stan->room, s->a);
+            }
+            return 1;
+        case PBL_SPARE:
+            if (s->a == 0)
+            {
+                B.nSpare = 0;
+                return 1;
+            }
+            if (g_CurrentSetup.ailists != NULL && B.nSpare < 6)
+            {
+                s32 k;
+
+                for (k = 0; g_CurrentSetup.ailists[k].ailist != NULL; k++)
+                {
+                    if (g_CurrentSetup.ailists[k].ID == s->a)
+                    {
+                        B.spare[B.nSpare++] = (void *) g_CurrentSetup.ailists[k].ailist;
+                        break;
+                    }
+                }
             }
             return 1;
         case PBL_KEY:
@@ -3073,12 +3239,20 @@ static void stageBegin(void)
     B.coverNode = -1;
     B.lastCoverScan = -1000;
     B.noCover = getenv("GE_PLAYERBOT_NOCOVER") != NULL;
+    B.oldCover = getenv("GE_PLAYERBOT_OLDCOVER") != NULL;
     B.noKite = getenv("GE_PLAYERBOT_NOKITE") != NULL;
     B.glassTest = getenv("GE_PLAYERBOT_GLASSTEST") != NULL;   /* experiment: shoot raisers through closed doors */
     B.spareAll = getenv("GE_PLAYERBOT_SPAREALL") != NULL;
     B.kiteSince = 0;
     B.kiteBlockedUntil = 0;
     B.crIsR1 = 1;
+    B.speedMode = getenv("GE_PLAYERBOT_SPEED") != NULL && atoi(getenv("GE_PLAYERBOT_SPEED")) != 0;
+    B.ssSide = 1;
+    B.ssHeld = 0;
+    B.ssLearnN = 0;
+    B.ssOff[0] = 45.0f;    /* C-left: motion ~45 to the view's one side, C-right the other (learnt on the first runs) */
+    B.ssOff[1] = -45.0f;
+    B.ssTurnHint = 0.0f;
     B.strafeCal = 0;
     B.calTick = 0;
     B.armourProp = NULL;
@@ -3095,6 +3269,8 @@ static void stageBegin(void)
     {
         B.objStatus[i] = -1;
     }
+    B.flagsPrev = (u32) objectiveregisters1;
+    B.nSpare = 0;
     graphBuild();
     planLoad();
     stepBegin();
@@ -3177,6 +3353,14 @@ static void observe(void)
             B.objStatus[i] = st;
         }
     }
+    if ((u32) objectiveregisters1 != B.flagsPrev)
+    {   /* the stage flags the level's AI sets (objective completions, "Janus walks off", ...): which one fired, when */
+        u32 now = (u32) objectiveregisters1;
+
+        portConLogf("ge: playerbot: flags +0x%x -0x%x at t=%.1fs room %d\n", now & ~B.flagsPrev, B.flagsPrev & ~now,
+                    (f32) B.tick / 60.0f, bondRoom());
+        B.flagsPrev = now;
+    }
     if ((B.ticksAll % 30) == 1)
     {   /* guards down since the start (any cause; the bot does nearly all of it) */
         s32 n = get_numguards(), dead = 0;
@@ -3215,6 +3399,12 @@ static void observe(void)
                     p->bondhealth, p->bondarmour, B.step + 1, B.plan.n, B.step < B.plan.n ? B.plan.s[B.step].text : "-",
                     B.pathAt, B.pathN, getCurrentPlayerWeaponId(GUNRIGHT), B.target ? " FIGHT" : "", B.lastSy, B.lastSx,
                     B.lastBtn, B.lastYaw);
+    }
+    if (B.verbose >= 2 && (B.tick % 1800) == 0 && (B.ssTicks > 0 || B.wTicks > 0))
+    {
+        portConLogf("ge: playerbot: speed: strafe-run %.2f u/tick (%d ticks), run %.2f u/tick (%d ticks); offsets L %.1f R %.1f "
+                    "(%d samples)\n", B.ssTicks ? B.ssDist / B.ssTicks : 0.0f, B.ssTicks, B.wTicks ? B.wDist / B.wTicks : 0.0f,
+                    B.wTicks, B.ssOff[0], B.ssOff[1], B.ssLearnN);
     }
     if (B.verbose && (B.tick % 1800) == 900)
     {

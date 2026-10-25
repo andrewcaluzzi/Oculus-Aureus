@@ -19,7 +19,7 @@ DIFF=${1:-0}
 STAGES=${STAGES:-"dam facility runway surface bunker1 silo frigate surface2 bunker2 statue archives streets depot train jungle control caverns cradle aztec egypt"}
 RETRIES=${RETRIES:-3}
 PAR=${PAR:-1}
-OUT=${OUT:-$ROOT/build_tests/bot/campaign.d$DIFF}
+OUT=${OUT:-${BOTOUT:-$ROOT/build_tests/bot}/campaign.d$DIFF}
 mkdir -p "$OUT"
 TSV="$OUT/results.tsv"
 MD="$OUT/campaign.md"

@@ -1,0 +1,8 @@
+# Military Archives' neighbour: the Train Depot. Objectives (tools/bot/objectives.py assets/obseg/setup/UsetupdepoZ.c):
+#   0 destroy the computers (tags 10-26, 00)  1 destroy the weapons caches (tags 1-3, SA+)  2 the safe key (tag 0, SA+)
+#   3 the brass key ... (tag 5, SA+)  4 (all) flag 0x100: ai_17 sets it once door tag 6 is not shut (if_door_state_equal
+#   with 0x0e = opening / open / closing) - the train's door.  ai_26 runs the ending once Bond is in the room of pad 271.
+name depot
+obj=4 use obj 6
+goto pad 271 60
+exit

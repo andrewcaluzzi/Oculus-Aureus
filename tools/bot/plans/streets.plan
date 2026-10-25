@@ -1,0 +1,8 @@
+# Streets (St Petersburg). Objectives (tools/bot/objectives.py assets/obseg/setup/UsetuppeteZ.c):
+#   0 (SA+) flag 0x20000 / fails 0x40000 (Valentin's contact, ai_18)
+#   1 and 2 (both all difficulties): flag 0x4000 - ai_20 sets it once Bond is in the room of pad 248 and within 1000 of
+#     it, and runs the ending at once. Objective 1 fails on 0x8000 (ai_26's countdown, 360 s), 2 on 0x1000 (ai_27).
+# The tank (tag 0) is not driven: the bot walks.
+name streets
+goto pad 248 60
+exit

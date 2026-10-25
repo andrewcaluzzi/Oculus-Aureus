@@ -1,20 +1,52 @@
 name statue
-# Statue Park (tools/bot/objectives.py assets/obseg/setup/u/UsetupstatueZ.c).
-#   0 contact Valentin (flag 0x100): Valentin (chr 1, AI list 0x412, near -4440,-158,4860) starts talking once HE sees Bond
-#     (his list waits on line of sight, so the bot stands in front of him), then counts ~30 s while Bond stays close
+# Statue Park (tools/bot/objectives.py assets/obseg/setup/u/UsetupstatueZ.c). AI list ids: ai_N runs as list 0x401 + N.
+# Flags below are the real stage flags (the AI macros store them byte-swapped: macro 0x00200000 = flag 0x2000).
+#   0 contact Valentin (flag 0x100): Valentin (chr 1, AI list 0x412 = ai_17, near -4440,-158,4860) starts talking once HE
+#     sees Bond (his list waits on line of sight, so the bot stands in front of him), then counts ~30 s while Bond stays close
 #   1 confront Janus (0x400)  2 the flight recorder's location (0x200)  3 rescue Natalya (0x800)  4 collect the recorder
-#     (tag 1: ai_xx moves it to one of several pads at random)
+#     (tag 1: moved to one of several pads at random)
 # Walking into the room of pad 22 (room 10) ends the mission at once (ai_42: fade and exit_level): that was the "ends at
 # 10 s" of the first campaign. Keep out of it until the end.
-#   Janus (objective 1): ai_36 spawns him (chr 8, AI list 0x413 = ai_19) at pad 54 once objective 0 is done and Bond is
-#   near pad 59; ai_19 talks on a timer and sets 0x400 after 10 s (600 ticks) - a shot from Bond near him ends it
-#   (if_guard_shot_from_bond_missed). So: go to pad 59, hold fire, stay with him a while.
+#   Janus (objective 1): ai_36 spawns him (chr 8, list 0x413 = ai_18) at pad 54 once objective 0 is done and Bond is within
+#   800 of pad 59. He walks to pad 1, faces Bond, and after 2 s checks that Bond holds item 1 (ITEM_FIST: the gun put
+#   away); if not he says so and waits up to 20 s. Then flag 0x4000 and ai_19 talks for 10 s and sets 0x400. Flag 0x2000
+#   ("Janus walks off": then ai_20 fails objective 1 unless 0x400 is set) comes from a shot near him, Bond > 1400 from pad 59,
+#   or - once 0x4000 is set - Bond holding anything but the fist. So: go to pad 59, hold fire, fist, stay with him.
+#   After him (ai_20 sets 0x8000 as he leaves): ai_37 waits 10 s, moves the aircraft (tag 0) to pad 24, spawns chr 16 at
+#   pad 6 and starts a 180 s countdown; Bond within 3000 of pad 24 sets 0x200 (objective 2).
 avoid pad 22
 obj=0 meet ai 0x412 150 4000
-obj=1 goto pad 59 60
+# hold fire and put the gun away before the spawn (within 800 of pad 59): his guards spawn next to Bond, and a shot near
+# them sets 0x2000. Then stand at pad 59 - walking up to Janus (a meet) took Bond past 1400 from it in 3 s, which is 0x2000
+# too. He walks up and talks by himself.
+obj=1 goto pad 59 1000
 obj=1 peace 1
-obj=1 meet ai 0x413 250 900
+obj=1 equip fist
+obj=1 goto pad 59 40
+obj=1 wait 2400
+#   Natalya (objective 3): ai_37 spawns her (chr 16, list 0x416 = ai_21; she renumbers herself chr 0) at pad 6 with the
+#   countdown (flag 0x08000000). Bond within 300 of her -> after 2 s flag 0x20000000 and she follows Bond (list 0x417).
+#   When the countdown ends (0x40000000, 0x800000) she is hurt unless 0x20000000 is set, and ai_22 completes objective 3
+#   (0x800) if she lives; ai_39 fails it (0x400000) if she is gone. Bond within 500 of pad 24 (the aircraft) cuts the
+#   countdown to 15 s: reach her first. The mission end (pad 22's room) only after 0x800.
+#   Her captors (lists 0x419 = ai_24, 0x41c = ai_27) stand aiming at her: one shot or killed sets 0x04000000 and ai_39 shoots
+#   her and fails objective 3 - even after it completed (it did, then the bot shot a captor on the way out). Spare them.
+#   And the exit scene: ai_40 spawns chr 10 (list 0x41d = ai_28) at pad 12 aiming at her, with 0x41a-0x41c guards (they
+#   jump to 0x419); he talks while Bond is within 1500. A shot at him (even a miss) or his death sets 0x04000000 too, and
+#   ai_42 (pad 22's room) only runs the good ending (ai_31) while he lives and 0x04000000 is clear.
+spare ai 0x419
+spare ai 0x41c
+spare ai 0x41d
 peace 0
+equip unarmed
+flag 0x8000000 2400
+obj=3 meet ai 0x416 120 200
+obj=3 flag 0x20000000 600
+# her pad is within 500 of the aircraft's (pad 24): the countdown is down to 15 s by now, and the blast at its end killed
+# her next to it (objective 3 complete, then failed 4 s later: chr 0 gone). Take her well away and wait for it.
+obj=3 goto -12650 154 141 150
+obj=3 flag 0x800 12000
+obj=2 goto pad 24 1500
 auto
 avoid pad -1
 goto pad 22 80

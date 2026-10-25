@@ -6,7 +6,7 @@
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 ST=$1; shift
 MAX=${1:-600}; [ $# -gt 0 ] && shift
-OUT="$ROOT/build_tests/bot"
+OUT="${BOTOUT:-$ROOT/build_tests/bot}"
 mkdir -p "$OUT/dev.$ST.shots"
 rm -f "$OUT/dev.$ST.shots"/*.bmp "$OUT/dev.$ST.shots"/*.png
 LOG="$OUT/dev.$ST.log"

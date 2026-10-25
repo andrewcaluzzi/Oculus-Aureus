@@ -376,6 +376,25 @@ static void test_combat_geometry(void)
     CHECK(pblThreatScore(1200.0f, 0, 1, 0) < pblThreatScore(400.0f, 1, 0, 1));
     CHECK(pblThreatScore(600.0f, 1, 0, 0) < pblThreatScore(400.0f, 0, 0, 0));
     CHECK(pblThreatScore(300.0f, 0, 0, 0) < pblThreatScore(600.0f, 0, 0, 0));
+    /* exposure: min(1, 300 / d) per guard that sees the spot; none sees it -> the no-shot score */
+    {
+        float d[3] = { 150.0f, 600.0f, 1500.0f };
+        int all[3] = { 1, 1, 1 }, far1[3] = { 0, 0, 1 }, none[3] = { 0, 0, 0 };
+
+        CHECK(NEAR(pblExposure(d, all, 3, 0.25f), 1.0f + 0.5f + 0.2f, 0.001f));
+        CHECK(NEAR(pblExposure(d, far1, 3, 0.25f), 0.2f, 0.001f));     /* one far guard beats hiding */
+        CHECK(NEAR(pblExposure(d, none, 3, 0.25f), 0.25f, 0.001f));
+        CHECK(NEAR(pblExposure(d, all, 0, 0.25f), 0.25f, 0.001f));
+        CHECK(pblExposure(d, none, 3, 0.25f) < pblExposure(d + 1, all, 1, 0.25f));   /* hiding beats one at 600 */
+    }
+    /* speed-strafing helpers */
+    CHECK(NEAR(pblAngleEma(40.0f, 50.0f, 0.5f), 45.0f, 0.001f));
+    CHECK(NEAR(fabsf(pblAngleEma(170.0f, -170.0f, 0.5f)), 180.0f, 0.001f));   /* across the wrap, not through 0 */
+    CHECK(NEAR(pblAngleEma(-45.0f, -45.0f, 0.2f), -45.0f, 0.001f));
+    CHECK(pblStrafeSide(1, 10.0f, -45.0f) == 1 && pblStrafeSide(-1, -10.0f, -45.0f) == -1);   /* gentle bends: keep */
+    CHECK(pblStrafeSide(1, 60.0f, -45.0f) == -1);    /* C-right swings motion to -yaw: a +yaw turn wants C-left */
+    CHECK(pblStrafeSide(-1, -60.0f, -45.0f) == 1);
+    CHECK(pblStrafeSide(-1, 60.0f, 45.0f) == 1);     /* the other calibration */
     /* the plan steps that go with them */
     CHECK(pblParsePlan("quiet 1\nkey 0x2\nkey 12\n", &plan, err, sizeof(err)) == 3);
     CHECK(plan.s[0].op == PBL_QUIET && plan.s[0].a == 1);
@@ -386,6 +405,11 @@ static void test_combat_geometry(void)
     CHECK(pblParsePlan("avoid pad -1\n", &plan, err, sizeof(err)) == 1 && plan.s[0].a == -1);
     CHECK(pblParsePlan("key 0\n", &plan, err, sizeof(err)) == -1);
     CHECK(pblParsePlan("key\n", &plan, err, sizeof(err)) == -1);
+    CHECK(pblParsePlan("equip fist\nequip unarmed\n", &plan, err, sizeof(err)) == 2);
+    CHECK(plan.s[0].op == PBL_EQUIP && plan.s[0].a == 1 && plan.s[1].a == 0);
+    CHECK(pblParsePlan("spare ai 0x419\nspare ai 0\n", &plan, err, sizeof(err)) == 2);
+    CHECK(plan.s[0].op == PBL_SPARE && plan.s[0].a == 0x419 && plan.s[1].a == 0);
+    CHECK(pblParsePlan("spare 0x419\n", &plan, err, sizeof(err)) == -1);
 }
 
 int main(void)

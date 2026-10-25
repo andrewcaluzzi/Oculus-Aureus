@@ -70,6 +70,16 @@ float pblOffFacing(float facingRad, float cx, float cz, float x, float z);
 /* Threat ranking for target choice, lower = shoot first: distance, less for a guard who is shooting at Bond, much less for
  * one running to raise the alarm or one that hurt Bond lately. */
 float pblThreatScore(float dist, int attacking, int alarmRaiser, int hurtUsLately);
+/* How fast Bond gets hit at a spot: the sum, over the n guards with seen[k] set, of min(1, 300 / dist[k]) (a guard's aim
+ * builds per shot by that factor, chraction.c; Bond's movement does not enter it). A spot none of them sees scores
+ * `noShot` instead: safe for now, but Bond cannot shoot back and they walk round to it, close. */
+float pblExposure(const float *dist, const int *seen, int n, float noShot);
+/* An exponential average of angles in degrees (wraps: 170 and -170 average to 180, not 0); k = the new sample's weight. */
+float pblAngleEma(float oldDeg, float sampleDeg, float k);
+/* Speed-strafing: which C strafe to hold (-1 C-left, +1 C-right) for a route that turns turnDeg (yaw degrees, signed) at the
+ * next corner, offRight = the learnt yaw of Bond's motion off the view while C-right is held. The strafe that pushes the
+ * motion into the turn; on bends under 25 degrees the current side stays (every flip ramps the strafe speed through 0). */
+int   pblStrafeSide(int cur, float turnDeg, float offRight);
 
 /* ---- plans ------------------------------------------------------------------------------------------------------------ */
 enum PblOp {
@@ -103,6 +113,8 @@ enum PblOp {
     PBL_RUSH,           /* a = 1: keep walking the route while fighting (strafe-walk, the look on the target); 0 = stop and
                          * fight (the default) */
     PBL_AVOID,          /* a = pad: keep routes out of that pad's room from here on (a room that ends the mission) */
+    PBL_SPARE,          /* a = AI list id: never shoot chrs running it (a hostage's captors whose death kills the hostage);
+                         * 0 = shoot them all again */
     PBL_COUNT_
 };
 

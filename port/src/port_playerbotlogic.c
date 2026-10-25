@@ -114,6 +114,36 @@ float pblThreatScore(float dist, int attacking, int alarmRaiser, int hurtUsLatel
     return s;
 }
 
+float pblAngleEma(float oldDeg, float sampleDeg, float k)
+{
+    return pblWrap180(oldDeg + k * pblWrap180(sampleDeg - oldDeg));
+}
+
+int pblStrafeSide(int cur, float turnDeg, float offRight)
+{
+    if (fabsf(turnDeg) < 25.0f)
+    {
+        return cur;   /* (a side flip costs the ramp: keep it on gentle bends) */
+    }
+    return (turnDeg > 0.0f) == (offRight > 0.0f) ? 1 : -1;
+}
+
+float pblExposure(const float *dist, const int *seen, int n, float noShot)
+{
+    float s = 0.0f;
+    int k, any = 0;
+
+    for (k = 0; k < n; k++)
+    {
+        if (seen[k])
+        {
+            any = 1;
+            s += dist[k] > 300.0f ? 300.0f / dist[k] : 1.0f;
+        }
+    }
+    return any ? s : noShot;
+}
+
 /* ---- plans --------------------------------------------------------------------------------------------------------- */
 
 static const char *const sItemNames[] = {
@@ -172,6 +202,7 @@ static const struct { const char *name; int op; } sOps[] = {
     { "key", PBL_KEY },        /* key FLAGS (0x2, 4, ...) */
     { "rush", PBL_RUSH },
     { "avoid", PBL_AVOID },    /* avoid pad N */
+    { "spare", PBL_SPARE },    /* spare ai ID */
 };
 
 const char *pblOpName(int op)
@@ -437,6 +468,15 @@ int pblParsePlan(const char *text, PblPlan *plan, char *err, int errlen)
                     return -1;
                 }
                 st.a = (int) num(tok[k + 1]);
+                break;
+            case PBL_SPARE:
+                NEED(2);
+                if (strcmp(tok[k], "ai") != 0)
+                {
+                    snprintf(err, errlen, "line %d: want 'spare ai ID'", lineno);
+                    return -1;
+                }
+                st.a = (int) strtol(tok[k + 1], NULL, 0);
                 break;
             case PBL_KEY:
                 NEED(1);

@@ -20,7 +20,7 @@ REPLAY=${REPLAY:-1}
 SEED=${SEED:-1}
 SCALE=${SCALE:-20}
 TAG=${TAG:-run}
-OUT=${OUT:-$ROOT/build_tests/bot/$ST.d$DIFF}
+OUT=${OUT:-${BOTOUT:-$ROOT/build_tests/bot}/$ST.d$DIFF}   # BOTOUT: root for run output (e.g. a scratch disk)
 BIN="$ROOT/${BUILD:-build_pc}/ProjectMidas"
 mkdir -p "$OUT/$TAG.shots"
 rm -f "$OUT/$TAG.shots"/*.bmp "$OUT/$TAG.shots"/*.png "$OUT/$TAG.rec"
@@ -60,6 +60,9 @@ if [ "$REPLAY" = 1 ] && [ -s "$OUT/$TAG.rec" ]; then
         rep="DIFF(drift=$drift;replay=$(echo "$b" | tr ' ' '/'))"
     fi
 fi
+
+# NOSHOTS=1: drop the screenshots (a BMP every 30 s of mission time, ~1 MB each: batches filled the disk once)
+[ "${NOSHOTS:-0}" = 1 ] && rm -f "$OUT/$TAG.shots"/*.bmp
 
 printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%ss\t%s\n' "$ST" "$DIFF" "$outcome" "$(field mission_time)" "$(field ticks)" \
     "$(field health_lost)" "$(field kills)" "$(field objectives)" "$rep" "$wall" "${blocked:--}"
