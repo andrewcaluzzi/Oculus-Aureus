@@ -83,6 +83,8 @@ Registers a handler (at most 16 per event; an unknown event name raises).
 | `chr_knocked_out`, `chr_woken`, `chr_searched` | `(chr, player)`, `(chr, waker)`, `(chr, player)`: see "Knock-outs" |
 | `cover_blown` | `(guard, player, why)`: a cover guard saw through Bond `player`'s disguise; `why` is a number, `cover.why_name(why)` its name. See "The banker cover" |
 | `cover_report` | `(guard, player)`: that witness was still up (not dead, not knocked out) after the radio time: he reports it (the heist raises the alarm) |
+| `noise` | `(x, y, z, radius, kind, src)`: a noise the guards may hear (`kind`: `slap` `step` `run` `door` `shot` `thud` `glass` `coin` `alarm`; `src` a chr, `-2 - p` for Bond p, -1 the world). See "Guard hearing and awareness" |
+| `guard_bark` | `(chr, kind, text)`: a guard says something (`kind`: `huh` `hey` `investigate` `lost` `found_body` `radio` `backup` `surrender`) |
 | `test_key` | `(name)`: a test hotkey, `"next"` (PageDown), `"back"` (PageUp), `"next+"`, `"back+"` (with Shift), or the console `arena <name>`. Never from the keyboard in co-op or netplay. |
 
 Chr ids are chrnums. Globals: `CHR_BOND = -2` (player 0; `bond.id(p)` gives the id of other Bonds) and `CHR_NONE = -1`. `damage`, `chr_spawned`, `item_pickup` and `objective_changed` also fire on an ordinary solo stage, not only in a mode. The heist events (`alarm`, `cctv_spotted`, `use`, `gadget_used`) fire wherever the game does the thing, but a script only runs in a mode.
@@ -337,6 +339,15 @@ The scan runs every 4 ticks for every cover guard and every Bond, reads only sim
 ### The heist mode
 
 Job 6 of designs/bank-heist.md: `tools/mode_heist.lua`, shipped as `Data/Scripts/modes/heist.lua`. Run it on Bunker 2: `GE_MODE=heist GE_STAGE=bunker2 GE_SKIPINTRO=1` (Windows: `Play Heist.bat`). The Janus front bank in St Petersburg: about 105 guards on post on Agent (more on harder difficulties), alarm raisers at their area's panel, bank staff, four card carriers (GREEN: the head teller or the lobby captain, chosen at random; BLUE: the security chief; RED: the branch manager; GOLD: the vault captain), Bunker 2's doors re-keyed as tiers, the stock cameras, a cracker with jams and a time-locked vault, gold bars and cash, two exits. Every count, timer and chance is in the settings table `S` at the top; a preset or test sets `HEIST_SETTINGS` before `include("heist")`. The table `HEIST` is its test window (phase, loot, carriers, zones, `HEIST.force_jam()`, `HEIST.camera_switch(p)`, `HEIST.watch(p [, cam])`, `HEIST.intel_lines(p)`). The banking hall (room 6) is the control room: the use action (the Port use bind, not B, which is also reload) at one of its screens (the monitor wall at its west side, the two desk screens) puts that Bond on the camera feeds, and while he is in room 6 or on a feed the HUD panel shows the intel (cameras up, alarm, the vault, where a working camera last saw each card carrier, guard counts in the areas a working camera covers, "?" elsewhere). The security console (BLUE card) still switches every camera off for 90 s. Tests: `tests/heist/run_winpath.sh` (win path, trapped-in-the-vault path, civilian-limit fail path), `tests/heist/run_cctv.sh` (the feeds and the intel); screenshots: `tests/heist/run_shots.sh`. The flow and the map are written up at the top of the script and in designs/bank-heist.md section 9.
+
+### Guard hearing and awareness
+
+designs/bank-heist.md section 18 (the heist turns it on; any mode can: `ai.enable(true)`, then `ai.guard(chr)` per guard).
+
+- `noise.emit(x, y, z, radius, kind [, src])` -> the number of tracked guards that heard it. A guard hears it inside `radius x his hearing scale x the room factor` (1 the same room, x 0.6 per open portal, x 0.25 per shut door, never under 0.1), whatever way he faces. `noise.radius(kind)` the built-in radius, `noise.tune{slap = 700, portal = 0.6, door_factor = 0.25, wall = 0.1, door_forced = 1100, ...}`, `noise.factor(room_a, room_b)`, `noise.last()`.
+- `ai.awareness(chr)` -> `state, level, lastx, lastz` (0 unaware, 1 suspicious, 2 searching, 3 alert, 4 combat; level 0..1; the last noise point), nil for an untracked chr. `ai.info(chr)` adds the step (`turn`, `go`, `look`, `return`, `patrol`), the post, the facing.
+- `ai.patrol(chr, {pad, ...})` a loop he walks while unaware; `ai.send(chr, x, y, z [, run [, radio text]])` sends him to search a point; `ai.nearest_free(x, y, z [, range [, exclude]])`; `ai.bark(chr, kind, text)`; `ai.tune{...}`; `ai.counts()`.
+- From C: `port/include/port_noise.h` (`portNoiseEmit`, `portAiAwareness`); declare them `__attribute__((weak))` if your code must build without them.
 
 ### Weapons, modifiers, music, menus
 

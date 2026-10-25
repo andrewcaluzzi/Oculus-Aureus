@@ -71,6 +71,7 @@ extern void portNoiseEmitRoom(float x, float y, float z, float radius, int kind,
 extern float portNoiseRadius(int kind);
 extern void portNoiseStageReset(void);
 extern unsigned portNoiseHash(void);
+extern int portNoiseNearDoor(float x, float z, float r);
 
 #define AI_MAX       384
 #define AI_SCAN      4              /* ticks between scans (15 Hz) */
@@ -438,6 +439,7 @@ static int searchNext(AiG *g, ChrRecord *c)
         float px, py, pz;
 
         if (!portLuaGamePadPos(ids[k], &px, &py, &pz) || py - g->ny > 150.0f || py - g->ny < -150.0f) continue;
+        if (portNoiseNearDoor(px, pz, 160.0f)) continue;   /* not a doorway pad: he would stand in the door */
         pick = ids[k];
         x = px; y = py; z = pz;
     }
@@ -627,8 +629,11 @@ static void callBackup(AiG *g, ChrRecord *c)
         ChrRecord *hc = gChr(h);
         f32 a = g->postFace + (f32) k * 2.0943951f + 1.0f, r = 220.0f;   /* each to a different side of him */
 
+        f32 bx = c->prop->pos.x + sinf(a) * r, bz = c->prop->pos.z + cosf(a) * r;
+
         sBackupN++;
-        sendTo(h, hc, c->prop->pos.x + sinf(a) * r, c->prop->pos.y, c->prop->pos.z + cosf(a) * r, 1, AS_ALERT);
+        if (portNoiseNearDoor(bx, bz, 160.0f)) { bx = c->prop->pos.x; bz = c->prop->pos.z; }   /* not in a doorway */
+        sendTo(h, hc, bx, c->prop->pos.y, bz, 1, AS_ALERT);
         bark(h, hc, BK_RADIO, "Copy, moving up.");
     }
 }

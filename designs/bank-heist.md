@@ -637,3 +637,25 @@ AC (2026-10-26): "enemy AI really needs to be greatly improved. I know GE AI is 
 In `S` (or `HEIST_SETTINGS`): `ai` (true), `patrols` (true), `patrols_named` (true), `station_late` (60), `hearing_slap` 700, `hearing_thud` 650, `hearing_step` 60, `hearing_run` 330, `hearing_door` 420, `hearing_glass` 900, `hearing_coin` 450, `hearing_alarm` 3500, `hearing_portal` 0.6, `hearing_door_factor` 0.25, `hearing_wall` 0.1, `ai_tune` (any `ai.tune` name), `ai_difficulty` (per difficulty `ai.tune` values; the defaults in `tools/heist_ai.lua`: Agent turn 1.4 s, search 25 s, check-in 35 s, backup 1; 007 turn 0.8 s, search 40 s, check-in 15 s, backup 3). The guards' own hearing scale (`S.hearing` x the difficulty's `hearing`: 0.8 at Agent .. 1.5 at 007) multiplies every radius.
 
 Lua: `noise.emit(x, y, z, radius, kind [, src])` -> the number of guards that heard it; `noise.radius(kind)`, `noise.tune{...}`, `noise.factor(room_a, room_b)`, `noise.last()`; `ai.enable(on)`, `ai.on()`, `ai.guard(chr [, kind])`, `ai.patrol(chr, pads)`, `ai.awareness(chr)` -> state, level, lastx, lastz; `ai.state_name(s)`, `ai.info(chr)` (state, name, level, sub, x, z, post_x, post_z, looks, down, heard_ago, face), `ai.tune{...}`, `ai.bark(chr, kind, text)`, `ai.counts()`, `ai.nearest_free(x, y, z [, range [, exclude]])`, `ai.send(chr, x, y, z [, run [, radio text]])`. Events: `noise(x, y, z, radius, kind, src)`, `guard_bark(chr, kind, text)`. C: `portNoiseEmit`, `portAiAwareness` (`port/include/port_noise.h`; other streams call them through weak declarations).
+
+### 18d. Tests, screenshots, limits
+
+`tests/heist/run_ai.sh` (`tests/heist/heist_ai.lua`, one scenario per run, the real mode on the bank, Agent, `GE_FIXEDTICK=1`; `GE_AI_SHOTS=1` adds screenshots), 56 checks, all passing:
+
+| Run | Checks | What it shows |
+| --- | --- | --- |
+| hear | 8 | a test guard in the emptied hall facing north; a slap noise 300 behind him: heard (1 guard), he turns to it (face 180, the noise at 180), walks to it (114 from it, searching) and barks ("Hey! What was that?", "Over there! Checking it out.") |
+| slap | 8 | the same with a real slap (the stock hit path, `ko.test_slap`) on a teller 300 behind him, Bond out in the street: the noise is where she stands, he turns and goes |
+| door | 7 | a test guard in the security office 300 inside the shut BLUE door, his back to it: a slap 600 away in the hall is not heard, nor one 300 away right behind the door (factor 0.25); the door opened, 300 away: heard |
+| giveup | 5 | searching, he looks round, gives up after 7.8 s ("Must be nothing."), unaware, back on his post (32 units) and his facing |
+| camko | 5 | a knocked-out teller where the hall camera looks: reported in 0.2 s; the alarm 4.0 s later (`security_delay` 4 in the test) |
+| camact | 6 | holstered at the counter in a camera's view: nothing; a slap there: reported at once (an act), then the alarm |
+| camdown | 6 | the security staff knocked out first (cameras report their bodies too): the teller's body is reported, no alarm 6 s later |
+| checkin | 5 | a records guard knocked out where nobody sees: 6 s later (test time) "Post N isn't answering. Going to look.", and the colleague walks to within 250 of his post |
+| patrol | 6 | 6 tours handed out on v2, every tour guard walks his loop (614 to 3291 units from his start in 25 s); a tour given a watchclock station (v2 has none) and its guard knocked out: missed after `station_late`, a colleague sent |
+
+Regression on the final build (2026-10-26, see the report for the table): win path 59, trapped 17, civilian fail 5, quiet 11, 007 count 2; cover 12 of 12 runs (the `gun` run's last check now accepts the alarm from a camera that saw a civilian killed in the guards' crossfire: before this, the camera did not report bodies, so only the witness's radio could raise it; the `ko` and `camdown` runs turn `mode.body_check` off, and with it now the cameras' body reports); cctv 40; guards 37; determinism solo and co-op hash-identical (the scenario now also notes the AI's counts after its knock-outs: 3 searches, 7 barks, 36 guards aware); `tests/run_logic_tests.sh` passes; dam1 identical (453 lines).
+
+Screenshots (AC's machine, not in the repo): `E:\midas-temp\ai\shots\ai_turn.png` (a hall guard turned to a slap behind him, running to it), `ai_search.png` (the same guard looking round at the spot).
+
+**Limits.** Guards in combat do not take cover or flank (the stock attack lists run as before; only the backup is spread). Hearing does not pass through floors except by the 3D distance and the wall floor (no stair or void propagation beyond the portal walk). A guard does not tell a colleague's slap from Bond's (no guard slaps). The stock gunshot hearing still runs alongside (straight line, through walls). The barks use stock grunts and the radio, not words. The search pads are any waypoint pads near the noise, so in an open hall he may check a spot behind a pillar and miss one in front. Bank v2 has no watchclock stations (v3 has 10).

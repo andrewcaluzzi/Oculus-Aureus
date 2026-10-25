@@ -319,6 +319,21 @@ void portNoiseDoorsTick(void)
     }
 }
 
+/* port_ai.c: (x, z) is within r of a door (a search pad there would park a guard in the doorway: a vault door could not shut) */
+int portNoiseNearDoor(float x, float z, float r)
+{
+    int i;
+
+    doorScan();
+    for (i = 0; i < sDoorN; i++)
+    {
+        PropRecord *dp = ((ObjectRecord *) sDoorRec[i])->prop;
+
+        if (dp != NULL && (dp->pos.x - x) * (dp->pos.x - x) + (dp->pos.z - z) * (dp->pos.z - z) < r * r) return 1;
+    }
+    return 0;
+}
+
 /* noise.last(): the last noise and how many guards heard it (tests) */
 int portNoiseLast(float *x, float *z, float *radius, int *kind, int *heard, int *count)
 {
