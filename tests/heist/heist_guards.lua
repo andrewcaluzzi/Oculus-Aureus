@@ -143,14 +143,23 @@ local function body()
   local wx0, wz0 = spawn.where(witness)
   local bx, by, bz = bond.pos(0)
   local d0 = dist2(wx0, wz0, bx, bz)
-  for _ = 1, 24 do if #ev.body > b0 then break end; wait(0.25) end   -- bank v2: up to 6 s (the stock body check is a random roll)
-  wait(2)
-  local wx1, wz1 = spawn.where(witness)
+  -- the stock body check is a random roll (sim RNG; run_guards.sh seeds it): the roll repeats while the body is in sight, so give it up
+  -- to 20 s rather than banking on the first rolls (bank v2/v3: 6 s failed about 1 run in 3)
+  local tb = 0
+  while tb < 20 and #ev.body == b0 do wait(0.25); tb = tb + 0.25 end
+  print(string.format("HEIST body found after %.2f s", tb))
   check("body_found event fired", #ev.body > b0 and ev.body[b0 + 1][1] == witness and ev.body[b0 + 1][2] == victim,
         #ev.body > b0 and string.format("guard=%d body=%d", ev.body[b0 + 1][1], ev.body[b0 + 1][2]) or "none")
   check("bodies.found counts it", bodies.found() >= 1)
-  local d1 = dist2(wx1, wz1, bx, bz)
-  check("witness went on alert (ran at Bond)", d1 < d0 - 100, string.format("dist to Bond %.0f -> %.0f", d0, d1))
+  -- alerted, he comes at Bond: closing in 100 units can take more than the old fixed 2 s (he turns, draws, finds a path first)
+  local d1, tw = d0, 0
+  while tw < 8 do
+    wait(0.25); tw = tw + 0.25
+    local wx1, wz1 = spawn.where(witness)
+    if wx1 then d1 = math.min(d1, dist2(wx1, wz1, bx, bz)) end
+    if d1 < d0 - 100 then break end
+  end
+  check("witness went on alert (ran at Bond)", d1 < d0 - 100, string.format("dist to Bond %.0f -> %.0f (%.2f s)", d0, d1, tw))
   spawn.remove(witness)
   aim = nil
 

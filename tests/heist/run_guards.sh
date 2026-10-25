@@ -3,10 +3,13 @@
 # with tools/levelgen/janus_bank.json on the levelgen slot.
 # usage: run_guards.sh   -> prints the HEIST lines; the last one is "HEIST DONE <n> passed, <m> failed"
 # The full log is kept in ${LOGDIR:-/tmp}/heist_guards.log (so a hang can be read while it runs).
+# Seeded (GE_SEED, default 7; 2026-10-26): every run is the same game. The stock body check's roll still decides when the witness
+# notices the body: the test waits for it (up to 20 s) and for the alerted witness to close in (up to 8 s) instead of fixed short waits.
+# TIMEOUT: the 150-guard spawn at the end is slow on a loaded machine (560 s ran out with 12 games at once).
 cp /home/dev/project/tests/heist/heist_guards.lua /home/dev/project/build_pc/Data/Scripts/modes/heist_guards.lua
 cp /home/dev/project/tools/heist_lib.lua /home/dev/project/build_pc/Data/Scripts/modes/heist_lib.lua
 cp /home/dev/project/port/levelgen/levelgen_layout.lua /home/dev/project/build_pc/Data/Scripts/modes/levelgen_layout.lua
 cd /home/dev/project/build_pc || exit 1
-DISPLAY=:99 GE_MODE=heist_guards GE_STAGE=levelgen GE_SKIPINTRO=1 GE_NOINISAVE=1 GE_FIXEDTICK=1 GE_TICKHZ=60 GE_FRAMES=${GE_FRAMES:-30000} \
-    timeout ${TIMEOUT:-560} ./ProjectMidas > ${LOGDIR:-/tmp}/heist_guards.log 2>&1
+DISPLAY=:99 GE_MODE=heist_guards GE_STAGE=levelgen GE_SKIPINTRO=1 GE_NOINISAVE=1 GE_FIXEDTICK=1 GE_TICKHZ=60 GE_SEED=${GE_SEED:-7} \
+    GE_FRAMES=${GE_FRAMES:-30000} timeout ${TIMEOUT:-900} ./ProjectMidas > ${LOGDIR:-/tmp}/heist_guards.log 2>&1
 grep -a -E "HEIST|ge: heist|ge: lua: .*error" ${LOGDIR:-/tmp}/heist_guards.log
