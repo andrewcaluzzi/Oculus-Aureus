@@ -115,6 +115,147 @@ takes over an hour.
 - **Streets / Depot / Cradle / Egypt / Jungle**: die in fights; Train / Control / Caverns / Aztec: time out. None has a
   plan yet (default `auto` + `exit`). The `exit` step now fights (it used to stand still and get shot).
 
+## Round 5 (2026-10-25): doors by doorway, stacked doors, captor hunt; Frigate and Depot complete
+
+**The "nav mesh gaps" were not gaps.** Caverns' stan mesh is one component (1436 tiles); Aztec's has 31 but Bond starts
+in the 1469-tile main one. Round 4's "no route" on both came from having no plan (`auto` + `exit`): with a plan
+(`goto pad 369`, the exit room's pad) Caverns walks to room 50 in 200-400 s, Aztec to its fights. Frigate's captors are on
+the mesh too: the hunt picked its quarry by straight-line distance (y x 3), so as Bond moved it flip-flopped between
+decks (chr 28 / 20 / 22 / 1 every few seconds) and never got anywhere; and it called a guard "reached" within 250 -
+Bond stood on the deck above one for 400 s. What did block routes, all door logic:
+
+- **Depot: a locked door in a side wall.** The key-8 door (-384,-80,510, rooms 37|35; no key with flag 8 exists in the
+  level - the setup's only key has flags 2) stands beside the only way to the train. Locked doors penalised every tile
+  within 90 of them, and `routeDoor` took any shut door near the route, so the corridor itself looked locked: the bot
+  went for a key that does not exist, gave up, routed "round" and came back. `GE_PLAYERBOT_LOCKCLOSED=1` (closing those
+  tiles) gives no route at all; `=2` (ignore keyed doors) walks straight past it. Fix: a locked door counts only on the
+  stan links that go through its doorway - from one of the rooms the door prop is in (`PropRecord.rooms`, -1 ended) to
+  another - and those links get the 20000 penalty (taken back before the next plan; unit test). For `routeDoor` an
+  unlocked door also counts when the route passes right over it (within 60 + frac/2): Surface's vent hatch's room list
+  does not name the rooms its route crosses (the mid-round campaign, link test only, timed out there), and the plain
+  round-4 "near the route" test for unlocked doors lost Frigate on its side doors.
+- **Caverns' stacked doors** (AC: the only map with them). `GE_PLAYERBOT_DOORS=1` dumps them: nine doorways are two
+  unlinked doors with a one-tile room between (e.g. tag 27 at 3484,-2906,1461 rooms 13|14 and tag 18 at 3251 rooms
+  14|16; outer maxFrac 42, inner 21: swinging). Two things in the engine make them a trap. `propFindForInteract` walks the
+  on-screen props near to far and `doorTestForInteract` takes the first door within 200 whose edges straddle the view
+  within +-20 deg (door7F0555F8) - the NEAREST door Bond faces, not the one he means. And `doorActivateWrapper` toggles:
+  B on an opening, waiting or open door closes it. So aiming at the far door with the near one open in front closes the
+  near one. Fix: `routeDoor` returns the first shut door along the route (then the nearest); while a nearer open door is
+  within 200 in front (`doorInTheWay`), no B press (doorTick too) - follow the route through it first; a nearer shut one
+  becomes the target.
+- **Caverns' key doors stand open at the start and close later** (pos = max at load; state 2 = closing seen at 900 s).
+  Bond's tile was already the far side's while the closing door held him, so the route had "passed" it: `routeDoor` now
+  also looks two tiles back when the door is within 150.
+- **Linked leaves**: a locked leaf whose linked partner needs no key is opened through the partner (`doorWorkable`).
+  Written for Depot's train door (setup tags 6/7: the tag-7 leaf's setup record has key 8) - but at run time both leaves
+  report key 0, so it has not been exercised yet.
+
+**Frigate complete** (206 s, replay same). The setup (u/UsetupdestZ.c): on Agent ai_11 sets three of the five hostage
+flags at the start, so two escapes are needed. A hostage (ai_1, 0x402) waits until his captor (ai_2, 0x403) is gone, then
+runs ai_3: to a random pad, and when he is there with *no line of sight to Bond* he fades out and sets the next flag (with
+a line he picks another pad). A captor shoots his hostage 3 s after he first has a line on Bond -
+`if_guard_and_bond_within_line_of_sight`, which ignores facing - unless Bond has hit him by then. New `hunt ai 0x403`
+(only that list, shot before anyone else), the hunt's quarry kept and picked by route length, "reached" only with a
+line. The exit (ai_10): after leaving the rooms of pads 153/149, re-entering pad 153's room ends the mission.
+
+**Depot complete** (82 s, replay same) with the side-door fix. **Bunker 2**: with round 5's door logic the route out of
+the cell takes the key-1 door; without the key the guard's visit comes when Bond stands by pad 99 (ai_4), which round 4's
+route happened to pass - the plan now says it. **Control**: Boris (chr 0) is armed and the bot shot him at 6.5 s;
+ai_23 fails objective 0 the moment chr 0 is gone - Boris (and jungle Natalya) are allies now. Natalya then never
+appeared in 200 s at pad 220: what starts her (ai_1 / ai_2) is not worked out. **Archives**: Natalya is met (133 s), then
+died in Bond's own line of fire (allies now count as bystanders for holding fire), then fell behind - she trails 250-400
+behind (her AI stops within 2.5 m, runs after Bond beyond 4 m) and the exit needs 0x400: new `escort ai 0x408 650`.
+Bond is at ~0.2 health by the meeting, so the walk back mostly dies. **Train**: seed 1 sticks at x -2600 (room 9 -> 10,
+no door there: an obstacle the tiles do not know); seeds 2-3 reach the last carriages (room 51) and die. **Cradle**: plan
+`auto` (console) then go for chr 0 (Trevelyan). **Aztec**: plan written (the floppy is ITEM_EXPLOSIVEFLOPPY in this
+enum: walk there armed, then equip + use tag 19); its guards (accuracy 0x32) kill Bond before the computer.
+
+**Combat**: targets are weighted by the guard's `shotbondsum` (his aim at Bond, 0..1; at 1 Bond is hit): x(1 - 0.6 aim),
+so the one about to land a hit goes first (`GE_PLAYERBOT_NOAIMSCORE=1` for A/B). Tried and dropped: counting attackers
+out to 2400 (Caverns' hits come from 1400-2400) - Surface 2 got slower. Caverns' guards respawn (chr_try_spawning_at_pad
+loops): its plan uses `rush 1`; it then lives the full 900 s once (room 46, near the end) but dies in room 50 on most
+seeds. A close object the line test cannot see is shot anyway for 3 s (Train's brake units sit in the wall).
+
+**Speed mode safety**: speed-strafe only while no armed hostile is within 1000 with a line (1800 if he has noticed Bond)
+and Bond has not been hurt for 1 s; then 2 s of plain running looking ahead.
+
+**Logs**: the rooms of each route (LOG=2), "civilians dead: N", the hunt's quarry with its route length, and the door dump.
+
+### Campaign, Agent, round 5
+
+Full campaigns (`PAR=6 RETRIES=3 MAXSECS=900 NOSHOTS=1`, normal and `GE_PLAYERBOT_SPEED=1`) on the build of round 5's
+third commit ("bin6"); then the door rule was changed once more (unlocked doors: doorway link *or* the route
+passing right over the door - bin6's plain "near the route" for unlocked doors cost Frigate every attempt in "will not
+open" on its side doors) and the nine stages that pass were re-run on the final build ("bin7"): all nine pass in normal
+mode. Replays: 96 of 97 attempts `same` in the two full campaigns; the exception, and one of the re-run's, are both
+**Frigate speed runs** (drift 123 and 67 events; the replay dies at 231-289 s where the recording lived) - something in
+Frigate is not reproducible under load (suspect: a B press resolved through `propFindForInteract`, which only sees
+props with PROPFLAG_ONSCREEN, a flag only drawn ticks set). Not chased.
+
+| Stage | Normal (final) | Att. | Time | Speed-strafe (bin6) | Speed level 2 (final) | Round 4 | Failure point (normal) / note |
+|---|---|---|---|---|---|---|---|
+| Dam | **pass** | 1 | 157 s | **pass** 108 s | **pass** 107 s | pass 157 s | |
+| Facility | fail | 3 | 496 s | fail | - | fail | dies in the bottling hall after 9 of 10 tanks (gas: below) |
+| Runway | **pass** | 1 | 95 s | **pass** 63 s | **pass** 72 s | pass 69 s | |
+| Surface 1 | **pass** | 1 | 481 s | **pass** 244 s | **pass** 752 s | pass 349 s | (349 s on bin6) |
+| Bunker 1 | **pass** | 3 | 96 s | **pass** 159 s | **pass** 109 s | pass 294 s | |
+| Silo | fail | 3 | 179 s | fail | - | fail | rooms 62/67 fights |
+| Frigate | **pass** | 2 | 356 s | fail | UNVERIFIED 545 s | fail | new; 206 s in a dev run |
+| Surface 2 | **pass** | 1 | 502 s | **pass** 624 s | **pass** 423 s | pass 623 s | |
+| Bunker 2 | **pass** | 3 | 534 s | fail | fail | pass 248 s | the cell: pad 99 (speed: never out) |
+| Statue | **pass** | 1 | 258 s | **pass** 273 s | **pass** 229 s | pass 373 s | |
+| Archives | fail | 3 | 62 s | fail | - | fail | dies punching in the interrogation wing (room 14) on seeds 1-3; a dev run met Natalya |
+| Streets | fail | 3 | 318 s | fail | - | fail | one attempt reached the exit without objective 2 (FAILED_OBJECTIVES) |
+| Depot | **pass** | 1 | 78 s | **pass** 181 s | **pass** 90 s | fail | new |
+| Train | fail | 3 | 397 s | fail | - | fail | seed 1 stuck at x -2600; seeds 2-3 die in room 50/51 |
+| Jungle | fail | 3 | 167 s | fail | - | fail | fights |
+| Control | fail | 3 | 900 s | fail | - | fail | Boris spared now; Natalya never comes (start room) |
+| Caverns | fail | 3 | 209 s | fail | - | fail | room 50 (respawning guards); one dev run lived 900 s to room 46 |
+| Cradle | fail | 3 | 586 s | fail | - | fail | console done; Trevelyan chase dies |
+| Aztec | fail | 3 | 900 s | fail | - | fail | fights / room 12 |
+| Egypt | fail | 3 | 45 s | fail | - | fail | room 19 at 45 s, no plan |
+
+**9 of 20 on Agent** (round 4: 7; Frigate and Depot are new). Speed-strafe with the safety finishes 8 of the 9
+(Bunker 2 and Frigate not); speed level 2 (below) 7 + Frigate unverified. Speed is still **not** safe enough to be the
+default: Bunker 2 never leaves the cell in speed mode on seeds 1-3 (a different first move changes when the guard comes).
+
+**Facility's gas is level-wide** (propobj.c `handle_gas_damage`): the first burst tank starts one timer; 30 s later Bond
+loses 0.125 health every 225 ticks *wherever he is*, for good. So from the first tank there are ~60 s (+ armour) to shoot
+the other nine and reach pad 309. The bot arrives at ~0.6 health after ~415 s and dies 80 s after the first tank with 9
+of 10 down. `auto` now takes the nearest tank (it crossed the hall in tag order); not enough. Next: arrive healthier, shoot
+the tanks from one spot, no armour detour once the gas runs.
+
+### For the speedrun round: where the bot stands still
+
+New `ge: playerbot: idle: N of T ticks (fighting, at doors, stand-still steps, moving steps)` before every RESULT
+(ticks Bond moved under 1 unit). Final build, seed of the passing attempt:
+
+| Stage | Normal: idle / ticks | fighting | doors | stand-still steps | moving steps | Speed 2: idle / ticks | fighting | doors |
+|---|---|---|---|---|---|---|---|---|
+| Dam | 2233 / 9862 | 242 | 512 | 0 | 1479 | 1233 / 6839 | 4 | 410 |
+| Runway | 2106 / 5770 | 833 | 71 | 304 | 898 | 1012 / 4426 | 27 | 13 |
+| Surface 1 | 7558 / 28978 | 155 | 36 | 556 | 6811 | 11489 / 45264 | 0 | 35 |
+| Bunker 1 | 2000 / 5850 | 928 | 372 | 70 | 630 | 1524 / 6637 | 399 | 165 |
+| Frigate | 8476 / 21480 | 422 | 4617 | 766 | 2671 | 12389 / 32814 | 482 | 9149 |
+| Surface 2 | 11593 / 30240 | 1183 | 1222 | 9 | 9179 | 9816 / 25504 | 1034 | 375 |
+| Bunker 2 | 11540 / 32112 | 1862 | 1427 | 424 | 7827 | (fails) | | |
+| Statue | 5291 / 15562 | 1044 | 53 | 4053 | 141 | 4834 / 13824 | 535 | 34 |
+| Depot | 1055 / 4792 | 93 | 425 | 482 | 55 | 1099 / 5500 | 16 | 215 |
+
+Readings: a fourth to a third of every run is standing still. "Moving steps" idle (Surface 1, Surface 2, Bunker 2: 7-19k
+ticks) is stuck detection, detours and turning on the spot - the biggest single cost, and the place where a known route
+pays most. Doors cost 0.5-1 s each (walk up, face, press, wait for the swing; Frigate 4.6-22k ticks: its pairs of side
+doors and "will not open" retries). Statue's 4k stand-still ticks are the scripted contacts (Valentin, Janus - fixed
+costs). Fighting idle drops to almost nothing with `rush` (Dam 242 -> 4, Runway 833 -> 27).
+Failed attempts show the waste plainly: Bunker 1 a1/a2 spent 49k of 54k ticks "fighting" one target it never hit;
+Frigate a1 50k ticks at one door.
+
+`GE_PLAYERBOT_SPEED=2` (new) = speed-strafe + fire on the move (`rush`) + no detours for guns/ammo while the gun has
+30+ rounds. Not done (left for the speedrun round): pressing B on the move (doorHandle walks to 120, turns to face, then
+presses at 260 - a door that opens away could be pressed from range while walking), and blending step boundaries
+(each step's `navReset` re-plans from scratch). Known routes per level plus the deterministic replay (every passing run
+above is a recording that replays exactly; Frigate excepted) are the obvious base for route optimisation.
+
 ## Round 4 (2026-10-25): real strafing, speed-strafe, Statue complete, exposure-scored cover
 
 **The C buttons never moved Bond.** In the port's pad path (bondview2.c ~7770, not an N64 pad) the strafe is the Move

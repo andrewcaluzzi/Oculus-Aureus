@@ -123,13 +123,16 @@ typedef struct {
     s32 lastHurtTick;
     s32 kills;
     s32 civDead;               /* civilians dead (logged as it changes) */
+    s32 idle[4];               /* ticks Bond stood still: fighting, at a door, in a stand-still step (use, wait, meet,
+                                * press...), in a moving step (goto, auto, hunt: stuck, turning, waiting) */
+    f32 idleX, idleZ;
     s32 deadAtStart;
     s32 objStatus[10];
     u32 flagsPrev;             /* objectiveregisters1 last tick: changes are logged (which AI flag fired, for plans) */
     /* speed-strafing (GE_PLAYERBOT_SPEED=1): the digital move forward + sideways held together, the view turned off the
      * travel direction by ssOff ([0] left, [1] right: measured +-38 deg, refined from Bond's real motion), the side kept
      * per route bend (ssSide: -1 left, +1 right) */
-    s32 speedMode, ssSide, ssHeld, ssLearnN;
+    s32 speedMode, ssSide, ssHeld, ssLearnN, speedNoLoot;
     s32 ssThreatTick;          /* last tick a hostile was close / in sight / hurting Bond: no speed-strafe for 2 s after */
     f32 ssDist, wDist;         /* distance covered on straight stretches: speed-strafing / plain running (ticks below) */
     s32 ssTicks, wTicks;
@@ -1323,13 +1326,15 @@ static PropRecord *routeDoor(void)
             {
                 continue;   /* (behind Bond and not right at him: passed) */
             }
+            f32 close = 60.0f + fabsf(d->door->frac) * 0.5f;
+
             if (ex * ex + ez * ez < reach * reach && fabsf(B.g.y[nd] - d->pos.y) < 300.0f &&
-                (!doorLocked1(d->door) || doorRoomCount(d) < 2 || B.lockClosed == 3 ||
-                 (k > 0 && linkThroughDoor(B.path[k - 1], nd, d))))
-            {   /* (a LOCKED door between rooms: only when the route goes through its doorway, not past it - Depot's
-                 * key-8 door beside the way to the train sent the bot for a key that does not exist. Unlocked doors
-                 * keep the plain "near the route" test: the room lists of hatches and gates do not always name the
-                 * rooms the route crosses, and opening a side door on the way costs little) */
+                (doorRoomCount(d) < 2 || B.lockClosed == 3 || (k > 0 && linkThroughDoor(B.path[k - 1], nd, d)) ||
+                 (!doorLocked1(d->door) && ex * ex + ez * ez < close * close)))
+            {   /* (a door between rooms: only when the route goes through its doorway, not past it in a side wall -
+                 * Depot's key-8 door beside the way to the train sent the bot for a key that does not exist, Frigate's
+                 * side doors cost minutes of "will not open". An unlocked door the route passes right over also counts:
+                 * the room list of Surface's vent hatch does not name the rooms its route crosses) */
                 if (k < bestK || dx * dx + dz * dz < bestD)
                 {
                     best = d;
@@ -2626,6 +2631,12 @@ static s32 lootTick(void)
     /* short of ammo: look further for guns and boxes */
     f32 reach = (gun == ITEM_UNARMED || currentPlayerGetAmmoCount(get_ammo_type_for_weapon(gun)) < 30) ? 900.0f : 420.0f;
 
+    if (B.speedNoLoot && gun != ITEM_UNARMED && currentPlayerGetAmmoCount(get_ammo_type_for_weapon(gun)) >= 30 &&
+        B.lootProp == NULL)
+    {
+        return 0;   /* (GE_PLAYERBOT_SPEED=2: armed with ammo - no detours) */
+    }
+
     if (B.lootProp != NULL)
     {
         if (!propActive(B.lootProp) || B.tick > B.lootUntil)
@@ -3653,6 +3664,11 @@ static void result(const char *outcome, s32 code)
     }
     B.resultDone = 1;
     done = objectivesDone(&needed);
+    if (B.mode == 1)
+    {
+        portConLogf("ge: playerbot: idle: %d of %d ticks (fighting %d, at doors %d, stand-still steps %d, moving steps %d)\n",
+                    B.idle[0] + B.idle[1] + B.idle[2] + B.idle[3], B.tick, B.idle[0], B.idle[1], B.idle[2], B.idle[3]);
+    }
     portConLogf("ge: playerbot: RESULT stage=%s diff=%d outcome=%s time=%.1fs mission_time=%ds ticks=%d health_lost=%.2f "
                 "kills=%d fire_ticks=%d shots=%d hits=%d/%d/%d objectives=%d/%d step=%d/%d room=%d pos=%.0f,%.0f,%.0f blocked=%s\n",
                 stageName(B.stage), (s32) lvlGetSelectedDifficulty(), outcome, (f32) B.tick / 60.0f, getMissiontimer() / 60,
@@ -3712,6 +3728,7 @@ static void stageBegin(void)
     B.hpLost = 0.0f;
     B.lastHurtTick = -1000;
     B.kills = 0;
+    memset(B.idle, 0, sizeof(B.idle));
     B.escortAi = 0;
     B.escortHold = 0;
     B.civDead = 0;
@@ -3755,6 +3772,12 @@ static void stageBegin(void)
     B.kiteBlockedUntil = 0;
     B.crIsR1 = 1;
     B.speedMode = getenv("GE_PLAYERBOT_SPEED") != NULL && atoi(getenv("GE_PLAYERBOT_SPEED")) != 0;
+    if (B.speedMode && getenv("GE_PLAYERBOT_SPEED")[0] == '2')
+    {   /* GE_PLAYERBOT_SPEED=2: also fire on the move (rush) and no detours for guns and ammo (body armour when hurt
+         * still) - AC: "speed runners never stop moving unless they have to" */
+        B.rush = 1;
+        B.speedNoLoot = 1;
+    }
     B.ssSide = 1;
     B.ssHeld = 0;
     B.ssLearnN = 0;
@@ -3845,6 +3868,20 @@ static void observe(void)
         }
     }
     B.hpPrev = hp;
+    if (!p->bonddead && B.mode == 1)
+    {   /* idle ticks (Bond moved under 1 unit), by what the bot was doing - for the speedrun round: where it stops */
+        f32 mx = p->prop->pos.x - B.idleX, mz = p->prop->pos.z - B.idleZ;
+
+        if (mx * mx + mz * mz < 1.0f)
+        {
+            s32 op = B.step < B.plan.n ? B.plan.s[B.step].op : PBL_EXIT;
+
+            B.idle[B.target != NULL ? 0 : B.doorProp != NULL ? 1 :
+                   (op == PBL_GOTO_PAD || op == PBL_GOTO_XYZ || op == PBL_COLLECT_OBJ || op == PBL_AUTO || op == PBL_HUNT) ? 3 : 2]++;
+        }
+        B.idleX = p->prop->pos.x;
+        B.idleZ = p->prop->pos.z;
+    }
     if (p->bonddead && B.diedTick == 0)
     {
         B.diedTick = B.tick > 0 ? B.tick : 1;

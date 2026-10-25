@@ -53,6 +53,8 @@ objectives and with no position drift; `failure_point` says where it died or got
 | `GE_PLAYERBOT_DODGE=N` | strafe N ticks each way while shooting (default 0: stand) |
 | `GE_PLAYERBOT_OLDCOVER=1` | the round-3 cover rule (nearest tile no threat sees) instead of the exposure score |
 | `GE_PLAYERBOT_SSTEST=1` | experiment: the first 25 s measure each movement input (stick, stick diagonal, digital diagonal, C strafe) |
+| `GE_PLAYERBOT_SPEED=2` | speed-strafe as above, plus fire on the move (`rush`) and no detours for guns and ammo while the gun has 30+ rounds |
+| `GE_PLAYERBOT_NOAIMSCORE=1` | A/B: rank targets without the aim-progress weight |
 | `GE_PLAYERBOT_DOORS=1` | at stage start, log every door (tag, rooms, key, link, flags) and the door pairs sharing a doorway |
 | `GE_PLAYERBOT_LOCKCLOSED=N` | diagnosis: 1 doors Bond cannot open close their tiles (is there a way round?), 2 keyed doors are ignored, 3 the round-4 lock rule |
 
@@ -165,8 +167,8 @@ the RESULT line. From C, `portPlayerBotSetPlanner(fn)` does the same job without
 Easy tunings for measuring it (the heist's defaults untouched): `GE_HEIST_TUNE1..5` (fewer guards, stock accuracy) and
 `GE_HEIST_CIVOK=1` (no civilian limit), or `TUNE=n` / `CIVOK=1` for `tests/bot/heist.sh`; `NOSHOTS=1` drops each run's
 screenshots. Status: modding/bot-notes.md ("Round 3", re-measured in "Round 4") - the full loop wins 10/10 with carriers
-only, 9/10 with 20 posted guards, 1/10 with 30, 0/10 from 45 up. Status of the campaign (7 of 20 stages on Agent) and the
-speedrun profile: "Round 4".
+only, 9/10 with 20 posted guards, 1/10 with 30, 0/10 from 45 up. Status of the campaign (9 of 20 stages on Agent), the
+speedrun profiles and where the bot stands still: "Round 5".
 
 ## Known limits
 
