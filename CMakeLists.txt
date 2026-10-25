@@ -577,7 +577,11 @@ if(GE_VIDEO)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/port/levelgen/levelgen_layout.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/levelgen_layout.lua
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            ${CMAKE_SOURCE_DIR}/tools/mode_levelgen_test.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/levelgen_test.lua)
+            ${CMAKE_SOURCE_DIR}/tools/mode_levelgen_test.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/levelgen_test.lua
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/tools/mode_bank_walk.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/bank-walk.lua
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/tools/heist_bank_map.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/heist_bank_map.lua)
     if(WIN32)
         # the arena launchers (set GE_MODE / GE_STAGE, then start the exe), next to the exe
         add_custom_command(TARGET ge POST_BUILD
@@ -588,6 +592,7 @@ if(GE_VIDEO)
                 "${CMAKE_SOURCE_DIR}/launchers/Arena Benchmark.bat"
                 "${CMAKE_SOURCE_DIR}/launchers/Arena Benchmark (Live).bat"
                 "${CMAKE_SOURCE_DIR}/launchers/Play Heist.bat"
+                "${CMAKE_SOURCE_DIR}/launchers/Walk Janus Bank.bat"
                 "$<TARGET_FILE_DIR:ge>"
             VERBATIM)
     endif()

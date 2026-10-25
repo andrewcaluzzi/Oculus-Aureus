@@ -2,7 +2,8 @@
 """
 gen_level.py - generate a multi-room level from a layout description (designs/bank-heist.md P2, modding/levelgen.md).
 
-Reads a JSON layout (tools/levelgen/*.json: box rooms, doorways between them, materials, lights, named pads) and writes,
+Reads a JSON layout (tools/levelgen/*.json: box rooms, doorways between them, materials, lights, named pads; P2.2 setup objects;
+P2.3 ramps and stairs, furniture blocks, doorway frames, double doors, open tops) and writes,
 into port/<name>/, the same data shape the asset extractor produces from the ROM (and gen_flatland.py / gen_colosseum.py
 already produce for one room):
 
@@ -90,6 +91,34 @@ def load_layout(path):
         light.update(r.get("light", {}))
         R.light = light
         R.shade = int(r.get("chr_light", d.get("chr_light", 13)))     # stan tile colour 0..15: how lit props/chrs are
+        # P2.3: a ramp room's floor slopes along `axis` from `floor` (at the low x0 / z0 end) to `to` (at the x1 / z1 end); `stairs`
+        # draws that many steps over the slope (the walkable floor stays the smooth ramp, as on stock stairs)
+        R.ramp = r.get("ramp")
+        if R.ramp is not None:
+            if R.ramp.get("axis") not in ("x", "z"):
+                sys.exit("room %s: ramp axis must be x or z" % R.name)
+            R.ramp_to = int(R.ramp["to"])
+            R.stairs = int(R.ramp.get("stairs", 0))
+        else:
+            R.ramp_to, R.stairs = R.y, 0
+        R.open_top = bool(r.get("open_top", False))    # P2.3: no ceiling (the clear colour above: an open-air street at night)
+        R.area = r.get("area")                         # P2.3: a free tag for mode scripts (LEVEL.rooms[name].area)
+        R.blocks = []                                  # P2.3: furniture boxes on the floor (a stan hole under each)
+        for k, b in enumerate(r.get("blocks", [])):
+            B = Room()
+            B.name = b.get("name", "%s_block%d" % (R.name, k + 1))
+            B.x0, B.z0, B.x1, B.z1 = [int(v) for v in b["rect"]]
+            B.h = int(b.get("height", 110))
+            B.mat = b.get("mat", R.wall_mat)
+            B.top_mat = b.get("top_mat", B.mat)
+            for m in (B.mat, B.top_mat):
+                if m not in mats:
+                    sys.exit("room %s block %s: unknown material %r" % (R.name, B.name, m))
+            if not (R.x0 <= B.x0 < B.x1 <= R.x1 and R.z0 <= B.z0 < B.z1 <= R.z1):
+                sys.exit("room %s block %s: not inside the room" % (R.name, B.name))
+            if R.ramp is not None:
+                sys.exit("room %s: blocks on a ramp are not supported" % R.name)
+            R.blocks.append(B)
         R.pads_named = list(r.get("pads", []))
         R.objects = r.get("objects", [])               # P2.2: setup objects (cameras, alarms, monitors, keys, safes, props)
         R.loot = r.get("loot", [])                     # P2.2: named loot spawn pad lists
@@ -104,7 +133,9 @@ def load_layout(path):
     for a in rooms:
         for b in rooms:
             if a is not b and a.x0 < b.x1 and b.x0 < a.x1 and a.z0 < b.z1 and b.z0 < a.z1:
-                sys.exit("rooms %s and %s overlap" % (a.name, b.name))
+                (ay0, ay1), (by0, by1) = yspan(a), yspan(b)
+                if ay0 < by1 and by0 < ay1:          # P2.3: rooms on different floors may share x, z
+                    sys.exit("rooms %s and %s overlap" % (a.name, b.name))
     wallmax = int(d.get("max_wall", 200))
     doors = []
     for k, dd in enumerate(L.get("doors", [])):
@@ -114,9 +145,6 @@ def load_layout(path):
         D.a, D.b = a, b
         D.w = int(dd.get("width", d.get("door_width", 180)))
         D.h = int(dd.get("height", d.get("door_height", 240)))
-        if a.y != b.y:
-            sys.exit("door %s-%s: the rooms' floors differ (stairs are not supported yet)" % (a.name, b.name))
-        D.y = a.y
         # which walls face each other: the gap between them is the wall thickness
         if 0 < b.x0 - a.x1 <= wallmax:
             D.axis, D.fa, D.fb, lo, hi = "x", a.x1, b.x0, max(a.z0, b.z0), min(a.z1, b.z1)
@@ -133,14 +161,80 @@ def load_layout(path):
         if D.lo < lo + 20 or D.hi > hi - 20:
             sys.exit("door %s-%s: the opening %d..%d is not on the shared wall %d..%d (20 units margin)" % (
                 a.name, b.name, D.lo, D.hi, lo, hi))
-        if D.h > min(a.h, b.h):
-            sys.exit("door %s-%s: taller than a room" % (a.name, b.name))
+        # P2.3: the floor on each side, at the doorway (a ramp room's doorways sit on its two end walls, where its floor is level)
+        for R in (a, b):
+            if R.ramp is not None and R.ramp["axis"] != D.axis:
+                sys.exit("door %s-%s: on a side wall of the ramp %s (doorways go on a ramp's end walls)" % (a.name, b.name, R.name))
+        fa = floor_at(a, D.fa, at) if D.axis == "x" else floor_at(a, at, D.fa)
+        fb = floor_at(b, D.fb, at) if D.axis == "x" else floor_at(b, at, D.fb)
+        if fa != fb:
+            sys.exit("door %s-%s: the floors differ at the doorway (%d and %d)" % (a.name, b.name, fa, fb))
+        D.y = fa
         D.name = dd.get("name", "%s-%s" % (a.name, b.name))
+        # P2.3: a doorway frame (an architrave round the opening on both faces; the passage's jambs and soffit in its material)
+        fr = dd.get("frame", d.get("door_frame"))
+        D.frame = None
+        if fr:
+            fr = fr if isinstance(fr, dict) else {"mat": fr}
+            if fr.get("mat") not in mats:
+                sys.exit("door %s: unknown frame material %r" % (D.name, fr.get("mat")))
+            D.frame = {"mat": fr["mat"], "w": int(fr.get("width", d.get("frame_width", 14))),
+                       "depth": int(fr.get("depth", d.get("frame_depth", 6)))}
+        if D.h + (D.frame["w"] if D.frame else 0) > min(a.h, b.h):
+            sys.exit("door %s-%s: taller than a room" % (a.name, b.name))
         D.obj = dd.get("object")                       # P2.2: a door in the doorway (None = an open doorway)
         a.doors.append(D)
         b.doors.append(D)
         doors.append(D)
     return L, d, mats, rooms, byname, doors
+
+
+def floor_at(R, x, z):
+    """The floor height of room R at (x, z): level, or a ramp's slope (an int; the same function everywhere, so shared vertices match)."""
+    if R.ramp is None:
+        return R.y
+    lo, hi, c = (R.x0, R.x1, x) if R.ramp["axis"] == "x" else (R.z0, R.z1, z)
+    t = min(1.0, max(0.0, (c - lo) / float(hi - lo)))
+    return int(round(R.y + (R.ramp_to - R.y) * t))
+
+
+def yspan(R):
+    lo = min(R.y, R.ramp_to)
+    hi = max(R.y, R.ramp_to) + R.h
+    return lo, hi
+
+
+def in_block(R, x, z):
+    """The block of room R that covers (x, z), or None."""
+    for B in R.blocks:
+        if B.x0 <= x <= B.x1 and B.z0 <= z <= B.z1:
+            return B
+    return None
+
+
+def seg_hits_rect(ax, az, bx, bz, x0, z0, x1, z1):
+    """True if the segment a-b passes through the rectangle (Liang-Barsky clip)."""
+    t0, t1 = 0.0, 1.0
+    dx, dz = bx - ax, bz - az
+    for p, q in ((-dx, ax - x0), (dx, x1 - ax), (-dz, az - z0), (dz, z1 - az)):
+        if p == 0:
+            if q < 0:
+                return False
+        else:
+            r = q / float(p)
+            if p < 0:
+                t0 = max(t0, r)
+            else:
+                t1 = min(t1, r)
+            if t0 > t1:
+                return False
+    return True
+
+
+def line_clear(R, p, q, margin=40):
+    """No block of room R (grown by `margin`, about a chr's width) lies across the straight walk p -> q."""
+    return not any(seg_hits_rect(p[0], p[1], q[0], q[1], B.x0 - margin, B.z0 - margin, B.x1 + margin, B.z1 + margin)
+                   for B in R.blocks)
 
 
 def side_of(R, D):
@@ -166,13 +260,18 @@ class Mesh:
 
 def lamps_of(R):
     li = R.light
+    lh = float(li.get("lamp_height", R.h - 20.0))        # above the floor (street lamps in an open-top room sit lower)
     if "lamps" in li:
-        return [(float(p[0]), R.y + R.h - 20.0, float(p[1])) for p in li["lamps"]]
+        return [(float(p[0]), floor_at(R, p[0], p[1]) + lh, float(p[1])) for p in li["lamps"]]
     step = float(li.get("lamp_spacing", 520))
     nx = max(1, int(round((R.x1 - R.x0) / step)))
     nz = max(1, int(round((R.z1 - R.z0) / step)))
-    return [(R.x0 + (R.x1 - R.x0) * (i + 0.5) / nx, R.y + R.h - 20.0, R.z0 + (R.z1 - R.z0) * (j + 0.5) / nz)
-            for j in range(nz) for i in range(nx)]
+    out = []
+    for j in range(nz):
+        for i in range(nx):
+            x, z = R.x0 + (R.x1 - R.x0) * (i + 0.5) / nx, R.z0 + (R.z1 - R.z0) * (j + 0.5) / nz
+            out.append((x, floor_at(R, x, z) + lh, z))
+    return out
 
 
 def shade(R, lamps, x, y, z, face):
@@ -203,72 +302,215 @@ def hpoly(mesh, R, lamps, mats, matname, pts, y, face):
     mesh.add(tex, [(x, y, z, x * k, z * k, shade(R, lamps, x, y, z, face)) for (x, z) in pts])
 
 
-def vpoly(mesh, R, lamps, mats, matname, a, b, y0, y1, top):
-    """Vertical quad along floor segment a -> b (x, z), y0..y1; s along the wall, t down from `top`."""
+def hpoly3(mesh, R, lamps, mats, matname, pts, face):
+    """A polygon [(x, y, z)] that is not level (a ramp's floor or ceiling): s, t from world x, z."""
+    tex, k = material(mats, matname)
+    mesh.add(tex, [(x, y, z, x * k, z * k, shade(R, lamps, x, y, z, face)) for (x, y, z) in pts])
+
+
+def vquad(mesh, R, lamps, mats, matname, a, b, ya0, ya1, yb0, yb1, top):
+    """Vertical quad along floor segment a -> b (x, z): ya0..ya1 at a, yb0..yb1 at b; s along the wall, t down from `top`."""
     tex, k = material(mats, matname)
     face = FACE_WALL_X if a[0] == b[0] else FACE_WALL_Z
     ax = 1 if a[0] == b[0] else 0            # s is the world coordinate along the wall: the texture runs on across segments
-    corners = [(a, y1, a[ax]), (b, y1, b[ax]), (b, y0, b[ax]), (a, y0, a[ax])]
+    corners = [(a, ya1, a[ax]), (b, yb1, b[ax]), (b, yb0, b[ax]), (a, ya0, a[ax])]
     mesh.add(tex, [(p[0], y, p[1], u * k, (top - y) * k, shade(R, lamps, p[0], y, p[1], face)) for (p, y, u) in corners])
 
 
-def build_room_mesh(R, mats, maxcell):
-    """The room's geometry and its floor grid (the stan and the pads use the same grid)."""
+def vpoly(mesh, R, lamps, mats, matname, a, b, y0, y1, top):
+    """Vertical quad along floor segment a -> b (x, z), y0..y1; s along the wall, t down from `top`."""
+    vquad(mesh, R, lamps, mats, matname, a, b, y0, y1, y0, y1, top)
+
+
+def stair_steps(R):
+    """The treads of a stair room: [(c0, c1, y)] along its axis (c: x or z), or [] for a level room or a smooth ramp."""
+    if not R.stairs:
+        return []
+    lo, hi = (R.x0, R.x1) if R.ramp["axis"] == "x" else (R.z0, R.z1)
+    n = R.stairs
+    cs = [lo + int(round((hi - lo) * k / float(n))) for k in range(n + 1)]
+    return [(cs[k], cs[k + 1], int(round(R.y + (R.ramp_to - R.y) * (k + 0.5) / n))) for k in range(n)]
+
+
+def half_step(R):
+    return int(math.ceil(abs(R.ramp_to - R.y) / (2.0 * R.stairs))) if R.stairs else 0
+
+
+def room_grids(rooms, doors, maxcell):
+    """Each room's floor grid {id: (xs, zs)}: its corners, every doorway and block edge, every gap split to `cell` or less. A doorway's
+    floor meets both rooms' floors edge to edge, so the grid lines across a doorway must be the same in both rooms: a line one room
+    has there (from another doorway or block of its own) is added to the other, until they agree. D.span is the doorway's lines."""
+    raw = {}
+    for R in rooms:
+        xs, zs = [R.x0, R.x1], [R.z0, R.z1]
+        for D in R.doors:
+            if D.axis == "z":
+                xs += [D.lo, D.hi]
+            else:
+                zs += [D.lo, D.hi]
+        for B in R.blocks:
+            xs += [B.x0, B.x1]
+            zs += [B.z0, B.z1]
+        raw[R.id] = (xs, zs)
+    for _ in range(50):
+        grids = {R.id: (grid(raw[R.id][0], maxcell), grid(raw[R.id][1], maxcell)) for R in rooms}
+        changed = False
+        for D in doors:
+            k = 1 if D.axis == "x" else 0                 # an x-axis doorway runs along z
+            pts = set(p for R in (D.a, D.b) for p in grids[R.id][k] if D.lo <= p <= D.hi)
+            for R in (D.a, D.b):
+                missing = pts - set(grids[R.id][k])
+                if missing:
+                    raw[R.id][k].extend(sorted(missing))
+                    changed = True
+        if not changed:
+            for D in doors:
+                k = 1 if D.axis == "x" else 0
+                D.span = [p for p in grids[D.a.id][k] if D.lo <= p <= D.hi]
+            return grids
+    sys.exit("grids: the doorways' grid lines do not settle")
+
+
+def build_room_mesh(R, mats, xs, zs):
+    """The room's geometry on its floor grid (the stan and the pads use the same grid)."""
     mesh = Mesh()
     lamps = lamps_of(R)
-    xs = [R.x0, R.x1]
-    zs = [R.z0, R.z1]
-    for D in R.doors:
-        if D.axis == "z":
-            xs += [D.lo, D.hi]
-        else:
-            zs += [D.lo, D.hi]
-    xs, zs = grid(xs, maxcell), grid(zs, maxcell)
-    top = R.y + R.h
+    top = R.y + R.h if R.ramp is None else max(R.y, R.ramp_to) + R.h    # the walls' texture origin (t runs down from it)
+    steps = stair_steps(R)
     for j in range(len(zs) - 1):
         for i in range(len(xs) - 1):
             q = [(xs[i], zs[j]), (xs[i + 1], zs[j]), (xs[i + 1], zs[j + 1]), (xs[i], zs[j + 1])]
-            hpoly(mesh, R, lamps, mats, R.floor_mat, q, R.y, FACE_FLOOR)
-            hpoly(mesh, R, lamps, mats, R.ceiling_mat, q, top, FACE_CEIL)
+            covered = in_block(R, (xs[i] + xs[i + 1]) / 2.0, (zs[j] + zs[j + 1]) / 2.0)
+            if R.ramp is None:
+                if not covered:
+                    hpoly(mesh, R, lamps, mats, R.floor_mat, q, R.y, FACE_FLOOR)
+                if not R.open_top:
+                    hpoly(mesh, R, lamps, mats, R.ceiling_mat, q, top, FACE_CEIL)
+            else:
+                if not steps:
+                    hpoly3(mesh, R, lamps, mats, R.floor_mat, [(x, floor_at(R, x, z), z) for (x, z) in q], FACE_FLOOR)
+                if not R.open_top:
+                    hpoly3(mesh, R, lamps, mats, R.ceiling_mat, [(x, floor_at(R, x, z) + R.h, z) for (x, z) in q], FACE_CEIL)
+    if steps:
+        # stairs: a level tread per step and a riser between treads, drawn over the smooth ramp the stan and the chrs walk on
+        axis = R.ramp["axis"]
+        riser = R.ramp.get("riser_mat", R.floor_mat)
+        cross = xs if axis == "z" else zs
+
+        def pt(c, u):
+            return (u, c) if axis == "z" else (c, u)
+
+        for (c0, c1, y) in steps:
+            for u0, u1 in zip(cross, cross[1:]):
+                hpoly(mesh, R, lamps, mats, R.floor_mat, [pt(c0, u0), pt(c0, u1), pt(c1, u1), pt(c1, u0)], y, FACE_FLOOR)
+        for k in range(1, len(steps)):
+            c, ya, yb = steps[k][0], steps[k - 1][2], steps[k][2]
+            for u0, u1 in zip(cross, cross[1:]):
+                vpoly(mesh, R, lamps, mats, riser, pt(c, u0), pt(c, u1), min(ya, yb), max(ya, yb), top)
+        for D in R.doors:          # the half step between a doorway's floor and the first / last tread, inside the opening
+            end = side_of(R, D)[1] == "0"
+            tread = steps[0][2] if end else steps[-1][2]
+            c = (R.x0 if end else R.x1) if axis == "x" else (R.z0 if end else R.z1)
+            if tread != D.y:
+                span = D.span
+                for u0, u1 in zip(span, span[1:]):
+                    vpoly(mesh, R, lamps, mats, riser, pt(c, u0), pt(c, u1), min(tread, D.y), max(tread, D.y), top)
     # the four walls, cut at the door openings; every segment of a wall is split at the heights of its doors (no T-junctions)
     sides = {"z0": [((x, R.z0), (x2, R.z0)) for x, x2 in zip(xs, xs[1:])],
              "z1": [((x2, R.z1), (x, R.z1)) for x, x2 in zip(xs, xs[1:])],
              "x0": [((R.x0, z2), (R.x0, z)) for z, z2 in zip(zs, zs[1:])],
              "x1": [((R.x1, z), (R.x1, z2)) for z, z2 in zip(zs, zs[1:])]}
+    hs = half_step(R)
     for side, segs in sides.items():
+        mat = R.wall_mats.get(side, R.wall_mat)
+        if R.ramp is not None and side[0] != R.ramp["axis"]:
+            # a side wall of a ramp: sloped along the floor (a stair's runs half a step lower, under its treads), no doorways
+            for (a, b) in segs:
+                fa, fb = floor_at(R, a[0], a[1]), floor_at(R, b[0], b[1])
+                vquad(mesh, R, lamps, mats, mat, a, b, fa - hs, fa + R.h, fb - hs, fb + R.h, top)
+            continue
+        fl = floor_at(R, segs[0][0][0], segs[0][0][1])
+        base = fl
+        if steps:
+            base = min(fl, steps[0][2] if side[1] == "0" else steps[-1][2])
         sdoors = [D for D in R.doors if side_of(R, D) == side]
-        ys = sorted(set([R.y, top] + [D.y + D.h for D in sdoors]))
+        ys = sorted(set([base, fl + R.h] + [D.y + D.h for D in sdoors]))
         for (a, b) in segs:
             along = (a[0] + b[0]) / 2.0 if side[0] == "z" else (a[1] + b[1]) / 2.0
             opening = [D for D in sdoors if D.lo < along < D.hi]
             for y0, y1 in zip(ys, ys[1:]):
                 if opening and y1 <= opening[0].y + opening[0].h:
                     continue
-                vpoly(mesh, R, lamps, mats, R.wall_mats.get(side, R.wall_mat), a, b, y0, y1, top)
-    return mesh, xs, zs, lamps
+                vpoly(mesh, R, lamps, mats, mat, a, b, y0, y1, top)
+    # furniture blocks: a top and the sides that are not against a wall (the stan has a hole under each: build_stan)
+    for B in R.blocks:
+        bx = [x for x in xs if B.x0 <= x <= B.x1]
+        bz = [z for z in zs if B.z0 <= z <= B.z1]
+        yt = min(R.y + B.h, R.y + R.h)
+        if yt < R.y + R.h:
+            for j in range(len(bz) - 1):
+                for i in range(len(bx) - 1):
+                    hpoly(mesh, R, lamps, mats, B.top_mat, [(bx[i], bz[j]), (bx[i + 1], bz[j]), (bx[i + 1], bz[j + 1]),
+                                                             (bx[i], bz[j + 1])], yt, FACE_FLOOR)
+        faces = []
+        if B.z0 > R.z0:
+            faces += [((x, B.z0), (x2, B.z0)) for x, x2 in zip(bx, bx[1:])]
+        if B.z1 < R.z1:
+            faces += [((x2, B.z1), (x, B.z1)) for x, x2 in zip(bx, bx[1:])]
+        if B.x0 > R.x0:
+            faces += [((B.x0, z2), (B.x0, z)) for z, z2 in zip(bz, bz[1:])]
+        if B.x1 < R.x1:
+            faces += [((B.x1, z), (B.x1, z2)) for z, z2 in zip(bz, bz[1:])]
+        for (a, b) in faces:
+            vpoly(mesh, R, lamps, mats, B.mat, a, b, R.y, yt, yt)
+    return mesh
 
 
 def add_passage_mesh(mesh, D, mats, maxcell):
-    """The doorway's own faces (they belong to room a): floor, the lintel's underside, the two jambs."""
+    """The doorway's own faces (they belong to room a): floor, the lintel's underside, the two jambs (in the frame's material when
+    the doorway has a frame)."""
     R = D.a
     lamps = lamps_of(R)
     f0, f1 = sorted((D.fa, D.fb))
-    span = split_span(D.lo, D.hi, maxcell)
+    span = D.span
     ytop = D.y + D.h
     top = R.y + R.h
+    reveal = D.frame["mat"] if D.frame else R.wall_mat
     for s0, s1 in zip(span, span[1:]):
         if D.axis == "x":
             q = [(f0, s0), (f1, s0), (f1, s1), (f0, s1)]
         else:
             q = [(s0, f0), (s1, f0), (s1, f1), (s0, f1)]
         hpoly(mesh, R, lamps, mats, R.floor_mat, q, D.y, FACE_FLOOR)
-        hpoly(mesh, R, lamps, mats, R.wall_mat, q, ytop, FACE_CEIL)
+        hpoly(mesh, R, lamps, mats, reveal, q, ytop, FACE_CEIL)
     for s in (D.lo, D.hi):
         if D.axis == "x":
             a, b = (f0, s), (f1, s)
         else:
             a, b = (s, f0), (s, f1)
-        vpoly(mesh, R, lamps, mats, R.wall_mat, a, b, D.y, ytop, top)
+        vpoly(mesh, R, lamps, mats, reveal, a, b, D.y, ytop, top)
+
+
+def add_frame_mesh(mesh, R, D, face, inward, mats):
+    """A doorway frame on room R's face of the wall (`face` = its plane, `inward` = +1 / -1 into R): two posts beside the opening
+    and a lintel over it, `depth` proud of the wall and `width` wide. Drawn in R's room."""
+    lamps = lamps_of(R)
+    mat, w, dp = D.frame["mat"], D.frame["w"], D.frame["depth"]
+    y0, y1 = D.y, D.y + D.h
+    fin = face + inward * dp
+    top = R.y + R.h
+
+    def P(along, n):
+        return (n, along) if D.axis == "x" else (along, n)
+
+    for a0, a1 in ((D.lo - w, D.lo), (D.hi, D.hi + w)):           # the posts, floor to the lintel's top
+        vpoly(mesh, R, lamps, mats, mat, P(a0, fin), P(a1, fin), y0, y1 + w, top)
+        for a in (a0, a1):
+            vpoly(mesh, R, lamps, mats, mat, P(a, face), P(a, fin), y0, y1 + w, top)
+        hpoly(mesh, R, lamps, mats, mat, [P(a0, face), P(a1, face), P(a1, fin), P(a0, fin)], y1 + w, FACE_FLOOR)
+    vpoly(mesh, R, lamps, mats, mat, P(D.lo, fin), P(D.hi, fin), y1, y1 + w, top)          # the lintel between them
+    hpoly(mesh, R, lamps, mats, mat, [P(D.lo, face), P(D.hi, face), P(D.hi, fin), P(D.lo, fin)], y1, FACE_CEIL)
+    hpoly(mesh, R, lamps, mats, mat, [P(D.lo, face), P(D.hi, face), P(D.hi, fin), P(D.lo, fin)], y1 + w, FACE_FLOOR)
 
 
 # ------------------------------------------------------------- bg emission ---
@@ -397,9 +639,12 @@ def gen_bg(name, rooms, meshes, doors, describe):
 # -------------------------------------------------------------------- stan ---
 
 def cell_tris(x0, z0, x1, z1, y):
-    """Two triangles of a cell, each wound with cross((B-A), (C-A)) < 0 in (x, z) (the stan inside test)."""
+    """Two triangles of a cell, each wound with cross((B-A), (C-A)) < 0 in (x, z) (the stan inside test). `y` is a height or a
+    function (x, z) -> height (a ramp)."""
+    Y = y if callable(y) else (lambda x, z: y)
     out = []
-    for (a, b, c) in (((x0, y, z0), (x1, y, z1), (x1, y, z0)), ((x0, y, z0), (x0, y, z1), (x1, y, z1))):
+    for (a, b, c) in (((x0, Y(x0, z0), z0), (x1, Y(x1, z1), z1), (x1, Y(x1, z0), z0)),
+                      ((x0, Y(x0, z0), z0), (x0, Y(x0, z1), z1), (x1, Y(x1, z1), z1))):
         cr = (b[0] - a[0]) * (c[2] - a[2]) - (b[2] - a[2]) * (c[0] - a[0])
         assert cr != 0
         if cr > 0:
@@ -420,15 +665,18 @@ def build_stan(rooms, grids, doors, maxcell):
     tris = []
     for R in rooms:
         xs, zs = grids[R.id]
+        yf = R.y if R.ramp is None else (lambda x, z, R=R: floor_at(R, x, z))
         for j in range(len(zs) - 1):
             for i in range(len(xs) - 1):
-                for t in cell_tris(xs[i], zs[j], xs[i + 1], zs[j + 1], R.y):
+                if in_block(R, (xs[i] + xs[i + 1]) / 2.0, (zs[j] + zs[j + 1]) / 2.0):
+                    continue                  # a hole under a furniture block: nobody walks there
+                for t in cell_tris(xs[i], zs[j], xs[i + 1], zs[j + 1], yf):
                     tris.append((R.id, t))
         for D in doors:
             if D.a is not R:
                 continue
             f0, f1 = sorted((D.fa, D.fb))
-            span = split_span(D.lo, D.hi, maxcell)
+            span = D.span
             for s0, s1 in zip(span, span[1:]):
                 cell = (f0, s0, f1, s1) if D.axis == "x" else (s0, f0, s1, f1)
                 for t in cell_tris(cell[0], cell[1], cell[2], cell[3], D.y):
@@ -436,11 +684,16 @@ def build_stan(rooms, grids, doors, maxcell):
     return tris
 
 
-def gen_stan(name, tris, rooms, describe):
+def stan_edges(tris):
     edges = {}
     for n, (_, t) in enumerate(tris):
         for k in range(3):
             edges.setdefault(frozenset((t[k], t[(k + 1) % 3])), []).append(n)
+    return edges
+
+
+def gen_stan(name, tris, rooms, describe):
+    edges = stan_edges(tris)
     for key, v in edges.items():
         assert len(v) <= 2, "edge shared by %d tiles" % len(v)
 
@@ -506,7 +759,7 @@ def build_pads(L, d, rooms, byname, grids, doors, tris, maxcell):
             sys.exit("pad %s at (%d, %d): no floor in room %s" % (name or kind, x, z, room.name))
         P = Pad()
         P.id = len(pads)
-        P.room, P.x, P.z, P.y, P.tile, P.kind, P.name, P.door = room, px, pz, room.y, n, kind, name, door
+        P.room, P.x, P.z, P.y, P.tile, P.kind, P.name, P.door = room, px, pz, floor_at(room, px, pz), n, kind, name, door
         ln = math.hypot(look[0], look[1]) or 1.0
         P.look = (look[0] / ln, look[1] / ln)
         pads.append(P)
@@ -519,7 +772,7 @@ def build_pads(L, d, rooms, byname, grids, doors, tris, maxcell):
         for j in range(len(zs) - 1):
             for i in range(len(xs) - 1):
                 w, h = xs[i + 1] - xs[i], zs[j + 1] - zs[j]
-                if w >= minc and h >= minc:
+                if w >= minc and h >= minc and not in_block(R, (xs[i] + xs[i + 1]) / 2.0, (zs[j] + zs[j + 1]) / 2.0):
                     R.grid_pads.append(add(R, (xs[i] + xs[i + 1]) // 2, (zs[j] + zs[j + 1]) // 2, "grid"))
     appr = int(d.get("door_approach", 110))
     for D in doors:
@@ -560,12 +813,16 @@ def build_waypoints(pads, rooms, doors, maxcell):
         mine = [P for P in pads if P.room is R and P.kind != "door"]
         for i, p in enumerate(mine):
             for q in mine[i + 1:]:
-                if math.hypot(p.x - q.x, p.z - q.z) <= reach:
+                if math.hypot(p.x - q.x, p.z - q.z) <= reach and line_clear(R, (p.x, p.z), (q.x, q.z)):
                     adj[p.id].add(q.id)
                     adj[q.id].add(p.id)
         for p in mine:              # nothing may be left on its own
             if not adj[p.id] and len(mine) > 1:
-                q = min((q for q in mine if q is not p), key=lambda q: math.hypot(p.x - q.x, p.z - q.z))
+                cands = [q for q in mine if q is not p and line_clear(R, (p.x, p.z), (q.x, q.z))]
+                if not cands:
+                    sys.exit("waypoints: pad %d (%s) in room %s has no clear line to any other pad (blocks)" % (
+                        p.id, p.name or p.kind, R.name))
+                q = min(cands, key=lambda q: math.hypot(p.x - q.x, p.z - q.z))
                 adj[p.id].add(q.id)
                 adj[q.id].add(p.id)
     for D in doors:
@@ -670,7 +927,9 @@ class Objects:
         n, px, pz = tile_at(tris, room.id, x, z)
         if n is None:
             sys.exit("%s: no floor under its bound pad at (%d, %d) in room %s" % (note, x, z, room.name))
-        self.bpads.append((px, y, pz, up, look, n, bbox, note))
+        # P2.3: the pad keeps its exact position (a wall mount or a door leaf on a tile edge was moved 9 units by the nudge that
+        # finds its tile); the nudged point only picks the tile it names
+        self.bpads.append((x, y, z, up, look, n, bbox, note))
         return len(self.bpads) - 1
 
     def plain(self, tris, room, x, y, z, look, note):
@@ -732,21 +991,44 @@ def build_objects(rooms, byname, doors, pads, tris, objs_first_pad):
         else:
             x, z, up = mid, plane, (1.0, 0.0, 0.0)
         w, h = float(D.w), float(D.h)
-        bb = (-t / 2.0, t / 2.0, -w / 2.0, w / 2.0, 0.0, h)       # x: thickness (normal), y: width (up), z: height (look)
-        bp = O.bound(tris, D.a, int(round(x)), D.y, int(round(z)), up, (0.0, 1.0, 0.0), bb, "door " + D.name)
         keyflags = ival(o.get("keyflags"), 0)
         autoclose = ival(o.get("autoclose"), 300 if kind == "slide" else 1500)
-        flags = F_CULL | (0x80000000 if o.get("open") else 0)
+        # see_through: a door with a window (the stock windowed office doors): the room behind stays drawn (PROPFLAG_NO_PORTAL_CLOSE)
+        flags = (0x40000000 if o.get("see_through") else F_CULL) | (0x80000000 if o.get("open") else 0)
         perim = fx16(0.9)
-        tail = "0x00000000, 0x%08x, 0x%08x, 0x00000051, 0x00000051, 0x00000666, _mkword(4, %d), 0x%08x, %d, %d, %s" % (
-            fx16(0.95), perim, DOOR_TYPE[kind], keyflags & 0xFFFFFFFF, autoclose,
-            ival(o.get("sound"), 3), DOOR_RUNTIME)
-        idx = O.rec("Door %s (%s, model %d, keyflags 0x%x)" % (D.name, kind, model, keyflags),
-                    obj_head(PROPDEF["door"], model, bp, flags) + ", " + tail)
+        if o.get("double"):
+            # P2.3: a double door the stock way (Bunker 2's pairs 46/47 ...): two leaves, each on a bound pad at its jamb with the box
+            # running to the middle (up = toward the middle), linked to each other (linkedDoorOffset +1 / -1: one opens both)
+            if kind != "slide":
+                sys.exit("door %s: a double door slides" % D.name)
+            hw = w / 2.0 + 1.0
+            axis_up = (0.0, 0.0, 1.0) if D.axis == "x" else (1.0, 0.0, 0.0)
+            leaves = []
+            for k, (s, sg) in enumerate(((D.lo, 1.0), (D.hi, -1.0))):
+                lx, lz = (plane, s) if D.axis == "x" else (s, plane)
+                lup = tuple(sg * c for c in axis_up)
+                leaves.append((lx, lz, lup, (-t / 2.0, t / 2.0, 0.0, hw, 0.0, h), 1 if k == 0 else -1, ival(o.get("sound"), 3) if k == 0 else 0))
+        else:
+            bb = (-t / 2.0, t / 2.0, -w / 2.0, w / 2.0, 0.0, h)       # x: thickness (normal), y: width (up), z: height (look)
+            leaves = [(x, z, up, bb, 0, ival(o.get("sound"), 3))]
+        idxs = []
+        for k, (lx, lz, lup, bb, link, sound) in enumerate(leaves):
+            bp = O.bound(tris, D.a, int(round(lx)), D.y, int(round(lz)), lup, (0.0, 1.0, 0.0), bb,
+                         "door %s%s" % (D.name, (" leaf %d" % (k + 1)) if len(leaves) > 1 else ""))
+            tail = "0x%08x, 0x%08x, 0x%08x, 0x00000051, 0x00000051, 0x00000666, _mkword(4, %d), 0x%08x, %d, %d, %s" % (
+                link & 0xFFFFFFFF, fx16(0.95), perim, DOOR_TYPE[kind], keyflags & 0xFFFFFFFF, autoclose, sound, DOOR_RUNTIME)
+            idxs.append(O.rec("Door %s%s (%s, model %d, keyflags 0x%x)" % (D.name, (" leaf %d" % (k + 1)) if len(leaves) > 1 else "",
+                                                                          kind, model, keyflags),
+                              obj_head(PROPDEF["door"], model, bp, flags) + ", " + tail))
+        idx = idxs[0]
         D.obj_index = idx
+        D.obj_index2 = idxs[1] if len(idxs) > 1 else None
         D.keyflags = keyflags
         name = o.get("name", D.name)
-        entry(name, "door", idx, D.a, keyflags=keyflags, doorway=D.name)
+        if D.obj_index2 is not None:
+            entry(name, "door", idx, D.a, keyflags=keyflags, doorway=D.name, pair=D.obj_index2)
+        else:
+            entry(name, "door", idx, D.a, keyflags=keyflags, doorway=D.name)
         if o.get("padlock"):
             # the padlock hangs on room a's side of the door, 120 up; shooting it frees the door (stock doorIsPadlockFree)
             back = -sgn * (t / 2.0 + 14.0)
@@ -755,10 +1037,15 @@ def build_objects(rooms, byname, doors, pads, tris, objs_first_pad):
                         "padlock " + D.name)
             padlocks.append((D, P, name))
 
+    def bpos(bp):
+        """x, y, z of a bound pad (P2.3: LEVEL.objects carry their position, e.g. the screens a use press must be near)"""
+        b = O.bpads[bp]
+        return {"x": b[0], "y": b[1], "z": b[2]}
+
     def mount(R, o, w, h, off, what):
         side = o["wall"]
         (x, z), n = wall_point(R, side, float(o["along"]), off)
-        y = R.y + int(o.get("y", R.h - 40))
+        y = floor_at(R, x, z) + int(o.get("y", R.h - 40))
         bb = (-w / 2.0, w / 2.0, -off, -off, -h / 2.0, h / 2.0)
         return O.bound(tris, R, int(round(x)), y, int(round(z)), n, (0.0, 1.0, 0.0), bb, "%s in room %s" % (what, R.name))
 
@@ -775,7 +1062,7 @@ def build_objects(rooms, byname, doors, pads, tris, objs_first_pad):
                     look = named[watch].id
                 else:
                     wx, wz = watch if watch else ((R.x0 + R.x1) // 2, (R.z0 + R.z1) // 2)
-                    look = O.plain(tris, R, int(wx), R.y, int(wz), (0.0, 1.0), "camera %s look" % name).id
+                    look = O.plain(tris, R, int(wx), floor_at(R, wx, wz), int(wz), (0.0, 1.0), "camera %s look" % name).id
                 sweep = o.get("sweep", [30, -30])
                 rng = ival(o.get("range"), -100)            # <= 0: no range limit (stock)
                 tail = "0x%08x, %s, 0x%08x, 0x%08x, 0x00000000, 0x00000000, 0x%08x, 0x00000000, 0x00000000, 0x%08x" % (
@@ -784,13 +1071,13 @@ def build_objects(rooms, byname, doors, pads, tris, objs_first_pad):
                 idx = O.rec("Cctv %s (watches pad %d)" % (name, look), obj_head(PROPDEF["cctv"], MODEL["camera"], 10000 + bp, F_ONSCREEN) +
                             ", " + tail)
                 O.lua["cameras"].append(idx)
-                entry(name, "camera", idx, R, lookpad=look)
+                entry(name, "camera", idx, R, lookpad=look, **bpos(bp))
             elif kind == "alarm":
                 bp = mount(R, o, 18, 18, 3, "alarm " + name)
                 O.tag("alarm " + name)              # a use target: Bond can switch the alarm at the box
                 idx = O.rec("Alarm %s" % name, obj_head(PROPDEF["alarm"], MODEL["alarm"], 10000 + bp, F_ONSCREEN))
                 O.lua["alarms"].append(idx)
-                entry(name, "alarm", idx, R, pad=10000 + bp)        # a raiser's alarm_pad (spawn.chr) is this bound pad
+                entry(name, "alarm", idx, R, pad=10000 + bp, **bpos(bp))        # a raiser's alarm_pad (spawn.chr) is this bound pad
             elif kind == "monitor":
                 w, h = float(o.get("width", 70)), float(o.get("height", 52))
                 bp = mount(R, o, w, h, 4, "monitor " + name)
@@ -800,21 +1087,22 @@ def build_objects(rooms, byname, doors, pads, tris, objs_first_pad):
                 idx = O.rec("SingleMonitor %s" % name, obj_head(PROPDEF["monitor"], ival(o.get("model"), MODEL["monitor"]), 10000 + bp,
                                                                   F_ONSCREEN | F_SCALE_XY) + ", " + tail)
                 O.lua["monitors"].append(idx)
-                entry(name, "monitor", idx, R, pad=10000 + bp)
+                entry(name, "monitor", idx, R, pad=10000 + bp, **bpos(bp))
             elif kind in ("key", "prop"):
                 at = o["at"]
                 face = o.get("face", [at[0], at[1] + 100])
-                P = O.plain(tris, R, int(at[0]), R.y, int(at[1]), (face[0] - at[0], face[1] - at[1]), "%s %s" % (kind, name))
+                P = O.plain(tris, R, int(at[0]), floor_at(R, at[0], at[1]), int(at[1]), (face[0] - at[0], face[1] - at[1]),
+                            "%s %s" % (kind, name))
                 if kind == "key":
                     m = o.get("model", "keycard")
                     model = MODEL[m] if isinstance(m, str) and m in MODEL else ival(m)
                     kf = ival(o.get("keyflags"), 1)
                     idx = O.rec("Key %s (0x%x)" % (name, kf), obj_head(PROPDEF["key"], model, P.id, 0) + ", %d" % kf)
                     O.lua["keys"].append(idx)
-                    entry(name, "key", idx, R, pad=P.id, keyflags=kf)
+                    entry(name, "key", idx, R, pad=P.id, keyflags=kf, x=P.x, y=P.y, z=P.z)
                 else:
                     idx = O.rec("StandardProp %s" % name, obj_head(PROPDEF["prop"], ival(o["model"]), P.id, ival(o.get("flags"), 0)))
-                    entry(name, "prop", idx, R, pad=P.id)
+                    entry(name, "prop", idx, R, pad=P.id, x=P.x, y=P.y, z=P.z)
             elif kind == "safe":
                 # Bunker 2's manager's safe (bound pads 73 / 74 of UsetupsevbZ.c), scaled: the body on the floor facing `face`, the
                 # swinging door on its front. The door's keyflags lock it; the mode opens it with a card (door.try) or door.open.
@@ -826,6 +1114,8 @@ def build_objects(rooms, byname, doors, pads, tris, objs_first_pad):
                 f = (fx / ln, 0.0, fz / ln)
                 nb = (f[2], 0.0, -f[0])                         # (0,1,0) x f: the body's normal
                 bb = (-42 * s, 41 * s, 0.0, 83 * s, -38 * s, 38 * s)
+                if R.ramp is not None:
+                    sys.exit("safe %s: not on a ramp" % name)
                 bp = O.bound(tris, R, int(at[0]), R.y, int(at[1]), (0.0, 1.0, 0.0), f, bb, "safe " + name)
                 body = O.rec("Safe %s (body)" % name, obj_head(PROPDEF["safe"], MODEL["safe"], 10000 + bp, 0x000201e8))
                 dx = at[0] + f[0] * 31 * s + nb[0] * 35 * s
@@ -839,7 +1129,7 @@ def build_objects(rooms, byname, doors, pads, tris, objs_first_pad):
                 door_idx = O.rec("Door %s (the safe's door, keyflags 0x%x)" % (name, kf), obj_head(PROPDEF["door"], MODEL["safedoor"], dp, 0,
                                                                                              0x20000000) + ", " + tail)
                 O.lua["safes"].append(door_idx)
-                entry(name, "safe", door_idx, R, body=body, keyflags=kf)
+                entry(name, "safe", door_idx, R, body=body, keyflags=kf, x=int(at[0]), y=R.y, z=int(at[1]))
             else:
                 sys.exit("room %s: unknown object type %r" % (R.name, kind))
 
@@ -925,8 +1215,16 @@ def gen_lua(name, src, rooms, doors, pads, start, O=None):
     for R in rooms:
         grid_ids = ", ".join(str(P.id) for P in R.grid_pads)
         named = ", ".join("[%s] = %d" % (lua_str(P.name), P.id) for P in pads if P.room is R and P.kind == "named")
-        o.append("    [%s] = { id = %d, rect = { %d, %d, %d, %d }, floor = %d, height = %d, pads = { %s }, named = { %s } }," % (
-            lua_str(R.name), R.id, R.x0, R.z0, R.x1, R.z1, R.y, R.h, grid_ids, named))
+        extra = ""
+        if R.area:
+            extra += ", area = %s" % lua_str(R.area)
+        if R.ramp is not None:
+            extra += ", ramp = { axis = %s, to = %d, stairs = %d }" % (lua_str(R.ramp["axis"]), R.ramp_to, R.stairs)
+        if R.blocks:
+            extra += ", blocks = { %s }" % ", ".join("{ name = %s, rect = { %d, %d, %d, %d }, height = %d }" % (
+                lua_str(B.name), B.x0, B.z0, B.x1, B.z1, B.h) for B in R.blocks)
+        o.append("    [%s] = { id = %d, rect = { %d, %d, %d, %d }, floor = %d, height = %d, pads = { %s }, named = { %s }%s }," % (
+            lua_str(R.name), R.id, R.x0, R.z0, R.x1, R.z1, R.y, R.h, grid_ids, named, extra))
     o.append("  },")
     o.append("  room_name = { %s }," % ", ".join("[%d] = %s" % (R.id, lua_str(R.name)) for R in rooms))
     o.append("  doors = {")
@@ -936,6 +1234,8 @@ def gen_lua(name, src, rooms, doors, pads, start, O=None):
         extra = ""
         if getattr(D, "obj_index", None) is not None:
             extra = ", object = %d, keyflags = %d" % (D.obj_index, D.keyflags)
+            if getattr(D, "obj_index2", None) is not None:
+                extra += ", object2 = %d" % D.obj_index2
             if getattr(D, "padlock_index", None) is not None:
                 extra += ", padlock = %d" % D.padlock_index
         o.append("    { name = %s, a = %s, b = %s, portal = %d, pad = %d, pad_a = %d, pad_b = %d, x = %.0f, z = %.0f, width = %d, height = %d%s }," % (
@@ -985,13 +1285,14 @@ def main():
     src = os.path.relpath(os.path.abspath(a.layout), root).replace("\\", "/")
     describe = "%s: %d rooms, %d doorways (from %s)" % (name, len(rooms), len(doors), src)
 
-    meshes, grids = {}, {}
-    for R in rooms:
-        m, xs, zs, _ = build_room_mesh(R, mats, maxcell)
-        meshes[R.id] = m
-        grids[R.id] = (xs, zs)
+    grids = room_grids(rooms, doors, maxcell)
+    meshes = {R.id: build_room_mesh(R, mats, grids[R.id][0], grids[R.id][1]) for R in rooms}
     for D in doors:
         add_passage_mesh(meshes[D.a.id], D, mats, maxcell)
+        if D.frame:
+            ina = -1 if D.fa < D.fb else 1                 # room a lies this way from its face
+            add_frame_mesh(meshes[D.a.id], D.a, D, D.fa, ina, mats)
+            add_frame_mesh(meshes[D.b.id], D.b, D, D.fb, -ina, mats)
     tris = build_stan(rooms, grids, doors, maxcell)
     pads, start = build_pads(L, d, rooms, byname, grids, doors, tris, maxcell)
     adj, group, gadj, members = build_waypoints(pads, rooms, doors, maxcell)
@@ -1008,7 +1309,12 @@ def main():
             f.write(text)
     # self-checks: every doorway joins its rooms' floors, every room's pads reach every other room's
     if cross < len(doors):            # the doorway floor is room a's: it meets room b's floor at the portal
-        sys.exit("stan: only %d links cross a room boundary for %d doorways" % (cross, len(doors)))
+        linked = set()
+        for key, v in stan_edges(tris).items():
+            if len(v) == 2 and tris[v[0]][0] != tris[v[1]][0]:
+                linked.add(frozenset((tris[v[0]][0], tris[v[1]][0])))
+        bad = [D.name for D in doors if frozenset((D.a.id, D.b.id)) not in linked]
+        sys.exit("stan: only %d links cross a room boundary for %d doorways (not joined: %s)" % (cross, len(doors), ", ".join(bad)))
     seen, todo = {start.id}, [start.id]
     while todo:
         u = todo.pop()

@@ -351,3 +351,81 @@ The test: `tests/heist/run_determinism.sh` runs the scripted heist `tests/heist/
 **Proven** on `tools/levelgen/objects.json` (the L plus an office D behind a GREEN door and a vault E behind a vault door and a padlocked shutter), `tests/levelgen/run_objects.sh`, 33 checks: shut doors cull and open ones show the room; the GREEN door blocks Bond until he holds the card from its pad; the camera spots him and raises the alarm; a use press on the monitor names it and opens the feed; a raiser sounds the alarm box, and a shot-out box no longer works for the next one; the safe opens with GOLD; the padlock blocks the shutter until shot off; no card opens the vault door, the cracker's `gadget_used` names it, `door.open` opens it (the mode's crack), the loot pads take gold, `door.snap` shuts it. The walk test still passes on this layout.
 
 **What P2.3 needs.** (1) Ramp rooms (sloped floor tiles, walls cut to the slope, a portal at each end) so the vault can be a floor down: the generator refuses doorways between different floor heights today. (2) The bank layout itself (section 4): street, lobby with tellers, offices, loading dock, security room with its console and monitors, manager's office with the safe, antechamber, vault with a bullion cage (a `cell` door with GOLD, or a padlock), maintenance tunnel; posts, patrol and panel pads for every area (named pads and loot lists are what the mode will read). (3) Furniture: a teller counter and desks as box props or bg boxes with stan holes (the generator has no floor holes yet), doorway frames. (4) Double doors (stock pairs link by `linkedDoorOffset`) for the lobby and the vault. (5) The "marble bank" look from the material table. P2.4 then swaps `mode_heist.lua`'s Bunker 2 tables for `LEVEL.*`.
+
+## 14. P2 job 3: the Janus bank layout (built)
+
+**Generator features** (`tools/gen_level.py`, the format in `modding/levelgen.md` "Ramps, stairs, furniture, frames"):
+
+- **Ramps and stairs.** A room's floor may slope along x or z (`ramp: {axis, to}`); the ceiling and side walls follow it; doorways sit on its level end walls. `stairs: n` draws n treads and risers over the slope while the stan stays the smooth ramp (the stock way). So the vault is a floor down (y -340) by a 17-step stair, and the escape is a smooth service ramp.
+- **Furniture blocks** (`blocks`): a box with a top and sides, and a stan hole under it. The teller counter (two blocks with a 150-wide flap between them), the hall's four pillars and the records shelving are blocks; desks, cabinets, crates and the van are stock props (`prop`, collision on).
+- **Doorway frames** (`frame`): posts and a lintel round the opening on both faces, the reveals in the same material (wood 1530 in the public rooms, steel 478 on the RED, blast and vault doors).
+- **Double doors** (`double`): two leaves at the jambs, linked the stock way (`linkedDoorOffset` +1 / -1, as Bunker 2's pairs). **See-through doors** (`see_through`: `PROPFLAG_NO_PORTAL_CLOSE`, for the windowed office doors). **Open-top rooms** (the street and the alley under the night sky), a lamp height, an `area` tag per room, every object's x, y, z in `LEVEL.objects`, and rooms on different floors may share x, z.
+- A doorway's grid lines are made the same in both rooms (the hall's door into the office corridor met a grid line from the corridor's other door, and the two floors did not join until this). Flat layouts generate byte for byte as before (checked on `objects.json`).
+- `tools/levelgen_plan.py`: the plan as SVG and PNG, no dependencies.
+
+**The bank** (`tools/levelgen/janus_bank.json`, x east, z north; ground floor y 0, vault level y -340):
+
+| Room | Area | Size | What is there |
+| --- | --- | --- | --- |
+| street | street | 4900 x 800, open top | Bond's start, the van (a stock supply truck, exit A), street lamps, the bank's stone front |
+| alley | street | 300 x 2860, open top | the quiet way round to the dock's padlocked shutter |
+| vestibule | hall | 800 x 340 | the front double door from the street (unlocked); two blast shutters into the hall (they start open; the lockdown closes them) |
+| hall | hall | 2000 x 1280, 520 high | white marble, a coffered wood ceiling, a stone floor; the teller counter (wood, marble top) with its flap at the east end; 4 pink marble pillars; the wall of 8 security screens (west wall, customer side); 3 teller desks; 2 cameras; the tellers' alarm box |
+| office_corr, office_a, office_b | offices | 300 x 1280, 1020 x 680, 1020 x 560 | the GREEN double door from the teller side, a GREEN door to the staff corridor; desks, cabinets; a camera and an alarm box in office A |
+| back_corr | corridor | 3560 x 310 | the staff spine: the staff door to the teller side, records, the manager, the RED stairs, the dock; a camera at the dock end looking down it; an alarm box |
+| records | records | 1200 x 910 | three rows of shelving (blocks); no camera; the floor key (0x1) at the back |
+| manager | manager | 860 x 710 | a BLUE door; wood panelling, carpet; the safe (GOLD), a desk, a bookshelf |
+| sec_office, guard_room | security | 920 x 600, 920 x 640 | the BLUE double door from the teller side; the camera console, 2 screens, a camera, an alarm box; the guard room behind |
+| dock | dock | 1160 x 770, 420 high | exit B; the alley shutter (padlocked); the RED shutter to the service ramp; crates; a camera, an alarm box |
+| stairs | vault_stairs | 400 x 1110 | the RED double door (Frigate steel) at the top; 17 steps down to y -340 |
+| ante_a | vault_ante | 800 x 660 | the cracker zone (pad `crack`) in front of vault door A; the vault-approach camera; an alarm box |
+| vault | vault | 1200 x 960 | between vault doors A and B (doubles, the VAULT key: only the cracker); 8 loot pads, crates |
+| deposit | deposit | 760 x 800 | vault door B; two cells, cell_green (GREEN) and cell_floor (the floor key), 3 cash pads each; the foot of the service ramp |
+| service_ramp | service_ramp | 400 x 1060 | a smooth ramp up 340 to the RED shutter into the dock |
+
+**Routes.** *Loud, front:* van → front door → vestibule → blast shutters → the customer side under two cameras, between the pillars → the counter flap. *Quiet, back:* the alley → shoot the dock shutter's padlock (a silenced PP7 shot is heard within 100 units) → the dock (camera, alarm) → the staff corridor (its camera looks down it from the dock end) → the staff door onto the teller side, or on to records (no camera) and the RED stairs. *Cards:* GREEN (head teller or lobby captain, in the hall) → the offices (security chief: BLUE) → the security wing and the manager's office (the branch manager: RED) → the stairs; the vault captain's GOLD opens the safe on the way out. *Out:* vault door B → the deposit hall (cells) → up the service ramp → the RED shutter → the dock: exit B. It is a loop, so waves and squads can come from both ends.
+
+**Cameras (7):** cam_hall_s (customer side), cam_hall_n (tellers), cam_offices, cam_corridor, cam_security, cam_dock, cam_vault (the cracker zone). **Alarm boxes (6):** hall (teller side), offices, corridor, security, dock, vault antechamber. **Monitors:** 8 in the hall, 2 in the security office. Every keyed door carries its tier's flags in the layout (the plan colours them).
+
+**Sight lines.** The counter is a stan hole, so the stock line of sight (guards and cameras) stops at it whatever its height: each hall camera covers one side (the south-east one the customers, the north-west one the tellers), and the flap is the only way through. The pillars break the customer side into lanes. Records and the guard room have no camera: the quiet rooms.
+
+**Pictures.** The plan: `designs/janus_bank_plan.png` / `.svg` (`python3 tools/levelgen_plan.py tools/levelgen/janus_bank.json designs/janus_bank_plan`). Screenshots (on AC's machine in `E:\midas-temp\heist\p23\`, not in the repo, as they show the ROM's textures): `shots_look1/` (16 spaces), `shots_bank/` (the test's). Looked at: the street is an open night street between brick walls with the bank's stone front and the wood-framed front door; the vestibule shows the open blast shutters (caution-striped lintels) onto the hall; the hall reads as a bank hall (pale marble walls, a dark coffered wood ceiling, a beige stone floor, pink marble pillars, a long wood counter with a marble top and its flap, desks behind it, the black screen wall, the red alarm box, a camera); the offices are carpeted beige rooms with grey desks and a camera; the staff corridor is a long white-tiled passage with framed doors; records are grey slat shelving rows; the manager's office is wood-panelled with the safe; the security office is grey with the BLUE double door; the dock is black corrugated metal with the RED shutter and crates; the stairs drop between stone walls under a sloping ceiling; the antechamber and the vault are Frigate steel with the double vault doors (caution stripes) in heavy steel frames; the deposit hall is pink granite with two barred cells; the service ramp climbs between concrete walls to the RED shutter. The monitors are black (no image, as on the P2.2 test level).
+
+**Tests.** `tests/levelgen/run_bank.sh` (`levelgen_bank.lua`): the layout's counts, the six double doors' leaves linked, the heist map resolving (`tools/heist_bank_map.lua`), a shut double door culling the stairs and one leaf opening both, the counter and a shelf stopping Bond and the flap letting him through, the full route on stick input (every room in order; his height on the stairs and the ramp within 16 units of the slope), and three unarmed guards routing between areas (records → staff corridor → the hall's customer side through the flap; up the service ramp; up the stairs). Run 2026-10-25: bank 14 of 14; with `objects.json` on the slot, levelgen walk 11 and objects 33; the heist suites (bindings 38, guards 37, ko 26 alone, winpath 51 / trapped 17 / civ-fail 5 / quiet 10 / count 2, cctv 40, determinism 12), `tests/coop_determinism.sh` 0 failed, dam1 identical.
+
+**P2.4: the mode's Bunker 2 tables → the bank.** `tools/heist_bank_map.lua` builds these from `LEVEL` by name (`include("heist_bank_map")` at the script's top level, `heist_bank_map()` once the stage is up); the mode keeps its logic and swaps the tables.
+
+| mode_heist.lua (Bunker 2) | The bank (LEVEL names) |
+| --- | --- |
+| `DOORS.front` {72} | `front_door` (double) |
+| `DOORS.blast` {80-85} | `blast_w`, `blast_e` (shutters, start open) |
+| `DOORS.green` {46-49} | `green_hall` (double), `green_back` |
+| `DOORS.blue` {50-53} | `blue_hall` (double), `manager_door` |
+| `DOORS.red` {58-61} | `red_stairs` (double), `red_ramp` (shutter) |
+| `DOORS.vault_a` {68, 69} / `vault_b` {70, 71} | `vault_door_a` / `vault_door_b` (doubles) |
+| `DOORS.safe` 102 | `mgr_safe` |
+| `DOORS.cell_green` 77 / `cell_floor` 75 | `cell_green` / `cell_floor` (its key: `floor_key`, in records) |
+| (none) | `dock_shutter` (padlocked; new) |
+| `AREAS` hall / central / offices / security | hall (+ vestibule) / corridor (back_corr) / offices (3 rooms) / security (sec_office, guard_room) |
+| `AREAS` west / south / east / cells / safe | dock (+ alley) / records / vault_ante (ante_a, stairs) / deposit (+ service_ramp) / manager |
+| `AREAS[].panel` (pads 64, 67, 74, 82, 104, 92, 86, 99) | the alarm boxes' bound pads: `alarm_hall`, `alarm_corridor`, `alarm_offices`, `alarm_security`, `alarm_dock`, `alarm_corridor` (records has none), `alarm_vault` (antechamber and deposit) |
+| `VAULT_ROOMS` {55-58, 47} / `VAULT_PADS` / `VAULT_CRATE_PADS` | room `vault` / its pads / `LEVEL.loot.vault_gold` |
+| `CIV_PLACES` hall / offices / security / south / east | `teller_1-3`, `cust_1-5`, `teller_mid`, `teller_back` / `office_a_1`, `office_a_2`, `office_b_1`, `office_b_2` / `sec_1`, `sec_2` / `rec_1-3` / `mgr_1`, `mgr_desk` |
+| carriers: teller {58, 59, 65}, captain {54, 55, 62}, chief {72-76}, manager {78, 79, 83}, vault captain {9, 18} | `teller_1-3`; `hall_mid`, `hall_post_sw`, `hall_post_se`; `office_a_1`, `office_a_mid`, `office_b_1`, `ocorr_mid`; `mgr_desk`, `mgr_1` (his own office, behind BLUE); `vault_captain`, `vault_g3` |
+| `P.start` {51, 118-120} | `start`, `start_1-3` (the street) |
+| `P.exit_a` 51 / `P.exit_b` 116 | `van` / `dock_exit` |
+| `P.crack` 85, `P.crack_xz` | `crack` and its position |
+| `P.inside` | `vault_in_a`, `vault_in_b` |
+| `P.vault` (circles) | not needed: the vault is one room |
+| `P.console` 82 | `console` |
+| `P.monitors` (the hall wall at x -477) | `screen_1-8` (`LEVEL.objects[...].x, z`) |
+| `P.waves_front` {60, 61, 53, 57} / `P.waves_dock` {102, 103, 105} | `hall_entry_w`, `hall_entry_e`, `vest_mid` / `dock_exit`, `dock_mid`, `dock_2` |
+| `P.squad` {86, 87, 13, 80} / `P.heavy` {85, 81, 86, 80} | `stair_top`, `back_3`, `back_4` / `ante_1`, `ante_2`, `dep_1`, `dep_2` |
+| `P.safe_loot` {12} / `P.cell_loot` | `LEVEL.loot.safe_loot` / `cell1_cash`, `cell2_cash` |
+| `S.intel_room` 6 | room `hall` |
+| `CAM_LABEL` / `CAM_AREA` (cameras 87-97) | the 7 cameras by name: BANKING HALL, TELLERS, OFFICES, STAFF CORRIDOR, SECURITY, LOADING DOCK, VAULT ANTECHAMBER |
+| `GUARD_AREAS` | hall, offices, security, corridor, dock, vault_ante |
+
+P2.4 also has to change: the stage (`GE_STAGE=levelgen`); the start (Bond starts in the street, not in a cell); exit B (the dock is reached from inside without a card, from outside through the padlock); the safe (GOLD alone; Bunker 2's needs 0x30); the room ids in the vault and intel tests.
+
+**Limits.** A ramp runs along one axis with doorways only on its two end walls; stairs are drawn over a smooth stan ramp (feet sink or float by up to half a step, 10 units here). A block is a stan hole, so it blocks the stock line of sight however low it is (the counter is full cover for sight: a guard or camera cannot see across it, though Bond could see over it); blocks sit on level floors only. Furniture props are placed by hand (nothing checks that a prop stands in a walking line; the route and the guards' waypoint links avoid them in this layout). No swinging room doors, no glass. The monitors show black. The textures' scale is set by hand. The slot holds one level: running `tests/levelgen/run.sh` / `run_objects.sh` needs `objects.json` generated and built first. Not yet measured: frame time with the full guard count in the bank (P2.5).

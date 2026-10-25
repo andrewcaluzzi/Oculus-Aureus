@@ -7,15 +7,16 @@ A level made of box rooms joined by doorways, generated from a small JSON layout
 | Variable | Value |
 | --- | --- |
 | `GE_STAGE` | `levelgen` (or `lee`): the cut stage slot `LEVELID_LEE`. |
-| `GE_MODE` | `levelgen_test`: walk the rooms; a guard stands on post in every room but the first, and HUD line 1 names the room you are in. Any other mode works too. |
+| `GE_MODE` | `levelgen_test`: walk the rooms; a guard stands on post in every room but the first, and HUD line 1 names the room you are in. `bank-walk` (`tools/mode_bank_walk.lua`, `Walk Janus Bank.bat`): no guards, Bond invincible, every keyed door opens for him, the HUD names the room and its area. Any other mode works too. |
 
 Add `GE_SKIPINTRO=1` to start in Bond's eyes. The slot borrows Surface's text bank and briefing (no objectives are shown), plays the Archives music, and has no fog or sky (a near-black clear colour). It reserves 200 spare chr slots, since the level has no guards of its own.
 
 ## Making a level
 
-1. Write or edit a layout in `tools/levelgen/` (the shipped ones: `lshape.json`, three rooms in an L; `testbox.json`, two rooms; `objects.json`, the L plus two rooms with every kind of setup object).
-2. `python3 tools/gen_level.py tools/levelgen/lshape.json` rewrites `port/levelgen/` and prints each room's size, vertex and display-list count, every doorway, and the pad and tile counts. It stops with a message on a layout it cannot build (overlapping rooms, a doorway that is not on a shared wall, a pad off the floor, a pad the start cannot reach).
-3. Build. The slot holds one level at a time: whichever layout was generated last.
+1. Write or edit a layout in `tools/levelgen/` (the shipped ones: `lshape.json`, three rooms in an L; `testbox.json`, two rooms; `objects.json`, the L plus two rooms with every kind of setup object; `janus_bank.json`, the heist's bank, designs/bank-heist.md section 14).
+2. `python3 tools/gen_level.py tools/levelgen/lshape.json` rewrites `port/levelgen/` and prints each room's size, vertex and display-list count, every doorway, and the pad and tile counts. It stops with a message on a layout it cannot build (overlapping rooms, a doorway that is not on a shared wall or joins two floor heights, a pad off the floor or with no clear line to any other pad, a pad the start cannot reach, a doorway whose floors do not join).
+3. Build. The slot holds one level at a time: whichever layout was generated last (the committed one is `janus_bank.json`).
+4. A plan: `python3 tools/levelgen_plan.py tools/levelgen/janus_bank.json <out>` writes `<out>.svg` and `<out>.png` (rooms shaded by floor, ramps hatched, blocks, doorways coloured by the key of their door, padlocks, cameras with their view, alarm boxes, monitors, the safe, keys, props, named and loot pads, the start). No dependencies.
 
 The `name` in the layout must stay `levelgen` while the slot's code expects `port/levelgen/` (`bg.c`, `prop.c`, `CMakeLists.txt`).
 
@@ -47,9 +48,32 @@ Units are world units (about a centimetre; Bond's eye is about 175 up). `x` and 
 | `max_wall` | The thickest wall a doorway may cross (default 200). |
 | `materials` | Name → `{tex, texels_per_unit}`. `tex` is a stock texture number; `texels_per_unit` sets the scale (how many of its texels per world unit; take it from the stock level the texture comes from, below). Other keys (`from`) are notes. |
 | `rooms[]` | `name`; `rect` = `[x0, z0, x1, z1]`, the room's **inside**; `floor` (y, default 0); `height`; `floor_mat`, `wall_mat`, `ceiling_mat`; `wall_mats` = per wall side (`x0`, `x1`, `z0`, `z1`) over `wall_mat`; `light` (merged over the default); `chr_light` (0..15, the floor tiles' colour, which shades props and chrs standing on them; stock tiles are 15); `pads` = named pads `{name, at = [x, z], face = [x, z]}`. Rooms may not overlap. Bg room ids are the order in this list, from 1. |
-| `doors[]` | `rooms = [a, b]`: two rooms whose walls face each other across a gap of 1..`max_wall` units (that gap is the wall). `at` = the doorway's centre along the wall (default the middle of the shared stretch); `width`, `height`; `name` (default `"A-B"`). Both rooms need the same floor height. |
+| `doors[]` | `rooms = [a, b]`: two rooms whose walls face each other across a gap of 1..`max_wall` units (that gap is the wall). `at` = the doorway's centre along the wall (default the middle of the shared stretch); `width`, `height`; `name` (default `"A-B"`; give two doorways between the same rooms their own names); `frame` (P2.3, below). The two floors must be level with each other at the doorway (a ramp's end). |
 | `start` | Bond's start: `room`, `at`, `face`. |
-| `light` | Fake lighting baked into the vertex colours: `ambient` plus, per lamp, `intensity / (1 + d² / radius²)`, capped at `max` (1.15), times a face factor (floor 1, ceiling 0.72, walls 0.8 / 0.92 by direction), times `tint`. Lamps sit 20 under the ceiling, on a grid every `lamp_spacing`, or exactly at `lamps = [[x, z], ...]`. |
+| `light` | Fake lighting baked into the vertex colours: `ambient` plus, per lamp, `intensity / (1 + d² / radius²)`, capped at `max` (1.15), times a face factor (floor 1, ceiling 0.72, walls 0.8 / 0.92 by direction), times `tint`. Lamps sit `lamp_height` above the floor (default 20 under the ceiling), on a grid every `lamp_spacing`, or exactly at `lamps = [[x, z], ...]`. |
+
+### Ramps, stairs, furniture, frames (P2.3)
+
+```json
+{ "name": "stairs", "rect": [700, 1290, 1100, 2400], "ramp": { "axis": "z", "to": -340, "stairs": 17, "riser_mat": "stone_blocks" } },
+{ "name": "street", "rect": [-1900, -1600, 3000, -800], "height": 900, "open_top": true, "area": "street" },
+{ "name": "hall", "rect": [-300, -380, 1700, 900], "blocks": [ { "name": "counter_w", "rect": [-300, 420, 1250, 500], "height": 110,
+                                                                  "mat": "wood_panel", "top_mat": "white_marble" } ] },
+"doors": [ { "rooms": ["hall", "office_corr"], "at": 700, "width": 200, "frame": "wood_panel",
+             "object": { "type": "slide", "double": true, "keyflags": "0x2", "see_through": true } } ]
+```
+
+| Key | Meaning |
+| --- | --- |
+| room `ramp` | `axis` (`x` or `z`), `to`: the floor slopes along the axis from `floor` at the low end (x0 or z0) to `to` at the high end; the ceiling and the side walls follow it. Doorways go on the two end walls only (there the floor is level). `stairs` = n draws n level treads and their risers (in `riser_mat`, default the floor's) over the slope; the walkable floor (stan) stays the smooth ramp, as on the stock stairs, so Bond's and the guards' feet follow the line through the treads' middles. |
+| room `open_top` | No ceiling: the slot's near-black clear colour is the night sky (the street and the alley). Make the walls tall. |
+| room `blocks` | Furniture boxes on the floor: `rect` (inside the room), `height` (a block as tall as the room is a pillar: no top), `mat`, `top_mat`. The floor under a block has no stan (a hole): nobody walks through it, it stops bullets (bg geometry) and it blocks the stock stan line of sight (guards, cameras) whatever its height. Grid pads under a block are dropped and no waypoint link passes within 40 units of one. Not on ramps. |
+| room `area` | A free tag passed to `LEVEL.rooms[name].area` (the heist's areas). |
+| doorway `frame` | A material name, or `{mat, width, depth}` (defaults `frame_width` 14, `frame_depth` 6): an architrave of two posts and a lintel round the opening on both faces of the wall, and the passage's jambs and soffit in that material. |
+| door `double` | Two leaves, each on a bound pad at its jamb with its box running to the middle (Bunker 2's pairs), linked to each other (`linkedDoorOffset` +1 / -1): opening or closing either moves both. `LEVEL.doors[i].object2` and `LEVEL.objects[name].pair` give the second leaf. |
+| door `see_through` | `PROPFLAG_NO_PORTAL_CLOSE` instead of `PROPFLAG_CULL_BEHIND_DOOR`: the room behind stays drawn while the door is shut (doors with a window, as Bunker 2's office doors are). |
+
+Rooms may share x, z when they are on different floors (their height spans do not overlap): the vault level runs under nothing in the bank, but it may. A doorway's grid lines are the same in both rooms (a line one room has across the opening from another doorway or block is added to the other), so the floors always join edge to edge.
 
 ### Objects (P2.2)
 
@@ -124,6 +148,40 @@ Read off the stock levels' display lists by face direction (floor, wall, ceiling
 | 258 | Facility | ceiling | 0.39 | dark ceiling grid |
 | 1135 | Archives | ceiling | 0.26 | dark wooden lattice |
 
+Added in P2.3, looked at in a gallery of box rooms on the slot (one candidate per wall, floor and ceiling). `texels_per_unit` is the stock density per bg unit times the stage's level scale (the same conversion as the table above).
+
+| Texture | From | Use | `texels_per_unit` | Looks like |
+| --- | --- | --- | --- | --- |
+| 308 | Archives | wall | 0.108 | pale grey-white marble, vertical streaks (the banking hall) |
+| 2376 | Archives | wall | 0.879 | small pink granite blocks (the deposit hall) |
+| 1530 | Train | wall | 0.268 | brown wood panelling with knots (the manager's office, the counter, frames) |
+| 1204 | Train | ceiling | 0.21 | light wood planks |
+| 405 | Egypt | floor | 0.174 | large beige stone flags (the hall) |
+| 760 | Train, Depot | floor | 0.31 | red speckled carpet (offices) |
+| 195 | Archives | wall | 0.461 | red brick (the street) |
+| 20 | Archives | floor | 0.475 | grey speckled, like asphalt |
+| 284 | Train | wall | 0.177 | stained grey concrete blocks |
+| 1376, 1375 | Depot | wall | 0.2, 0.194 | black corrugated metal |
+| 1081, 385 | Depot | ceiling | 0.39, 0.194 | rusty corrugated metal |
+| 477, 478, 476 | Frigate | wall | 0.53 | grey steel bulkheads: ribbed / plain panels / with black pipes (the vault level) |
+| 1138 | Frigate | floor | 0.78 | steel stud plate |
+| 727 | Frigate | ceiling | 0.78 | riveted metal strips |
+| 491 | Frigate | ceiling | 0.347 | open metal grid with pipes above |
+| 522 | Frigate | wall | 0.19 | plain grey |
+| 440 | Bunker 2 | wall | 0.95 | small dark grey tiles |
+| 665 | Bunker 2 | wall | 0.578 | grey blocks with an arc relief |
+| 1368 | Archives | wall | 0.26 | stone pillars with copper bands |
+| 1515 | Archives | wall | 0.311 | black window grid |
+| 1474 | Archives | wall | 0.306 | green stone bands (dark green, as in the table above) |
+| 404, 1175, 1174, 410 | Egypt | wall | 0.27, 0.22, 0.237, 0.173 | sandstone |
+| 400 | Depot | wall | 0.363 | rusty diamond plate |
+| 186 | Bunker 2 | wall | 0.14 | red-purple granite (blurry at this scale) |
+| 1426 | Train, Depot | wall | 0.15 | green rusty corrugated metal |
+| 235 | Archives | floor | 0.305 | metal grating |
+| 1137 | Archives | floor / ceiling | 0.8 | brown square tiles |
+
+No plain brass turned up; the bank's frames are wood (1530) and steel (478).
+
 ## What is generated
 
 | File | What is in it |
@@ -148,7 +206,15 @@ LEVEL.objects.alarm_office = { type = "alarm", index = 6, room = "D", pad = 1000
 LEVEL.objects.office_safe = { type = "safe", index = 9, room = "D", body = 8, keyflags = 16 }   -- index: the safe's door
 LEVEL.cameras, LEVEL.alarms, LEVEL.monitors, LEVEL.keys, LEVEL.safes, LEVEL.padlocks = { setup indices }
 LEVEL.loot.vault_gold = { 112, 113, ... }    -- loot spawn pads
+-- P2.3:
+LEVEL.rooms.stairs = { ..., area = "vault_stairs", ramp = { axis = "z", to = -340, stairs = 17 } }   -- floor = the low end's height
+LEVEL.rooms.hall = { ..., blocks = { { name = "counter_w", rect = { -300, 420, 1250, 500 }, height = 110 }, ... } }
+LEVEL.doors[14] = { name = "back_corr-stairs", ..., object = 14, keyflags = 8, object2 = 15 }     -- a double door's two leaves
+LEVEL.objects.red_stairs = { type = "door", index = 14, pair = 15, ... }
+LEVEL.objects.screen_1 = { type = "monitor", index = 31, pad = 10028, x = -296, y = 150, z = -180, ... }  -- every object's x, y, z
 ```
+
+`tools/heist_bank_map.lua` (shipped next to the modes) turns the bank's `LEVEL` into the heist mode's map tables by name (designs/bank-heist.md section 14).
 
 Iterate rooms by id (`for id = 1, #LEVEL.room_name`), not with `pairs`, so co-op machines agree on the order.
 
@@ -167,15 +233,22 @@ Iterate rooms by id (`for id = 1, #LEVEL.room_name`), not with `pairs`, so co-op
 
 `tests/levelgen/run_objects.sh` runs `tests/levelgen/levelgen_objects.lua` on `objects.json` (33 checks): every object is a live prop; a shut door culls the room behind it and an open one shows it (the door took its doorway's portal); the GREEN door refuses Bond and blocks his walk until he picks the card off its pad, then opens and he walks through; the camera spots Bond (`cctv_spotted`) and raises the alarm; a use press at the monitor names it in the `use` event (objtype 10) and the script opens the feed; a raiser (`alarm_pad` = the box's bound pad) runs to the alarm box and sounds it, and once the box is shot out (`obj.test_damage`) the next raiser cannot; the safe refuses Bond until he holds GOLD, then swings open; the padlocked shutter refuses until the padlock is shot off, then rises and shows E; no card opens the vault door, the cracker (`gadget_used`) names it, `door.open` opens it (what the heist's crack does), Bond walks in, gold bars spawn on the six loot pads, and `door.snap` shuts it and E is culled again. Screenshots to `build_pc/levelgen_obj_shots/`.
 
+`tests/levelgen/run_bank.sh` runs `tests/levelgen/levelgen_bank.lua` on `janus_bank.json` (designs/bank-heist.md section 14): the layout's counts, every double door's leaves linked, `tools/heist_bank_map.lua` resolving, a shut double door culling the stairs and one leaf opening both, the counter and a shelf stopping Bond and the counter's flap letting him through, the whole route on stick input (street to the van round the bank, down the stairs and up the service ramp, every room in order, his height following the slope), and unarmed guards routing records → staff corridor → the hall's customer side (round the counter), up the ramp and up the stairs. Screenshots to `build_pc/levelgen_bank_shots/`. `run.sh` and `run_objects.sh` need `objects.json` on the slot (generate, build, run, then generate `janus_bank.json` again).
+
+## Status (2026-10-25, P2.3)
+
+The bank is the layout on the slot: `tools/levelgen/janus_bank.json`, 20 rooms, 23 doorways, 444 pads, 96 setup objects. The P2.3 features above (ramps and stairs, blocks, frames, double and see-through doors, open tops, areas, object positions, doorway grids that always join) are in `gen_level.py`; flat layouts still generate byte for byte as before. `tools/levelgen_plan.py` draws a layout's plan.
+
 ## Status (2026-10-25, P2.2)
 
 Done and run: the setup objects above (`objects.json` is the layout on the slot now), `tests/levelgen/run_objects.sh` 33 of 33, `tests/levelgen/run.sh` 11 of 11 on `objects.json`, the heist suites, `tests/coop_determinism.sh` and dam1 (identical), and the screenshots (looked at). The model and record layouts are the stock ones; the only engine-side additions are the `obj.get` / `obj.test_damage` bindings (`port_heist.c`).
 
-## Limits (P2.2)
+## Limits (P2.3)
 
 - Box rooms only (a room is a rectangle); an L-shaped space is two rooms and a wide doorway.
-- Every room of a doorway has the same floor height: no stairs or ramps yet.
-- One door per doorway, sliding into the wall on one side or a shutter rising into the lintel; no double doors, no swinging room doors (only the safe's door swings). No door frame model: the opening's jambs are the wall's.
+- A ramp slopes along one axis, with doorways on its two end walls only; stairs are drawn over a smooth stan ramp, so feet sink or float by up to half a step.
+- A block is a stan hole: it blocks the stock line of sight (guards, cameras) whatever its height, so a low counter is full cover for sight. Blocks need a level floor. Props (desks, crates) are placed by hand; nothing keeps them out of walking lines.
+- One door per doorway (or one double door), sliding or a shutter; no swinging room doors (only the safe's door swings), no glass. A frame is flat boxes, not a door-frame model.
 - The monitor shows a black screen (stock image 51 is not animated here); the camera feeds are a view switch anyway (`cctv.view`).
 - Objects are placed by hand in the layout; nothing checks that two objects overlap.
 - The texture scale is set by hand per material; a texture's own size is not read.
