@@ -102,9 +102,10 @@ local function stand_seen(c, dist)
   return false
 end
 -- Bond 0 `dist` from a hall guard on the hall floor (8 directions), facing him; the guard, or nil
-local function stand_off_hall(dist)
+local function stand_off_hall(dist, static)
   for _, g in ipairs(HEIST.guards) do
-    if g.area == "hall" and g.kind == "post" and spawn.alive(g.chr) and not spawn.down(g.chr) then
+    -- static: not a patrol guard (with the AI layer some posted guards walk tours, g.route, and leave the spot in the next seconds)
+    if g.area == "hall" and g.kind == "post" and not (static and g.route) and spawn.alive(g.chr) and not spawn.down(g.chr) then
       local cx, cz = spawn.where(g.chr)
       local _, cy = gadget.chr_yaw(g.chr)
       for k = 0, 7 do
@@ -400,6 +401,9 @@ local function disguise_path()
   check("a hall guard to take the uniform from", c ~= nil)
   if not c then return end
   clear_hall(c)
+  -- the AI layer's cameras (section 18) report a search of a body as an act: the hall's cameras would bring the alarm and the security
+  -- guards out of their office. This scenario is about the uniform, so the cameras are off.
+  for _, cam in ipairs(cctv.list()) do cctv.disable(cam) end
   wait(0.5)
   spawn.ko(c, 0)
   wait(4.5)
@@ -463,15 +467,30 @@ end
 local function gas_path()
   mode.body_check(false)
   bond.equip(0, "bombdefuser")
-  local c, cx, cz = stand_off_hall(420)
+  local c, cx, cz = stand_off_hall(420, true)
   if not c then check("a hall guard", false); return end
   wait(2)
   face = nil
   gadget.test_fire(0, 0, 1)
   wait(0.5)
   check("the gas is thrown", #G.gas == 1)
-  local ko_ = wait_for(5, function() return ko.is(c) end)
-  check("3 s later the guard it landed by is out cold", ko_ and G.stats.gassed >= 1, string.format("gassed %d", G.stats.gassed))
+  -- every guard standing where it landed is out cold 3 s later (where it lands depends on the line of the throw, not on him)
+  local gs = G.gas[1]
+  local near = {}
+  if gs then
+    for _, list in ipairs({ HEIST.guards, HEIST.civs }) do   -- (the gas puts anyone to sleep: guards and staff)
+      for _, g in ipairs(list) do
+        local gx, gz = spawn.where(g.chr)
+        if gx and spawn.alive(g.chr) and not spawn.down(g.chr) and d2(gx, gz, gs.x, gs.z) <= G.T.gas_radius - 40 then near[#near + 1] = g.chr end
+      end
+    end
+  end
+  local all = wait_for(5, function()
+    if G.stats.gassed == 0 then return false end
+    for _, ch in ipairs(near) do if not ko.is(ch) then return false end end
+    return true end)
+  check("3 s later everyone where it landed is out cold", all and G.stats.gassed >= 1 and #near >= 1,
+        string.format("gassed %d, %d in the cloud", G.stats.gassed, #near))
 end
 
 local function thermal_path()
