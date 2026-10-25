@@ -6,12 +6,21 @@ boxes, monitors, the safe, keys, padlocks, named pads, loot pads and the start. 
 its own 5x7 font).
 
     python3 tools/levelgen_plan.py tools/levelgen/janus_bank.json out/janus_bank_plan     (-> .svg and .png)
+
+Bank v2: a layout on more than one level also gets a sheet per level (<out>_<name>.svg / .png: the rooms whose floor is on that level,
+ramps on both of theirs, the other levels' rooms as faint outlines, openings in cyan) and a side elevation (<out>_elevation.png: every
+room's section along z, y up, coloured by zone); <out>.png is then all the sheets side by side at half scale. Stair cores
+(`stairwells`) are expanded as tools/gen_level.py expands them.
 """
 import json
 import math
+import os
 import struct
 import sys
 import zlib
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import gen_level                # noqa: E402  (expand_stairwells)
 
 KEYS = [  # (mask, colour, label)
     (0x40000000, (150, 70, 200), "VAULT (cracker)"),
@@ -32,6 +41,8 @@ C_MON = (40, 210, 230)
 C_PAD = (90, 90, 100)
 C_LOOT = (240, 200, 40)
 C_TEXT = (20, 20, 25)
+C_OPENING = (60, 220, 240)
+ZONE_COLOUR = {"public": (236, 230, 214), "staff": (214, 228, 200), "restricted": (232, 196, 190)}
 
 
 def ival(v, d=0):
@@ -95,6 +106,15 @@ class Raster:
                     self.px[i + k] = int(self.px[i + k] * (1 - a) + c[k] * a)
 
     def rect(self, x0, y0, x1, y1, c, a=1.0):
+        if a >= 1.0:            # bank v2: a solid fill a row at a time (a sheet of a hundred rooms)
+            xa, xb = max(0, int(min(x0, x1))), min(self.w, int(math.ceil(max(x0, x1))))
+            if xb <= xa:
+                return
+            row = bytes(c) * (xb - xa)
+            for y in range(max(0, int(min(y0, y1))), min(self.h, int(math.ceil(max(y0, y1))))):
+                i = (y * self.w + xa) * 3
+                self.px[i:i + len(row)] = row
+            return
         for y in range(max(0, int(min(y0, y1))), min(self.h, int(math.ceil(max(y0, y1))))):
             for x in range(max(0, int(min(x0, x1))), min(self.w, int(math.ceil(max(x0, x1))))):
                 self.put(x, y, c, a)
@@ -144,6 +164,17 @@ class Raster:
             f.write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", self.w, self.h, 8, 2, 0, 0, 0)) +
                     chunk(b"IDAT", zlib.compress(raw, 9)) + chunk(b"IEND", b""))
 
+    def blit_half(self, src, ox, oy):
+        """Paste src at half size (2x2 box filter) with its top left at ox, oy."""
+        for y in range(src.h // 2):
+            for x in range(src.w // 2):
+                s = [0, 0, 0]
+                for dy in (0, 1):
+                    i = ((2 * y + dy) * src.w + 2 * x) * 3
+                    for k in range(3):
+                        s[k] += src.px[i + k] + src.px[i + 3 + k]
+                self.put(ox + x, oy + y, tuple(v // 4 for v in s))
+
 
 # ---------------------------------------------------------------------------------------------------------------------- plan ---
 
@@ -152,10 +183,11 @@ def wall_point(r, side, along, off=0):
     return {"x0": (x0 + off, along), "x1": (x1 - off, along), "z0": (along, z0 + off), "z1": (along, z1 - off)}[side]
 
 
-def main():
-    src, out = sys.argv[1], sys.argv[2]
-    L = json.load(open(src))
+def draw_sheet(L, sheet, others, title, S, out):
+    """One plan: the rooms of `sheet` in full, those of `others` as faint outlines (the other levels). Writes out.svg and out.png and
+    returns the Raster. The extent is the whole layout's, so every sheet of a level set lines up."""
     rooms = {r["name"]: r for r in L["rooms"]}
+    mine = set(r["name"] for r in sheet)
     pads = {}
     for r in L["rooms"]:
         for p in r.get("pads", []):
@@ -163,7 +195,6 @@ def main():
     xs = [v for r in L["rooms"] for v in (r["rect"][0], r["rect"][2])]
     zs = [v for r in L["rooms"] for v in (r["rect"][1], r["rect"][3])]
     X0, X1, Z0, Z1 = min(xs) - 150, max(xs) + 150, min(zs) - 150, max(zs) + 150
-    S = 0.2
     legend_w = 300
     W, H = int((X1 - X0) * S) + legend_w, int((Z1 - Z0) * S) + 40
 
@@ -179,15 +210,23 @@ def main():
         c2, d = P(x1, z0)
         svg.append('<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" fill="rgb%s" %s/>' % (a, b, c2 - a, d - b, tuple(c), extra))
 
-    title = L.get("comment", "")[:0] or src.split("/")[-1]
-    img.text(8, 8, "PLAN: " + title + "  (X EAST, Z NORTH, 1 PX = 5 UNITS)", (230, 230, 230), 2)
-    svg.append('<text x="8" y="22" fill="#e6e6e6" font-size="16">Plan: %s (x east, z north, 1 px = 5 units)</text>' % title)
+    unit = 1.0 / S
+    img.text(8, 8, "PLAN: " + title + "  (X EAST, Z NORTH, 1 PX = %g UNITS)" % unit, (230, 230, 230), 2)
+    svg.append('<text x="8" y="22" fill="#e6e6e6" font-size="16">Plan: %s (x east, z north, 1 px = %g units)</text>' % (title, unit))
+    # the other levels' rooms: faint outlines
+    for r in others:
+        x0, z0, x1, z1 = r["rect"]
+        a, b = P(x0, z1)
+        c, d = P(x1, z0)
+        for (p, q, u, v) in ((a, b, c, b + 1), (a, d - 1, c, d), (a, b, a + 1, d), (c - 1, b, c, d)):
+            img.rect(p, q, u, v, (70, 72, 82))
+        svg.append('<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" fill="none" stroke="rgb(70,72,82)"/>' % (a, b, c - a, d - b))
     # rooms
-    for r in L["rooms"]:
+    for r in sheet:
         x0, z0, x1, z1 = r["rect"]
         y = r.get("floor", 0)
         ramp = r.get("ramp")
-        col = floor_colour(y, ramp)
+        col = floor_colour(y, ramp) if ramp or not r.get("zone") else ZONE_COLOUR.get(r["zone"], floor_colour(y, ramp))
         a, b = P(x0, z1)
         c, d = P(x1, z0)
         img.rect(a - 3, b - 3, c + 3, d + 3, C_WALL)
@@ -215,8 +254,10 @@ def main():
             p, q = P(bx0, bz1), P(bx1, bz0)
             img.rect(p[0], p[1], q[0], q[1], C_BLOCK)
             srect(bx0, bz0, bx1, bz1, C_BLOCK)
-    # doorways
-    for dd in L["doors"]:
+    # doorways (bank v2: and the openings, in cyan: no door, no floor through)
+    for dd in list(L["doors"]) + [dict(o, opening=True) for o in L.get("openings", [])]:
+        if dd["rooms"][0] not in mine and dd["rooms"][1] not in mine:
+            continue
         A, B = rooms[dd["rooms"][0]], rooms[dd["rooms"][1]]
         ax0, az0, ax1, az1 = A["rect"]
         bx0, bz0, bx1, bz1 = B["rect"]
@@ -233,6 +274,9 @@ def main():
             box = (at - w / 2.0, f0 - 10, at + w / 2.0, f1 + 10)
         o = dd.get("object")
         col = C_OPEN if not o else key_colour(ival(o.get("keyflags")))
+        if dd.get("opening"):
+            col = C_OPENING
+            box = (box[0] + 6, box[1], box[2] - 6, box[3]) if box[2] - box[0] < box[3] - box[1] else (box[0], box[1] + 6, box[2], box[3] - 6)
         p, q = P(box[0], box[3]), P(box[2], box[1])
         img.rect(p[0], p[1], q[0], q[1], col)
         srect(box[0], box[1], box[2], box[3], col)
@@ -246,7 +290,7 @@ def main():
             img.disc(m[0], m[1] - 9, 5, (255, 140, 0))
             svg.append('<circle cx="%.1f" cy="%.1f" r="5" fill="rgb(255,140,0)"/>' % (m[0], m[1] - 9))
     # objects and pads
-    for r in L["rooms"]:
+    for r in sheet:
         for o in r.get("objects", []):
             t = o["type"]
             if t in ("camera", "alarm", "monitor"):
@@ -297,12 +341,13 @@ def main():
                 img.disc(m[0], m[1], 3, C_LOOT)
                 svg.append('<circle cx="%.1f" cy="%.1f" r="3" fill="rgb%s"><title>%s</title></circle>' % (m[0], m[1], C_LOOT, lt["name"]))
     st = L["start"]
-    m = P(st["at"][0], st["at"][1])
-    img.disc(m[0], m[1], 6, (255, 255, 255))
-    img.disc(m[0], m[1], 3, (0, 0, 0))
-    svg.append('<circle cx="%.1f" cy="%.1f" r="6" fill="white" stroke="black" stroke-width="3"><title>start</title></circle>' % m)
+    if st["room"] in mine:
+        m = P(st["at"][0], st["at"][1])
+        img.disc(m[0], m[1], 6, (255, 255, 255))
+        img.disc(m[0], m[1], 3, (0, 0, 0))
+        svg.append('<circle cx="%.1f" cy="%.1f" r="6" fill="white" stroke="black" stroke-width="3"><title>start</title></circle>' % m)
     # labels last (on top)
-    for r in L["rooms"]:
+    for r in sheet:
         x0, z0, x1, z1 = r["rect"]
         y = r.get("floor", 0)
         name = r["name"] + ("" if not r.get("ramp") else " (%d TO %d)" % (y, r["ramp"]["to"])) + (" Y%d" % y if y and not r.get("ramp") else "")
@@ -314,11 +359,13 @@ def main():
     img.text(lx, ly, "LEGEND", (230, 230, 230), 2)
     svg.append('<text x="%d" y="%d" fill="#e6e6e6" font-size="16">Legend</text>' % (lx, ly + 14))
     ly += 26
-    items = [((236, 230, 214), "GROUND FLOOR Y 0"), ((176, 196, 222), "VAULT LEVEL Y -340"), ((205, 200, 175), "STAIRS / RAMP (LINES)"),
+    items = [(floor_colour(0, None), "FLOOR (TINT: ZONE IF TAGGED)"), (ZONE_COLOUR["public"], "ZONE PUBLIC"),
+             (ZONE_COLOUR["staff"], "ZONE STAFF"), (ZONE_COLOUR["restricted"], "ZONE RESTRICTED"), ((205, 200, 175), "STAIRS / RAMP (LINES)"),
              ((120, 140, 170), "OPEN TOP (STREET)"), (C_BLOCK, "BLOCK (COUNTER, PILLAR, SHELF)"), (C_OPEN, "OPEN DOORWAY"),
-             (C_DOOR, "DOOR, UNLOCKED")] + [(c, "DOOR: " + l.upper()) for _, c, l in KEYS] + \
+             (C_OPENING, "OPENING (BALCONY, WINDOW)"), (C_DOOR, "DOOR, UNLOCKED")] + [(c, "DOOR: " + l.upper()) for _, c, l in KEYS] + \
             [((255, 140, 0), "PADLOCK"), (C_CAM, "CAMERA + VIEW"), (C_ALARM, "ALARM BOX"), (C_MON, "MONITOR"), ((220, 170, 20), "SAFE"),
-             ((150, 120, 90), "PROP"), (C_LOOT, "LOOT PAD"), (C_PAD, "NAMED PAD"), ((255, 255, 255), "START / DOUBLE DOOR DOT")]
+             ((150, 120, 90), "PROP"), (C_LOOT, "LOOT PAD"), (C_PAD, "NAMED PAD"), ((255, 255, 255), "START / DOUBLE DOOR DOT"),
+             ((70, 72, 82), "OTHER LEVELS (OUTLINE)")]
     for c, label in items:
         img.rect(lx, ly, lx + 14, ly + 10, c)
         img.text(lx + 22, ly + 2, label, (230, 230, 230), 1)
@@ -330,6 +377,98 @@ def main():
         f.write("\n".join(svg))
     img.png(out + ".png")
     print("wrote %s.svg and %s.png (%d x %d)" % (out, out, W, H))
+    return img
+
+
+LEVEL_NAMES = {-840: "B2", -420: "B1", 0: "G", 480: "F1", 960: "F2", 1440: "F3"}
+
+
+def floor_span(r):
+    y = r.get("floor", 0)
+    to = r["ramp"]["to"] if r.get("ramp") else y
+    return min(y, to), max(y, to)
+
+
+def levels_of(L):
+    """The layout's levels: the floors of its level rooms that carry at least two rooms (a stair landing is not a level)."""
+    count = {}
+    for r in L["rooms"]:
+        if not r.get("ramp"):
+            count[r.get("floor", 0)] = count.get(r.get("floor", 0), 0) + 1
+    return sorted(y for y, n in count.items() if n >= 2)
+
+
+def elevation(L, out, S=0.2):
+    """A side section: z across, y up; every room's floor-to-ceiling outline (ramps sloped), filled by zone, translucent (rooms behind
+    one another along x add up)."""
+    zs = [v for r in L["rooms"] for v in (r["rect"][1], r["rect"][3])]
+    ys = [v for r in L["rooms"] for v in floor_span(r)] + [floor_span(r)[1] + r.get("height", 320) for r in L["rooms"]]
+    Z0, Z1, Y0, Y1 = min(zs) - 200, max(zs) + 200, min(ys) - 150, max(ys) + 150
+    W, H = int((Z1 - Z0) * S), int((Y1 - Y0) * S) + 40
+    img = Raster(W, H, C_BG)
+
+    def P(z, y):
+        return (z - Z0) * S, (Y1 - y) * S + 30
+    img.text(8, 8, "ELEVATION (LOOKING WEST: Z ACROSS, Y UP, 1 PX = %g UNITS)" % (1.0 / S), (230, 230, 230), 2)
+    for y, nm in LEVEL_NAMES.items():
+        if y in levels_of(L):
+            a, b = P(Z0, y)
+            img.rect(0, b, W, b + 1, (60, 62, 70))
+            img.text(4, b - 9, "%s %d" % (nm, y), (150, 150, 160), 1)
+    for r in sorted(L["rooms"], key=lambda r: -(r["rect"][2] - r["rect"][0])):
+        x0, z0, x1, z1 = r["rect"]
+        h = r.get("height", 320)
+        col = ZONE_COLOUR.get(r.get("zone"), (200, 200, 200))
+        y = r.get("floor", 0)
+        ramp = r.get("ramp")
+        if ramp and ramp["axis"] == "z":
+            for k in range(int((z1 - z0) * S) + 1):
+                zz = z0 + k / S
+                t = (zz - z0) / float(z1 - z0)
+                yf = y + (ramp["to"] - y) * t
+                a, b = P(zz, yf + h)
+                c, d = P(zz, yf)
+                img.rect(a, b, a + 1, d, col, 0.35)
+        else:
+            lo, hi = floor_span(r)
+            a, b = P(z0, hi + h)
+            c, d = P(z1, lo)
+            img.rect(a, b, c, d, col, 0.18 if r.get("open_top") else 0.35)
+    for r in L["rooms"]:
+        x0, z0, x1, z1 = r["rect"]
+        if z1 - z0 >= 900 and not r.get("open_top"):
+            lo, hi = floor_span(r)
+            a, b = P(z0, lo + r.get("height", 320))
+            img.text(a + 3, b + 3, r["name"], C_TEXT, 1)
+    img.png(out + ".png")
+    print("wrote %s.png (%d x %d)" % (out, W, H))
+
+
+def main():
+    src, out = sys.argv[1], sys.argv[2]
+    L = json.load(open(src))
+    gen_level.expand_stairwells(L)
+    title = src.replace("\\", "/").split("/")[-1]
+    lv = levels_of(L)
+    if len(lv) <= 1:
+        draw_sheet(L, L["rooms"], [], title, 0.2, out)
+        return
+    sheets = []
+    for k, y in enumerate(lv):
+        nxt = lv[k + 1] if k + 1 < len(lv) else 10 ** 9
+        on = [r for r in L["rooms"] if floor_span(r)[0] < nxt and floor_span(r)[1] >= y]
+        rest = [r for r in L["rooms"] if r not in on]
+        nm = LEVEL_NAMES.get(y, "Y%d" % y)
+        sheets.append(draw_sheet(L, on, rest, "%s  LEVEL %s (Y %d)" % (title, nm, y), 0.12, "%s_%s" % (out, nm.lower())))
+    elevation(L, out + "_elevation", 0.12)
+    cols = 2
+    sw, sh = sheets[0].w // 2, sheets[0].h // 2
+    rows = (len(sheets) + cols - 1) // cols
+    big = Raster(sw * cols, sh * rows, C_BG)
+    for k, s in enumerate(reversed(sheets)):         # the top floor first
+        big.blit_half(s, (k % cols) * sw, (k // cols) * sh)
+    big.png(out + ".png")
+    print("wrote %s.png (%d x %d: every level)" % (out, big.w, big.h))
 
 
 if __name__ == "__main__":

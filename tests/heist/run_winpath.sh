@@ -25,6 +25,6 @@ for run in ${RUNS:-win trapped fail quiet count}; do
     esac
     echo "HEIST RUN $run"
     env $flags DISPLAY=:99 GE_MODE=heist_winpath GE_STAGE=levelgen GE_SKIPINTRO=1 GE_NOINISAVE=1 GE_FIXEDTICK=1 GE_TICKHZ=60 \
-        GE_FRAMES=$frames timeout 500 ./ProjectMidas > $LOGDIR/heist_winpath_$run.log 2>&1
+        GE_FRAMES=$frames timeout ${TIMEOUT:-500} ./ProjectMidas > $LOGDIR/heist_winpath_$run.log 2>&1
     grep -E "HEIST|ge: lua: ge: heist: (ready|WIN|FAIL|HIGH|VAULT|ALARM|vault|re-crack|the cracker|cracker|heavy|crack|security console|setup step|civilian)|ge: lua: .*error" $LOGDIR/heist_winpath_$run.log
 done

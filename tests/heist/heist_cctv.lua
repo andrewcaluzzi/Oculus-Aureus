@@ -28,6 +28,14 @@ local function wait(sec)
   while t < sec do t = t + coroutine.yield() end
 end
 local function d2(ax, az, bx, bz) return math.sqrt((ax - bx) ^ 2 + (az - bz) ^ 2) end
+-- a point `dist` straight back from the screen wall (away from screens_face), from (x, z)
+local function back_from_screens(x, z, dist)
+  local f = HEIST.M.P.screens_face
+  local dx, dz = x - f[1], z - f[2]
+  local n = math.sqrt(dx * dx + dz * dz)
+  if n < 1 then return { x, z + dist } end
+  return { x + dx / n * dist, z + dz / n * dist }
+end
 local function warp_xz(x, z)
   local best, bd = nil, 1e9
   for _, p in ipairs(pads.far_from(x, z, 0, 900)) do
@@ -92,7 +100,8 @@ local function body()
 
   -- 3. Bond stands at the console: the stick does not move him
   local x0, _, z0 = bond.pos(0)
-  for _ = 1, 8 do bond.walk(0, x0 + 600, z0); wait(0.25) end
+  local bk = back_from_screens(x0, z0, 600)               -- straight back from the screen wall (sideways would be a turn on the feed)
+  for _ = 1, 8 do bond.walk(0, bk[1], bk[2]); wait(0.25) end
   bond.walk_stop()
   local x1, _, z1 = bond.pos(0)
   check("held while watching (the stick is ignored)", d2(x0, z0, x1, z1) < 5, string.format("moved %.1f", d2(x0, z0, x1, z1)))
@@ -158,7 +167,8 @@ local function body()
   check("B at the screens still does not reopen them", cctv.viewing(0) == nil, "cam=" .. tostring(cctv.viewing(0)))
   check("Bond moves again after leaving", (function()
     local ax, _, az = bond.pos(0)
-    for _ = 1, 6 do bond.walk(0, ax + 300, az); wait(0.25) end
+    local bk = back_from_screens(ax, az, 300)
+    for _ = 1, 6 do bond.walk(0, bk[1], bk[2]); wait(0.25) end
     bond.walk_stop()
     local bx, _, bz = bond.pos(0)
     return d2(ax, az, bx, bz) > 20

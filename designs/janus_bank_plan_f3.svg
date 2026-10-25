@@ -1,0 +1,211 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2169" height="1600" font-family="sans-serif">
+<rect width="100%" height="100%" fill="rgb(28, 30, 36)"/>
+<text x="8" y="22" fill="#e6e6e6" font-size="16">Plan: janus_bank.json  LEVEL F3 (Y 1440) (x east, z north, 1 px = 8.33333 units)</text>
+<rect x="18.0" y="1392.0" width="1392.0" height="180.0" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="1222.8" y="588.0" width="43.2" height="799.2" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="1414.8" y="1416.0" width="288.0" height="132.0" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="1707.6" y="228.0" width="144.0" height="1344.0" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="606.0" y="1339.2" width="168.0" height="48.0" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="546.0" y="876.0" width="288.0" height="458.4" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="474.0" y="976.8" width="67.2" height="357.6" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="838.8" y="976.8" width="67.2" height="357.6" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="421.2" y="876.0" width="120.0" height="96.0" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="421.2" y="976.8" width="48.0" height="357.6" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="286.8" y="1221.6" width="129.6" height="112.8" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="286.8" y="1108.8" width="129.6" height="108.0" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="286.8" y="976.8" width="129.6" height="127.2" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="162.0" y="976.8" width="120.0" height="357.6" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="162.0" y="876.0" width="254.4" height="96.0" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="162.0" y="832.8" width="463.2" height="38.4" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="630.0" y="832.8" width="120.0" height="38.4" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="630.0" y="684.0" width="120.0" height="144.0" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="286.8" y="684.0" width="129.6" height="144.0" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="421.2" y="684.0" width="67.2" height="144.0" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="493.2" y="684.0" width="132.0" height="144.0" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="754.8" y="832.8" width="463.2" height="38.4" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="754.8" y="684.0" width="151.2" height="144.0" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="910.8" y="684.0" width="124.8" height="144.0" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="1040.4" y="684.0" width="52.8" height="144.0" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="1098.0" y="636.0" width="120.0" height="192.0" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="402.0" y="636.0" width="691.2" height="43.2" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="838.8" y="876.0" width="120.0" height="96.0" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="910.8" y="976.8" width="48.0" height="357.6" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="963.6" y="976.8" width="129.6" height="127.2" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="963.6" y="1108.8" width="129.6" height="108.0" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="963.6" y="1221.6" width="129.6" height="112.8" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="963.6" y="876.0" width="129.6" height="96.0" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="1098.0" y="876.0" width="120.0" height="458.4" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="546.0" y="1339.2" width="288.0" height="48.0" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="474.0" y="876.0" width="67.2" height="511.2" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="838.8" y="876.0" width="67.2" height="511.2" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="474.0" y="832.8" width="432.0" height="38.4" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="630.0" y="636.0" width="120.0" height="43.2" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="474.0" y="636.0" width="151.2" height="43.2" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="754.8" y="636.0" width="151.2" height="43.2" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="474.0" y="684.0" width="151.2" height="144.0" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="754.8" y="684.0" width="151.2" height="144.0" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="421.2" y="636.0" width="48.0" height="751.2" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="910.8" y="636.0" width="48.0" height="751.2" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="286.8" y="1248.0" width="129.6" height="139.2" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="286.8" y="976.8" width="129.6" height="266.4" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="286.8" y="876.0" width="129.6" height="96.0" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="162.0" y="876.0" width="120.0" height="511.2" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="162.0" y="832.8" width="254.4" height="38.4" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="286.8" y="636.0" width="129.6" height="192.0" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="963.6" y="1164.0" width="129.6" height="223.2" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="963.6" y="976.8" width="129.6" height="182.4" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="963.6" y="876.0" width="129.6" height="96.0" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="963.6" y="832.8" width="254.4" height="38.4" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="963.6" y="684.0" width="52.8" height="144.0" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="1021.2" y="684.0" width="196.8" height="144.0" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="546.0" y="1339.2" width="288.0" height="48.0" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="474.0" y="876.0" width="67.2" height="511.2" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="838.8" y="876.0" width="67.2" height="511.2" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="474.0" y="832.8" width="432.0" height="38.4" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="286.8" y="876.0" width="182.4" height="511.2" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="162.0" y="1116.0" width="120.0" height="271.2" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="162.0" y="876.0" width="120.0" height="235.2" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="162.0" y="832.8" width="307.2" height="38.4" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="286.8" y="684.0" width="182.4" height="144.0" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="474.0" y="684.0" width="432.0" height="144.0" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="910.8" y="876.0" width="182.4" height="511.2" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="1098.0" y="876.0" width="120.0" height="511.2" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="910.8" y="832.8" width="307.2" height="38.4" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="910.8" y="684.0" width="48.0" height="144.0" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="1021.2" y="684.0" width="196.8" height="144.0" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="474.0" y="636.0" width="744.0" height="43.2" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="963.6" y="588.0" width="129.6" height="91.2" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="402.0" y="540.0" width="691.2" height="43.2" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="618.0" y="439.2" width="144.0" height="96.0" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="570.0" y="290.4" width="240.0" height="144.0" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="814.8" y="290.4" width="144.0" height="144.0" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="814.8" y="228.0" width="67.2" height="57.6" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="891.6" y="228.0" width="67.2" height="57.6" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="963.6" y="290.4" width="206.4" height="192.0" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="1122.0" y="487.2" width="48.0" height="144.0" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="454.8" y="439.2" width="158.4" height="96.0" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="766.8" y="439.2" width="192.0" height="96.0" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="402.0" y="391.2" width="48.0" height="144.0" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="349.2" y="343.2" width="628.8" height="43.2" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="349.2" y="391.2" width="48.0" height="288.0" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="210.0" y="146.4" width="355.2" height="192.0" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="210.0" y="48.0" width="355.2" height="93.6" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="570.0" y="194.4" width="408.0" height="144.0" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="982.8" y="348.0" width="360.0" height="33.6" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="1347.6" y="348.0" width="355.2" height="33.6" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="162.0" y="736.8" width="57.6" height="91.2" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="162.0" y="684.0" width="120.0" height="48.0" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="224.4" y="736.8" width="57.6" height="91.2" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="162.0" y="736.8" width="57.6" height="91.2" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="162.0" y="684.0" width="120.0" height="48.0" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="224.4" y="736.8" width="57.6" height="91.2" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="162.0" y="736.8" width="57.6" height="91.2" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="162.0" y="684.0" width="120.0" height="48.0" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="160.2" y="831.0" width="1059.6" height="42.0" fill="rgb(40, 40, 48)" />
+<rect x="162.0" y="832.8" width="1056.0" height="38.4" fill="rgb(214, 228, 200)" />
+<rect x="285.0" y="682.2" width="186.0" height="147.6" fill="rgb(40, 40, 48)" />
+<rect x="286.8" y="684.0" width="182.4" height="144.0" fill="rgb(214, 228, 200)" />
+<rect x="472.2" y="682.2" width="195.6" height="147.6" fill="rgb(40, 40, 48)" />
+<rect x="474.0" y="684.0" width="192.0" height="144.0" fill="rgb(214, 228, 200)" />
+<rect x="669.0" y="682.2" width="238.8" height="147.6" fill="rgb(40, 40, 48)" />
+<rect x="670.8" y="684.0" width="235.2" height="144.0" fill="rgb(214, 228, 200)" />
+<rect x="738.0" y="732.0" width="96.0" height="48.0" fill="rgb(95, 80, 70)" />
+<rect x="909.0" y="682.2" width="310.8" height="147.6" fill="rgb(40, 40, 48)" />
+<rect x="910.8" y="684.0" width="307.2" height="144.0" fill="rgb(214, 228, 200)" />
+<rect x="978.0" y="710.4" width="144.0" height="9.6" fill="rgb(95, 80, 70)" />
+<rect x="160.2" y="874.2" width="1059.6" height="514.8" fill="rgb(40, 40, 48)" />
+<rect x="162.0" y="876.0" width="1056.0" height="511.2" fill="rgb(214, 228, 200)" />
+<rect x="162.0" y="876.0" width="1056.0" height="511.2" fill="rgb(120, 140, 170)" fill-opacity="0.35"/>
+<rect x="582.0" y="996.0" width="216.0" height="216.0" fill="rgb(95, 80, 70)" />
+<rect x="234.0" y="1164.0" width="96.0" height="72.0" fill="rgb(95, 80, 70)" />
+<rect x="1050.0" y="996.0" width="96.0" height="72.0" fill="rgb(95, 80, 70)" />
+<rect x="222.6" y="735.0" width="61.2" height="94.8" fill="rgb(40, 40, 48)" />
+<rect x="224.4" y="736.8" width="57.6" height="91.2" fill="rgb(205, 200, 175)" />
+<line x1="224.4" y1="820.4" x2="282.0" y2="820.4" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="224.4" y1="812.8" x2="282.0" y2="812.8" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="224.4" y1="805.2" x2="282.0" y2="805.2" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="224.4" y1="797.6" x2="282.0" y2="797.6" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="224.4" y1="790.0" x2="282.0" y2="790.0" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="224.4" y1="782.4" x2="282.0" y2="782.4" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="224.4" y1="774.8" x2="282.0" y2="774.8" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="224.4" y1="767.2" x2="282.0" y2="767.2" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="224.4" y1="759.6" x2="282.0" y2="759.6" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="224.4" y1="752.0" x2="282.0" y2="752.0" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="224.4" y1="744.4" x2="282.0" y2="744.4" stroke="rgb(150,140,110)" stroke-width="1"/>
+<rect x="367.2" y="826.8" width="21.6" height="7.2" fill="rgb(120, 120, 120)" />
+<rect x="468.0" y="745.2" width="7.2" height="21.6" fill="rgb(40, 90, 220)" />
+<rect x="559.2" y="826.8" width="21.6" height="7.2" fill="rgb(40, 90, 220)" />
+<rect x="774.0" y="826.8" width="24.0" height="7.2" fill="rgb(120, 120, 120)" />
+<rect x="1050.0" y="826.8" width="24.0" height="7.2" fill="rgb(120, 120, 120)" />
+<rect x="678.0" y="870.0" width="24.0" height="7.2" fill="rgb(40, 90, 220)" />
+<rect x="240.0" y="826.8" width="26.4" height="7.2" fill="rgb(250, 250, 250)" />
+<rect x="240.0" y="730.8" width="26.4" height="7.2" fill="rgb(250, 250, 250)" />
+<clipPath id="clip_cam_exec"><rect x="162.0" y="832.8" width="1056.0" height="38.4"/></clipPath>
+<path d="M1216.6 852.0 L815.9 1252.6 A566.6 566.6 0 0 1 815.9 451.4 Z" fill="rgb(255, 120, 0)" fill-opacity="0.22" clip-path="url(#clip_cam_exec)"/>
+<circle cx="1216.6" cy="852.0" r="5" fill="rgb(255, 120, 0)"><title>cam_exec</title></circle>
+<rect x="446.0" y="865.8" width="8" height="8" fill="rgb(255, 30, 30)"><title>alarm_exec</title></rect>
+<circle cx="180.0" cy="852.0" r="1.6" fill="rgb(90, 90, 100)"><title>exec_w</title></circle>
+<circle cx="690.0" cy="852.0" r="1.6" fill="rgb(90, 90, 100)"><title>exec_mid</title></circle>
+<circle cx="1200.0" cy="852.0" r="1.6" fill="rgb(90, 90, 100)"><title>exec_e</title></circle>
+<rect x="375.0" y="753.0" width="6" height="6" fill="rgb(150,120,90)"/>
+<rect x="291.0" y="801.0" width="6" height="6" fill="rgb(150,120,90)"/>
+<circle cx="378.0" cy="792.0" r="1.6" fill="rgb(90, 90, 100)"><title>secretary_1</title></circle>
+<circle cx="306.0" cy="702.0" r="1.6" fill="rgb(90, 90, 100)"><title>secretary_2</title></circle>
+<rect x="636.0" y="698.4" width="12" height="12" fill="rgb(220,170,20)" stroke="black"><title>safe</title></rect>
+<rect x="567.0" y="695.4" width="6" height="6" fill="rgb(150,120,90)"/>
+<rect x="477.0" y="801.0" width="6" height="6" fill="rgb(150,120,90)"/>
+<rect x="651.0" y="813.0" width="6" height="6" fill="rgb(150,120,90)"/>
+<circle cx="570.0" cy="720.0" r="1.6" fill="rgb(90, 90, 100)"><title>director_desk</title></circle>
+<circle cx="498.0" cy="804.0" r="1.6" fill="rgb(90, 90, 100)"><title>director_1</title></circle>
+<circle cx="642.0" cy="738.0" r="1.6" fill="rgb(90, 90, 100)"><title>dir_safe_front</title></circle>
+<circle cx="642.0" cy="732.0" r="3" fill="rgb(240, 200, 40)"><title>director_loot</title></circle>
+<circle cx="534.0" cy="792.0" r="3" fill="rgb(240, 200, 40)"><title>director_loot</title></circle>
+<rect x="891.0" y="813.0" width="6" height="6" fill="rgb(150,120,90)"/>
+<circle cx="702.0" cy="756.0" r="1.6" fill="rgb(90, 90, 100)"><title>board_1</title></circle>
+<circle cx="876.0" cy="756.0" r="1.6" fill="rgb(90, 90, 100)"><title>board_2</title></circle>
+<rect x="1119.0" y="789.0" width="6" height="6" fill="rgb(150,120,90)"/>
+<circle cx="954.0" cy="804.0" r="1.6" fill="rgb(90, 90, 100)"><title>lounge3_1</title></circle>
+<circle cx="1182.0" cy="756.0" r="1.6" fill="rgb(90, 90, 100)"><title>lounge3_2</title></circle>
+<clipPath id="clip_cam_roof"><rect x="162.0" y="876.0" width="1056.0" height="511.2"/></clipPath>
+<path d="M450.0 877.4 L1064.3 695.3 A640.8 640.8 0 0 1 632.1 1491.8 Z" fill="rgb(255, 120, 0)" fill-opacity="0.22" clip-path="url(#clip_cam_roof)"/>
+<circle cx="450.0" cy="877.4" r="5" fill="rgb(255, 120, 0)"><title>cam_roof</title></circle>
+<rect x="399.0" y="921.0" width="6" height="6" fill="rgb(150,120,90)"/>
+<circle cx="690.0" cy="894.0" r="1.6" fill="rgb(90, 90, 100)"><title>roof_door</title></circle>
+<circle cx="186.0" cy="1368.0" r="1.6" fill="rgb(90, 90, 100)"><title>roof_w</title></circle>
+<circle cx="1194.0" cy="1368.0" r="1.6" fill="rgb(90, 90, 100)"><title>roof_e</title></circle>
+<circle cx="978.0" cy="1164.0" r="1.6" fill="rgb(90, 90, 100)"><title>roof_helipad</title></circle>
+<text x="166.0" y="845.8" font-size="11" fill="rgb(20, 20, 25)">corr3 Y1440</text>
+<text x="290.8" y="697.0" font-size="11" fill="rgb(20, 20, 25)">secretary Y1440</text>
+<text x="478.0" y="697.0" font-size="11" fill="rgb(20, 20, 25)">director Y1440</text>
+<text x="674.8" y="697.0" font-size="11" fill="rgb(20, 20, 25)">boardroom Y1440</text>
+<text x="914.8" y="697.0" font-size="11" fill="rgb(20, 20, 25)">exec_lounge Y1440</text>
+<text x="166.0" y="889.0" font-size="11" fill="rgb(20, 20, 25)">roof Y1440</text>
+<text x="228.4" y="749.8" font-size="11" fill="rgb(20, 20, 25)">core_w_2b (1440 TO 1200)</text>
+<text x="1881" y="64" fill="#e6e6e6" font-size="16">Legend</text>
+<rect x="1881" y="76" width="14" height="10" fill="rgb(236, 230, 214)"/><text x="1903" y="86" fill="#e6e6e6" font-size="11">floor (tint: zone if tagged)</text>
+<rect x="1881" y="92" width="14" height="10" fill="rgb(236, 230, 214)"/><text x="1903" y="102" fill="#e6e6e6" font-size="11">zone public</text>
+<rect x="1881" y="108" width="14" height="10" fill="rgb(214, 228, 200)"/><text x="1903" y="118" fill="#e6e6e6" font-size="11">zone staff</text>
+<rect x="1881" y="124" width="14" height="10" fill="rgb(232, 196, 190)"/><text x="1903" y="134" fill="#e6e6e6" font-size="11">zone restricted</text>
+<rect x="1881" y="140" width="14" height="10" fill="rgb(205, 200, 175)"/><text x="1903" y="150" fill="#e6e6e6" font-size="11">stairs / ramp (lines)</text>
+<rect x="1881" y="156" width="14" height="10" fill="rgb(120, 140, 170)"/><text x="1903" y="166" fill="#e6e6e6" font-size="11">open top (street)</text>
+<rect x="1881" y="172" width="14" height="10" fill="rgb(95, 80, 70)"/><text x="1903" y="182" fill="#e6e6e6" font-size="11">block (counter, pillar, shelf)</text>
+<rect x="1881" y="188" width="14" height="10" fill="rgb(250, 250, 250)"/><text x="1903" y="198" fill="#e6e6e6" font-size="11">open doorway</text>
+<rect x="1881" y="204" width="14" height="10" fill="rgb(60, 220, 240)"/><text x="1903" y="214" fill="#e6e6e6" font-size="11">opening (balcony, window)</text>
+<rect x="1881" y="220" width="14" height="10" fill="rgb(120, 120, 120)"/><text x="1903" y="230" fill="#e6e6e6" font-size="11">door, unlocked</text>
+<rect x="1881" y="236" width="14" height="10" fill="rgb(150, 70, 200)"/><text x="1903" y="246" fill="#e6e6e6" font-size="11">door: vault (cracker)</text>
+<rect x="1881" y="252" width="14" height="10" fill="rgb(220, 170, 20)"/><text x="1903" y="262" fill="#e6e6e6" font-size="11">door: gold</text>
+<rect x="1881" y="268" width="14" height="10" fill="rgb(215, 40, 40)"/><text x="1903" y="278" fill="#e6e6e6" font-size="11">door: red</text>
+<rect x="1881" y="284" width="14" height="10" fill="rgb(40, 90, 220)"/><text x="1903" y="294" fill="#e6e6e6" font-size="11">door: blue</text>
+<rect x="1881" y="300" width="14" height="10" fill="rgb(30, 160, 60)"/><text x="1903" y="310" fill="#e6e6e6" font-size="11">door: green</text>
+<rect x="1881" y="316" width="14" height="10" fill="rgb(140, 90, 40)"/><text x="1903" y="326" fill="#e6e6e6" font-size="11">door: floor key</text>
+<rect x="1881" y="332" width="14" height="10" fill="rgb(255, 140, 0)"/><text x="1903" y="342" fill="#e6e6e6" font-size="11">padlock</text>
+<rect x="1881" y="348" width="14" height="10" fill="rgb(255, 120, 0)"/><text x="1903" y="358" fill="#e6e6e6" font-size="11">camera + view</text>
+<rect x="1881" y="364" width="14" height="10" fill="rgb(255, 30, 30)"/><text x="1903" y="374" fill="#e6e6e6" font-size="11">alarm box</text>
+<rect x="1881" y="380" width="14" height="10" fill="rgb(40, 210, 230)"/><text x="1903" y="390" fill="#e6e6e6" font-size="11">monitor</text>
+<rect x="1881" y="396" width="14" height="10" fill="rgb(220, 170, 20)"/><text x="1903" y="406" fill="#e6e6e6" font-size="11">safe</text>
+<rect x="1881" y="412" width="14" height="10" fill="rgb(150, 120, 90)"/><text x="1903" y="422" fill="#e6e6e6" font-size="11">prop</text>
+<rect x="1881" y="428" width="14" height="10" fill="rgb(240, 200, 40)"/><text x="1903" y="438" fill="#e6e6e6" font-size="11">loot pad</text>
+<rect x="1881" y="444" width="14" height="10" fill="rgb(90, 90, 100)"/><text x="1903" y="454" fill="#e6e6e6" font-size="11">named pad</text>
+<rect x="1881" y="460" width="14" height="10" fill="rgb(255, 255, 255)"/><text x="1903" y="470" fill="#e6e6e6" font-size="11">start / double door dot</text>
+<rect x="1881" y="476" width="14" height="10" fill="rgb(70, 72, 82)"/><text x="1903" y="486" fill="#e6e6e6" font-size="11">other levels (outline)</text>
+</svg>

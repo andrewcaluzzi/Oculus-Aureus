@@ -10,7 +10,9 @@ spawn.keep_bodies(true)
 local PD = LEVEL.pads
 local PG, PVICTIM, PWITNESS, PBOND = PD.hall_mid, PD.cust_5, PD.hall_post_nw, PD.hall_entry_w   -- (victim and witness 255 apart:
                                                                                                 -- within a stock guard's sight of a body)
-local PCIV, PARMED, PBYST, PSHOOT = PD.cust_1, PD.teller_back, PD.hall_mid, PD.cust_2   -- (the armed guard behind the counter: in the room, out of sight of Bond)
+local PCIV, PARMED, PBYST, PSHOOT = PD.cust_8, PD.teller_back, PD.hall_mid, PD.cust_9   -- (the armed guard behind the counter: in the room, out of sight of Bond;
+                                                                                         -- bank v2: the civilian 690 north of Bond, within a loud shot's 1200;
+                                                                                         -- the shooter 760 off, as v1's pads stood in its smaller hall)
 local PWAVE1, PWAVE2 = PD.vest_mid, PD.hall_post_se
 local ALARM_CAND = { LEVEL.objects.alarm_hall.pad }   -- a stock raiser sounds the alarm only at an alarm box: the hall's (its bound pad)
 local function ppos(p)   -- pads.pos, or the alarm box's own x, y, z for its bound pad (pads.pos takes floor pads only)
@@ -129,12 +131,20 @@ local function body()
   spawn.kill(victim)
   wait(4)
   check("victim is down", spawn.down(victim) == true)
+  do   -- bank v2: the hall is 38 m long: Bond comes within 9 m of the scene and looks at it (far or off screen, a chr's sight is lazy)
+    bond.warp(0, PD.cust_7)
+    wait(0.5)
+    local vx, vz = spawn.where(victim)
+    if vx then aim = { vx, vz } end
+    wait(0.5)
+  end
   local b0 = #ev.body
   local witness = spawn.chr(PWITNESS, { behaviour = "hold", weapon = "none" })
   local wx0, wz0 = spawn.where(witness)
   local bx, by, bz = bond.pos(0)
   local d0 = dist2(wx0, wz0, bx, bz)
-  wait(3)
+  for _ = 1, 24 do if #ev.body > b0 then break end; wait(0.25) end   -- bank v2: up to 6 s (the stock body check is a random roll)
+  wait(2)
   local wx1, wz1 = spawn.where(witness)
   check("body_found event fired", #ev.body > b0 and ev.body[b0 + 1][1] == witness and ev.body[b0 + 1][2] == victim,
         #ev.body > b0 and string.format("guard=%d body=%d", ev.body[b0 + 1][1], ev.body[b0 + 1][2]) or "none")
@@ -142,6 +152,7 @@ local function body()
   local d1 = dist2(wx1, wz1, bx, bz)
   check("witness went on alert (ran at Bond)", d1 < d0 - 100, string.format("dist to Bond %.0f -> %.0f", d0, d1))
   spawn.remove(witness)
+  aim = nil
 
   -- D. reinforcement waves while the alarm is on
   local spawnat = {}

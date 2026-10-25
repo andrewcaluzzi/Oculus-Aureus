@@ -7,5 +7,5 @@ cp /home/dev/project/tests/heist/heist_ko.lua /home/dev/project/build_pc/Data/Sc
 cp /home/dev/project/port/levelgen/levelgen_layout.lua /home/dev/project/build_pc/Data/Scripts/modes/levelgen_layout.lua
 cd /home/dev/project/build_pc || exit 1
 DISPLAY=:99 GE_MODE=heist_ko GE_STAGE=levelgen GE_SKIPINTRO=1 GE_NOINISAVE=1 GE_FIXEDTICK=1 GE_TICKHZ=60 GE_FRAMES=${GE_FRAMES:-12000} \
-    timeout 400 ./ProjectMidas > ${LOGDIR:-/tmp}/heist_ko.log 2>&1
+    timeout ${TIMEOUT:-400} ./ProjectMidas > ${LOGDIR:-/tmp}/heist_ko.log 2>&1
 grep -a -E "HEIST|ge: heist|ge: lua: .*error" ${LOGDIR:-/tmp}/heist_ko.log

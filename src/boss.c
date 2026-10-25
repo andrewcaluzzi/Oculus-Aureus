@@ -281,6 +281,7 @@ struct memallocstring memallocstringtable[] = {
 { LEVELID_CAVERNS_MP ,  "-ml0 -me0 -mgfx130 -mvtx100 -mt440 -ma220"},
 { LEVELID_FACILITY_MP , "-ml0 -me0 -mgfx90  -mvtx100 -mt550 -ma230"},
 { LEVELID_EGYPT_MP ,    "-ml0 -me0 -mgfx110 -mvtx100 -mt350 -ma400"},
+{ LEVELID_LEE,          "-ml0 -me0 -mgfx100 -mvtx100 -mt700 -ma1000"},   /* PORT: the generated level (port/levelgen): a fixed room heap (was: none, so the last stage's, doubled) */
 { LEVELID_DEFAULT,      "-ml0 -me0 -mgfx100 -mvtx50 -mt700 -ma400"},
 { 0x0, },
 { 0x0, },

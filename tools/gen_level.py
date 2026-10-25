@@ -37,6 +37,13 @@ import gen_flatland as gf          # noqa: E402  (deflate_1172, be_words, fmt_wo
 
 LINK_BASE = 16                     # stan link = (0x80 + byte offset of the tile) >> 3; a triangle tile is 32 bytes
 ST_ALIGN = 4096                    # ST shift step (128 texels): keeps any texture up to 128 texels wide seamless
+# The engine's limits for one level (bank v2, read off the code):
+MAX_ROOMS = 140                    # MAXROOMCOUNT 150 (bondconstants.h; g_BgRoomInfo[], s_SimRooms[], the 0x98 vis list): ids 1..N and
+#                                    the end entry (g_MaxNumRooms counts it) stay under 150; 140 keeps a margin
+MAX_PORTALS = 190                  # PORTMAX 200 (bg.h: table_for_portals[], the portal state arrays); doorways + openings
+MAX_TILES = 16380                  # a stan link is a u16 = (0x80 + 32 * tile) >> 3
+MAX_PADS = 10000                   # bound pads are numbered from 10000 (setBoundPadNum)
+MAX_COORD = 32000                  # bg vertices and stan points are s16
 
 
 # ----------------------------------------------------------------- layout ----
@@ -64,9 +71,56 @@ class Door:
     pass
 
 
+def expand_stairwells(L):
+    """Bank v2: a `stairwells` entry is a switchback stair core that turns at a landing on every storey: for each step between two
+    levels in `levels`, flight a climbs lane 1 along `axis` from the core's low end (x0 / z0, at the lower level) to the landing at
+    the high end (half way up), and flight b climbs lane 2 from the landing back to the low end (at the upper level); the cores of
+    the storeys stack. Each becomes ordinary layout rooms and doorways (ramps, stairs), named <name>_<k>a, <name>_<k>l, <name>_<k>b
+    for the k-th storey from the bottom; the layout's own doors join the flights' low ends to each floor (a's to level k, b's to
+    level k + 1). Keys: name, rect (the core's inside), axis ("x" or "z"), levels ([y0, y1, ...] rising), landing (its depth along the
+    axis, default 400), wall (the gap between the lanes and before the landing, default 40), height (the flights' and landing's
+    height, default 330: the storeys' flights stack, so it must leave a slab under the next storey's), stairs (steps per flight, default
+    12), the room keys floor_mat / wall_mat / ceiling_mat / riser_mat / light / chr_light / area / zone, door_width (default 200)."""
+    out_rooms, out_doors = [], []
+    for sw in L.get("stairwells", []):
+        name, ax = sw["name"], sw.get("axis", "z")
+        x0, z0, x1, z1 = [int(v) for v in sw["rect"]]
+        g = int(sw.get("wall", 40))
+        land = int(sw.get("landing", 400))
+        h = int(sw.get("height", 330))
+        lv = [int(v) for v in sw["levels"]]
+        if ax not in ("x", "z") or len(lv) < 2 or any(b <= a for a, b in zip(lv, lv[1:])):
+            sys.exit("stairwell %s: axis x or z and levels rising" % name)
+        lo, hi = (z0, z1) if ax == "z" else (x0, x1)
+        c0, c1 = (x0, x1) if ax == "z" else (z0, z1)          # across the axis: the two lanes
+        mid = (c0 + c1) // 2
+        lanes = [(c0, mid - g // 2), (mid + g - g // 2, c1)]
+        fl_hi = hi - land - g                                   # the flights' high end; the landing beyond the gap
+        if fl_hi - lo < 300 or min(b - a for a, b in lanes) < 200:
+            sys.exit("stairwell %s: too small (flights %d long, lanes %s)" % (name, fl_hi - lo, lanes))
+
+        def rect(along, across):
+            return [across[0], along[0], across[1], along[1]] if ax == "z" else [along[0], across[0], along[1], across[1]]
+        keys = {k: sw[k] for k in ("floor_mat", "wall_mat", "ceiling_mat", "light", "chr_light", "area", "zone") if k in sw}
+        dw = int(sw.get("door_width", 200))
+        for k, (ya, yb) in enumerate(zip(lv, lv[1:])):
+            yl = (ya + yb) // 2
+            ramp = {"axis": ax, "stairs": int(sw.get("stairs", 12)), "riser_mat": sw.get("riser_mat", sw.get("wall_mat"))}
+            ramp = {kk: v for kk, v in ramp.items() if v is not None}
+            a = dict(keys, name="%s_%da" % (name, k), rect=rect((lo, fl_hi), lanes[0]), floor=ya, height=h, ramp=dict(ramp, to=yl))
+            b = dict(keys, name="%s_%db" % (name, k), rect=rect((lo, fl_hi), lanes[1]), floor=yb, height=h, ramp=dict(ramp, to=yl))
+            l = dict(keys, name="%s_%dl" % (name, k), rect=rect((fl_hi + g, hi), (c0, c1)), floor=yl, height=h)
+            out_rooms += [a, l, b]
+            out_doors += [{"rooms": [a["name"], l["name"]], "at": (lanes[0][0] + lanes[0][1]) // 2, "width": dw},
+                          {"rooms": [l["name"], b["name"]], "at": (lanes[1][0] + lanes[1][1]) // 2, "width": dw}]
+    L["rooms"] = list(L["rooms"]) + out_rooms
+    L["doors"] = list(L.get("doors", [])) + out_doors
+
+
 def load_layout(path):
     with open(path) as f:
         L = json.load(f)
+    expand_stairwells(L)
     d = L.get("defaults", {})
     mats = L["materials"]
     rooms, byname = [], {}
@@ -104,6 +158,7 @@ def load_layout(path):
             R.ramp_to, R.stairs = R.y, 0
         R.open_top = bool(r.get("open_top", False))    # P2.3: no ceiling (the clear colour above: an open-air street at night)
         R.area = r.get("area")                         # P2.3: a free tag for mode scripts (LEVEL.rooms[name].area)
+        R.zone = r.get("zone")                         # bank v2: who may be there (public / staff / restricted: LEVEL.rooms[name].zone)
         R.blocks = []                                  # P2.3: furniture boxes on the floor (a stan hole under each)
         for k, b in enumerate(r.get("blocks", [])):
             B = Room()
@@ -127,15 +182,24 @@ def load_layout(path):
             for k, at in enumerate(lt["at"]):
                 R.pads_named.append({"name": "%s_%d" % (lt["name"], k + 1), "at": at})
         R.doors = []
+        R.openings = []                                # bank v2: see-through openings in its walls (load_openings)
         rooms.append(R)
         if R.name in byname:
             sys.exit("duplicate room name %s" % R.name)
         byname[R.name] = R
-    for a in rooms:
-        for b in rooms:
-            if a is not b and a.x0 < b.x1 and b.x0 < a.x1 and a.z0 < b.z1 and b.z0 < a.z1:
-                (ay0, ay1), (by0, by1) = yspan(a), yspan(b)
-                if ay0 < by1 and by0 < ay1:          # P2.3: rooms on different floors may share x, z
+    for i, a in enumerate(rooms):
+        for b in rooms[i + 1:]:
+            if a.x0 < b.x1 and b.x0 < a.x1 and a.z0 < b.z1 and b.z0 < a.z1:
+                # P2.3: rooms on different floors may share x, z. Bank v2: the test is exact for ramps (stacked flights of a stair
+                # core): floors and ceilings are planes, so one room is wholly above the other if it is at the four corners of the
+                # shared rectangle (a stair's treads reach half a step under its slope)
+                cx = (max(a.x0, b.x0), min(a.x1, b.x1))
+                cz = (max(a.z0, b.z0), min(a.z1, b.z1))
+                pts = [(x, z) for x in cx for z in cz]
+
+                def above(u, v):
+                    return all(floor_at(u, x, z) - half_step(u) >= floor_at(v, x, z) + v.h for (x, z) in pts)
+                if not (above(a, b) or above(b, a)):
                     sys.exit("rooms %s and %s overlap" % (a.name, b.name))
     wallmax = int(d.get("max_wall", 200))
     doors = []
@@ -184,10 +248,71 @@ def load_layout(path):
         if D.h + (D.frame["w"] if D.frame else 0) > min(a.h, b.h):
             sys.exit("door %s-%s: taller than a room" % (a.name, b.name))
         D.obj = dd.get("object")                       # P2.2: a door in the doorway (None = an open doorway)
+        D.kind = "door"
         a.doors.append(D)
         b.doors.append(D)
         doors.append(D)
-    return L, d, mats, rooms, byname, doors
+    openings = load_openings(L, d, mats, byname, len(doors), wallmax)
+    return L, d, mats, rooms, byname, doors, openings
+
+
+def facing(a, b, wallmax):
+    """(axis, face of a, face of b, lo, hi of the shared stretch) of two rooms whose walls face each other across 1..wallmax, or None."""
+    if 0 < b.x0 - a.x1 <= wallmax:
+        return "x", a.x1, b.x0, max(a.z0, b.z0), min(a.z1, b.z1)
+    if 0 < a.x0 - b.x1 <= wallmax:
+        return "x", a.x0, b.x1, max(a.z0, b.z0), min(a.z1, b.z1)
+    if 0 < b.z0 - a.z1 <= wallmax:
+        return "z", a.z1, b.z0, max(a.x0, b.x0), min(a.x1, b.x1)
+    if 0 < a.z0 - b.z1 <= wallmax:
+        return "z", a.z0, b.z1, max(a.x0, b.x0), min(a.x1, b.x1)
+    return None
+
+
+def load_openings(L, d, mats, byname, first_portal, wallmax):
+    """Bank v2: `openings` are portals with no door and no floor through them: a hole in the shared wall from `y` = [bottom, top]
+    (absolute heights), `width` wide at `at` along the wall. The wall under the hole is the sill: a balcony's rail (a gallery's floor
+    100 under the bottom), a teller window's counter, an interior window. You see and shoot through; nobody walks through (no stan,
+    no pads, no waypoints: the stock line of sight, which walks the floor tiles, does not pass either). Keys: rooms [a, b], at,
+    width, y, name (default "a~b"), frame (as a doorway's). The two rooms' floors may differ (a gallery over a hall)."""
+    out = []
+    for k, oo in enumerate(L.get("openings", [])):
+        a, b = byname[oo["rooms"][0]], byname[oo["rooms"][1]]
+        D = Door()
+        D.kind = "opening"
+        D.index = first_portal + k                     # portals: the doorways', then the openings'
+        D.a, D.b = a, b
+        D.name = oo.get("name", "%s~%s" % (a.name, b.name))
+        f = facing(a, b, wallmax)
+        if f is None:
+            sys.exit("opening %s: the rooms have no facing walls within %d units" % (D.name, wallmax))
+        D.axis, D.fa, D.fb, lo, hi = f
+        D.w = int(oo.get("width", 300))
+        at = int(oo.get("at", (lo + hi) // 2))
+        D.lo, D.hi = at - D.w // 2, at - D.w // 2 + D.w
+        if D.lo < lo + 20 or D.hi > hi - 20:
+            sys.exit("opening %s: %d..%d is not on the shared wall %d..%d (20 units margin)" % (D.name, D.lo, D.hi, lo, hi))
+        y0, y1 = [int(v) for v in oo["y"]]
+        D.y, D.h = y0, y1 - y0
+        fr = oo.get("frame")
+        D.frame = None
+        if fr:
+            fr = fr if isinstance(fr, dict) else {"mat": fr}
+            if fr.get("mat") not in mats:
+                sys.exit("opening %s: unknown frame material %r" % (D.name, fr.get("mat")))
+            D.frame = {"mat": fr["mat"], "w": int(fr.get("width", d.get("frame_width", 14))),
+                       "depth": int(fr.get("depth", d.get("frame_depth", 6)))}
+        fw = D.frame["w"] if D.frame else 0
+        for R, face in ((a, D.fa), (b, D.fb)):
+            if R.ramp is not None:
+                sys.exit("opening %s: not in a ramp's wall (%s)" % (D.name, R.name))
+            if not (R.y <= y0 < y1 and y1 + fw <= R.y + R.h):
+                sys.exit("opening %s: y %d..%d (+ frame %d) is not inside room %s's wall %d..%d" % (D.name, y0, y1, fw, R.name, R.y, R.y + R.h))
+        D.obj = None
+        a.openings.append(D)
+        b.openings.append(D)
+        out.append(D)
+    return out
 
 
 def floor_at(R, x, z):
@@ -399,8 +524,13 @@ def vquad(mesh, R, lamps, mats, matname, a, b, ya0, ya1, yb0, yb1, top):
 
 
 def vpoly(mesh, R, lamps, mats, matname, a, b, y0, y1, top):
-    """Vertical quad along floor segment a -> b (x, z), y0..y1; s along the wall, t down from `top`."""
-    vquad(mesh, R, lamps, mats, matname, a, b, y0, y1, y0, y1, top)
+    """Vertical quad along floor segment a -> b (x, z), y0..y1; s along the wall, t down from `top`. Bank v2: a wall too tall for its
+    texture density (t would leave the s16 range) is cut into bands."""
+    _, k = material(mats, matname)
+    n = max(1, int(math.ceil((y1 - y0) * k / 24000.0)))
+    cuts = [y0, y1] if n == 1 else [y0 + int(round((y1 - y0) * j / float(n))) for j in range(n + 1)]
+    for c0, c1 in zip(cuts, cuts[1:]):
+        vquad(mesh, R, lamps, mats, matname, a, b, c0, c1, c0, c1, top)
 
 
 def stair_steps(R):
@@ -458,6 +588,18 @@ def build_room_mesh(R, mats, xs, zs):
     lamps = lamps_of(R)
     top = R.y + R.h if R.ramp is None else max(R.y, R.ramp_to) + R.h    # the walls' texture origin (t runs down from it)
     steps = stair_steps(R)
+    # bank v2: a big level room's ceiling is the fine floor grid only in its outer ring of cells (they meet the walls' segments
+    # edge to edge) and coarse quads (600 at most) inside: a hall's floor grid carries every doorway's and block's lines, and its
+    # ceiling does not need them (the banking hall drops from about 10000 vertices to 6000)
+    nfine = (len(xs) - 1) * (len(zs) - 1)
+    coarse = (R.ramp is None and not R.open_top and len(xs) >= 4 and len(zs) >= 4 and
+              nfine > 3 * len(split_span(R.x0, R.x1, 600)) * len(split_span(R.z0, R.z1, 600)))
+    if coarse:
+        cxs, czs = split_span(xs[1], xs[-2], 600), split_span(zs[1], zs[-2], 600)
+        for j in range(len(czs) - 1):
+            for i in range(len(cxs) - 1):
+                hpoly(mesh, R, lamps, mats, R.ceiling_mat, [(cxs[i], czs[j]), (cxs[i + 1], czs[j]), (cxs[i + 1], czs[j + 1]),
+                                                             (cxs[i], czs[j + 1])], top, FACE_CEIL)
     for j in range(len(zs) - 1):
         for i in range(len(xs) - 1):
             q = [(xs[i], zs[j]), (xs[i + 1], zs[j]), (xs[i + 1], zs[j + 1]), (xs[i], zs[j + 1])]
@@ -465,7 +607,8 @@ def build_room_mesh(R, mats, xs, zs):
             if R.ramp is None:
                 if not covered:
                     hpoly(mesh, R, lamps, mats, R.floor_mat, q, R.y, FACE_FLOOR)
-                if not R.open_top:
+                ring = i == 0 or j == 0 or i == len(xs) - 2 or j == len(zs) - 2
+                if not R.open_top and (ring or not coarse):
                     hpoly(mesh, R, lamps, mats, R.ceiling_mat, q, top, FACE_CEIL)
             else:
                 if not steps:
@@ -496,11 +639,16 @@ def build_room_mesh(R, mats, xs, zs):
                 span = D.span
                 for u0, u1 in zip(span, span[1:]):
                     vpoly(mesh, R, lamps, mats, riser, pt(c, u0), pt(c, u1), min(tread, D.y), max(tread, D.y), top)
-    # the four walls, cut at the door openings; every segment of a wall is split at the heights of its doors (no T-junctions)
-    sides = {"z0": [((x, R.z0), (x2, R.z0)) for x, x2 in zip(xs, xs[1:])],
-             "z1": [((x2, R.z1), (x, R.z1)) for x, x2 in zip(xs, xs[1:])],
-             "x0": [((R.x0, z2), (R.x0, z)) for z, z2 in zip(zs, zs[1:])],
-             "x1": [((R.x1, z), (R.x1, z2)) for z, z2 in zip(zs, zs[1:])]}
+    # the four walls, cut at the door openings; every segment of a wall is split at the heights of its doors (no T-junctions). Bank v2:
+    # a wall is also cut at the edges of its openings (on that wall only: an opening's edges are not floor grid lines)
+    def cut(lines, side):
+        extra = [v for O in R.openings if side_of(R, O) == side for v in (O.lo, O.hi)]
+        return sorted(set(lines + extra)) if extra else lines
+    wx0, wx1, wz0, wz1 = cut(xs, "z0"), cut(xs, "z1"), cut(zs, "x0"), cut(zs, "x1")
+    sides = {"z0": [((x, R.z0), (x2, R.z0)) for x, x2 in zip(wx0, wx0[1:])],
+             "z1": [((x2, R.z1), (x, R.z1)) for x, x2 in zip(wx1, wx1[1:])],
+             "x0": [((R.x0, z2), (R.x0, z)) for z, z2 in zip(wz0, wz0[1:])],
+             "x1": [((R.x1, z), (R.x1, z2)) for z, z2 in zip(wz1, wz1[1:])]}
     hs = half_step(R)
     for side, segs in sides.items():
         mat = R.wall_mats.get(side, R.wall_mat)
@@ -515,12 +663,16 @@ def build_room_mesh(R, mats, xs, zs):
         if steps:
             base = min(fl, steps[0][2] if side[1] == "0" else steps[-1][2])
         sdoors = [D for D in R.doors if side_of(R, D) == side]
-        ys = sorted(set([base, fl + R.h] + [D.y + D.h for D in sdoors]))
+        sopen = [O for O in R.openings if side_of(R, O) == side]          # bank v2: windows / balcony openings (a hole y..y+h)
+        ys = sorted(set([base, fl + R.h] + [D.y + D.h for D in sdoors] + [v for O in sopen for v in (O.y, O.y + O.h)]))
         for (a, b) in segs:
             along = (a[0] + b[0]) / 2.0 if side[0] == "z" else (a[1] + b[1]) / 2.0
             opening = [D for D in sdoors if D.lo < along < D.hi]
+            holes = [O for O in sopen if O.lo < along < O.hi]
             for y0, y1 in zip(ys, ys[1:]):
                 if opening and y1 <= opening[0].y + opening[0].h:
+                    continue
+                if any(y0 >= O.y and y1 <= O.y + O.h for O in holes):
                     continue
                 vpoly(mesh, R, lamps, mats, mat, a, b, y0, y1, top)
     # furniture blocks: a top and the sides that are not against a wall (the stan has a hole under each: build_stan)
@@ -570,6 +722,24 @@ def add_passage_mesh(mesh, D, mats, maxcell):
         else:
             a, b = (s, f0), (s, f1)
         vpoly(mesh, R, lamps, mats, reveal, a, b, D.y, ytop, top)
+
+
+def add_opening_mesh(mesh, D, mats):
+    """Bank v2: an opening's own faces in the wall's thickness (room a's): the sill's top (a balcony's rail, a window's ledge), the
+    soffit and the two jambs, in the frame's material or room a's wall."""
+    R = D.a
+    lamps = lamps_of(R)
+    f0, f1 = sorted((D.fa, D.fb))
+    y0, y1 = D.y, D.y + D.h
+    top = R.y + R.h
+    mat = D.frame["mat"] if D.frame else R.wall_mats.get(side_of(R, D), R.wall_mat)
+    for s0, s1 in zip(D.span, D.span[1:]):
+        q = [(f0, s0), (f1, s0), (f1, s1), (f0, s1)] if D.axis == "x" else [(s0, f0), (s1, f0), (s1, f1), (s0, f1)]
+        hpoly(mesh, R, lamps, mats, mat, q, y0, FACE_FLOOR)
+        hpoly(mesh, R, lamps, mats, mat, q, y1, FACE_CEIL)
+    for s in (D.lo, D.hi):
+        a, b = ((f0, s), (f1, s)) if D.axis == "x" else ((s, f0), (s, f1))
+        vpoly(mesh, R, lamps, mats, mat, a, b, y0, y1, top)
 
 
 def add_frame_mesh(mesh, R, D, face, inward, mats):
@@ -822,12 +992,38 @@ class Pad:
     pass
 
 
+_TILE_INDEX = {}
+
+
 def tile_at(tris, room, x, z):
-    """Index of the room's triangle that holds (x, z) well inside (nudged off an edge if it sits on one)."""
-    for (dx, dz) in ((0, 0), (9, -9), (-9, 9), (12, 0), (0, 12), (-12, 0), (0, -12), (9, 9), (-9, -9)):
+    """Index of the room's triangle that holds (x, z) well inside (nudged off an edge if it sits on one). Bank v2: the tiles are
+    indexed by room, with their x, z boxes (a 100-room layout has thousands of pads and tiles)."""
+    idx = _TILE_INDEX.get(id(tris))
+    if idx is None or idx[0] is not tris:
+        by = {}
         for n, (r, t) in enumerate(tris):
-            if r == room and inside_xz((x + dx, z + dz), t, 4.0):
-                return n, x + dx, z + dz
+            by.setdefault(r, []).append((n, t, min(p[0] for p in t), max(p[0] for p in t), min(p[2] for p in t), max(p[2] for p in t)))
+        idx = (tris, by)
+        _TILE_INDEX[id(tris)] = idx
+    cands = idx[1].get(room, [])
+    for (dx, dz) in ((0, 0), (9, -9), (-9, 9), (12, 0), (0, 12), (-12, 0), (0, -12), (9, 9), (-9, -9)):
+        px, pz = x + dx, z + dz
+        for (n, t, bx0, bx1, bz0, bz1) in cands:
+            if bx0 < px < bx1 and bz0 < pz < bz1 and inside_xz((px, pz), t, 4.0):
+                return n, px, pz
+    # bank v2: a point on a sliver of floor (a doorway's grid has a line 10 units from its jamb, from another doorway of the room
+    # beyond): the tile that holds it at all, else the nearest tile within 40 units (its centre)
+    for (n, t, bx0, bx1, bz0, bz1) in cands:
+        if bx0 <= x <= bx1 and bz0 <= z <= bz1 and inside_xz((x, z), t, -0.01):
+            return n, x, z
+    best = None
+    for (n, t, bx0, bx1, bz0, bz1) in cands:
+        cx, cz = sum(p[0] for p in t) / 3.0, sum(p[2] for p in t) / 3.0
+        dd = math.hypot(cx - x, cz - z)
+        if dd < 40 and (best is None or dd < best[0]):
+            best = (dd, n)
+    if best:
+        return best[1], x, z
     return None, x, z
 
 
@@ -906,6 +1102,28 @@ def build_waypoints(pads, rooms, doors, maxcell):
                 q = min(cands, key=lambda q: math.hypot(p.x - q.x, p.z - q.z))
                 adj[p.id].add(q.id)
                 adj[q.id].add(p.id)
+        # bank v2: a room's pads must be one connected graph (the stock init_path_table_links floods each waypoint group and freezes
+        # the game, "not all locs in hall are connected", if one is not): join the pieces by their nearest clear pair
+        while len(mine) > 1:
+            ids = set(P.id for P in mine)
+            comp, todo = {mine[0].id}, [mine[0].id]
+            while todo:
+                u = todo.pop()
+                for v in adj[u]:
+                    if v in ids and v not in comp:
+                        comp.add(v)
+                        todo.append(v)
+            if len(comp) == len(ids):
+                break
+            inn = [P for P in mine if P.id in comp]
+            out = [P for P in mine if P.id not in comp]
+            pairs = sorted(((math.hypot(p.x - q.x, p.z - q.z), p, q) for p in inn for q in out), key=lambda t: t[0])
+            pair = next(((p, q) for (_, p, q) in pairs if line_clear(R, (p.x, p.z), (q.x, q.z))), None)
+            if pair is None:
+                sys.exit("waypoints: room %s's pads fall in pieces with no clear line between them (blocks wall a part off): %s" % (
+                    R.name, ", ".join(P.name or str(P.id) for P in out[:6])))
+            adj[pair[0].id].add(pair[1].id)
+            adj[pair[1].id].add(pair[0].id)
     for D in doors:
         for q in (D.pad_a, D.pad_b):
             adj[D.pad.id].add(q.id)
@@ -1106,10 +1324,11 @@ def build_objects(rooms, byname, doors, pads, tris, objs_first_pad):
         D.obj_index2 = idxs[1] if len(idxs) > 1 else None
         D.keyflags = keyflags
         name = o.get("name", D.name)
+        extra = {"guard_access": o["guard_access"]} if o.get("guard_access") else {}   # bank v2: who of the guards may open it
         if D.obj_index2 is not None:
-            entry(name, "door", idx, D.a, keyflags=keyflags, doorway=D.name, pair=D.obj_index2)
+            entry(name, "door", idx, D.a, keyflags=keyflags, doorway=D.name, pair=D.obj_index2, **extra)
         else:
-            entry(name, "door", idx, D.a, keyflags=keyflags, doorway=D.name)
+            entry(name, "door", idx, D.a, keyflags=keyflags, doorway=D.name, **extra)
         if o.get("padlock"):
             # the padlock hangs on room a's side of the door, 120 up; shooting it frees the door (stock doorIsPadlockFree)
             back = -sgn * (t / 2.0 + 14.0)
@@ -1213,7 +1432,8 @@ def build_objects(rooms, byname, doors, pads, tris, objs_first_pad):
                 door_idx = O.rec("Door %s (the safe's door, keyflags 0x%x)" % (name, kf), obj_head(PROPDEF["door"], MODEL["safedoor"], dp, 0,
                                                                                              0x20000000) + ", " + tail)
                 O.lua["safes"].append(door_idx)
-                entry(name, "safe", door_idx, R, body=body, keyflags=kf, x=int(at[0]), y=R.y, z=int(at[1]))
+                extra = {"guard_access": o["guard_access"]} if o.get("guard_access") else {}
+                entry(name, "safe", door_idx, R, body=body, keyflags=kf, x=int(at[0]), y=R.y, z=int(at[1]), **extra)
             else:
                 sys.exit("room %s: unknown object type %r" % (R.name, kind))
 
@@ -1292,7 +1512,7 @@ def lua_val(v):
     return lua_str(str(v))
 
 
-def gen_lua(name, src, rooms, doors, pads, start, O=None):
+def gen_lua(name, src, rooms, doors, pads, start, O=None, openings=()):
     o = ["-- Generated by tools/gen_level.py from %s - do not edit; rerun the script." % src,
          "-- The layout of the generated level for mode scripts: include(\"%s_layout\") (modding/levelgen.md)." % name,
          "LEVEL = {", "  name = %s," % lua_str(name), "  start_pad = %d," % start.id, "  rooms = {"]
@@ -1302,6 +1522,8 @@ def gen_lua(name, src, rooms, doors, pads, start, O=None):
         extra = ""
         if R.area:
             extra += ", area = %s" % lua_str(R.area)
+        if R.zone:
+            extra += ", zone = %s" % lua_str(R.zone)
         if R.ramp is not None:
             extra += ", ramp = { axis = %s, to = %d, stairs = %d }" % (lua_str(R.ramp["axis"]), R.ramp_to, R.stairs)
         if R.blocks:
@@ -1325,6 +1547,15 @@ def gen_lua(name, src, rooms, doors, pads, start, O=None):
         o.append("    { name = %s, a = %s, b = %s, portal = %d, pad = %d, pad_a = %d, pad_b = %d, x = %.0f, z = %.0f, width = %d, height = %d%s }," % (
             lua_str(D.name), lua_str(D.a.name), lua_str(D.b.name), D.index, D.pad.id, D.pad_a.id, D.pad_b.id, cx, cz, D.w, D.h, extra))
     o.append("  },")
+    if openings:
+        # bank v2: see-through openings (balconies, windows): portals with no floor through them
+        o.append("  openings = {")
+        for D in openings:
+            mid = (D.lo + D.hi) / 2.0
+            cx, cz = ((D.fa + D.fb) / 2.0, mid) if D.axis == "x" else (mid, (D.fa + D.fb) / 2.0)
+            o.append("    { name = %s, a = %s, b = %s, portal = %d, x = %.0f, z = %.0f, y0 = %d, y1 = %d, width = %d }," % (
+                lua_str(D.name), lua_str(D.a.name), lua_str(D.b.name), D.index, cx, cz, D.y, D.y + D.h, D.w))
+        o.append("  },")
     o.append("  pads = { %s }," % ", ".join("[%s] = %d" % (lua_str(P.name), P.id) for P in pads if P.name))
     if O is not None:
         # setup objects (P2.2): every object by name, and the setup indices of each kind (door.*, cctv.*, the use / gadget events)
@@ -1358,7 +1589,10 @@ def main():
     ap.add_argument("layout", help="layout JSON (tools/levelgen/*.json)")
     ap.add_argument("--out", default=None, help="output directory (default port/<name>)")
     a = ap.parse_args()
-    L, d, mats, rooms, byname, doors = load_layout(a.layout)
+    L, d, mats, rooms, byname, doors, openings = load_layout(a.layout)
+    if len(rooms) > MAX_ROOMS or len(doors) + len(openings) > MAX_PORTALS:
+        sys.exit("the engine's limits: %d rooms (max %d: MAXROOMCOUNT 150 less room 0 and the end entry, with a margin), %d portals "
+                 "(max %d: PORTMAX 200)" % (len(rooms), MAX_ROOMS, len(doors) + len(openings), MAX_PORTALS))
     name = L["name"]
     if not name.isalnum() or not name.islower():
         sys.exit("name must be lower-case letters and digits")
@@ -1371,9 +1605,14 @@ def main():
     describe = "%s: %d rooms, %d doorways (from %s)" % (name, len(rooms), len(doors), src)
 
     grids = room_grids(rooms, doors, maxcell)
+    for D in openings:
+        D.span = sorted(set([D.lo, D.hi] + [p for p in grids[D.a.id][1 if D.axis == "x" else 0] if D.lo < p < D.hi]))
     meshes = {R.id: build_room_mesh(R, mats, grids[R.id][0], grids[R.id][1]) for R in rooms}
-    for D in doors:
-        add_passage_mesh(meshes[D.a.id], D, mats, maxcell)
+    for D in doors + openings:
+        if D.kind == "door":
+            add_passage_mesh(meshes[D.a.id], D, mats, maxcell)
+        else:
+            add_opening_mesh(meshes[D.a.id], D, mats)
         if D.frame:
             ina = -1 if D.fa < D.fb else 1                 # room a lies this way from its face
             add_frame_mesh(meshes[D.a.id], D.a, D, D.fa, ina, mats)
@@ -1382,11 +1621,15 @@ def main():
     pads, start = build_pads(L, d, rooms, byname, grids, doors, tris, maxcell)
     adj, group, gadj, members = build_waypoints(pads, rooms, doors, maxcell)
     O = build_objects(rooms, byname, doors, pads, tris, len(pads))
+    if len(tris) > MAX_TILES or len(pads) + len(O.opads) >= MAX_PADS or any(
+            max(abs(R.x0), abs(R.x1), abs(R.z0), abs(R.z1), abs(R.y) + R.h, abs(R.ramp_to) + R.h) > MAX_COORD for R in rooms):
+        sys.exit("the engine's limits: %d tiles (max %d), %d pads (max %d), coordinates within +-%d" % (
+            len(tris), MAX_TILES, len(pads) + len(O.opads), MAX_PADS, MAX_COORD))
 
-    bgc, bgh, stats = gen_bg(name, rooms, meshes, doors, describe)
+    bgc, bgh, stats = gen_bg(name, rooms, meshes, doors + openings, describe)
     stan, nlinks, cross = gen_stan(name, tris, rooms, describe)
     setup = gen_setup(name, pads, start, adj, group, gadj, members, describe, O)
-    lua = gen_lua(name, src, rooms, doors, pads, start, O)
+    lua = gen_lua(name, src, rooms, doors, pads, start, O, openings)
     for fn, text in (("bg_%s_all_p.c" % name, bgc), ("bg_%s_all_p.h" % name, bgh),
                      ("Tbg_%s_all_p_stanZ.c" % name, stan), ("Usetup%sZ.c" % name, setup),
                      ("%s_layout.lua" % name, lua)):
@@ -1415,10 +1658,15 @@ def main():
     for D in doors:
         print("  doorway %d %s: rooms %d-%d, portal at %s=%d, opening %d..%d x %d high, pads %d (door) %d %d" % (
             D.index, D.name, D.a.id, D.b.id, D.axis, D.fb, D.lo, D.hi, D.h, D.pad.id, D.pad_a.id, D.pad_b.id))
+    for D in openings:
+        print("  opening %d %s: rooms %d-%d, portal at %s=%d, %d..%d, y %d..%d" % (
+            D.index, D.name, D.a.id, D.b.id, D.axis, D.fb, D.lo, D.hi, D.y, D.y + D.h))
     for k, (comment, _) in enumerate(O.recs):
         print("  object %d: %s" % (k, comment))
     print("%s: %d tiles (%d links, %d across rooms), %d pads (start %d) + %d object pads, %d bound pads, %d objects, %d waypoint groups, out=%s" % (
         describe, len(tris), nlinks, cross, len(pads), start.id, len(O.opads), len(O.bpads), len(O.recs), len(members), out))
+    if openings:
+        print("openings: %d; portals %d of %d; cameras %d" % (len(openings), len(doors) + len(openings), MAX_PORTALS, len(O.lua["cameras"])))
 
 
 if __name__ == "__main__":

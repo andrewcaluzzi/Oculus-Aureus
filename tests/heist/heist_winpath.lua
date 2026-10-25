@@ -49,13 +49,29 @@ local function wait_for(sec, fn)
 end
 local function d2(ax, az, bx, bz) return math.sqrt((ax - bx) ^ 2 + (az - bz) ^ 2) end
 
--- warp Bond 0 onto a point: the nearest pad plus an offset
-local function warp_xz(x, z)
+-- warp Bond 0 onto a point: the nearest pad plus an offset. Bank v2: floors stack (the offices under the loan offices, the vault over the
+-- deep archive), so the nearest pad in x, z may be a floor away: with `room` (an id) Bond lands in that room, trying pads nearest first
+local PAD_ROOM = nil
+local function pad_room(p)
+  if not PAD_ROOM then
+    PAD_ROOM = {}
+    for id = 1, #LEVEL.room_name do
+      local R = LEVEL.rooms[LEVEL.room_name[id]]
+      for _, q in ipairs(R.pads) do PAD_ROOM[q] = id end
+      for _, q in pairs(R.named) do PAD_ROOM[q] = id end
+    end
+    for _, D in ipairs(LEVEL.doors) do
+      PAD_ROOM[D.pad_a], PAD_ROOM[D.pad_b], PAD_ROOM[D.pad] = LEVEL.rooms[D.a].id, LEVEL.rooms[D.b].id, LEVEL.rooms[D.a].id
+    end
+  end
+  return PAD_ROOM[p]
+end
+local function warp_xz(x, z, room)
   local best, bd = nil, 1e9
   for _, p in ipairs(pads.far_from(x, z, 0, 900)) do
     local px, _, pz = pads.pos(p)
     local d = d2(px, pz, x, z)
-    if d < bd then best, bd = p, d end
+    if d < bd and (not room or pad_room(p) == room) then best, bd = p, d end
   end
   if not best then return false end
   local px, _, pz = pads.pos(best)
@@ -78,9 +94,10 @@ local function take_card(flags, label)
   spawn.ko(c.chr, 0)
   wait(4.5)
   local x, z = spawn.where(c.chr)
+  local croom = spawn.room(c.chr)
   local s
   for _, o in ipairs({ { -50, 0 }, { 50, 0 }, { 0, 50 }, { 0, -50 }, { 0, 0 } }) do
-    warp_xz(x + o[1], z + o[2])
+    warp_xz(x + o[1], z + o[2], croom)
     wait(0.5)
     local bx, _, bz = bond.pos(0)
     s = ko.search(0)
@@ -91,7 +108,7 @@ local function take_card(flags, label)
   local alive, held, kx, kz = spawn.key_alive(c.key)
   check(label .. ": knocked out and searched, the card drops", s == c.chr and ((alive and not held) or bond.has_key(0, flags)),
         string.format("search=%s held=%s", tostring(s), tostring(held)))
-  if kx then warp_xz(kx, kz) end
+  if kx then warp_xz(kx, kz, croom) end
   local got = wait_for(4, function() return bond.has_key(0, flags) end)
   check(label .. " card picked up (bond.has_key)", got, string.format("keys=0x%x", bond.keys(0)))
   return got
@@ -109,7 +126,7 @@ local function grab(where, maxn)
       bond.warp(0, it.pad, it.dx, it.dz)
       wait(0.5)
       if not spawn.item_alive(it.h) then got = got + 1
-      else warp_xz(it.x, it.z); wait(0.5); if not spawn.item_alive(it.h) then got = got + 1 end end
+      else warp_xz(it.x, it.z, bond.room(0)); wait(0.5); if not spawn.item_alive(it.h) then got = got + 1 end end
     end
   end
   return got, HEIST.bars + HEIST.cash - n0
@@ -125,18 +142,21 @@ local function setup_map()
   do
     local O = LEVEL.objects
     local function approach(doorway) for _, d in ipairs(LEVEL.doors) do if d.name == doorway then return d.pad_a end end end
-    W.cams = 7
+    W.cams = #LEVEL.cameras                                   -- (bank v2: 27)
     W.green_door, W.office_at, W.office_door = O.green_hall.index, approach("hall-office_corr"), O.green_hall.index
     W.sec_at, W.sec_door = approach("hall-sec_office"), O.blue_hall.index
     W.console_at = LEVEL.pads.console
     W.console_press = function() cctv.test_use(0) end         -- a real use press (nothing in reach: the console zone takes it)
-    W.mgr_at, W.mgr_door = approach("back_corr-manager"), O.manager_door.index
-    W.red_at, W.red_door = approach("back_corr-stairs"), O.red_stairs.index
+    W.mgr_at, W.mgr_door = approach("back_corr_w-manager"), O.manager_door.index
+    W.red_at, W.red_door = approach("back_corr_e-stairs"), O.red_stairs.index
     W.safe_at, W.safe_door = LEVEL.pads.safe_front, O.mgr_safe.index
     W.cell_at, W.cell_door = approach("deposit-cell_1"), O.cell_green.index
     W.inside = LEVEL.pads.vault_in_a
     W.vault_a = O.vault_door_a.index
-    W.corner = { 340, 3180 }                                  -- the vault's south-west corner, far from both doors
+    do                                                        -- the vault's south-west corner, far from both doors (from LEVEL)
+      local r = LEVEL.rooms.vault.rect
+      W.corner = { r[1] + 40, r[2] + 40 }
+    end
     W.corner_ok = function(room) return room == LEVEL.rooms.vault.id end
     W.corner_label = "Bond stands in the vault's far corner"
   end
@@ -346,7 +366,7 @@ local function trapped_path()
   check("bars grabbed", n >= 2, "n=" .. n)
   -- Bunker 2: the west end of room 56 (x below ~300 along z 3141): the old circle test missed it, and a Bond there at the time lock was
   -- "sealed" in for good with no re-crack (the player bot found it). He counts as inside by his room now. The bank: a far corner.
-  warp_xz(W.corner[1], W.corner[2])
+  warp_xz(W.corner[1], W.corner[2], LEVEL.rooms.vault.id)
   wait(0.5)
   local wx, _, wz = bond.pos(0)
   check(W.corner_label, W.corner_ok(bond.room(0), wx),
