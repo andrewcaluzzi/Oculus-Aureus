@@ -29,6 +29,7 @@ run_stage() {
     st=$1
     a=1
     done_ok=0
+    unverified=0
     line=""
     : > "$OUT/$st.tsv"
     while [ $a -le "$RETRIES" ]; do
@@ -36,15 +37,17 @@ run_stage() {
         rc=$?
         printf '%s\n' "$line" | awk -F'\t' -v a=$a 'BEGIN{OFS="\t"} {print $1,$2,a,$3,$4,$5,$6,$7,$8,$9,$10,$11}' >> "$OUT/$st.tsv"
         echo "$st attempt $a: $line"
-        if [ $rc = 0 ] || [ $rc = 3 ]; then
+        if [ $rc = 0 ]; then
             done_ok=1
             break
         fi
+        # completed, but the replay without the bot ended differently: not a verified pass - try the next seed
+        [ $rc = 3 ] && unverified=1
         a=$((a + 1))
     done
     [ $a -gt "$RETRIES" ] && a=$RETRIES
-    echo "$line" | awk -F'\t' -v a=$a -v ok=$done_ok '{
-        res = ok ? "**pass**" : "FAIL (" $3 ")";
+    echo "$line" | awk -F'\t' -v a=$a -v ok=$done_ok -v unv=$unverified '{
+        res = ok ? "**pass**" : (unv ? "UNVERIFIED (completed; replay differs)" : "FAIL (" $3 ")");
         fp = ok ? "-" : $11;
         printf "%s | %s | %d | %s | %s | %s | %s | %s | %s |\n", $1, res, a, $4, $6, $7, $8, $9, fp }' > "$OUT/$st.row"
     echo "$done_ok" > "$OUT/$st.ok"

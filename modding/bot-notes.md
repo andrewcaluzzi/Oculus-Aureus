@@ -121,8 +121,8 @@ takes over an hour.
 stick's x (`analogStrafe = stick x`, `canTurnTank` forced on) and the C buttons' digital steps are cleared. Every combat
 "strafe", civilian side-step and walk-while-aiming heading since round 1 pressed C-left/right and stood still (measured
 < 1 u/tick). They now use stick x (+x moves Bond toward yaw theta + 90, i.e. against r1 = (cos t, sin t)). The periodic
-combat dodge is opt-in (`GE_PLAYERBOT_DODGE=N` ticks per side): Bunker 2 seeds 1-6 won 1/6 with a 45-tick dodge against
-3/6 standing (see the dodge sweep below).
+combat dodge is opt-in (`GE_PLAYERBOT_DODGE=N` ticks per side). Bunker 2, seeds 1-12 (no replay): standing **4/12**
+(health lost 1.22 a run), 45-tick dodge 4/12 (1.45), 120-tick dodge 1/12 (1.68) - standing stays the default.
 
 **Movement, measured** (`GE_PLAYERBOT_SSTEST=1`: the first 25 s of a stage run each input along a line, view held; Dam's
 start road, the "out" leg): stick forward 8.4 u/tick; stick forward + right 9.0 u/tick 40 deg off the view (the bot's
@@ -162,6 +162,68 @@ t=`): plan writing reads which AI flag fired straight from a run. Cover picks th
 (`pblExposure`: sum of min(1, 300/d) over guards that see it; 0.25 for none) when 2+ guards have a line, moving only for a
 clear gain (`GE_PLAYERBOT_OLDCOVER=1`: the round-3 rule). Plans: Statue, Streets (pad 248), Depot (train door, pad 271),
 Archives (pad 152, Natalya 0x409, pad 208).
+
+### Campaign, Agent, round 4
+
+`PAR=10 RETRIES=3 MAXSECS=900 NOSHOTS=1 sh tests/bot/campaign.sh 0` on commit 3 of round 4 (default profile: dodge off,
+speed off). **7 passes** (round 2: 6; Statue is new). 59 of 60 attempts replayed `same`; Bunker 1's first completion
+drifted at tick 6025 in its replay (the photo objective missed, then the game diverged); the re-run of the same seed made
+the identical 294 s run and its replay matched - the photo test (PROPFLAG_ONSCREEN, zDepth, the screen projection: all
+set by drawing) is still not reliably deterministic under load (10 games at once). campaign.sh now retries such a run
+with the next seed and reports `UNVERIFIED` if no attempt verifies.
+
+| Stage | Result | Att. | Mission time | Health lost | Obj. | Failure point / note | Round 2 |
+|---|---|---|---|---|---|---|---|
+| Dam | **pass** | 1 | 157 s | 0.12 | 1/1 | | pass 157 s |
+| Facility | fail | 3 | 487 s | 1.46 | 1/4 | died at the bottling tanks (room 66/67); a2 stuck at the key door (900 s) | fail |
+| Runway | **pass** | 1 | 69 s | 0.61 | 2/2 | | pass 60 s |
+| Surface 1 | **pass** | 1 | 349 s | 0.00 | 2/2 | | pass 349 s |
+| Bunker 1 | **pass** | 1 | 294 s | 1.57 | 2/2 | replay verified on the re-run (above) | pass 222 s |
+| Silo | fail | 3 | 181 s | 1.00 | 1/5 | died in rooms 67/68 every attempt | fail |
+| Frigate | fail | 3 | 900 s | 0.00 | 0/2 | bug planted (a1, a3); hostage hunt: no route (room 18) | fail |
+| Surface 2 | **pass** | 1 | 623 s | 0.99 | 2/2 | | pass 445 s |
+| Bunker 2 | **pass** | 3 | 248 s | 1.31 | 2/2 | | pass 222 s |
+| Statue | **pass** | 1 | 373 s | 1.50 | 5/5 | new plan | fail |
+| Archives | fail | 3 | 61 s | 1.01 | 0/4 | a1 escaped (obj 0) and lived 475 s, never met Natalya | fail |
+| Streets | fail | 3 | 260 s | 2.02 | 1/3 | died near pad 248's approach (room 43); big hits (0.3-0.4) from 2000+ away | fail |
+| Depot | fail | 3 | 628 s | 1.01 | 0/5 | the route to the train door crosses a key-8 door the bot cannot open | fail |
+| Train | fail | 3 | 900 s | 0.00 | 0/3 | no plan (room 9) | fail |
+| Jungle | fail | 3 | 156 s | 1.01 | 1/4 | died (room 33) | fail |
+| Control | fail | 3 | 900 s | 0.00 | 0/3 | stuck (room 83), no plan | fail |
+| Caverns | fail | 3 | 900 s | 0.00 | 0/1 | no route (room 62), no plan | fail |
+| Cradle | fail | 3 | 133 s | 1.03 | 1/2 | died (room 17) | fail |
+| Aztec | fail | 3 | 900 s | 0.00 | 0/2 | no route (room 2), no plan | fail |
+| Egypt | fail | 3 | 44 s | 1.02 | 0/2 | died (room 19) | fail |
+
+### Speedrun profile (`GE_PLAYERBOT_SPEED=1`), Agent, seeds 1-3, every run replayed `same` (42/42)
+
+| Stage | Best time, normal | Best time, speed-strafe | Completed (normal / speed) |
+|---|---|---|---|
+| Dam | 157 s | **108 s** (-31%) | 3/3, 3/3 |
+| Runway | **61 s** | 63 s | 3/3, 3/3 |
+| Surface 1 | 305 s | **204 s** (-33%) | 3/3, 3/3 |
+| Bunker 1 | 294 s | **106 s** | 1/3, 2/3 |
+| Surface 2 | **623 s** | - | 1/3, 0/3 |
+| Bunker 2 | **248 s** | - | 1/3, 0/3 |
+| Statue | 311 s | **244 s** (-22%) | 2/3, 2/3 |
+
+Speed-strafing wins the time on four of the five stages both finish, and loses Surface 2 and Bunker 2 (on Surface 2 all
+three speed runs time out at 900 s, on Bunker 2 all three die): the 38-degree view offset turns Bond's look off the way
+he goes, so guards ahead are seen late, and the digital diagonal is not the stick's (no slow approach). Not yet the
+default; next: drop to the stick within ~600 of a known threat, and through doors and tight bends.
+
+### What blocks the rest (round 4 view)
+
+- **Combat** is still the first cause of failure (Facility, Silo, Jungle, Cradle, Egypt, Streets, Archives a3, Depot).
+  The exposure-scored cover rarely triggers on these (most hits come from 1-2 guards with a line, or guards the tile line
+  test calls hidden); Streets' 0.3-0.4 hits from 2000+ away are not rifle fire (explosions or rockets - not looked at).
+- **Frigate**: the captors (ai_2) shoot their hostage 3 s after they notice Bond unless Bond hits them first; a freed
+  hostage (ai_3) counts only when he reaches his pad *out of Bond's line of sight*; the last two hostages' captors are
+  off the nav mesh from where the hunt stands. Needs captor-specific targeting and stepping out of the hostage's view.
+- **Depot**: a door with key flags 8 on the route to the train door; find which key and where.
+- **Train, Control, Caverns, Aztec**: no plans (escort / timed objectives; Caverns and Aztec start somewhere the nav
+  mesh does not route out of).
+- **Heist**: tune 3 loses on civilians killed in the crossfire before the vault (round 3's finding stands).
 
 **Disk**: batch output goes to `E:\midas-temp\bot` (`BOTOUT=/scratch/bot` with `-v /mnt/e/midas-temp:/scratch`; `OUT=` for
 campaign.sh); `NOSHOTS=1` now works for level.sh and campaign.sh too. Batches run a copy of the binary

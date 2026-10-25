@@ -155,8 +155,9 @@ the RESULT line. From C, `portPlayerBotSetPlanner(fn)` does the same job without
 
 Easy tunings for measuring it (the heist's defaults untouched): `GE_HEIST_TUNE1..5` (fewer guards, stock accuracy) and
 `GE_HEIST_CIVOK=1` (no civilian limit), or `TUNE=n` / `CIVOK=1` for `tests/bot/heist.sh`; `NOSHOTS=1` drops each run's
-screenshots. Status: modding/bot-notes.md ("Round 3") - the full loop wins 10/10 with carriers only, 8/10 with 20 posted
-guards, 0/10 from 45 up.
+screenshots. Status: modding/bot-notes.md ("Round 3", re-measured in "Round 4") - the full loop wins 10/10 with carriers
+only, 9/10 with 20 posted guards, 1/10 with 30, 0/10 from 45 up. Status of the campaign (7 of 20 stages on Agent) and the
+speedrun profile: "Round 4".
 
 ## Known limits
 
