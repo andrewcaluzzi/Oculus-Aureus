@@ -50,6 +50,7 @@ if [ "$WHICH" = proof ] || [ "$WHICH" = all ]; then
         echo "HEIST AR FAIL proof: $n ticks (need $NEED), first difference: ${first:-none}"
         FAIL=$((FAIL + 1))
     fi
+    grep -aq "ge: arhud: diagnostics layer drawing" $OUT/proof.on.log || { echo "HEIST AR FAIL proof: the diagnostics layer never drew in the 'on' run"; FAIL=$((FAIL + 1)); }
     grep -aq "ge: lua: .*error" $OUT/proof.on.log && { echo "HEIST AR FAIL proof: a Lua error with AR on"; grep -a "ge: lua: .*error" $OUT/proof.on.log | head -n 3; FAIL=$((FAIL + 1)); }
 fi
 echo "HEIST AR DONE $PASS passed, $FAIL failed"

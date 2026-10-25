@@ -1178,7 +1178,19 @@ Gfx *portArHudRender(Gfx *gdl)
     if (sArOn && sLayer[ARL_POINTS]) drawPoints(pl);
     if (sArOn && sLayer[ARL_SPEECH]) drawSays(lp, pl);
     if ((sArOn && sLayer[ARL_RADAR]) || sDiagOn) drawRadar(lp, pl);
-    if (sDiagOn) drawDiagPanel(lp, pl);
+    if (sDiagOn)
+    {
+        static int logged;
+
+        if (!logged)
+        {   /* once per run: tests (run_ar.sh proof) check the layer really drew */
+            extern void portConLogf(const char *fmt, ...);
+
+            portConLogf("ge: arhud: diagnostics layer drawing (tick %d)\n", (int) g_GlobalTimer);
+            logged = 1;
+        }
+        drawDiagPanel(lp, pl);
+    }
     if (sArOn && !sDiagOn) text(sW - 74, sH - 16, "Q-SPECS", 0x50FFA090u);
 
     /* emit: as many rects and texts as the master list has room for */
