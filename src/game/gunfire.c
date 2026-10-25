@@ -5087,24 +5087,56 @@ f32 get_45_degree_angle(s32 unk) {
 
 u16 *get_ptr_first_title_line_item(ITEM_IDS item)
 {
+#ifndef TARGET_N64
+    {   /* PORT: heist gadgets: a gadget borrowing a stock item shows its own name (port_gadgets.c) */
+        extern const char *portGadgetsItemText(int item, int which);
+        const char *t = portGadgetsItemText((int) item, 0);
+
+        if (t != NULL) return (u16 *) t;
+    }
+#endif
   return langGet(gitem_structs[item].upper_watch_text);
 }
 
 
 u16 *get_ptr_second_title_line_item(ITEM_IDS item)
 {
+#ifndef TARGET_N64
+    {   /* PORT: heist gadgets: a gadget borrowing a stock item shows its own name (port_gadgets.c) */
+        extern const char *portGadgetsItemText(int item, int which);
+        const char *t = portGadgetsItemText((int) item, 1);
+
+        if (t != NULL) return (u16 *) t;
+    }
+#endif
     return langGet(gitem_structs[item].lower_watch_text);
 }
 
 
 u16 *get_ptr_short_watch_text_for_item(ITEM_IDS item)
 {
+#ifndef TARGET_N64
+    {   /* PORT: heist gadgets: a gadget borrowing a stock item shows its own name (port_gadgets.c) */
+        extern const char *portGadgetsItemText(int item, int which);
+        const char *t = portGadgetsItemText((int) item, 2);
+
+        if (t != NULL) return (u16 *) t;
+    }
+#endif
     return langGet(gitem_structs[item].watch_equipment_text);
 }
 
 
 u16 *get_ptr_long_watch_text_for_item(ITEM_IDS item)
 {
+#ifndef TARGET_N64
+    {   /* PORT: heist gadgets: a gadget borrowing a stock item shows its own name (port_gadgets.c) */
+        extern const char *portGadgetsItemText(int item, int which);
+        const char *t = portGadgetsItemText((int) item, 3);
+
+        if (t != NULL) return (u16 *) t;
+    }
+#endif
     return langGet(gitem_structs[item].weapon_of_choice_text);
 }
 

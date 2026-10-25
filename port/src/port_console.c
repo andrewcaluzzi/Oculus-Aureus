@@ -1869,6 +1869,11 @@ Gfx *portConRender(Gfx *gdl)
         gdl = cctvOverlay(gdl);   /* heist: a camera feed's labels and static (under every other line) */
         gdl = hudPanel(gdl);
         gdl = coverEye(gdl);      /* heist: the disguise's eye */
+        {
+            extern Gfx *portGadgetsOverlay(Gfx *gdl);   /* heist gadgets: the piton line, the aim marker, the work bar */
+
+            gdl = portGadgetsOverlay(gdl);
+        }
     }
 
     gdl = portNetGraphRender(gdl);   /* job 6: net_graph 1-3 (a no-op at 0) */

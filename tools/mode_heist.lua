@@ -134,6 +134,9 @@ local S = {
     vault_a = "never", vault_b = "never",                                        -- the time-locked vault: nobody
     safe = "never", cell_green = "never", cell_floor = "never", dock_shutter = "never",
   },
+  -- the crew's gadgets (tools/heist_gadgets.lua, designs/bank-heist.md section 21): nil = the default loadout (piton gun, lockpicks, 4 coins,
+  -- 2 tape loops, 1 sleep gas, pickpocket, disguise, vents); a table overrides any of it, e.g. { coins = 0, gas = 0 } or { piton = false }
+  gadgets         = nil,
   spawn_per_tick  = 24,      -- chrs placed per 0.25 s at the start (no hitch)
   test            = false,   -- test hooks on (HEIST.* below are always there; this only adds log lines)
   -- difficulty (mission.difficulty(): 0 Agent .. 3 007). force: the share of the full force above (posted guards, raisers, vault
@@ -185,6 +188,7 @@ local H = {
   blown = 0, reports = 0,
 }
 HEIST = H
+H.S = S                -- (the settings, for tools/heist_gadgets.lua)
 -- the power (section 16): out, the cabinet step, the work under way, the generator, the investigators, witnesses waiting for the mains
 local PW = { out = false, step = 0, task = nil, by = nil, prog = 0, saved = { cabinet = 0, breaker = 0, generator = 0 }, hp = nil,
              cut_at = nil, gen_off = false, invest_at = nil, invest = {}, repair = 0, pending = {}, cuts = 0 }
@@ -1275,3 +1279,6 @@ on("tick", function(dt)
   hud_acc = hud_acc + dt
   if hud_acc >= 0.5 then hud_acc = 0; if not H.ended then refresh_hud(); intel_tick() end end
 end)
+
+-- the crew's gadgets (designs/bank-heist.md section 21): their own handlers, after the heist's (their state rides in mode.state)
+include("heist_gadgets")

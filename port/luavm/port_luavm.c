@@ -1732,6 +1732,11 @@ static lua_State *portLuaState(void)
 
         portLuaBotRegister(sL);
     }
+    {   /* the heist's gadgets: gadget.* (port_luavm_gadgets.c, port/src/port_gadgets.c) */
+        extern void portLuaGadgetsRegister(lua_State *L);
+
+        portLuaGadgetsRegister(sL);
+    }
     lua_pushcfunction(sL, portLuaOn);
     lua_setglobal(sL, "on");
     lua_pushcfunction(sL, portLuaInclude);

@@ -78,6 +78,8 @@ static void coverAct(int p);
 static void coverShot(int p);
 static void doorRulesReset(void);
 static void radioSfx(s32 chrnum, int relay);
+extern int portGadgetsDisguiseClass(int p, int cls);        /* port_gadgets.c: the room class through Bond p's disguise */
+extern float portGadgetsDisguiseCloseScale(int p);          /* port_gadgets.c: a disguised Bond is looked at closely */
 
 void portHeistStageReset(void)
 {
@@ -102,6 +104,11 @@ void portHeistStageReset(void)
         extern void portCctvViewReset(void);   /* port_cctvview.c: nobody watches a camera at a stage start */
 
         portCctvViewReset();
+    }
+    {
+        extern void portGadgetsReset(void);   /* port_gadgets.c: the gadgets' triggers, reels and disguises */
+
+        portGadgetsReset();
     }
 }
 
@@ -2305,7 +2312,7 @@ static void coverScan(f32 dt)
         }
         ok[p] = 1;
         armed[p] = bondArmed(p);
-        cls[p] = sRoomClass[pl->prop->stan->room & 0xFF];
+        cls[p] = portGadgetsDisguiseClass(p, sRoomClass[pl->prop->stan->room & 0xFF]);   /* (a uniform: port_gadgets.c) */
         act[p] = sNow < sCoverActUntil[p];
         if (sBondPOk[p] && dt > 0.0f)
         {
@@ -2369,7 +2376,7 @@ static void coverScan(f32 dt)
                 if (d < sCt.close)
                 {
                     e->linger[p] += dt;
-                    if (e->linger[p] > sCt.linger) { rate += 1.0f / sCt.closeTime; if (why == CW_NONE) why = CW_CLOSE; }
+                    if (e->linger[p] > sCt.linger) { rate += portGadgetsDisguiseCloseScale(p) / sCt.closeTime; if (why == CW_NONE) why = CW_CLOSE; }
                 }
                 else
                 {
@@ -2417,7 +2424,7 @@ static int coverCamSuspect(int p)
     if (!coverActive() || sCoverAlert) return 1;
     if (p < 0 || p > 3) return 1;
     if (sCoverLoot[p] || sNow < sCoverActUntil[p]) return 1;
-    if (pl != NULL && pl->prop != NULL && pl->prop->stan != NULL && sRoomClass[pl->prop->stan->room & 0xFF] == 2) return 1;
+    if (pl != NULL && pl->prop != NULL && pl->prop->stan != NULL && portGadgetsDisguiseClass(p, sRoomClass[pl->prop->stan->room & 0xFF]) == 2) return 1;
     return bondArmed(p);
 }
 
@@ -2907,6 +2914,11 @@ unsigned portHeistStateHash(void)
 
         h = h * 16777619u + portCctvViewHash();
         h = h * 16777619u + portHeistCoverHash();
+    }
+    {
+        extern unsigned portGadgetsHash(void);   /* port_gadgets.c: triggers, reels, disguises */
+
+        h = h * 16777619u + portGadgetsHash();
     }
     return h;
 }

@@ -401,4 +401,5 @@ extern struct portal_4_point portal_178;
 extern struct portal_4_point portal_179;
 extern struct portal_4_point portal_180;
 extern struct portal_4_point portal_181;
+extern struct portal_4_point portal_182;
 #endif
