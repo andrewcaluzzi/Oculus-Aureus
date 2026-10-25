@@ -25,6 +25,7 @@ and [`designs/bank-heist-bunker2.md`](../designs/bank-heist-bunker2.md) (the hei
 | [lua-modding.md](lua-modding.md) | How the Lua layer and modes hook the engine (a map, not the API) |
 | [tooling-and-testing.md](tooling-and-testing.md) | Docker/WSL builds, headless runs, every test harness, a table of `GE_*` variables, disk space |
 | [pitfalls.md](pitfalls.md) | Bugs we hit, why they happened, and how to avoid them |
+| [ios-port-study.md](ios-port-study.md) | An iOS/iPadOS build: the measured 32-bit lock (about 1,100 compiler-flagged pointer-width sites), options (Metal, ANGLE, libultraship, static recompilation), a phased plan with effort, touch controls, sideload distribution, netplay limits |
 | [upstream-modding-proposal.md](upstream-modding-proposal.md) | What the fork could offer upstream for modding, in tiers (standalone engine fixes, hook points, an optional script layer); the heist's size by layer; first steps and open questions |
 
 ## How to use it
