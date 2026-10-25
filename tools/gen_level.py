@@ -90,7 +90,12 @@ def load_layout(path):
         light.update(r.get("light", {}))
         R.light = light
         R.shade = int(r.get("chr_light", d.get("chr_light", 13)))     # stan tile colour 0..15: how lit props/chrs are
-        R.pads_named = r.get("pads", [])
+        R.pads_named = list(r.get("pads", []))
+        R.objects = r.get("objects", [])               # P2.2: setup objects (cameras, alarms, monitors, keys, safes, props)
+        R.loot = r.get("loot", [])                     # P2.2: named loot spawn pad lists
+        for lt in R.loot:
+            for k, at in enumerate(lt["at"]):
+                R.pads_named.append({"name": "%s_%d" % (lt["name"], k + 1), "at": at})
         R.doors = []
         rooms.append(R)
         if R.name in byname:
@@ -131,6 +136,7 @@ def load_layout(path):
         if D.h > min(a.h, b.h):
             sys.exit("door %s-%s: taller than a room" % (a.name, b.name))
         D.name = dd.get("name", "%s-%s" % (a.name, b.name))
+        D.obj = dd.get("object")                       # P2.2: a door in the doorway (None = an open doorway)
         a.doors.append(D)
         b.doors.append(D)
         doors.append(D)
@@ -585,7 +591,271 @@ def build_waypoints(pads, rooms, doors, maxcell):
     return adj, group, gadj, members
 
 
-def gen_setup(name, pads, start, adj, group, gadj, members, describe):
+# ----------------------------------------------------------- setup objects (P2.2) ---
+#
+# Records follow the stock compiled setups word for word (assets/obseg/setup/Usetup*Z.c: the same _mkword layout, the same tails), so
+# the stock setup code (prop.c setupDoor / domakedefaultobj / setupCctv / setupSingleMonitor) builds them as it builds any stage's.
+# Wall-mounted objects (cameras, alarm boxes, monitors) sit on bound pads the stock way: up = the wall's inward normal, look = +y, a
+# zero-depth box offset back onto the wall (PROPFLAG_ONSCREEN puts the model's back on it). Doors sit on a bound pad in the doorway
+# whose box is the opening; PROPFLAG_CULL_BEHIND_DOOR makes setupDoor take the portal between the rooms on its two sides
+# (bgGetPortalBetweenRooms) and close it while the door is shut. Floor objects (keys, props, padlocks) use plain pads.
+
+MODEL = {   # stock object models (PROP_* in bondconstants.h; the setup's `obj` field)
+    "alarm": 1,            # PROP_ALARM2: the wall alarm box (Bunker 1's)
+    "camera": 24,          # PROP_CCTV
+    "padlock": 63,         # PROP_PADLOCK (Dam's)
+    "monitor": 77,         # PROP_TVSCREEN: a wall screen (Bunker 2's banking-hall wall)
+    "keycard": 86,         # PROP_SWIPE_CARD2 (Bunker 2's carried keys)
+    "key": 244,            # PROP_CHRKEYYALE (Bunker 2's floor key)
+    "door": 138,           # PROP_SEV_DOOR4_WIND: Bunker 2's office doors (grey, a window)
+    "shutter": 140,        # PROP_SEV_DOOR_V1: Bunker 2's security-wing shutters (vertical)
+    "cell": 182,           # PROP_DOORPRISON1: Bunker 2's deposit-cell doors (bars)
+    "vault": 152,          # PROP_DOOR_DEST1: a grey steel door with caution stripes (Frigate's)
+    "safe": 254,           # PROP_SAFE (the body)
+    "safedoor": 293,       # PROP_SAFEDOOR (Bunker 2's manager's safe)
+}
+PROPDEF = {"door": 1, "prop": 3, "key": 4, "alarm": 5, "cctv": 6, "monitor": 10, "lockdoor": 38, "safe": 43}
+DOOR_TYPE = {"slide": 0, "shutter": 4, "swing": 5}
+F_ONSCREEN, F_INAIR, F_SCALE_XY, F_COLL, F_CULL = 0x2, 0x8, 0x60, 0x100, 0x10000000
+
+
+def ival(v, default=0):
+    """An int from JSON: a number or a string such as "0x40000000"."""
+    if v is None:
+        return default
+    return int(v, 0) if isinstance(v, str) else int(v)
+
+
+def obj_head(ptype, model, pad, flags, flags2=0, health=1000, extrascale=256):
+    """The 32-word ObjectRecord every object record starts with."""
+    return ("_mkword(%d, _mkshort(0, %d)), _mkword(%d, %d), 0x%08x, 0x%08x, 0x00000000, 0x00000000, " % (
+        extrascale, ptype, model, pad, flags & 0xFFFFFFFF, flags2 & 0xFFFFFFFF) + "0, " * 19 +
+        "0x00000000, 0x00000000, 0, 0, _mkword(%d, 0), 0, 0" % health)
+
+
+DOOR_RUNTIME = ("0.0f, 0, 0, 0, 0.0f, _mkword(0, 0), 0, _mkword(0, _mkshort(0, 0)), 0x00000000, _mkword(_mkshort(0, 0), 0), " +
+                ", ".join(["0"] * 12))
+
+
+def fx16(v):
+    return int(round(v * 65536)) & 0xFFFFFFFF
+
+
+def angle16(deg):
+    return int(round(deg / 360.0 * 65536)) & 0xFFFFFFFF
+
+
+class Objects:
+    """Bound pads, extra (non-waypoint) plain pads and the propDefs records of a level."""
+
+    def __init__(self, first_pad):
+        self.bpads = []          # (x, y, z, up, look, tile, bbox(xmin, xmax, ymin, ymax, zmin, zmax), note)
+        self.opads = []          # Pad objects, ids from first_pad on (they are not waypoints)
+        self.next_pad = first_pad
+        self.recs = []           # (comment, text)
+        self.lua = {"objects": [], "cameras": [], "alarms": [], "monitors": [], "keys": [], "safes": [], "padlocks": []}
+
+    def rec(self, comment, text):
+        self.recs.append((comment, text))
+        return len(self.recs) - 1
+
+    def tag(self, what):
+        """A Tag record on the next record. A tagged object is a use target (propobj.c: the interact scan takes an object only when
+        it is tagged or flagged 'interaction only'); Bunker 2 tags each of its monitors this way."""
+        self.next_tag = getattr(self, "next_tag", 0) + 1
+        self.rec("Tag %d on %s" % (self.next_tag, what), "_mkword(0, _mkshort(0, 22)), _mkword(%d, 0x0001), 0, 0" % self.next_tag)
+        return self.next_tag
+
+    def bound(self, tris, room, x, y, z, up, look, bbox, note):
+        n, px, pz = tile_at(tris, room.id, x, z)
+        if n is None:
+            sys.exit("%s: no floor under its bound pad at (%d, %d) in room %s" % (note, x, z, room.name))
+        self.bpads.append((px, y, pz, up, look, n, bbox, note))
+        return len(self.bpads) - 1
+
+    def plain(self, tris, room, x, y, z, look, note):
+        n, px, pz = tile_at(tris, room.id, x, z)
+        if n is None:
+            sys.exit("%s: no floor under its pad at (%d, %d) in room %s" % (note, x, z, room.name))
+        P = Pad()
+        P.id = self.next_pad
+        self.next_pad += 1
+        ln = math.hypot(look[0], look[1]) or 1.0
+        P.room, P.x, P.z, P.y, P.tile, P.kind, P.name, P.door = room, px, pz, y, n, "object", note, None
+        P.look = (look[0] / ln, look[1] / ln)
+        self.opads.append(P)
+        return P
+
+
+def wall_point(R, side, along, off):
+    """(x, z) of a point `off` units in front of wall `side` of room R at `along`, and the wall's inward normal."""
+    if side == "x0":
+        return (R.x0 + off, along), (1.0, 0.0, 0.0)
+    if side == "x1":
+        return (R.x1 - off, along), (-1.0, 0.0, 0.0)
+    if side == "z0":
+        return (along, R.z0 + off), (0.0, 0.0, 1.0)
+    if side == "z1":
+        return (along, R.z1 - off), (0.0, 0.0, -1.0)
+    sys.exit("room %s: wall must be x0, x1, z0 or z1, not %r" % (R.name, side))
+
+
+def build_objects(rooms, byname, doors, pads, tris, objs_first_pad):
+    O = Objects(objs_first_pad)
+    named = {P.name: P for P in pads if P.name}
+    padlocks = []
+
+    def entry(name, kind, idx, room, **kw):
+        e = {"name": name, "type": kind, "index": idx, "room": room.name}
+        e.update(kw)
+        O.lua["objects"].append(e)
+        return e
+
+    # doors in doorways
+    for D in doors:
+        o = D.obj
+        if not o:
+            continue
+        kind = o.get("type", "slide")
+        if kind not in DOOR_TYPE or kind == "swing":
+            sys.exit("door %s: type must be slide or shutter" % D.name)
+        m = o.get("model", "shutter" if kind == "shutter" else "door")
+        model = MODEL[m] if isinstance(m, str) and m in MODEL else ival(m)
+        t = float(o.get("thickness", 10))
+        # the door's plane: just inside the passage at room b's face, so the two test points 50 units either side of its centre
+        # (prop.c sub_GAME_7F00324C) land on room a's and room b's tiles and setupDoor finds the doorway's portal
+        sgn = 1.0 if D.fb > D.fa else -1.0             # room b lies on this side
+        plane = D.fb - sgn * (t / 2.0 + 1.0)
+        mid = (D.lo + D.hi) / 2.0
+        if D.axis == "x":
+            x, z, up = plane, mid, (0.0, 0.0, 1.0)
+        else:
+            x, z, up = mid, plane, (1.0, 0.0, 0.0)
+        w, h = float(D.w), float(D.h)
+        bb = (-t / 2.0, t / 2.0, -w / 2.0, w / 2.0, 0.0, h)       # x: thickness (normal), y: width (up), z: height (look)
+        bp = O.bound(tris, D.a, int(round(x)), D.y, int(round(z)), up, (0.0, 1.0, 0.0), bb, "door " + D.name)
+        keyflags = ival(o.get("keyflags"), 0)
+        autoclose = ival(o.get("autoclose"), 300 if kind == "slide" else 1500)
+        flags = F_CULL | (0x80000000 if o.get("open") else 0)
+        perim = fx16(0.9)
+        tail = "0x00000000, 0x%08x, 0x%08x, 0x00000051, 0x00000051, 0x00000666, _mkword(4, %d), 0x%08x, %d, %d, %s" % (
+            fx16(0.95), perim, DOOR_TYPE[kind], keyflags & 0xFFFFFFFF, autoclose,
+            ival(o.get("sound"), 3), DOOR_RUNTIME)
+        idx = O.rec("Door %s (%s, model %d, keyflags 0x%x)" % (D.name, kind, model, keyflags),
+                    obj_head(PROPDEF["door"], model, bp, flags) + ", " + tail)
+        D.obj_index = idx
+        D.keyflags = keyflags
+        name = o.get("name", D.name)
+        entry(name, "door", idx, D.a, keyflags=keyflags, doorway=D.name)
+        if o.get("padlock"):
+            # the padlock hangs on room a's side of the door, 120 up; shooting it frees the door (stock doorIsPadlockFree)
+            back = -sgn * (t / 2.0 + 14.0)
+            px, pz = (plane + back, mid + w * 0.3) if D.axis == "x" else (mid + w * 0.3, plane + back)
+            P = O.plain(tris, D.a, int(round(px)), D.y + 110, int(round(pz)), (-sgn, 0.0) if D.axis == "x" else (0.0, -sgn),
+                        "padlock " + D.name)
+            padlocks.append((D, P, name))
+
+    def mount(R, o, w, h, off, what):
+        side = o["wall"]
+        (x, z), n = wall_point(R, side, float(o["along"]), off)
+        y = R.y + int(o.get("y", R.h - 40))
+        bb = (-w / 2.0, w / 2.0, -off, -off, -h / 2.0, h / 2.0)
+        return O.bound(tris, R, int(round(x)), y, int(round(z)), n, (0.0, 1.0, 0.0), bb, "%s in room %s" % (what, R.name))
+
+    for R in rooms:
+        for k, o in enumerate(R.objects):
+            kind = o["type"]
+            name = o.get("name", "%s_%s%d" % (R.name, kind, k + 1))
+            if kind == "camera":
+                bp = mount(R, o, 18, 18, 10, "camera " + name)
+                watch = o.get("watch")
+                if isinstance(watch, str):
+                    if watch not in named:
+                        sys.exit("camera %s: no pad named %s" % (name, watch))
+                    look = named[watch].id
+                else:
+                    wx, wz = watch if watch else ((R.x0 + R.x1) // 2, (R.z0 + R.z1) // 2)
+                    look = O.plain(tris, R, int(wx), R.y, int(wz), (0.0, 1.0), "camera %s look" % name).id
+                sweep = o.get("sweep", [30, -30])
+                rng = ival(o.get("range"), -100)            # <= 0: no range limit (stock)
+                tail = "0x%08x, %s, 0x%08x, 0x%08x, 0x00000000, 0x00000000, 0x%08x, 0x00000000, 0x00000000, 0x%08x" % (
+                    look, ", ".join(["0x00000000"] * 18), angle16(sweep[0]), angle16(sweep[1]), ival(o.get("speed"), 0x88),
+                    rng & 0xFFFFFFFF)
+                idx = O.rec("Cctv %s (watches pad %d)" % (name, look), obj_head(PROPDEF["cctv"], MODEL["camera"], 10000 + bp, F_ONSCREEN) +
+                            ", " + tail)
+                O.lua["cameras"].append(idx)
+                entry(name, "camera", idx, R, lookpad=look)
+            elif kind == "alarm":
+                bp = mount(R, o, 18, 18, 3, "alarm " + name)
+                O.tag("alarm " + name)              # a use target: Bond can switch the alarm at the box
+                idx = O.rec("Alarm %s" % name, obj_head(PROPDEF["alarm"], MODEL["alarm"], 10000 + bp, F_ONSCREEN))
+                O.lua["alarms"].append(idx)
+                entry(name, "alarm", idx, R, pad=10000 + bp)        # a raiser's alarm_pad (spawn.chr) is this bound pad
+            elif kind == "monitor":
+                w, h = float(o.get("width", 70)), float(o.get("height", 52))
+                bp = mount(R, o, w, h, 4, "monitor " + name)
+                tail = ", ".join(["0"] * 24) + ", _mkshort(0, 0), _mkshort(0, 0), _mkshort(0, 0), 0, 0, 0xffffffff, 0xffffffff, %d" % (
+                    ival(o.get("image"), 51))
+                O.tag("monitor " + name)            # a use target: the `use` event names the monitor
+                idx = O.rec("SingleMonitor %s" % name, obj_head(PROPDEF["monitor"], ival(o.get("model"), MODEL["monitor"]), 10000 + bp,
+                                                                  F_ONSCREEN | F_SCALE_XY) + ", " + tail)
+                O.lua["monitors"].append(idx)
+                entry(name, "monitor", idx, R, pad=10000 + bp)
+            elif kind in ("key", "prop"):
+                at = o["at"]
+                face = o.get("face", [at[0], at[1] + 100])
+                P = O.plain(tris, R, int(at[0]), R.y, int(at[1]), (face[0] - at[0], face[1] - at[1]), "%s %s" % (kind, name))
+                if kind == "key":
+                    m = o.get("model", "keycard")
+                    model = MODEL[m] if isinstance(m, str) and m in MODEL else ival(m)
+                    kf = ival(o.get("keyflags"), 1)
+                    idx = O.rec("Key %s (0x%x)" % (name, kf), obj_head(PROPDEF["key"], model, P.id, 0) + ", %d" % kf)
+                    O.lua["keys"].append(idx)
+                    entry(name, "key", idx, R, pad=P.id, keyflags=kf)
+                else:
+                    idx = O.rec("StandardProp %s" % name, obj_head(PROPDEF["prop"], ival(o["model"]), P.id, ival(o.get("flags"), 0)))
+                    entry(name, "prop", idx, R, pad=P.id)
+            elif kind == "safe":
+                # Bunker 2's manager's safe (bound pads 73 / 74 of UsetupsevbZ.c), scaled: the body on the floor facing `face`, the
+                # swinging door on its front. The door's keyflags lock it; the mode opens it with a card (door.try) or door.open.
+                s = float(o.get("scale", 1.3))
+                at = o["at"]
+                fc = o.get("face", [at[0], at[1] - 100])
+                fx, fz = fc[0] - at[0], fc[1] - at[1]
+                ln = math.hypot(fx, fz) or 1.0
+                f = (fx / ln, 0.0, fz / ln)
+                nb = (f[2], 0.0, -f[0])                         # (0,1,0) x f: the body's normal
+                bb = (-42 * s, 41 * s, 0.0, 83 * s, -38 * s, 38 * s)
+                bp = O.bound(tris, R, int(at[0]), R.y, int(at[1]), (0.0, 1.0, 0.0), f, bb, "safe " + name)
+                body = O.rec("Safe %s (body)" % name, obj_head(PROPDEF["safe"], MODEL["safe"], 10000 + bp, 0x000201e8))
+                dx = at[0] + f[0] * 31 * s + nb[0] * 35 * s
+                dz = at[1] + f[2] * 31 * s + nb[2] * 35 * s
+                dbb = (-7 * s, 7 * s, 0.0, 70 * s, -35 * s, 34 * s)
+                dp = O.bound(tris, R, int(round(dx)), R.y + int(round(42 * s)), int(round(dz)), (-nb[0], 0.0, -nb[2]), (0.0, 1.0, 0.0),
+                             dbb, "safe door " + name)
+                kf = ival(o.get("keyflags"), 0x10)
+                tail = "0x00000000, 0x005a0000, 0x03e80000, 0x00000f5c, 0x00000f5c, 0x00010000, _mkword(8, 5), 0x%08x, 268435455, 16, %s" % (
+                    kf & 0xFFFFFFFF, DOOR_RUNTIME)
+                door_idx = O.rec("Door %s (the safe's door, keyflags 0x%x)" % (name, kf), obj_head(PROPDEF["door"], MODEL["safedoor"], dp, 0,
+                                                                                             0x20000000) + ", " + tail)
+                O.lua["safes"].append(door_idx)
+                entry(name, "safe", door_idx, R, body=body, keyflags=kf)
+            else:
+                sys.exit("room %s: unknown object type %r" % (R.name, kind))
+
+    for D, P, name in padlocks:
+        lock = O.rec("StandardProp padlock on %s" % D.name, obj_head(PROPDEF["prop"], MODEL["padlock"], P.id, 0x01000008, 0x2, health=200))
+        here = len(O.recs)
+        O.rec("LockDoor %s" % D.name, "_mkword(0, _mkshort(0, %d)), %d, %d, 0" % (PROPDEF["lockdoor"], D.obj_index - here, lock - here))
+        D.padlock_index = lock
+        O.lua["padlocks"].append(lock)
+        for e in O.lua["objects"]:
+            if e["type"] == "door" and e["index"] == D.obj_index:
+                e["padlock"] = lock
+    return O
+
+
+def gen_setup(name, pads, start, adj, group, gadj, members, describe, O=None):
     sym = "Usetup%sZ" % name
     out = [HEADER_NOTE % (sym + ".c", describe),
            '#include "ultra64.h"', '#include "bondtypes.h"', '#include "bondaicommands.h"', "",
@@ -595,14 +865,21 @@ def gen_setup(name, pads, start, adj, group, gadj, members, describe):
            "stagesetup %s = {" % sym, "    &pathwaypoints,", "    &pathsets,", "    &intro,",
            "    &propDefs,", "    &patrolpaths,", "    &ailists,", "    &padlist,", "    &pad3dlist,",
            "    NULL,", "    NULL", "};", "", "", "PadRecord padlist[] = {"]
-    for P in pads:
+    for P in pads + (O.opads if O else []):
         out.append('    { {%d.0f, %d.0f, %d.0f}, {0.0f, 1.0f, 0.0f}, {%.4ff, 0.0f, %.4ff}, "p%da1", 0 },   /* %d %s %s */' % (
             P.x, P.y, P.z, P.look[0], P.look[1], P.tile + 1, P.id, P.room.name, P.name or P.kind))
     out += ["    { {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, NULL, 0 }", "};", "", "",
-            "BoundPadRecord pad3dlist[] = {",
-            "    { {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, NULL, 0, {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f} }",
-            "};", "", "",
-            "s32 propDefs[] = {", "    /* Type = EndProps; index = 0 */", "    _mkword(0, _mkshort(0, 48))", "};", "", "",
+            "BoundPadRecord pad3dlist[] = {"]
+    for k, (x, y, z, up, look, tile, bb, note) in enumerate(O.bpads if O else []):
+        out.append('    { {%d.0f, %d.0f, %d.0f}, {%.4ff, %.4ff, %.4ff}, {%.4ff, %.4ff, %.4ff}, "p%da1", 0, {%.2ff, %.2ff, %.2ff, %.2ff, %.2ff, %.2ff} },'
+                   '   /* %d %s */' % ((x, y, z) + tuple(up) + tuple(look) + (tile + 1,) + tuple(bb) + (k, note)))
+    out += ["    { {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, NULL, 0, {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f} }",
+            "};", "", "", "s32 propDefs[] = {"]
+    recs = O.recs if O else []
+    for k, (comment, text) in enumerate(recs):
+        out.append("    /* index = %d: %s */" % (k, comment))
+        out.append("    %s," % text)
+    out += ["    /* Type = EndProps; index = %d */" % len(recs), "    _mkword(0, _mkshort(0, 48))", "};", "", "",
             "s32 intro[] = {",
             "    /* Type = Spawn; index = 0 */", "    _mkword(0, _mkshort(0, 0)), %d, 0," % start.id,
             "    /* Type = Cuff; index = 1 */", "    _mkword(0, _mkshort(0, 5)), 3,",
@@ -633,7 +910,15 @@ def lua_str(s):
     return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-def gen_lua(name, src, rooms, doors, pads, start):
+def lua_val(v):
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, (int, float)):
+        return str(v)
+    return lua_str(str(v))
+
+
+def gen_lua(name, src, rooms, doors, pads, start, O=None):
     o = ["-- Generated by tools/gen_level.py from %s - do not edit; rerun the script." % src,
          "-- The layout of the generated level for mode scripts: include(\"%s_layout\") (modding/levelgen.md)." % name,
          "LEVEL = {", "  name = %s," % lua_str(name), "  start_pad = %d," % start.id, "  rooms = {"]
@@ -648,10 +933,29 @@ def gen_lua(name, src, rooms, doors, pads, start):
     for D in doors:
         mid = (D.lo + D.hi) / 2.0
         cx, cz = ((D.fa + D.fb) / 2.0, mid) if D.axis == "x" else (mid, (D.fa + D.fb) / 2.0)
-        o.append("    { name = %s, a = %s, b = %s, portal = %d, pad = %d, pad_a = %d, pad_b = %d, x = %.0f, z = %.0f, width = %d, height = %d }," % (
-            lua_str(D.name), lua_str(D.a.name), lua_str(D.b.name), D.index, D.pad.id, D.pad_a.id, D.pad_b.id, cx, cz, D.w, D.h))
+        extra = ""
+        if getattr(D, "obj_index", None) is not None:
+            extra = ", object = %d, keyflags = %d" % (D.obj_index, D.keyflags)
+            if getattr(D, "padlock_index", None) is not None:
+                extra += ", padlock = %d" % D.padlock_index
+        o.append("    { name = %s, a = %s, b = %s, portal = %d, pad = %d, pad_a = %d, pad_b = %d, x = %.0f, z = %.0f, width = %d, height = %d%s }," % (
+            lua_str(D.name), lua_str(D.a.name), lua_str(D.b.name), D.index, D.pad.id, D.pad_a.id, D.pad_b.id, cx, cz, D.w, D.h, extra))
     o.append("  },")
     o.append("  pads = { %s }," % ", ".join("[%s] = %d" % (lua_str(P.name), P.id) for P in pads if P.name))
+    if O is not None:
+        # setup objects (P2.2): every object by name, and the setup indices of each kind (door.*, cctv.*, the use / gadget events)
+        o.append("  objects = {")
+        for e in O.lua["objects"]:
+            o.append("    [%s] = { %s }," % (lua_str(e["name"]), ", ".join("%s = %s" % (k, lua_val(v)) for k, v in e.items() if k != "name")))
+        o.append("  },")
+        for kind in ("cameras", "alarms", "monitors", "keys", "safes", "padlocks"):
+            o.append("  %s = { %s }," % (kind, ", ".join(str(i) for i in O.lua[kind])))
+        loot = []
+        for R in rooms:
+            for lt in R.loot:
+                ids = [P.id for P in pads if P.name and P.name.startswith(lt["name"] + "_") and P.room is R]
+                loot.append("[%s] = { %s }" % (lua_str(lt["name"]), ", ".join(str(i) for i in ids)))
+        o.append("  loot = { %s }," % ", ".join(loot))
     o.append("}")
     o.append("")
     return "\n".join(o)
@@ -691,11 +995,12 @@ def main():
     tris = build_stan(rooms, grids, doors, maxcell)
     pads, start = build_pads(L, d, rooms, byname, grids, doors, tris, maxcell)
     adj, group, gadj, members = build_waypoints(pads, rooms, doors, maxcell)
+    O = build_objects(rooms, byname, doors, pads, tris, len(pads))
 
     bgc, bgh, stats = gen_bg(name, rooms, meshes, doors, describe)
     stan, nlinks, cross = gen_stan(name, tris, rooms, describe)
-    setup = gen_setup(name, pads, start, adj, group, gadj, members, describe)
-    lua = gen_lua(name, src, rooms, doors, pads, start)
+    setup = gen_setup(name, pads, start, adj, group, gadj, members, describe, O)
+    lua = gen_lua(name, src, rooms, doors, pads, start, O)
     for fn, text in (("bg_%s_all_p.c" % name, bgc), ("bg_%s_all_p.h" % name, bgh),
                      ("Tbg_%s_all_p_stanZ.c" % name, stan), ("Usetup%sZ.c" % name, setup),
                      ("%s_layout.lua" % name, lua)):
@@ -719,8 +1024,10 @@ def main():
     for D in doors:
         print("  doorway %d %s: rooms %d-%d, portal at %s=%d, opening %d..%d x %d high, pads %d (door) %d %d" % (
             D.index, D.name, D.a.id, D.b.id, D.axis, D.fb, D.lo, D.hi, D.h, D.pad.id, D.pad_a.id, D.pad_b.id))
-    print("%s: %d tiles (%d links, %d across rooms), %d pads (start %d), %d waypoint groups, out=%s" % (
-        describe, len(tris), nlinks, cross, len(pads), start.id, len(members), out))
+    for k, (comment, _) in enumerate(O.recs):
+        print("  object %d: %s" % (k, comment))
+    print("%s: %d tiles (%d links, %d across rooms), %d pads (start %d) + %d object pads, %d bound pads, %d objects, %d waypoint groups, out=%s" % (
+        describe, len(tris), nlinks, cross, len(pads), start.id, len(O.opads), len(O.bpads), len(O.recs), len(members), out))
 
 
 if __name__ == "__main__":

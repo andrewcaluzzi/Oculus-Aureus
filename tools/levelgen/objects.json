@@ -1,0 +1,67 @@
+{
+  "name": "levelgen",
+  "comment": "P2.2 test level: the P2.1 L (rooms A, B, C, open doorways A-B and B-C, so tests/levelgen/run.sh still holds) plus an office D east of B behind a GREEN door, and a vault E east of C behind a vault door, joined to D by a padlocked shutter. D holds a camera, an alarm box, a monitor and a safe; C the two cards; E the loot pads (tests/levelgen/run_objects.sh).",
+  "defaults": {
+    "height": 320,
+    "cell": 300,
+    "door_width": 180,
+    "door_height": 240,
+    "max_wall": 200,
+    "floor_mat": "lobby_tiles",
+    "wall_mat": "pink_marble",
+    "ceiling_mat": "light_wood",
+    "chr_light": 13,
+    "light": { "ambient": 0.42, "intensity": 0.75, "radius": 420, "lamp_spacing": 520, "tint": [255, 244, 228] }
+  },
+  "materials": {
+    "lobby_tiles":    { "tex": 632,  "texels_per_unit": 1.18, "from": "Archives floor" },
+    "pink_marble":    { "tex": 179,  "texels_per_unit": 0.115, "from": "Archives wall: marble panels with a skirting band" },
+    "light_wood":     { "tex": 1524, "texels_per_unit": 0.122, "from": "Archives ceiling" },
+    "white_tiles":    { "tex": 901,  "texels_per_unit": 0.75, "from": "Bunker 2 floor" },
+    "beige_panels":   { "tex": 315,  "texels_per_unit": 0.33, "from": "Bunker 2 wall" },
+    "office_ceiling": { "tex": 257,  "texels_per_unit": 0.60, "from": "Bunker 2 ceiling: suspended tiles" },
+    "concrete":       { "tex": 311,  "texels_per_unit": 0.16, "from": "Facility floor" },
+    "stone_blocks":   { "tex": 1469, "texels_per_unit": 0.414, "from": "Archives wall" },
+    "dark_grid":      { "tex": 258,  "texels_per_unit": 0.39, "from": "Facility ceiling" },
+    "plaster":        { "tex": 2374, "texels_per_unit": 0.27, "from": "Archives wall: plain grey" },
+    "grey_panels":    { "tex": 296,  "texels_per_unit": 0.42, "from": "Bunker 2 wall: light grey vertical panels" },
+    "metal_slats":    { "tex": 299,  "texels_per_unit": 1.16, "from": "Archives wall: grey metal slats" }
+  },
+  "rooms": [
+    { "name": "A", "rect": [-1240, -500, -200, 500],
+      "pads": [ { "name": "a_corner", "at": [-1100, 400], "face": [-200, -300] } ] },
+    { "name": "B", "rect": [-160, -500, 840, 500],
+      "floor_mat": "white_tiles", "wall_mat": "beige_panels", "ceiling_mat": "office_ceiling" },
+    { "name": "C", "rect": [-160, 540, 840, 1540],
+      "floor_mat": "concrete", "wall_mat": "stone_blocks", "ceiling_mat": "dark_grid",
+      "light": { "ambient": 0.32, "intensity": 0.85, "radius": 360 },
+      "pads": [ { "name": "c_far", "at": [0, 1400], "face": [640, 520] } ],
+      "objects": [
+        { "type": "key", "name": "green_card", "at": [300, 900], "keyflags": "0x2" },
+        { "type": "key", "name": "gold_key", "at": [500, 1200], "keyflags": "0x10", "model": "key" }
+      ] },
+    { "name": "D", "rect": [880, -500, 1880, 500],
+      "floor_mat": "white_tiles", "wall_mat": "grey_panels", "ceiling_mat": "office_ceiling",
+      "pads": [ { "name": "d_mid", "at": [1380, 0], "face": [1880, 0] },
+                { "name": "d_raiser", "at": [1500, 300], "face": [1100, -400] },
+                { "name": "d_monitor", "at": [1600, -380], "face": [1600, -500] } ],
+      "objects": [
+        { "type": "camera", "name": "cam_office", "wall": "x1", "along": 0, "y": 280, "watch": "d_mid", "sweep": [35, -35] },
+        { "type": "alarm", "name": "alarm_office", "wall": "z0", "along": 1100, "y": 140 },
+        { "type": "monitor", "name": "monitor_office", "wall": "z0", "along": 1600, "y": 160 },
+        { "type": "safe", "name": "office_safe", "at": [1700, 360], "face": [1700, 0], "keyflags": "0x10" }
+      ] },
+    { "name": "E", "rect": [880, 540, 1880, 1540],
+      "floor_mat": "concrete", "wall_mat": "metal_slats", "ceiling_mat": "dark_grid",
+      "light": { "ambient": 0.35, "intensity": 0.8, "radius": 380 },
+      "loot": [ { "name": "vault_gold", "at": [[1200, 1200], [1380, 1200], [1560, 1200], [1200, 1380], [1380, 1380], [1560, 1380]] } ] }
+  ],
+  "doors": [
+    { "rooms": ["A", "B"], "at": -300 },
+    { "rooms": ["B", "C"], "at": 640 },
+    { "rooms": ["B", "D"], "at": 0, "object": { "name": "office_door", "type": "slide", "keyflags": "0x2" } },
+    { "rooms": ["C", "E"], "at": 1040, "object": { "name": "vault_door", "type": "slide", "model": "vault", "keyflags": "0x40000000", "autoclose": 1500 } },
+    { "rooms": ["D", "E"], "at": 1500, "object": { "name": "shutter", "type": "shutter", "padlock": true } }
+  ],
+  "start": { "room": "A", "at": [-900, 300], "face": [-200, -300] }
+}
