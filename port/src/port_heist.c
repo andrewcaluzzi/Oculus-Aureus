@@ -1457,8 +1457,10 @@ int portHeistSlap(ChrRecord *c)
 /* the chr runs no AI list this tick (chraction.c): knocked out, or a guard walking over to wake one */
 int portHeistChrNoAi(ChrRecord *c)
 {
+    extern int portArFreezeAi(void);   /* port_arhud.c: `diag freeze` (solo test tool) */
     int i;
 
+    if (portArFreezeAi()) return 1;
     if (sKoBusy <= 0) return 0;
     for (i = 0; i < sKoN; i++)
     {

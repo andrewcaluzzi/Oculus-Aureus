@@ -48,6 +48,17 @@ wsl -d Ubuntu -- docker rm -f midas-test
 - For screenshots set `GE_FULLHEIGHT=0 GE_EDGEINSET=1` ([rendering.md](rendering.md)).
 - Do not run tests that open windows on a machine someone is playing on.
 
+### Debug keys and the diagnostics overlay (`port/src/port_arhud.c`, designs/bank-heist.md section 20)
+
+| Key / command | What |
+| --- | --- |
+| **F3** / `diag [on\|off]` | the diagnostics layer: per chr number, action, AI list, awareness, suspicion, sight cone, hearing ring, go-to line; noise rings; door key and rule labels; camera timers; a panel with tick, state hash, FPS / frame ms, chr count, alarm / power / cover, your room and zone; the radar |
+| **Shift+F3** / `ar [on\|off]` | the AR specs (on by default in the heist) |
+| `ar layers`, `ar <layer> on\|off` | suspicion, speech, keys, points, doors, cameras, radar |
+| `diag freeze [on\|off]` | stops every AI list (changes the sim: solo only, refused in co-op / netplay) |
+| `GE_DIAG=1`, `GE_AR_OFF=1` | the heist starts with the diagnostics on / without the AR wiring at all (the presentation proof) |
+| `GE_CONCMD="diag on"` | any console command at the first frame (headless screenshots) |
+
 ## Test harnesses
 
 | What | Where | Notes |
@@ -56,6 +67,7 @@ wsl -d Ubuntu -- docker rm -f midas-test
 | Pure-logic C unit tests | `tests/*_test.c`, `tests/run_logic_tests.sh` | bot logic, events, mod parser, co-op rules, net messages, lockstep, state hash; needs `gcc -m32`, so run in the image |
 | Lua scenario scripts | `tests/lua/` | `GE_LUA_TEST=<file>`, `tests/solo_modes.sh` |
 | Heist suites | `tests/heist/run.sh` (bindings), `run_guards.sh`, `run_ko.sh`, `run_winpath.sh` (win path, trapped, civilian fail), `run_cctv.sh`, `run_determinism.sh`, `run_shots.sh` | Bunker 2, Xvfb `:99`. Last counts: bindings 38, guards 34, ko 26, winpath 50 / trapped 16 / fail 5, cctv 40, determinism 12/12 |
+| AR specs and diagnostics | `tests/heist/run_ar.sh [api\|proof]` | `api`: the `ar.*` / `diag.*` API and the heist wiring (13 checks; `GE_AR_SHOTS=1` for the showcase shots); `proof`: AR off vs AR + diag on, state hashes identical |
 | Generated level | `tests/levelgen/run.sh` | culling, walking through doorways, guard routing |
 | Arena presets and soaks | `tests/arena_a5/`, `tests/arena_a6/`, `tests/arena_crowd/` | copy a preset into `Data/Scripts/modes/`; one preset per scenario (Lua has no `os`) |
 | Co-op / netplay / rollback | `tests/coop_determinism.sh`, `coop_drops.sh`, `net_lockstep.sh` (phases), `net_soak.sh`, `net_replay*.sh`, `snap_resim.sh`, `simonly_solo.sh` | each script's header says how to run it; some need recorded input files the generators write |

@@ -338,6 +338,19 @@ The scan runs every 4 ticks for every cover guard and every Bond, reads only sim
 
 Job 6 of designs/bank-heist.md: `tools/mode_heist.lua`, shipped as `Data/Scripts/modes/heist.lua`. Run it on Bunker 2: `GE_MODE=heist GE_STAGE=bunker2 GE_SKIPINTRO=1` (Windows: `Play Heist.bat`). The Janus front bank in St Petersburg: about 105 guards on post on Agent (more on harder difficulties), alarm raisers at their area's panel, bank staff, four card carriers (GREEN: the head teller or the lobby captain, chosen at random; BLUE: the security chief; RED: the branch manager; GOLD: the vault captain), Bunker 2's doors re-keyed as tiers, the stock cameras, a cracker with jams and a time-locked vault, gold bars and cash, two exits. Every count, timer and chance is in the settings table `S` at the top; a preset or test sets `HEIST_SETTINGS` before `include("heist")`. The table `HEIST` is its test window (phase, loot, carriers, zones, `HEIST.force_jam()`, `HEIST.camera_switch(p)`, `HEIST.watch(p [, cam])`, `HEIST.intel_lines(p)`). The banking hall (room 6) is the control room: the use action (the Port use bind, not B, which is also reload) at one of its screens (the monitor wall at its west side, the two desk screens) puts that Bond on the camera feeds, and while he is in room 6 or on a feed the HUD panel shows the intel (cameras up, alarm, the vault, where a working camera last saw each card carrier, guard counts in the areas a working camera covers, "?" elsewhere). The security console (BLUE card) still switches every camera off for 90 s. Tests: `tests/heist/run_winpath.sh` (win path, trapped-in-the-vault path, civilian-limit fail path), `tests/heist/run_cctv.sh` (the feeds and the intel); screenshots: `tests/heist/run_shots.sh`. The flow and the map are written up at the top of the script and in designs/bank-heist.md section 9.
 
+### The AR overlay and diagnostics: `ar.*`, `diag.*`
+
+Presentation only (`port/src/port_arhud.c`, `port/luavm/port_luavm_ar.c`; designs/bank-heist.md section 20 has the full table). World
+markers drawn over the frame through the local Bond's camera: `ar.on(bool)`, `ar.layer(name [, bool])` (suspicion, speech, keys, points,
+doors, cameras, radar), `ar.mark(chr, { label, rgba, bracket })`, `ar.say(chr, text [, secs [, kind]])` (a speech bubble with a ROM blip;
+kind `"hey"`, `"radio"`, `"huh"`), `ar.outline(chr, rgba | nil)` (bracket corners and a glow), `ar.clear([chr])`,
+`ar.point(x, y, z, label [, rgba]) -> id` / `ar.unpoint([label])` (waypoints with distances, edge arrows off screen),
+`ar.noise(x, y, z, radius [, kind])`, `ar.config{ range, cone }`, `ar.sound(bool)`, `ar.reset()`. The diagnostics layer (F3):
+`diag.on()`, `diag.off()`, `diag.enabled()`, `diag.door(idx, label [, rgba])`, `diag.room(id, label)`, `diag.text(n, text)`, and
+`diag.freeze(bool)` (no AI list runs: changes the sim, refused in co-op and netplay). Colours are `0xRRGGBBAA` or a name. Without a mode
+calling `ar.on`, nothing is drawn; another stream's script should guard calls with `if ar then`. The heist's wiring is
+`tools/heist_ar.lua`.
+
 ### Weapons, modifiers, music, menus
 
 - `weapon.set(item, field, value)`, `weapon.get(item, field)`, `weapon.reset()`, `weapon.items()`, `weapon.fields()`. Items are lowercase `ITEM_*` names (`ak47`, `wppk`, `goldengun`, `throwknife`, ...) plus `pp7 pp7sil dd44 klobb kf7 zmg ar33 rcp90`. Fields: integers `magsize firerate singlerate penetration sound ammotype`; numbers `damage inaccuracy zoom crosshairspeed aimlockspeed sway recoilback recoilup boltrecoil loudnessmin loudnessmax noiseshot impact`. Edits last until the next stage start.

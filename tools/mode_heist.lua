@@ -29,6 +29,7 @@
 include("heist_lib")
 include("levelgen_layout")                     -- LEVEL: the generated level's layout (include() works at the top level only)
 include("heist_bank_map")                      -- heist_bank_map(): the mode's tables from LEVEL by name
+pcall(include, "heist_ar")                     -- the AR specs and diagnostics (section 20; presentation only, optional)
 local STAGE_LEVELGEN = 52                      -- LEVELID_LEE: the generated level's slot
 
 local S = {
@@ -136,6 +137,7 @@ local S = {
   },
   spawn_per_tick  = 24,      -- chrs placed per 0.25 s at the start (no hitch)
   test            = false,   -- test hooks on (HEIST.* below are always there; this only adds log lines)
+  ar              = true,    -- the Q-Branch specs (tools/heist_ar.lua, section 20): suspicion "?" / "!", bubbles, key brackets, waypoints
   -- difficulty (mission.difficulty(): 0 Agent .. 3 007). force: the share of the full force above (posted guards, raisers, vault
   -- guards, wave cap, squads, the response); acc: the guards' accuracy rating (0 = stock, 5 = 1.5x, 10 = 2x: the stock aim is scaled by
   -- 1 + acc / 10); wave: guards per wave. (AC delegated, Claude's call 2026-10-25, revisit: the player bot won 10/10 with the carriers
@@ -1275,3 +1277,6 @@ on("tick", function(dt)
   hud_acc = hud_acc + dt
   if hud_acc >= 0.5 then hud_acc = 0; if not H.ended then refresh_hud(); intel_tick() end end
 end)
+
+-- the AR specs and diagnostics (tools/heist_ar.lua): after every handler above, so the map is loaded when its stage_start runs
+if heist_ar and heist_ar.attach then heist_ar.attach(H, S) end

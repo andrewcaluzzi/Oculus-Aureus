@@ -575,6 +575,8 @@ if(GE_VIDEO)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/tools/heist_lib.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/heist_lib.lua
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/tools/heist_ar.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/heist_ar.lua
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/port/levelgen/levelgen_layout.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/levelgen_layout.lua
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/tools/mode_levelgen_test.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/levelgen_test.lua
