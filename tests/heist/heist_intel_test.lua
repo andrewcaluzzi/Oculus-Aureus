@@ -71,6 +71,7 @@ local function body()
   wait(1)
   d = I.plan_done()
   check("plan: got in (the hall)", d[1] == true)
+  check("plan: the next step is the keys (framed, ringed on the map)", I.next_step == 2, tostring(I.next_step))
   -- the camera feeds: what a watched camera sees goes on the board (guards on the map, carriers on THE KEYS)
   local n0 = 0
   for _ in pairs(I.seen_role) do n0 = n0 + 1 end

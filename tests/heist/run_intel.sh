@@ -68,4 +68,27 @@ if [ "$WHICH" = det ] || [ "$WHICH" = all ]; then
     if [ "$keyed" -ge 2 ]; then echo "HEIST PASS key: the intel action (GE_JOYPORT_AUTO) toggled the board $keyed times"; PASS=$((PASS + 1));
     else echo "HEIST FAIL key: the intel action toggled the board $keyed times (want 2)"; FAIL=$((FAIL + 1)); fi
 fi
+
+if [ "$WHICH" = nointel ] || [ "$WHICH" = all ]; then
+    # the content builder and the hints change no sim state either: the same scenario with the board switched off (S.intel = false)
+    # against the plain run above (run "det" first)
+    FRAMES=${DET_FRAMES:-4500}
+    sed 's/^HEIST_SETTINGS = {/HEIST_SETTINGS = { intel = false,/' /home/dev/project/tests/heist/heist_determinism.lua > $B/Data/Scripts/modes/heist_det_nointel.lua
+    (cd $B && env DISPLAY=:99 GE_MODE=heist_det_nointel GE_STAGE=levelgen GE_SKIPINTRO=1 GE_NOINISAVE=1 GE_SEED=7 GE_FIXEDTICK=1 GE_TICKHZ=60 \
+        GE_FRAMES=$FRAMES GE_HASHLOG=$OUT/det.nointel.hash timeout 600 ./ProjectMidas > $OUT/det.nointel.log 2>&1)
+    na=$(grep -c '^tick' $OUT/det.plain.hash)
+    nb=$(grep -c '^tick' $OUT/det.nointel.hash)
+    n=$na
+    [ "$nb" -lt "$n" ] && n=$nb
+    grep '^tick' $OUT/det.plain.hash | head -n $n > $OUT/cmp.a
+    grep '^tick' $OUT/det.nointel.hash | head -n $n > $OUT/cmp.c
+    if grep -q "intel = false" $B/Data/Scripts/modes/heist_det_nointel.lua && cmp -s $OUT/cmp.a $OUT/cmp.c && [ "$n" -ge 3000 ]; then
+        echo "HEIST PASS nointel: no board at all vs the board's content and hints: $n ticks hash-identical"
+        PASS=$((PASS + 1))
+    else
+        first=$(diff $OUT/cmp.a $OUT/cmp.c | grep '^<' | head -n 1 | cut -c1-200)
+        echo "HEIST FAIL nointel: $n ticks (need 3000), first difference: ${first:-none}"
+        FAIL=$((FAIL + 1))
+    fi
+fi
 echo "HEIST INTEL DONE $PASS passed, $FAIL failed"

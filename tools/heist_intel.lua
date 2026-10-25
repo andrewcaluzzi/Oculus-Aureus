@@ -142,6 +142,13 @@ function heist_intel(ctx)
       if x >= q[1] and x <= q[3] and z >= q[2] and z <= q[4] and (y == nil or math.abs(r.floor - y) < 300) then return name, r end
     end
   end
+  local function pad_floor(p)
+    if not p then return nil end
+    local x, y, z = pads.pos(p)
+    if not x then return nil end
+    local _, r = room_of_xz(x, z, y)
+    return r and room_level(r) or level_of(y)
+  end
 
   -- ---------------------------------------------------------------------------------------------------------------------------
   -- the map's transform, per floor (fit to the floor's rooms; the ground floor keeps only the street in front of the bank)
@@ -268,6 +275,15 @@ function heist_intel(ctx)
     for i = 1, 6 do
       local y = STEP_Y + (i - 1) * STEP_H
       if done[i] then intel.marker(37, y + 10, "check", 0x60FF60FF, 7) end
+    end
+    -- the next step (the cameras / power step is optional): framed in red, and ringed on the schematics (draw_map_live)
+    local nxt
+    for _, i in ipairs({ 1, 2, 4, 5, 6 }) do if not done[i] then nxt = i; break end end
+    I.next_step = nxt
+    if nxt and not H.ended then
+      local y = STEP_Y + (nxt - 1) * STEP_H
+      intel.frame(26, y + 1, 614, y + STEP_H - 5, 0xFF5050D0, 2)
+      intel.text(50, y + 44, "NEXT", 0xFF6060FF, 0.9)
     end
     -- the keys strip under step 2
     local x = 50
@@ -430,6 +446,43 @@ function heist_intel(ctx)
       local x, y = to_board(ground, ctx.M.P.screens_at[1], ctx.M.P.screens_at[2])
       intel.at(2, ground, false); intel.marker(x, y, "box", 0x60E0FFFF, 3, "SCREENS")
     end
+    -- the card holders' posts (from the casing: the plan doesn't say which of the two holds GREEN)
+    local C = ctx.M.CARRIERS or {}
+    local function post(list, col, label)
+      local p = list and list[1]
+      local f = p and pad_floor(p)
+      if f then spot_pad(p, f, "pin", col, label) end
+    end
+    post(C.teller, DOORCOL[K.GREEN], "GREEN? HEAD TELLER")
+    post(C.captain, DOORCOL[K.GREEN], "GREEN? LOBBY CAPTAIN")
+    post(C.chief, DOORCOL[K.BLUE], "BLUE: SECURITY CHIEF")
+    post(C.manager, DOORCOL[K.RED], "RED: MANAGER")
+    post(C.vault_captain, DOORCOL[K.GOLD], "GOLD: VAULT CAPTAIN")
+  end
+
+  -- the next step's place on the map (THE PLAN's red frame): { floor, x, z, label } list
+  local function next_spots()
+    local out = {}
+    local function at_pad(p, label)
+      local xz, f = pad_xz(p), p and pad_floor(p)
+      if xz and f then out[#out + 1] = { f, xz[1], xz[2], label } end
+    end
+    local n = I.next_step
+    local C = ctx.M.CARRIERS or {}
+    if n == 1 then
+      local fd = obj("front_door")
+      local dw = fd and fd.doorway and door_at[fd.doorway]
+      if dw then out[#out + 1] = { ground, dw.x, dw.z, "NEXT: IN HERE" } end
+    elseif n == 2 then
+      if not crew_has(K.GREEN) then at_pad(C.teller and C.teller[1], "NEXT: GREEN?"); at_pad(C.captain and C.captain[1], "NEXT: GREEN?")
+      elseif not crew_has(K.BLUE) then at_pad(C.chief and C.chief[1], "NEXT: BLUE")
+      else at_pad(C.manager and C.manager[1], "NEXT: RED") end
+    elseif n == 4 then at_pad(ctx.M.P.crack, "NEXT: CRACK")
+    elseif n == 5 then
+      local vr = L.rooms.vault
+      if vr then out[#out + 1] = { room_level(vr), (vr.rect[1] + vr.rect[3]) / 2, (vr.rect[2] + vr.rect[4]) / 2, "NEXT: GOLD" } end
+    elseif n == 6 then at_pad(ctx.M.P.exit_a, "NEXT: OUT"); at_pad(ctx.M.P.exit_b, "NEXT: OUT") end
+    return out
   end
 
   local seen = {}                                 -- chr -> { x, z, floor, at }: guards a Bond saw on a camera feed
@@ -489,6 +542,15 @@ function heist_intel(ctx)
           end
         end
         intel.marker(x, y, "cam", dead and 0x909090FF or 0xFFFFFFFF, 4)
+      end
+    end
+    -- the next step's place, ringed (it throbs at the board's half-second clock)
+    for _, s in ipairs(next_spots()) do
+      local x, y = to_board(s[1], s[2], s[3])
+      if in_map(x, y) then
+        intel.at(2, s[1], true)
+        intel.marker(x, y, "ring", 0xFF4040FF, (math.floor(H.elapsed * 2) % 2 == 0) and 13 or 10)
+        intel.text(x + 14, y + 6, s[4], 0xFF6060FF, 0.85)
       end
     end
     -- guards: their posts (known), live positions only from a camera feed

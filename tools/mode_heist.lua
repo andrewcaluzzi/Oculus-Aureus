@@ -136,6 +136,7 @@ local S = {
     safe = "never", cell_green = "never", cell_floor = "never", dock_shutter = "never",
   },
   -- the INTEL board (section 19; Tab / Back): the crew's plan, schematics, keys, personnel and notes. Presentation only.
+  intel           = true,    -- false: no board at all (the determinism proof compares the two)
   hints           = true,    -- one-line contextual hints (a keyed door, the vault door, the breaker, the console, the screens)
   briefing        = true,    -- open the board once at the start ("press INTEL to close"; skipped in automated runs)
   spawn_per_tick  = 24,      -- chrs placed per 0.25 s at the start (no hitch)
@@ -1231,8 +1232,8 @@ on("stage_start", function(stage)
         "JANUS BANK, ST PETERSBURG. Steal the gold. Hurt no staff.", 8)
   log("stage start: %s, %d Bond(s), difficulty %d", MAP.label, bond.count(), mission.difficulty())
   refresh_hud()
-  H.intel = heist_intel{ S = S, H = H, PW = PW, M = H.M, force = diff.force, flash_p = flash_p, money = money, security_up = security_up,
-                         keys = { GREEN = GREEN, BLUE = BLUE, RED = RED, GOLD = GOLD, FLOORKEY = FLOORKEY, VAULT = VAULT } }
+  if S.intel ~= false then H.intel = heist_intel{ S = S, H = H, PW = PW, M = H.M, force = diff.force, flash_p = flash_p, money = money, security_up = security_up,
+                         keys = { GREEN = GREEN, BLUE = BLUE, RED = RED, GOLD = GOLD, FLOORKEY = FLOORKEY, VAULT = VAULT } } end
 end)
 
 -- the script's sim state for the co-op / netplay state hash (mode.state): a script-state desync shows at once, and the dump names it
