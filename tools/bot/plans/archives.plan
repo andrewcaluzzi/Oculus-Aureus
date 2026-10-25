@@ -1,0 +1,13 @@
+# Archives (St Petersburg). Bond starts unarmed in the interrogation room. assets/obseg/setup/UsetuparchZ.c (the older
+# macro style: flags as written; AI list ids = setChrAIListID(N) = 0x401 + N):
+#   0 (all) enter the room of pad 152 (out of the interrogation wing)
+#   1 (all) flag 0x100: chrAI_8 (list 0x409, Natalya) sets it the moment she can see Bond, then she follows him
+#     (chrAI_7, list 0x408: keeps 0x400 set while she lives and runs after Bond)
+#   2 (SA+) collect tag 2, fails on 0x1000   3 (all) enter the room of pad 208 with 0x400 (she is with him); fails on
+#     0x200 (bgAI_1: chr 0 - Natalya - gone). bgAI_0 runs the ending once Bond is in the room of pad 208.
+name archives
+obj=0 goto pad 152 60
+obj=1 meet ai 0x409 200 120
+auto
+goto pad 208 60
+exit

@@ -125,12 +125,15 @@ typedef struct {
     s32 deadAtStart;
     s32 objStatus[10];
     u32 flagsPrev;             /* objectiveregisters1 last tick: changes are logged (which AI flag fired, for plans) */
-    /* speed-strafing (`speed 1` / GE_PLAYERBOT_SPEED=1): forward + a C strafe held together, the view turned off the travel
-     * direction by ssOff (learnt from Bond's real motion per strafe side: [0] C-left, [1] C-right), the side kept per
-     * route segment (ssSide: -1 C-left, +1 C-right) */
+    /* speed-strafing (GE_PLAYERBOT_SPEED=1): the digital move forward + sideways held together, the view turned off the
+     * travel direction by ssOff ([0] left, [1] right: measured +-38 deg, refined from Bond's real motion), the side kept
+     * per route bend (ssSide: -1 left, +1 right) */
     s32 speedMode, ssSide, ssHeld, ssLearnN;
     f32 ssDist, wDist;         /* distance covered on straight stretches: speed-strafing / plain running (ticks below) */
     s32 ssTicks, wTicks;
+    s32 ssTest;
+    s32 dodgePeriod;           /* combat: ticks per strafe direction (GE_PLAYERBOT_DODGE, default 45) */
+    f32 ssTestYaw, ssTestX, ssTestZ;
     f32 ssOff[2], ssPrevX, ssPrevZ, ssTurnHint;
     void *spare[6];            /* `spare ai ID`: AI lists whose chrs are never shot (a hostage's captors) */
     s32 nSpare;
@@ -239,6 +242,7 @@ typedef struct {
     /* output for this tick */
     u16 btn;
     s8  sx, sy;
+    s32 dmx, dmy;              /* the port's digital move (-1 / 0 / 1 per axis: strafe, walk) */
     f32 yaw, pitch;
     s32 lookFresh;
     s32 heldA;
@@ -500,6 +504,8 @@ static void outClear(void)
     B.btn = 0;
     B.sx = 0;
     B.sy = 0;
+    B.dmx = 0;
+    B.dmy = 0;
     B.yaw = 0.0f;
     B.pitch = 0.0f;
     B.actNextInv = 0;
@@ -1301,10 +1307,7 @@ static void steerTo(f32 x, f32 y, f32 z, f32 slowRadius)
         f32 fw = cosf(rel), lat = sinf(rel);
 
         B.sy = (s8) pblClamp(fw * 90.0f, -80.0f, 80.0f);
-        if (fabsf(lat) > 0.38f)
-        {
-            B.btn |= ((lat > 0.0f ? -1 : 1) * B.crIsR1 > 0) ? BTN_CR : BTN_CL;
-        }
+        B.sx = (s8) pblClamp(lat * 90.0f, -80.0f, 80.0f);   /* stick +x: toward yaw theta + 90 (rel > 0) */
         (void) y;
         (void) slowRadius;
         return;
@@ -1325,9 +1328,10 @@ static void steerTo(f32 x, f32 y, f32 z, f32 slowRadius)
         }
         err = lookToward(B.lastSteerYaw - B.ssOff[si], 0.0f, 20.0f);
         if (fabsf(err) < 30.0f)
-        {
-            B.sy = 80;
-            B.btn |= B.ssSide > 0 ? BTN_CR : BTN_CL;
+        {   /* the port's digital move: full forward and full sideways (the stick's gate would cut a diagonal to 65/65);
+             * measured 11.0 u/tick 38 deg off the view, against 8.4 straight on the stick */
+            B.dmy = 1;
+            B.dmx = B.ssSide;
             B.ssHeld++;
             if (B.ssHeld > 20 && fabsf(err) < 4.0f)
             {
@@ -2142,21 +2146,23 @@ static s32 combatTick(f32 range)
     shootAt(t->pos.x, t->pos.y + B.aimY, t->pos.z, 20.0f);
     {   /* a civilian in a guard's line of fire at Bond (his misses carry on): step aside so the line clears it;
          * otherwise keep a little lateral motion (holding fire for a bystander: one way, to open the line) */
+        /* the strafe is the Move stick's x (bondview2.c, the port's pad path: analogStrafe = stick x, and the C buttons'
+         * digital steps are cleared - C-left / C-right never moved Bond, measured: <1 u/tick). Stick +x moves Bond
+         * toward yaw theta + 90, i.e. against r1 = (cos theta, sin theta). */
         s32 side = civilianExposureSide();
 
         if (side != 0)
         {
-            B.btn |= (side * B.crIsR1 > 0) ? BTN_CR : BTN_CL;
+            B.sx = (s8) (side > 0 ? -70 : 70);
         }
-        else if (B.tick - B.holdFire < 10 ? ((B.holdFire / 240) & 1) != 0 : ((B.tick / 45) & 1) != 0)
+        else if (B.tick - B.holdFire < 10 ? ((B.holdFire / 240) & 1) != 0 : ((B.tick / B.dodgePeriod) & 1) != 0)
         {
-            B.btn |= BTN_CL;
+            B.sx = -70;
         }
         else
         {
-            B.btn |= BTN_CR;
+            B.sx = 70;
         }
-        strafeCalibrate();
     }
     {   /* keep them at range: a guard's aim builds up per shot by 0.48 x min(1, 300 / distance) (chraction.c), so one
          * at 1500 hits five times less often than one at 300 - and Bond's movement does not matter to it. Back away
@@ -3250,8 +3256,16 @@ static void stageBegin(void)
     B.ssSide = 1;
     B.ssHeld = 0;
     B.ssLearnN = 0;
-    B.ssOff[0] = 45.0f;    /* C-left: motion ~45 to the view's one side, C-right the other (learnt on the first runs) */
-    B.ssOff[1] = -45.0f;
+    B.ssTest = getenv("GE_PLAYERBOT_SSTEST") != NULL ? atoi(getenv("GE_PLAYERBOT_SSTEST")) : 0;
+    B.dodgePeriod = getenv("GE_PLAYERBOT_DODGE") != NULL ? atoi(getenv("GE_PLAYERBOT_DODGE")) : 45;
+    if (B.dodgePeriod < 5)
+    {
+        B.dodgePeriod = 45;
+    }
+    B.ssTestYaw = 0.0f;
+    B.ssOff[0] = -38.0f;   /* digital forward + left: the motion 38 deg off the view (measured, GE_PLAYERBOT_SSTEST) */
+    B.ssOff[1] = 38.0f;    /* digital forward + right */
+    B.ssLearnN = 40;       /* (start from the measured offsets: only the filtered learning) */
     B.ssTurnHint = 0.0f;
     B.strafeCal = 0;
     B.calTick = 0;
@@ -3676,6 +3690,42 @@ static void drive(void)
     }
     weaponTick();
 
+    if (B.ssTest && B.tick < 10 * 150)
+    {   /* GE_PLAYERBOT_SSTEST=1: measure the movement inputs at the start (an experiment, no plan): 150 ticks each, once
+         * each way along a line (the last 100 ticks measured), the view held: stick forward; stick forward + stick right
+         * (the bot's |x|+|y| <= 130 gate makes it 65/65); digital forward + right; stick right alone; C-right + forward */
+        s32 ph = B.tick / 150, t = B.tick % 150, m = ph / 2;
+        static const char *const names[5] = { "stick forward", "stick forward+right", "digital forward+right",
+                                              "stick right only", "stick forward + C-right" };
+        static const s8 msy[5] = { 80, 80, 0, 0, 80 }, msx[5] = { 0, 80, 0, 80, 0 };
+        static const s32 mdx[5] = { 0, 0, 1, 0, 0 }, mdy[5] = { 0, 0, 1, 0, 0 };
+
+        if (B.tick == 0 || B.ssTestYaw == 0.0f)
+        {
+            B.ssTestYaw = p->vv_theta + 0.01f;
+        }
+        B.sy = msy[m];
+        B.sx = (ph & 1) ? (s8) -msx[m] : msx[m];   /* (back the other way: strafe the mirror side, to stay on the line) */
+        B.dmy = mdy[m];
+        B.dmx = (ph & 1) ? -mdx[m] : mdx[m];
+        B.btn |= m == 4 ? ((ph & 1) ? BTN_CL : BTN_CR) : 0;
+        lookToward(B.ssTestYaw, 0.0f, 20.0f);
+        if (t == 50)
+        {
+            B.ssTestX = p->prop->pos.x;
+            B.ssTestZ = p->prop->pos.z;
+        }
+        if (t == 149)
+        {
+            f32 dx = p->prop->pos.x - B.ssTestX, dz = p->prop->pos.z - B.ssTestZ;
+
+            portConLogf("ge: playerbot: sstest %s (%s): %.2f u/tick, motion %.1f deg off the view\n", names[m],
+                        (ph & 1) ? "back" : "out", sqrtf(dx * dx + dz * dz) / 99.0f, pblWrap180(pblYawTo(dx, dz) - p->vv_theta));
+            B.ssTestYaw += 180.0f;   /* back the other way: stay in the open */
+        }
+        return;
+    }
+
     /* a mode planner feeds steps one at a time */
     if (sPlanner != NULL && B.step >= B.plan.n)
     {
@@ -4005,9 +4055,10 @@ void portPlayerBotLook(f32 *dx, f32 *dy, s32 *direct, f32 *yawdeg, f32 *pitchdeg
 void portPlayerBotDigMove(s32 *dx, s32 *dy)
 {
     if (portPlayerBotMode() == 1)
-    {
-        *dx = 0;
-        *dy = 0;
+    {   /* the port's digital move (bondview2.c: the vanilla digitalStep flags - full forward plus full sideways on a
+         * diagonal, where the stick's gate would cut both down); recorded like the pad */
+        *dx = B.mode == 1 ? B.dmx : 0;
+        *dy = B.mode == 1 ? B.dmy : 0;
     }
 }
 
