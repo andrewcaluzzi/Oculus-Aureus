@@ -116,6 +116,84 @@ takes over an hour.
 - **Streets / Depot / Cradle / Egypt / Jungle**: die in fights; Train / Control / Caverns / Aztec: time out. None has a
   plan yet (default `auto` + `exit`). The `exit` step now fights (it used to stand still and get shot).
 
+## Round 7 (2026-10-25): savestate fidelity (relevant to netplay rollback), trials that reproduce, Bunker 2
+
+Round 6's optimiser choices did not reproduce in a fresh process on Surface 2, Statue, Frigate and Bunker 2. The suspect
+(audio) was one of six causes. Full write-up with the method and the netplay relevance: **`modding/snapshot-fidelity.md`**.
+
+### The fidelity test
+
+`GE_SNAPSOLOTEST=T,N,1` (`port_snap.c`): save at T, run N ticks hashing every tick's state in 4 KB chunks, restore, run
+again (a replay, or the bot deciding again), compare per tick and byte for byte; it names the first chunk to differ.
+Helpers `GE_SNAPTESTAT`, `GE_SNAPTESTOUT` (writable data outside the snapshot), `GE_TEXLOADLOG`. A difference that only
+shows for long N comes from something pass 1 did LATER: bisect N to one pass-1 tick, diff the outside memory of N and
+N+1 (Frigate: pass-1 tick 985, a door opening, read back by pass 2's tick 600). Scripts: `E:\midas-temp\bot\fid\`.
+
+### What was outside the snapshot (all fixed; details in snapshot-fidelity.md)
+
+1. **Audio** (netplay: yes). The sim read the sound player's playing state, held its `ALSoundState` pointers, and the
+   engine cleared the sim's owner words - all on the wall-clock audio clock (no device in the container: `SDL_GetTicks`,
+   so with `GE_CLOCKSCALE=20` a guard's line lasted 20x as many ticks as at real speed). Now the sim holds tokens whose
+   life is computed from the sound's envelope in sim fields (`port/src/port_simsnd.c`, `GE_SIMSND=0` = old).
+2. **The texture bank** (`assets/oddtextures.c`), rewritten in place on a texture's first use (netplay: yes).
+3. **The VI settings and projection** the sim's camera model reads (`src/fr.c`, a presentation file).
+4. **The portal table**: doors write its control bytes in place in the served bg file, in the ROM arena (netplay: yes).
+5. **Polls per tick** in the harness (wall-clock pump count): one poll per tick under `GE_FIXEDTICK` + `GE_NOSLEEP`.
+6. **The bot's scratch** (cover-search stamps, A* scores: live now) and its graph costs (an extent, always).
+
+Result: a save, N ticks, a restore and the same N ticks are bit-exact on all nine stages (bot playing: 400-1899, and
+600-3599 where the mission lasts; replays of Surface 2 / Frigate / Bunker 2: 600-6599). Netplay's re-simulation path:
+Frigate 16 of 70 rollback compares differed before, 0 after.
+
+### Trials that reproduce: the step's first poll
+
+With the snapshot exact, Runway's trial and clean run were still 4 ticks apart. The optimiser asks for a step's
+savestate in the poll where the step begins, and the save is taken at the next tick's start - after that poll's pad
+sample. So every trial (and the kept variant's replay) began with one tick of variant 0's input, and the clean run with
+the chosen variant's. Now the poll a step begins in plays variant 0 in every mode (`optVariant`). Found by hashing every
+tick inside one optimiser process (`GE_SNAPHASH`) and comparing the first pass over a tick with the last: the only
+difference before the step-4 save was the model texture pool's unused padding (a dyn extent is not zeroed beyond its
+restored end, unlike the memp pools: harmless, noted). Cross-process hash compares do not work (heap addresses).
+
+### Bunker 2 (speedrun mode): the cell, robustly
+
+The magnet watch pulls the floor key in only when Z is RELEASED (holding fire resets `magnetattracttime` to 0) and
+then from 60 to 250 fields after: anything within 350 whose floor line from Bond is clear. Round 6 held Z for 3 s and
+walked off toward pad 99 (outside the cell, never reached); by the door the line runs into the wall. Standing at
+-3215,4700 after a tap the key came in on every seed (1-6). After the cell the speedrun movement died on 2 of 6 seeds in
+rooms 61 / 6; the normal bot's movement (`slow`): 5 of 5 complete, 127-212 s. `slow` steps are not optimised (their
+variants are speedrun knobs). Route: `tools/bot/routes/bunker2.route` (the robust one). The speedrun movement after the
+cell, optimised, where it survives: seed 3 110 s, seed 5 144 s (test route `E:\midas-temp\bot\fid\routes_b2a`).
+
+### Wider search (`GE_PLAYERBOT_OPTWIDE=1`)
+
+`via` waypoints also tried 160 off (14 variants). Dam: 104 trials instead of 76, 4826 ticks instead of 4830 (still
+73 s). The other three stages (Runway, Bunker 1, Depot) have no `via` steps, so nothing to widen there; a two-step
+lookahead was not built (6x6 rollouts per pair; the trial cost is a whole rollout to the exit).
+
+### Results (Agent, round 7 binary, seed 1, Frigate seed 2; every time replay-verified in a fresh process without the bot)
+
+Recordings and logs: `E:\midas-temp\bot\speedrun7\r7b\<stage>\` (Bunker 2's 110 s: `r7b2A3\bunker2\`; binary
+`E:\midas-temp\bot\speedrun7b-bin`; videos `E:\midas-temp\render\videos-speedrun\`). "Trial =
+clean": the optimiser's in-process final run and the fresh-process clean run end on the same tick with the same health.
+
+| Stage | Old best (r6) | Round 7 | Agent WR | Idle | Trial = clean | Replay |
+|---|---|---|---|---|---|---|
+| Dam | 73 s | **73 s** (4830 ticks; wide search 4826) | 0:52 | 393 / 4830 (8%) | yes | same |
+| Runway | 35 s | **35 s** | 0:21 | 254 / 2200 (12%) | yes (r6: 4 ticks off) | same |
+| Surface 1 | 166 s | **166 s** | 1:01 | 2335 / 10074 (23%) | yes | same |
+| Bunker 1 | 59 s | **59 s** | 0:16 | 656 / 3614 (18%) | yes | same |
+| Frigate | 318 s (base; optimised: timeout) | **314 s** optimised | 0:21 | 7794 / 18956 (41%) | yes (r6: no) | same |
+| Surface 2 | 224 s | **217 s** | 0:46 | 4196 / 13136 (32%) | yes (r6: 308 vs 224) | same |
+| Bunker 2 | fail | **110 s** (seed 3, speedrun movement after the cell, optimised; the robust route: 127 s, seed 1) | 0:20 | 1790 / 6688 (27%) | yes | same |
+| Statue | 220 s (base; optimised 231) | **199 s** optimised | 2:17 | 4526 / 12012 (38%) | yes (r6: 207 vs 231) | same |
+| Depot | 47 s | **47 s** | 0:23 | 378 / 2900 (13%) | yes | same |
+
+The optimiser now finds the same numbers round 6 did wherever round 6's trials happened to be exact (Dam, Surface 1,
+Bunker 1, Depot); the gains are where they were not (Frigate, Surface 2, Statue) and Bunker 2, which now finishes. Still
+open: one segfault in a trial (Bunker 1, `bgTestHitOnObj` after a restore, as in round 6) - the optimiser restarts past
+it; the rest of the gap to the WRs is routes (see round 6, "What limits further gains").
+
 ## Round 6 (2026-10-25): speedrun mode, solo savestates, the segment optimiser; the Frigate replay divergence
 
 AC after the videos: "speed runners never stop moving unless they have to". This round: an opt-in speedrun mode, routes,
@@ -197,7 +275,8 @@ they part. So something the sim reads is not in the snapshot. Leading suspect (n
 outside the snapshot, yet the sim asks it whether a sound still plays (`chrai.c:239` the AI sfx slots,
 `chr.c:1847` / `chraction.c:6033` chr speech, `bondview2.c` hands / vehicles); after a restore the voices of the abandoned
 trial are still playing. The clean run is the only number reported, so the optimiser is a search heuristic there; on
-those stages the faster of the base (variant 0) and optimised clean runs is kept.
+those stages the faster of the base (variant 0) and optimised clean runs is kept. (Round 7 found six causes - audio was
+one - and fixed them: `modding/snapshot-fidelity.md`.)
 
 ### Results (Agent, final build, every time replay-verified without the bot)
 
