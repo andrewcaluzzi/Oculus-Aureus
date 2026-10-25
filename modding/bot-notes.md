@@ -16,6 +16,7 @@ Lab-style notes for whoever picks the player bot up next. User guide: `modding/b
 | `port/src/libultra_shim.c` | `GE_CLOCKSCALE` |
 | `tools/bot/plans/*.plan`, `tools/bot/heist_bot.lua`, `tools/bot/heist_bot_cells.lua`, `tools/bot/objectives.py` | plans, the heist drivers, the plan-writing aid |
 | `tests/bot/*.sh`, `tests/playerbot_test.c` | harness (level, campaign with PAR, heist seeds, replay-only, dam1, dev loop, gdb hang dump, screenshots) and unit tests |
+| `tools/bot/routes/*.route`, `tests/bot/speedrun.sh`, `port/src/port_snap.c` (solo savestates) | round 6: speedrun routes, the optimiser driver, savestates |
 
 ## Invariants
 
@@ -114,6 +115,124 @@ takes over an hour.
   objective 1 (Janus) - not planned yet.
 - **Streets / Depot / Cradle / Egypt / Jungle**: die in fights; Train / Control / Caverns / Aztec: time out. None has a
   plan yet (default `auto` + `exit`). The `exit` step now fights (it used to stand still and get shot).
+
+## Round 6 (2026-10-25): speedrun mode, solo savestates, the segment optimiser; the Frigate replay divergence
+
+AC after the videos: "speed runners never stop moving unless they have to". This round: an opt-in speedrun mode, routes,
+a savestate optimiser, and the round-5 replay divergence chased down. Normal mode is unchanged (speed level 2 re-run on
+the final build gives round 5's times to the second: Dam 107, Runway 72, Surface 1 752, Bunker 1 109, Surface 2 423,
+Statue 229, Depot 90).
+
+### The Frigate replay divergence: a wall-clock test in the port's input latches (engine finding, fixed)
+
+Not a render->sim dependency. `joy_port.c` latches a one-shot port action (next inventory, reload, ...) at the poll and
+drops it if no tick took it within **0.25 s of `osGetTime()`**. `osGetTime` runs `GE_CLOCKSCALE` times fast, so under the
+harness that is 12.5 ms of wall time, and whether a tick came that soon depends on the machine's load. The bot cycles to a
+gadget (Frigate's tracker bug) with exactly that action: a slow tick dropped the press in one run and not in another.
+Evidence: four replays of the round-5 recording (`campaign.r5s2/frigate/a3.rec`) all die identically at 231 s (drift at
+tick 6277) - the replay is deterministic; two record runs of the same seed on the same binary first differ in an `A`
+(action) record at tick 5364 (`100` vs `0`) with Bond's position identical up to tick 6154. Also checked and ruled out:
+lost pad samples (new `inputrec: LOST` diagnostic: none), the bot running mid-tick (new `g_PortTickPhase`: every poll lands
+after the tick, phase 3), render state (record and replay draw the same ticks).
+Fix (`joy_port.c`, `inputrec.c portInputRecTickClock`): with a recording, a replay or `GE_FIXEDTICK=1` the staleness is
+15 sim ticks (the netplay lockstep rule); interactive play keeps the wall-clock rule. After it six parallel record runs of
+that seed make the same recording (bar duplicate polls) and all replay `same`. Upstream-worthy: any recorded or
+deterministic run that uses port actions had this. dam1 IDENTICAL.
+
+Also found: the normal bot dropped a dead target at once only at `GE_PLAYERBOT_LOG=2` (combatTick) - the log level changed
+its play. Left as it is for the normal bot (its results stand); speedrun mode always drops it.
+
+### Speedrun mode (`GE_PLAYERBOT=speedrun`)
+
+Speed level 2 (speed-strafe, fire on the move, no loot detours) plus:
+- **No turning on the spot**: `pblDigitalPick` picks, of the eight digital moves, the one that carries Bond along the route
+  from the view as it is after this tick's turn (forward 0, diagonals +-38 measured, strafe 90, back 180, back+strafe 142;
+  the fast diagonals win ties); the view turns 45 deg a tick toward the speed-strafe offset meanwhile. Strafe-run measured
+  12.6 u/tick on Dam's road.
+- **Doors on the move**: from 450 out the view goes onto the door while the digital move follows the route; B as soon as
+  the use test can take it (within 170 and 15 deg, or 110 and 30); Bond runs on while it swings and holds only if a leaf
+  still in its swing is within reach; after 2 failed presses or a stall, the careful round-5 way. Doors the setup links to a
+  switch go to the switch at once (Dam's tunnel gate); a paired gate waiting for its sibling: walk up and hold. A nearer door
+  that stalls mid-swing with Bond in it: step back (Frigate deadlocked at 63/90 for good). A route door left 700+ behind
+  is forgotten (it blocked the door finder: Surface 1 sat under its hatch).
+- **Progress = running along the steer**: Dam's road and wall tiles take more than 1.5 s to cross, so the tile count
+  called a full-speed run "stuck" and sent it on 45-105 deg detours (Dam 108 -> 83 s from this alone). On the route only:
+  at its end the distance to the goal still counts (Frigate's helicopter: the gadget step must act from where it is).
+- **Ladders**: normal steering on and next to ladder tiles (the 38 deg offset never climbs), and a padlocked hatch near a
+  ladder has its locks shot first (the door finder only looks 300 up/down: Surface 1 climbed into the shut hatch for 2 min).
+- Quicker presses for `use` steps and switches (turn 45/tick, press when facing, every 8-12 ticks).
+- Diagnostics: LOG=2 logs every stop of 15+ ticks (where, why, stuck level) and stuck events with position and goal.
+  Idle counts now cover play ticks only (the intro camera was counted as standing still).
+
+### Routes (`tools/bot/routes/<stage>.route`)
+
+The plan language plus `via pad N [r]` / `via X Y Z [r]` (pass through at full speed) and the step prefixes `side=l|r`,
+`fast` (speed-strafe through threats) and `slow` (the normal bot's movement for that step). Community route data: the
+Elite wiki pages (wiki.the-elite.net, e.g. Dam_Agent) only return a bot-check page to WebFetch - **not fetched**; TASVideos
+1721S was fetched (an 00 Agent TAS; level notes, no usable paths). So the routes are the plans' steps (setup-derived:
+`tools/bot/objectives.py`) plus, on Dam, waypoints at the bends of the bot's own completed runs; the order of objectives is
+the plans'. Bunker 2's cell steps are `slow` (the guard's visit wants Bond within 25 of pad 99 - ai_4).
+
+### Savestates (`port_snap.c portSnapSoloRequest`) and the segment optimiser
+
+The rollback snapshots save and restore a full solo state: `portSnapSoloRequest(1|2)` saves / restores at the next tick
+begin (where the ring saves), plus `port_simonly.c`'s tick count (which ticks draw). The bot's own statics are in the
+snapshot (port_playerbot.c is unclassified -> snapshotted), its graph costs are added (`portSnapAddRange`), the optimiser's
+state is `portSnapLive`. A save is ~5-6 MB; a restore copies back only the differing pages (300-700 KB). Cheap: Dam's 76
+trials (each a rollout of the rest of the mission) ran in one process in ~4 minutes.
+
+Optimiser (`GE_PLAYERBOT_OPT=1`, `tests/bot/speedrun.sh <stage> [seed]`): for each movement step of the route, every
+variant (speed-strafe side left/right, `fast` toggled, and for `via` steps the waypoint moved 80 along x or z) is played
+from the step's savestate **to the start of the exit sequence** (the end camera / bungee: the mission time is set) and
+scored by that tick + 1000 per 1.0 health lost; the earliest is kept and replayed to the step's end, then the next step.
+(Scoring each step at its own end was tried first: greedy, and on Dam the result was 2 s slower than doing nothing.) A trial
+whose mission ends without an exit sequence (Bunker 1) or whose process dies (a guard's hit test crashed after a restore on
+Bunker 1, `bgTestHitOnObj`) exits / is restarted from `opt.state` (`start`/`try`/`fix` lines; the prefix is replayed by
+playing the kept variants). Then the clean run: the chosen variants without savestates, recorded and replayed without the
+bot.
+
+**Fidelity**: the in-process trial and the clean run agree exactly on Dam, Depot, Bunker 1 and Surface 1; Runway is 4 ticks
+off; on Surface 2 (308 vs 224 s), Statue (207 vs 231 s), Frigate (exit reached vs timeout) and Bunker 2 (complete vs dead)
+they part. So something the sim reads is not in the snapshot. Leading suspect (not verified): **audio state** - audio is
+outside the snapshot, yet the sim asks it whether a sound still plays (`chrai.c:239` the AI sfx slots,
+`chr.c:1847` / `chraction.c:6033` chr speech, `bondview2.c` hands / vehicles); after a restore the voices of the abandoned
+trial are still playing. The clean run is the only number reported, so the optimiser is a search heuristic there; on
+those stages the faster of the base (variant 0) and optimised clean runs is kept.
+
+### Results (Agent, final build, every time replay-verified without the bot)
+
+Recordings, logs, `opt.state` and `RESULT.txt` per stage: `E:\midas-temp\bot\speedrun\<stage>\final\` (binary:
+`E:\midas-temp\bot\speedrun\bin14`). World records: wrs.the-elite.net rankings (Agent), fetched 2026-10-25.
+
+| Stage | Old best (r2-r5) | Speedrun | | Agent WR | Idle before (speed 2) | Idle after | Replay |
+|---|---|---|---|---|---|---|---|
+| Dam | 107 s (r5 speed 2) | **73 s** | optimised (base 86) | 0:52 | 1083 / 6839 (16%) | 393 / 4830 (8%) | same |
+| Runway | 61 s (r4) | **35 s** | optimised (base 38) | 0:21 | 848 / 4426 (19%) | 254 / 2200 (12%) | same |
+| Surface 1 | 204 s (r4 speed) | **166 s** | optimised (base 295) | 1:01 | 11328 / 45264 (25%) | 2335 / 10074 (23%) | same |
+| Bunker 1 | 96 s (r5) | **59 s** | optimised (base 94) | 0:16 | 1377 / 6637 (21%) | 656 / 3614 (18%) | same |
+| Frigate | 356 s (r5; 206 s unverified) | **318 s** | base, seed 2 (optimised: timeout) | 0:21 | 10158 / 22503 (died) | 7167 / 19170 (37%) | same |
+| Surface 2 | 423 s (r5 speed 2) | **224 s** | optimised (base 315) | 0:46 | 9665 / 25504 (38%) | 4244 / 13528 (31%) | same |
+| Bunker 2 | 222 s (r2) | fail | seed 1: never out of the cell; seed 3: dies on the way to pad 51 | 0:20 | 19821 / 54001 (timeout) | - | - |
+| Statue | 229 s (r5 speed 2) | **220 s** | base (optimised 231) | 2:17 | 4679 / 13824 (34%) | 5609 / 13314 (42%) | same |
+| Depot | 78 s (r5) | **47 s** | optimised (base 55) | 0:23 | 910 / 5500 (17%) | 381 / 2900 (13%) | same |
+
+8 of 9 faster than before (Bunker 2 fails in speedrun mode; the normal bot still passes it on seed 3). Idle fell most
+where movement was the waste (Dam 16% -> 8%, Depot, Runway); Statue's idle is the scripted contacts (3.9k ticks of
+stand-still steps) and its fights; Surface 1 and 2 still lose minutes to stuck episodes in rooms 14 / 32.
+
+### What limits further gains
+
+- **Routes**: no community route data reached the bot (the wiki is behind a bot check); WRs use orders and skips the
+  plans do not know (Bunker 1 16 s, Frigate 21 s, Bunker 2 20 s). The routes are A* on the stan tiles between the plans'
+  objectives. Hand-written waypoints and orders per stage (from someone who knows the runs) are the next big lever.
+- **Fixed costs**: scripted contacts (Statue), paired gates (Dam's tunnel: ~8 s waiting for one gate to shut and the other
+  to open), doors' swing time.
+- **Savestate fidelity** (above): 4 of 8 stages cannot use the optimiser's choices as found. Putting the audio engine's
+  voice state into the snapshot (or answering the sim's "is it playing" from sim-side bookkeeping) is the fix to try.
+- **Search breadth**: 6-10 variants a step, one step at a time. A wider variant set (corner offsets on every step, door
+  press timing, weapon choice) is cheap to add now that a trial is a rollout from a savestate.
+- **Chaos**: small behaviour changes swing a run by 10% (Dam's base went 79 / 83 / 86 s across builds) - fights decide it.
+- **Bunker 2** in speedrun mode: the cell exit depends on the guard's visit timing.
 
 ## Round 5 (2026-10-25): doors by doorway, stacked doors, captor hunt; Frigate and Depot complete
 
