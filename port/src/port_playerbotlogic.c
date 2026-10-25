@@ -210,6 +210,7 @@ static const struct { const char *name; int op; } sOps[] = {
     { "rush", PBL_RUSH },
     { "avoid", PBL_AVOID },    /* avoid pad N */
     { "spare", PBL_SPARE },    /* spare ai ID */
+    { "escort", PBL_ESCORT },  /* escort ai ID [dist] | escort ai 0 */
 };
 
 const char *pblOpName(int op)
@@ -484,6 +485,16 @@ int pblParsePlan(const char *text, PblPlan *plan, char *err, int errlen)
                     return -1;
                 }
                 st.a = (int) strtol(tok[k + 1], NULL, 0);
+                break;
+            case PBL_ESCORT:
+                NEED(2);
+                if (strcmp(tok[k], "ai") != 0)
+                {
+                    snprintf(err, errlen, "line %d: want 'escort ai ID [dist]'", lineno);
+                    return -1;
+                }
+                st.a = (int) strtol(tok[k + 1], NULL, 0);
+                st.r = (nt - k >= 3) ? (float) atof(tok[k + 2]) : 400.0f;
                 break;
             case PBL_KEY:
                 NEED(1);

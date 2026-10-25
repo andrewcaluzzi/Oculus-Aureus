@@ -452,6 +452,10 @@ static void test_combat_geometry(void)
     CHECK(plan.s[0].op == PBL_HUNT && plan.s[0].a == 0);
     CHECK(plan.s[1].op == PBL_HUNT && plan.s[1].a == 1 && plan.s[1].b == 0x403);
     CHECK(pblParsePlan("hunt 0x403\n", &plan, err, sizeof(err)) == -1);
+    CHECK(pblParsePlan("escort ai 0x408 350\nescort ai 0x408\nescort ai 0\n", &plan, err, sizeof(err)) == 3);
+    CHECK(plan.s[0].op == PBL_ESCORT && plan.s[0].a == 0x408 && NEAR(plan.s[0].r, 350.0f, 0.01f));
+    CHECK(NEAR(plan.s[1].r, 400.0f, 0.01f) && plan.s[2].a == 0);
+    CHECK(pblParsePlan("escort 0x408\n", &plan, err, sizeof(err)) == -1);
     CHECK(pblParsePlan("hunt ai\n", &plan, err, sizeof(err)) == -1);
 }
 

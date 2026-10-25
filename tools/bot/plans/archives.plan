@@ -5,9 +5,12 @@
 #     (chrAI_7, list 0x408: keeps 0x400 set while she lives and runs after Bond)
 #   2 (SA+) collect tag 2, fails on 0x1000   3 (all) enter the room of pad 208 with 0x400 (she is with him); fails on
 #     0x200 (bgAI_1: chr 0 - Natalya - gone). bgAI_0 runs the ending once Bond is in the room of pad 208.
+# Round 5: she was met (133 s) and then died in Bond's line of fire (allies now count as bystanders), then fell behind:
+# the exit came without 0x400 - `escort` waits for her (she trails 250-400 behind: 650, else Bond waits for ever).
 name archives
 obj=0 goto pad 152 60
 obj=1 meet ai 0x409 200 120
+escort ai 0x408 650
 auto
 goto pad 208 60
 exit

@@ -184,6 +184,9 @@ typedef struct {
     ChrRecord *huntLast;       /* the hunt's current quarry (logged when it changes), chosen at huntSince */
     s32 huntSince;
     s32 huntAi;                /* `hunt ai ID` running: chrs on that AI list are shot before anyone else (0 = none) */
+    s32 escortAi, escortHold;  /* `escort ai ID dist`: gotos wait for that chr (escortHold: waiting now, since escortSince) */
+    s32 escortSince;
+    f32 escortDist;
     ObjectRecord *photoObj;    /* the object being photographed, and since when */
     s32 photoSince;
     ObjectRecord *photoSpotObj;   /* ...and the tile chosen to photograph it from (-1 none) */
@@ -982,7 +985,8 @@ static s32 graphApplyLocks(void)
         nd++;
         {
             f32 reach = 90.0f + fabsf(p->door->frac) * 0.5f;   /* a gate is as wide as it slides */
-            s32 byLink = doorRoomCount(p) >= 2;   /* a door between rooms: only the links through its doorway */
+            /* a locked door between rooms: only the links through its doorway (blocked / switch doors: the tiles) */
+            s32 byLink = doorRoomCount(p) >= 2 && doorLocked(p->door) && B.lockClosed != 3;   /* (3: the round-4 rule) */
 
             if (byLink)
             {
@@ -1319,8 +1323,12 @@ static PropRecord *routeDoor(void)
                 continue;   /* (behind Bond and not right at him: passed) */
             }
             if (ex * ex + ez * ez < reach * reach && fabsf(B.g.y[nd] - d->pos.y) < 300.0f &&
-                (doorRoomCount(d) < 2 || (k > 0 && linkThroughDoor(B.path[k - 1], nd, d))))
-            {   /* (a door between rooms: only when the route goes through its doorway, not past it) */
+                (!doorLocked1(d->door) || doorRoomCount(d) < 2 || B.lockClosed == 3 ||
+                 (k > 0 && linkThroughDoor(B.path[k - 1], nd, d))))
+            {   /* (a LOCKED door between rooms: only when the route goes through its doorway, not past it - Depot's
+                 * key-8 door beside the way to the train sent the bot for a key that does not exist. Unlocked doors
+                 * keep the plain "near the route" test: the room lists of hatches and gates do not always name the
+                 * rooms the route crosses, and opening a side door on the way costs little) */
                 if (k < bestK || dx * dx + dz * dz < bestD)
                 {
                     best = d;
@@ -1965,8 +1973,9 @@ static s32 civilianInLineYawEx(f32 yaw, f32 dist, s32 frontOnly)
     {
         ChrRecord *c = &g_ChrSlots[i];
 
-        if (!chrIsCivilian(c) || c == B.civExempt || fabsf(c->prop->pos.y - p->prop->pos.y) > 300.0f)
-        {
+        if (!(chrIsCivilian(c) || (c->model != NULL && c->prop != NULL && !chrIsDead(c) && isAllyBody(c->bodynum))) ||
+            c == B.civExempt || fabsf(c->prop->pos.y - p->prop->pos.y) > 300.0f)
+        {   /* (allies too: Archives' Natalya follows Bond and died in his line of fire) */
             continue;
         }
         if (pblInLineOfFire(p->prop->pos.x, p->prop->pos.z, yaw, frontOnly ? dist - 40.0f - 500.0f : dist, c->prop->pos.x,
@@ -2093,8 +2102,10 @@ static PropRecord *pickTarget(f32 range)
         dy = c->prop->pos.y - p->prop->pos.y;
         dz = c->prop->pos.z - p->prop->pos.z;
         d = dx * dx + dy * dy + dz * dz;
-        if ((d > range * range && !(chrAttacking(c) && d < 2400.0f * 2400.0f)) || fabsf(dy) > 400.0f)
-        {   /* (a guard shooting at Bond counts out to 2400: Caverns' and Streets' hits came from 1400-2400) */
+        if (d > range * range || fabsf(dy) > 400.0f)
+        {   /* (tried: attackers out to 2400 - Caverns' and Streets' hits come from 1400-2400 - Surface 2 got slower:
+             * standing to trade shots at that range costs more than it saves; the "hurt by someone unseen" fallback
+             * below still answers them) */
             continue;
         }
         {
@@ -3105,6 +3116,45 @@ static s32 doPhoto(ObjectRecord *obj)
 }
 
 /* run one plan step; returns 1 when the step is done */
+/* `escort ai ID [dist]`: a chr who follows Bond (Archives' Natalya: her AI runs after him and the exit only counts
+ * with her close) - on a goto, stand (and fight) while she is more than dist behind, until she is within 60% of it */
+static s32 escortWait(void)
+{
+    struct player *p = bond();
+    ChrRecord *c;
+    f32 dx, dz, d2;
+
+    if (B.escortAi == 0 || (c = findChr(1, B.escortAi)) == NULL)
+    {
+        return 0;
+    }
+    dx = c->prop->pos.x - p->prop->pos.x;
+    dz = c->prop->pos.z - p->prop->pos.z;
+    d2 = dx * dx + dz * dz;
+    if (d2 > B.escortDist * B.escortDist || (B.escortHold && d2 > 0.36f * B.escortDist * B.escortDist))
+    {
+        if (!B.escortHold && B.verbose >= 2)
+        {
+            portConLogf("ge: playerbot: escort: chr %d is %.0f behind - waiting\n", (s32) c->chrnum, sqrtf(d2));
+        }
+        if (!B.escortHold)
+        {
+            B.escortSince = B.tick;
+        }
+        B.escortHold = 1;
+        if (B.tick - B.escortSince > 240)
+        {   /* she is not coming (a door shut between them, she lost him): go back to her */
+            navTo(c->prop->pos.x, c->prop->pos.y, c->prop->pos.z, B.escortDist * 0.4f, c->prop->stan);
+            return 1;
+        }
+        B.stuck.lastGain = B.tick;
+        lookAt(c->prop->pos.x, c->prop->pos.y, c->prop->pos.z, 8.0f);
+        return 1;
+    }
+    B.escortHold = 0;
+    return 0;
+}
+
 static s32 stepRun(PblStep *s)
 {
     struct player *p = bond();
@@ -3115,7 +3165,15 @@ static s32 stepRun(PblStep *s)
     {
         case PBL_GOTO_PAD:
             pad = padGet(s->a);
+            if (pad != NULL && escortWait())
+            {
+                return 0;
+            }
             return pad == NULL || navTo(pad->pos.x, pad->pos.y, pad->pos.z, s->r, pad->stan);
+        case PBL_ESCORT:
+            B.escortAi = s->a;
+            B.escortDist = s->r;
+            return 1;
         case PBL_GOTO_XYZ:
             return navTo(s->x, s->y, s->z, s->r, NULL);
         case PBL_USE_PAD:
@@ -3614,6 +3672,8 @@ static void stageBegin(void)
     B.hpLost = 0.0f;
     B.lastHurtTick = -1000;
     B.kills = 0;
+    B.escortAi = 0;
+    B.escortHold = 0;
     B.civDead = 0;
     B.ssThreatTick = -1000;
     B.fireTicks = 0;

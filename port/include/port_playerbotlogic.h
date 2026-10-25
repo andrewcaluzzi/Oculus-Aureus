@@ -119,6 +119,7 @@ enum PblOp {
     PBL_AVOID,          /* a = pad: keep routes out of that pad's room from here on (a room that ends the mission) */
     PBL_SPARE,          /* a = AI list id: never shoot chrs running it (a hostage's captors whose death kills the hostage);
                          * 0 = shoot them all again */
+    PBL_ESCORT,         /* a = AI list id (0 = off), r = distance: gotos wait while that chr is farther behind */
     PBL_COUNT_
 };
 
