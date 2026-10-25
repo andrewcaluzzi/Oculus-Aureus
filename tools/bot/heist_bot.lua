@@ -11,22 +11,30 @@
 -- out by the nearer exit. The alarm does not stop it: the bot fights (cover, raisers first) and carries on.
 --
 -- Easy tunings (the heist's defaults are AC's to tune; these only set HEIST_SETTINGS before the include, like the tests do, and are a
--- difficulty ladder for measuring the bot): GE_HEIST_TUNE1 .. GE_HEIST_TUNE4 (the highest one set wins; none = the defaults).
+-- difficulty ladder for measuring the bot): GE_HEIST_TUNE1 .. GE_HEIST_TUNE5 (the highest one set wins; none = the defaults).
 --   1  no posted guards, raisers, vault guards, squads, waves or response; guards (the card carriers) at stock accuracy; jams 50%
 --   2  20 posted, 3 raisers, 2 vault guards, 1 crack squad, response at 300 s, stock accuracy
---   3  45 posted, 6 raisers, 4 vault guards, 2 crack squads, response at 180 s, stock accuracy
---   4  the default counts and timers, stock accuracy (the defaults' only difference: heist accuracy 10 at Agent = 2x stock)
+--   3  30 posted, 4 raisers, 3 vault guards, 1 crack squad, response at 240 s, stock accuracy
+--   4  45 posted, 6 raisers, 4 vault guards, 2 crack squads, response at 180 s, stock accuracy
+--   5  the default counts and timers, stock accuracy (the defaults' only difference: heist accuracy 10 at Agent = 2x stock)
 -- `acc` is the accuracy rating given to every armed chr the heist spawns (the mode's own is 10/20/30/40 by difficulty).
+-- GE_HEIST_CIVOK=1 on top: no civilian limit (civ_limit 99), to measure the fighting apart from the guards' crossfire.
 local OFF = 1e9
 local TUNES = {
   { guards_post = 0, guards_raiser = 0, guards_vault = 0, crack_squads = 0, wave_first = OFF, response_after = OFF, jam_chance = 0.5, acc = 0 },
   { guards_post = 20, guards_raiser = 3, guards_vault = 2, crack_squads = 1, response_after = 300, acc = 0 },
+  { guards_post = 30, guards_raiser = 4, guards_vault = 3, crack_squads = 1, response_after = 240, acc = 0 },
   { guards_post = 45, guards_raiser = 6, guards_vault = 4, crack_squads = 2, response_after = 180, acc = 0 },
   { acc = 0 },
 }
 local tune_n
 for n = 1, #TUNES do if mode.env_flag("GE_HEIST_TUNE" .. n) then tune_n = n end end
 HEIST_TUNE = tune_n
+if mode.env_flag("GE_HEIST_CIVOK") then
+  HEIST_SETTINGS = HEIST_SETTINGS or {}
+  HEIST_SETTINGS.civ_limit = 99
+  print("ge: heist_bot: no civilian limit")
+end
 if tune_n then
   HEIST_SETTINGS = HEIST_SETTINGS or {}
   local acc
@@ -165,7 +173,8 @@ local function tick_vault(ph)
       push("kill 900")
     end
   elseif state == "loot" then
-    if ph == "closing" or ph == "sealed" or ph == "trapped" then
+    if ph == "closing" or ph == "sealed" or ph == "trapped" or (ph == "open" and H.vault_left and H.vault_left < (CFG.leave_at or 28)) then
+      -- (out by leave_at seconds before the doors shut: at the klaxon, 15 s, a bot in the far end of the vault was shut in)
       bot.clear()
       if ph == "trapped" then go("trapped") else leave() end
     elseif idle() then
@@ -260,6 +269,11 @@ end
 on("tick", function(dt)
   if bot.active() ~= 1 or not H.ready or H.ended then return end
   if state == "out" then
+    if H.phase == "trapped" and H.trapped[0] then   -- shut in on the way out: re-crack from the inside
+      bot.clear()
+      go("trapped")
+      return
+    end
     if idle() then push("goto pad " .. exit_pad() .. " 60"); push("exit") end
     return
   end

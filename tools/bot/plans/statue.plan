@@ -6,8 +6,15 @@ name statue
 #     (tag 1: ai_xx moves it to one of several pads at random)
 # Walking into the room of pad 22 (room 10) ends the mission at once (ai_42: fade and exit_level): that was the "ends at
 # 10 s" of the first campaign. Keep out of it until the end.
+#   Janus (objective 1): ai_36 spawns him (chr 8, AI list 0x413 = ai_19) at pad 54 once objective 0 is done and Bond is
+#   near pad 59; ai_19 talks on a timer and sets 0x400 after 10 s (600 ticks) - a shot from Bond near him ends it
+#   (if_guard_shot_from_bond_missed). So: go to pad 59, hold fire, stay with him a while.
 avoid pad 22
 obj=0 meet ai 0x412 150 4000
+obj=1 goto pad 59 60
+obj=1 peace 1
+obj=1 meet ai 0x413 250 900
+peace 0
 auto
 avoid pad -1
 goto pad 22 80

@@ -115,6 +115,68 @@ takes over an hour.
 - **Streets / Depot / Cradle / Egypt / Jungle**: die in fights; Train / Control / Caverns / Aztec: time out. None has a
   plan yet (default `auto` + `exit`). The `exit` step now fights (it used to stand still and get shot).
 
+## Round 3 (2026-10-25): the full heist loop, a difficulty curve, the audio crash
+
+**Heist easy tunings.** `tools/bot/heist_bot.lua` sets `HEIST_SETTINGS` before `include("heist")` (the mode's defaults are
+untouched) from `GE_HEIST_TUNE1..5`, and wraps `spawn.chr` to give every armed chr the heist spawns one accuracy rating
+(stock 0; the mode's own is 10 at Agent = 2x stock). `GE_HEIST_CIVOK=1` lifts the civilian limit. `tests/bot/heist.sh`
+takes `TUNE=n`, `CIVOK=1` and `NOSHOTS=1`.
+
+| Tune | Posted / raisers / vault / crack squads / response | Accuracy | Vault-job wins (10 seeds, Agent) | Failures |
+|---|---|---|---|---|
+| 1 | 0 / 0 / 0 / 0 / off (carriers only), jams 50% | stock | **10/10** (twice: before and after the heist merge) | - |
+| 2 | 20 / 3 / 2 / 1 / 300 s | stock | **8/10** | 1 civilians (5), 1 shut in the vault (mode bug below) |
+| 3 | 30 / 4 / 3 / 1 / 240 s | stock | not measured (the disk filled mid-run) | |
+| 4 | 45 / 6 / 4 / 2 / 180 s | stock | 0/10 | 6 civilians (5 killed), 4 died (one after looting 24 bars) |
+| 5 | defaults (90 / 12 / 8 / 2 / 120 s) | stock | 0/10 | 10 died (89-311 s, 32-90 kills) - measured as "tune 4" before the renumbering |
+| - | the defaults | 10 | 0/10 | 8 died (72-192 s), 1 civilians, 1 timeout (room 3, GREEN leg) |
+
+Tune 2-5 and the defaults ran on the merged build (waves really spawn now); every run replayed `same` (70/70).
+The loop, as seen at tune 1: GREEN (teller robbed / captain knocked out or shot) -> BLUE (chief) -> console (cameras off)
+-> RED (manager robbed) -> crack at pad 85 with 0-4 jams, every one restarted -> vault open 60 s, 11-30 bars -> exit B ->
+`WIN`. Scores $1.55M-$4.5M. No quiet win: the time lock always raises the alarm when the vault shuts, so a quiet bonus
+needs the crew out within `vault_time` (60 s) of the opening - AC's call.
+
+What stops the harder tunings: (1) **guards' crossfire kills the staff.** At 45 posted, hall guards open fire at Bond from
+1100-1700 units across the hall (through the glass, Bond still in the blast-door passage, t = 15-20 s) and the first two
+civilian deaths come from their bullets (`killed (by -1)`); 6 of 10 runs end on the 5th death, most by guards. (2)
+Attrition: ~2.0 health (1.0 + the west-wing armour) buys 35-90 kills; the bot dies on the BLUE leg (offices / central
+corridor) or at the crack. The alarm comes from raisers (no camera in 19 of 20 alarms at tune 4/5).
+
+Bot fixes this round: `robTick` walked to "within 200" of a civilian carrier through a shut door and stood there until the
+key detour gave up (2 of 4 timeouts at tune 1); it now walks right up when there is no line. Untested (WSL went down
+before they ran): leave the vault 28 s before it shuts (`HEIST_BOT.leave_at`), and re-crack if shut in on the way out.
+
+**Heist mode bug (fixed in `tools/mode_heist.lua`, needs merging back):** `in_vault` used circles that miss the west end
+of room 56; a Bond there when the time lock fired was "sealed" in, not "trapped" - no re-crack, locked in for good (tune 2
+seed 4: a 900 s timeout with 13 bars). It now also counts the vault rooms 55-58 and 47. Untested in a run.
+
+Other heist findings (not changed): a use press anywhere in the 300-unit console zone with BLUE re-runs the camera switch
+(5-9 "security console used" lines a run; the off timer restarts each time). The security wing's shutters (doors 78/79,
+vertical, unkeyed, not `PROPFLAG_CANNOT_ACTIVATE`) never open for B, so the bot loses ~12 s at room 18 on the way to the
+console each run before routing through the BLUE door.
+
+**Engine: the `alAdpcmPull` crash (fixed, 53ff7c9, shared code - worth upstreaming).** Root cause: the synthesizer's
+update pool runs dry under the fast-forward (many sim ticks of sound events per audio frame; the audio frames follow the
+wall clock, so it is random - 3 crashes in ~9 replays of one recording, none under gdb); `alSynStartVoice(Params)` then
+drop the START, and a later volume / pan / stop update makes GE's env mixer (`_pullSubFrame` tests only `outCount`)
+pull a load filter that never got a wavetable: `table` NULL at load.c:68 (a crash-time dump of the filter: table 0,
+first 1, sample 0). Fix (`#ifndef TARGET_N64`): `_pullSubFrame` returns unless the voice is playing (the stock libultra
+test), and the steal path of `alSynAllocVoice` checks its `__allocParam`. 14 replays after: no crash; instrumented runs
+showed dropped STARTs in 5 of 8 and no table-less pull. dam1 IDENTICAL.
+
+**Photo objective vs render**: stock behaviour - `objective_status.c` judges the picture from `model->render_pos`, which
+only drawn ticks refresh (on the N64 every tick draws, so it never shows there). Replays must draw the same ticks.
+
+**Disk space, the hard way.** Each run writes a BMP every 30 s (~20 MB a heist run); a 100-run ladder plus old rounds
+filled C: (0 bytes free), and the WSL distro's disk image then threw I/O errors (docker hung, WSL needed a restart).
+Batch runs: `NOSHOTS=1` (heist.sh deletes the run's BMPs), convert what you keep to PNG (`tests/bot/shots2png.sh`), and
+check free space before a ladder.
+
+Statue: the plan now meets Janus (ai_36 spawns him at pad 54 when objective 0 is done and Bond is near pad 59; ai_19 sets
+0x400 after 10 s of talk unless Bond shoots): `goto pad 59`, `peace 1`, `meet ai 0x413`. Not run yet. The campaign was not
+re-run this round.
+
 ## Campaign, Agent, round 2 (2026-10-25)
 
 `PAR=10 RETRIES=3 MAXSECS=900 sh tests/bot/campaign.sh 0` on the build of the round-2 combat commit (before the last
@@ -205,8 +267,9 @@ closed glass (the line test fails before the doors open), `rush` (walk while sho
 that have noticed Bond (no better).
 
 Replays: the heist's `math.random` was seeded from the clock in solo, so a recorded heist replayed with other guards in
-other places (two replays of one recording disagreed). `port_luavm.c` now seeds it from `GE_SEED` when set (solo only;
-co-op keeps the session seed, players without GE_SEED keep the clock). Heist runs replay `same` since.
+other places (two replays of one recording disagreed). Round 2 patched `port_luavm.c`; the heist branch since seeds it
+from `GE_SEED` in `portLuaGameRandomSeed` (`port_lua.c`), and the bot's patch was dropped in the round-3 merge (heist
+recordings from before the merge do not replay on it).
 
 Next, in order: (1) an ambush at each area's alarm panel (raisers always run to it; the bot could hold a spot that sees
 the panel); (2) choose where to fight in the hall (a corner that sees one approach, no staff behind the guards); (3) the

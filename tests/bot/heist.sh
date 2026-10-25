@@ -11,9 +11,10 @@ COUNT=${3:-10}
 PAR=${4:-4}
 DIFF=${DIFF:-0}
 OUTROOT=$ROOT/build_tests/bot/heist
-NAME=$MODE.d$DIFF${TUNE:+.t$TUNE}${RUNTAG:+.$RUNTAG}       # RUNTAG: keep parallel batches (A/B settings) apart
-# TUNE=1..4: one of heist_bot.lua's easy tunings (GE_HEIST_TUNE<n>); unset = the heist's defaults
+NAME=$MODE.d$DIFF${TUNE:+.t$TUNE}${CIVOK:+.civok}${RUNTAG:+.$RUNTAG}       # RUNTAG: keep parallel batches (A/B settings) apart
+# TUNE=1..5: one of heist_bot.lua's easy tunings (GE_HEIST_TUNE<n>); unset = the heist's defaults. CIVOK=1: no civilian limit
 [ -n "$TUNE" ] && EXTRA="GE_HEIST_TUNE$TUNE=1 $EXTRA"
+[ -n "$CIVOK" ] && EXTRA="GE_HEIST_CIVOK=1 $EXTRA"
 mkdir -p "$OUTROOT"
 SUMMARY=$OUTROOT/$NAME.summary.txt
 : > "$SUMMARY"
@@ -27,6 +28,8 @@ one() {
     alarm=$(grep -a "ge: heist: ALARM" "$out/run.log" | head -1 | sed 's/.*at \([0-9]*\) s.*/\1/')
     shots=$(grep -a "ge: playerbot: RESULT" "$out/run.log" | tail -1 | sed -n 's/.*\(shots=[0-9]* hits=[0-9/]*\).*/\1/p')
     printf 'seed %s\t%s\t%s\talarm_at=%s\t%s\n' "$s" "$line" "${shots:--}" "${alarm:--}" "${verdict:--}" >> "$SUMMARY"
+    # NOSHOTS=1: drop the run's screenshots (a BMP every 30 s, ~20 MB a run: a 100-run ladder filled the disk once)
+    [ "${NOSHOTS:-0}" = 1 ] && rm -f "$out/run.shots"/*.bmp
 }
 
 s=$FIRST

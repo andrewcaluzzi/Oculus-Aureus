@@ -145,7 +145,10 @@ in the west wing, the floor key, the deposit cell's cash, out by the loading doc
 the RESULT line. From C, `portPlayerBotSetPlanner(fn)` does the same job without Lua. `sh tests/bot/heist.sh [mode]
 [first_seed] [count] [parallel]` plays seeds and prints each run's result and the heist's own verdict.
 
-Status: see modding/bot-notes.md ("Bank Heist") - no win yet.
+Easy tunings for measuring it (the heist's defaults untouched): `GE_HEIST_TUNE1..5` (fewer guards, stock accuracy) and
+`GE_HEIST_CIVOK=1` (no civilian limit), or `TUNE=n` / `CIVOK=1` for `tests/bot/heist.sh`; `NOSHOTS=1` drops each run's
+screenshots. Status: modding/bot-notes.md ("Round 3") - the full loop wins 10/10 with carriers only, 8/10 with 20 posted
+guards, 0/10 from 45 up.
 
 ## Known limits
 
