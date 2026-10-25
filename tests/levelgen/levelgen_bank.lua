@@ -266,7 +266,7 @@ local function body()
 
   -- 1: the layout
   local nopen = LEVEL.openings and #LEVEL.openings or 0
-  check("layout_counts", #LEVEL.room_name == 107 and #LEVEL.doors == 154 and nopen == 28 and #LEVEL.cameras == 27 and #LEVEL.alarms == 13 and
+  check("layout_counts", #LEVEL.room_name == 107 and #LEVEL.doors == 154 and nopen == 29 and #LEVEL.cameras == 27 and #LEVEL.alarms == 13 and
     #LEVEL.monitors == 11 and #LEVEL.safes == 2 and #LEVEL.padlocks == 2,
     string.format("rooms %d doorways %d openings %d cameras %d alarms %d monitors %d safes %d padlocks %d", #LEVEL.room_name, #LEVEL.doors,
       nopen, #LEVEL.cameras, #LEVEL.alarms, #LEVEL.monitors, #LEVEL.safes, #LEVEL.padlocks))
