@@ -511,9 +511,12 @@ local function in_inside_zone(p)
   for _, c in ipairs(P.inside) do if in_circle(p, c, S.crack_radius) then return true end end
   return false
 end
+local VAULT_ROOMS = { [55] = true, [56] = true, [57] = true, [58] = true, [47] = true }
 local function in_vault(p)
   for _, c in ipairs(P.vault) do if in_circle(p, c, c[3]) then return true end end
-  return false
+  -- the circles miss the west end of room 56 (x below ~300 along z 3141): a Bond there at the time lock was "sealed" in, with
+  -- no re-crack (the player bot found it: locked in for good). The vault's own rooms count too.
+  return not bond.dead(p) and VAULT_ROOMS[bond.room(p)] == true
 end
 H.in_vault = in_vault
 local function anyone(fn) for p = 0, bond.count() - 1 do if fn(p) then return true end end return false end
