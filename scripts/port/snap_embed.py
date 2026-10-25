@@ -28,6 +28,8 @@ SIM_PORT = {
     'port_roomvis.c', 'port_spawn.c', 'port_wsets.c', 'ramrom_data.c', 'port_simheap.c', 'port_arenamode.c',
     # the heist CCTV view: who watches which camera (sim); its per-pass render state is rebuilt every pass, so a restore is harmless
     'port_cctvview.c',
+    # the heist gadgets: triggers, the piton reel, disguises (sim); the overlay's inputs are rewritten by the script every tick
+    'port_gadgets.c',
     # input latches the sim reads (held / edge / zoom state per pad); its live accumulators are excluded by portSnapLive()
     'joy_port.c',
     # the sim's own view of the sounds it starts (tokens, end times in sim fields): modding/snapshot-fidelity.md

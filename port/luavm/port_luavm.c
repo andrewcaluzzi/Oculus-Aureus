@@ -1745,6 +1745,11 @@ static lua_State *portLuaState(void)
 
         portLuaAiRegister(sL);
     }
+    {   /* the heist's gadgets: gadget.* (port_luavm_gadgets.c, port/src/port_gadgets.c) */
+        extern void portLuaGadgetsRegister(lua_State *L);
+
+        portLuaGadgetsRegister(sL);
+    }
     {   /* the heist INTEL board: intel.* (port_luavm_intel.c) */
         extern void portLuaIntelRegister(lua_State *L);
 

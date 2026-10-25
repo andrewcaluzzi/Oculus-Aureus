@@ -11674,6 +11674,11 @@ void bondviewMovePlayerUpdateViewport(s8 stick_x, s8 stick_y, u16 buttons)
 
             portCctvViewTick(get_cur_playernum(), &stick_x, &stick_y, &buttons);
         }
+        {   /* PORT: heist gadgets (port_gadgets.c): a gadget's own trigger; a Bond on the piton line is carried (placed before his move) */
+            extern void portGadgetsBondTick(int p, s8 *sx, s8 *sy, u16 *buttons);
+
+            portGadgetsBondTick(get_cur_playernum(), &stick_x, &stick_y, &buttons);
+        }
         {   /* PORT: coop (job CO-OP-EXITS): a Bond held at the level exit cannot act (netplay already zeroed its record; this covers local co-op) */
             extern int portCoopBondHeld(int p);
 

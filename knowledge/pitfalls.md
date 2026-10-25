@@ -147,3 +147,16 @@ so a Bond there when the vault shut was "sealed in" for good. Test `bond.room` a
 
 **Modifier percent knobs start at 100**, filled from each default on first use (`modInit`); forgetting that made
 `enemy_damage` zero after any set.
+
+**`math.acos` returns NaN in the game's Lua** (the gadgets' tape-loop aim, 2026-10-26: every camera came out `-nan` degrees off).
+`math.sin`, `math.cos`, `math.atan` (one or two arguments) and `math.sqrt` are fine; take an angle from `math.atan(|cross|, dot)`.
+
+**A test mode must not share a name with a module it includes**: `GE_MODE=heist_gadgets` loaded the test file, which then
+included `heist_gadgets` (itself) instead of the gadgets module. The gadgets test runs as `heist_gadgets_test`.
+
+**Moving Bond after `MoveBond` does not move his camera that frame**: the view is built inside `MoveBond`. The piton line
+places him before it (`port_gadgets.c`, from the hook ahead of `MoveBond` in `bondview2.c`), with `field_70` (his feet) at the
+line's height and `field_7C` (fall speed) 0: the fall `MoveBond` then applies is a fraction of a unit per tick.
+
+**`pads.far_from` ignores height**: on the bank a "nearest pad" to a hall point can be on the gallery above it. Filter by `y`
+(the gadgets test's `warp_xz(p, x, z, y)`).

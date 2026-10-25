@@ -336,6 +336,26 @@ The scan runs every 4 ticks for every cover guard and every Bond, reads only sim
 
 **Scripted walks.** `spawn.go(chr, pad [, run])`: the chr walks (runs) to the pad on the stock waypoint route (`chrGoToPad`); its own list keeps running (a posted guard stays a posted guard), and the arena's direct route does not re-aim it while it is on the way (up to a minute).
 
+### Gadgets (heist)
+
+designs/bank-heist.md section 21: `tools/heist_gadgets.lua` (the piton gun, lockpicks, coins, the tape loop, sleep gas, the thermal imager, the pickpocket, disguises, vents) on `port/src/port_gadgets.c`. Test mode `tests/heist/heist_gadgets.lua` (`tests/heist/run_gadgets.sh`).
+
+| Call | Notes |
+| --- | --- |
+| `gadget.items({item, ...})` | The `ITEM_*` ids that are gadgets (up to 16). With one in a Bond's right hand his fire button (Z) is the script's: counted, and never passed to the stock gun code. It also gives those items the gadgets' own names on the HUD and the watch. |
+| `gadget.fire(p)` | `presses, held, ticks`: fire presses since the last call (taken), whether fire is held now, for how many ticks. Read from the Bond's own synchronized buttons. |
+| `gadget.test_fire(p, ticks [, taps])` | Test hook: hold fire for `ticks` sim ticks, or give `taps` presses (one every other tick). |
+| `gadget.aim(p)` | `yaw, pitch, x, y, z, feet`: the view in degrees (`vv_theta`, forward is `(-sin, cos)`; `vv_verta`), the eye position and the feet height. |
+| `gadget.reel(p, {{x, y, z}, ...}, secs, from_pad, to_pad)` | Carry Bond `p` along up to 4 feet points in `secs` (held: no stick, no buttons), drawn on `from_pad`'s floor tile until the last leg, then set down on `to_pad`. Two equal points hold him in place (a vent crawl). |
+| `gadget.reeling(p)` | `on, frac, done`: on a line now, how far along, lines finished this stage. |
+| `gadget.floor_point(p, yaw, dist)` | `x, y, z`: where a throw along `yaw` lands: the floor walked from Bond, short of walls and drops (tries shorter). |
+| `gadget.chr_yaw(chr)` | Where a chr faces, degrees (`atan2(dx, dz)` of its facing). |
+| `gadget.lift_key(p, chr)` | The pickpocket: the chr's keys (not its gun) go to Bond `p` through the stock pickup. Returns the key flags (0: none). |
+| `gadget.disguise(p [, kind])` | 0 none, 1 a staffer's clothes (staff rooms count as public), 2 a guard's uniform (every room counts as public; lingering close to a guard fills twice as fast). The cover reads it. |
+| `gadget.bar(p, frac [, rgba])`, `gadget.marker(p, x, y, z)`, `gadget.xray(p, on)` | Presentation for that Bond's machine: a work bar (nil hides it), a bracket on a point (nil hides it), the thermal imager's boxes on every chr within 35 m. |
+
+The trigger counts, the lines, the disguises and the item list are in the co-op / netplay state hash and the rollback snapshot. Noises: the script calls `noise.emit` when the AI layer defines it.
+
 ### The heist mode
 
 Job 6 of designs/bank-heist.md: `tools/mode_heist.lua`, shipped as `Data/Scripts/modes/heist.lua`. Run it on Bunker 2: `GE_MODE=heist GE_STAGE=bunker2 GE_SKIPINTRO=1` (Windows: `Play Heist.bat`). The Janus front bank in St Petersburg: about 105 guards on post on Agent (more on harder difficulties), alarm raisers at their area's panel, bank staff, four card carriers (GREEN: the head teller or the lobby captain, chosen at random; BLUE: the security chief; RED: the branch manager; GOLD: the vault captain), Bunker 2's doors re-keyed as tiers, the stock cameras, a cracker with jams and a time-locked vault, gold bars and cash, two exits. Every count, timer and chance is in the settings table `S` at the top; a preset or test sets `HEIST_SETTINGS` before `include("heist")`. The table `HEIST` is its test window (phase, loot, carriers, zones, `HEIST.force_jam()`, `HEIST.camera_switch(p)`, `HEIST.watch(p [, cam])`, `HEIST.intel_lines(p)`). The banking hall (room 6) is the control room: the use action (the Port use bind, not B, which is also reload) at one of its screens (the monitor wall at its west side, the two desk screens) puts that Bond on the camera feeds, and while he is in room 6 or on a feed the HUD panel shows the intel (cameras up, alarm, the vault, where a working camera last saw each card carrier, guard counts in the areas a working camera covers, "?" elsewhere). The security console (BLUE card) still switches every camera off for 90 s. Tests: `tests/heist/run_winpath.sh` (win path, trapped-in-the-vault path, civilian-limit fail path), `tests/heist/run_cctv.sh` (the feeds and the intel); screenshots: `tests/heist/run_shots.sh`. The flow and the map are written up at the top of the script and in designs/bank-heist.md section 9.
