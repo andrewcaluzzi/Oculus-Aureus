@@ -110,6 +110,9 @@ local function take_card(flags, label)
   check(label .. ": knocked out and searched, the card drops", s == c.chr and ((alive and not held) or bond.has_key(0, flags)),
         string.format("search=%s held=%s", tostring(s), tostring(held)))
   if kx then warp_xz(kx, kz, croom) end
+  do local bx, _, bz = bond.pos(0)
+     print(string.format("HEIST   card at %s,%s (room %s), Bond at %.0f,%.0f (room %s), %.0f apart", tostring(kx and math.floor(kx)),
+           tostring(kz and math.floor(kz)), tostring(croom), bx, bz, tostring(bond.room(0)), kx and d2(bx, bz, kx, kz) or -1)) end
   local got = wait_for(4, function() return bond.has_key(0, flags) end)
   check(label .. " card picked up (bond.has_key)", got, string.format("keys=0x%x", bond.keys(0)))
   return got

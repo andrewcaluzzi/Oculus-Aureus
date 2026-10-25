@@ -914,3 +914,86 @@ Not run: the dam1 oracle, the logic tests, and determinism. This stream changes 
 - The mantrap and sally-port interlocks are not enforced.
 - `vent_vault` (the emergency ventilator) bypasses the crack. AC needs to decide whether the gadgets stream lets gold out through it.
 - The time-lock clock and the drill-the-wall alternative (Hatton Garden) are designed (`bank-v3.md` §6, §7) but not built.
+
+## 23. Overnight integration (2026-10-26)
+
+The five overnight streams merged on `heist` (0ae10ad): guard AI (§18), intel board (§19), AR specs and diagnostics (§20), gadgets
+(§21) and bank v3 (§22, the compiled level). Then the full suite ran on the merged build, headless in four containers. The netplay
+case ran alone at the end. Playable Windows build: `build_win_next\Play Heist (overnight).bat` (`GE_STAGE=levelgen GE_MODE=heist`).
+
+### 23a. Fixes (merge interactions)
+
+- **Intel board, v3's two-card door** (990b81a). The board matched a door's keyflags to one card exactly. As a result v3's box vault
+  door (`boxes_door`, GREEN + FLOOR KEY = 0x3) was on no card, and the content test failed (32 keyed, 31 listed). Now a keyed door goes
+  on every card whose bit it has. The map draws it in its first card's colour, and the door hint names the card the Bond still lacks.
+  The test counts each door once and checks every card bit, including the box vault on GREEN and the floor key.
+- **The control room's intel box saw carriers through floors** (a88f2e6). `cctv.sees` tests the cone and the stan line in x/z only.
+  As a result `intel_scan` reported a card carrier as seen by a camera on another floor. It now applies the board's feed rule: the
+  chr's room must be on the camera's floor (the layout's levels). On v3, half the raw sightings in 5 s of sweeps were on another floor:
+  405 on the same floor, 401 on another. The new cctv check compares the mode's rule with the board's rule. The gadgets' camera report
+  was already filtered by room.
+- **The coin and the AI layer** (b4ec18f). With ai merged, the gadgets hand the coin (and the lock and safe rattles) to `noise.emit`.
+  But `make_noise` returned -1, so the thrower got no feedback ("Clink. N guards heard it" now). The coin test, written without the AI
+  layer, waited for the gadgets' own pull, which no longer happens. The test now takes the AI branch: the coin goes through
+  `noise.emit`, the hall guard ahead turns ("Huh?", the AR bubble), walks to where it fell (262 -> 129 units), searches, gives up
+  ("Must be nothing.") and walks back to his post, and the cover holds. The sleep gas's knock-outs thud through the AI layer's
+  `CHR_KNOCKED_OUT` hook as designed: guards near the cloud come to look.
+- **The guards suite is seeded** (dcdf70d). `run_guards.sh` set no `GE_SEED`, so every run was a different game. The suite now runs on
+  `GE_SEED` 7. The stock body check's roll repeats while the body is in sight, so the test waits up to 20 s for `body_found` instead of
+  6 s. With seed 7 the body is found after 9.75 s, which the old window missed. The test also polls up to 8 s for the alerted witness
+  to close on Bond, instead of reading his position once. Both checks still fail if the event never happens. Two seeded runs gave
+  identical results.
+
+### 23b. The merged test table
+
+This table is from the merged build plus the fixes above. Up to 12 games ran at once on 12 threads. Everything is on v3.
+
+| Check | Expected | Got |
+| --- | --- | --- |
+| dam1 (`tests/bot/dam1_check.sh`) | identical | identical (453 lines) |
+| `tests/run_logic_tests.sh` | pass | pass |
+| `test_gen_level.py` | 12 | 12 |
+| `run_bank.sh` static / route A / route B / guards | 16 / 2 / 3 / 5 | 16 / 2 / 3 / 5 |
+| winpath | 59 | 56 on the first run (the GREEN card dropped on the floor and was not picked up, so the two GREEN door checks failed with it), then 59 on a rerun. Not seeded (see 23c) |
+| trapped / civ / quiet / count | 17 / 5 / 11 / 2 | 17 / 5 / 11 / 2 |
+| bindings / ko | 38 / 26 | 38 / 26 |
+| cctv | 40 | 41 (plus the floor-rule check) |
+| guards | 37 | 37 (seeded). An unseeded run timed out in the 150-guard spawn with 36 passed |
+| cover | 12 runs | 12 of 12 runs, 87 checks (`doors` passes now) |
+| `run_ai.sh` | 56 | 56 (9 runs) |
+| `run_intel.sh` | content 23 + det + nointel | content 25 (22 + 1 fail before 990b81a), det 4299 ticks identical, nointel 4142 ticks identical |
+| `run_ar.sh` | api 13 + proof | api 13, proof 4366 ticks identical |
+| `run_gadgets.sh` | all runs | piton 17, lockpick 13, pocket 8, coin 10, loop 6, disguise 9, vent 9, gas 4, thermal 6, safe 6 (88 checks; disguise and gas after 821d3d1) |
+| `run_gadgets.sh det` | solo, co-op | solo 3863 and co-op 3859 ticks identical (4 of 4) |
+| determinism solo / co-op | pass | 3 of 3 (4366 ticks) / 5 of 5 (4363 ticks, view-switched too) |
+| determinism net (run alone, default budget) | pass | 4 of 4, clean: host and guest 3802 ticks identical (NEED is 3000), notes identical, no DESYNC, every step reached. It was short of ticks all night only because of the load |
+
+Two more gadget tests had to change for the AI layer (tests only, 821d3d1). In **disguise**, searching the knocked-out guard is an act, and the
+AI layer's hall cameras report acts. The alarm followed and brought the security guards out of their office (2 failures), so the
+scenario now turns the cameras off. In **gas**, the hall guard it aimed at was a patrol guard who had walked off, so the scenario now
+picks a fixed post. The check is now that every guard standing where the gas lands is knocked out: where it lands depends on the line
+of the throw.
+
+Screenshots of the merged build on v3 are on AC's machine, not in the repo, in `E:\midas-temp\final\shots\`:
+- `piton_facade_top.png`: the rope up the facade line;
+- `thermal_through_wall.png`: guards boxed through the wall;
+- `lockpick_progress.png`: picking the BLUE lock at 45%;
+- `intel_schematics_G.png` and `intel_schematics_B1.png`: the SCHEMATICS page;
+- `coin_guard_heard.png`: a guard's "Huh?" bubble at a coin, with "Clink. 1 guard heard it";
+- `coin_guard_investigates.png`: the same guard as he walks over.
+
+### 23c. Remaining gaps
+
+- **The win path is not seeded** (`run_winpath.sh`, like the guards suite was). On one of two runs the GREEN card dropped on a search and
+  was not picked up within 4 s. The lobby captain had answered a backup call before he was knocked out ("Over there!"), so he lay
+  somewhere else. The test now prints where the card lies and where Bond stands (`HEIST card at ...`). Next: seed it and walk Bond onto
+  the card instead of warping.
+- **`cctv.sees` itself is still x/z only.** Every Lua caller now filters by floor or room (the mode, the board, the gadgets' camera
+  report). A new caller must do the same, or the C function should get the floor rule.
+- **A coin's pull depends on the distance.** Through the AI layer a coin is just a noise (radius 900, weight 0.8). A guard 4 m from
+  where it lands turns ("Huh?") but may not walk over: his level stays under the search threshold. A coin landing near him brings him
+  over. The fallback pull (no AI layer) always sent the 2 nearest guards. Tune `coin_noise` or the coin's weight if it should pull from
+  further.
+- **The Windows exe was not smoke-run on Windows**, because the port has no hidden-window option. The same source booted the heist
+  headless in the Linux build. `build_win_next`'s Lua scripts were refreshed after the fixes (they are copied only on a relink).
+
