@@ -532,7 +532,11 @@ static int startFlank(Cb *f, ChrRecord *fc, Cb *s, ChrRecord *sc, PropRecord *bp
 {
     f32 x, y, z;
 
-    if (!flankPoint(f, fc, sc, bp, &x, &y, &z) || !runTo(fc, x, y, z)) return 0;
+    if (!flankPoint(f, fc, sc, bp, &x, &y, &z) || !runTo(fc, x, y, z))
+    {
+        printf("ge: combat: chr %d found no flank point round Bond (partner chr %d)\n", (int) f->chrnum, (int) s->chrnum);
+        return 0;
+    }
     f->pair = (s16) (s - sC);
     s->pair = (s16) (f - sC);
     f->role = ROLE_FLANK;
@@ -729,7 +733,7 @@ static void team(void)
         Cb *a = &sC[i];
         ChrRecord *ac;
 
-        if (!a->used || a->pair >= 0 || (a->st != CB_HIDE && a->st != CB_SHOOT) || a->retreated) continue;
+        if (!a->used || a->pair >= 0 || a->st == CB_IDLE || a->st == CB_FLANK || a->retreated) continue;
         ac = cChr(a);
         if (!chrUp(ac)) continue;
         for (j = 0; j < sCN; j++)
@@ -739,7 +743,7 @@ static void team(void)
             int p;
             PropRecord *bp;
 
-            if (j == i || !b->used || b->pair >= 0 || (b->st != CB_HIDE && b->st != CB_SHOOT) || b->retreated) continue;
+            if (j == i || !b->used || b->pair >= 0 || b->st == CB_IDLE || b->st == CB_FLANK || b->retreated) continue;
             bc = cChr(b);
             if (!chrUp(bc) || d2(ac->prop->pos.x, ac->prop->pos.z, bc->prop->pos.x, bc->prop->pos.z) > sT.flankRange) continue;
             if (rnd01() >= sT.flankChance) break;
