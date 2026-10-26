@@ -30,6 +30,7 @@ include("heist_lib")
 include("levelgen_layout")                     -- LEVEL: the generated level's layout (include() works at the top level only)
 include("heist_bank_map")                      -- heist_bank_map(): the mode's tables from LEVEL by name
 include("heist_ai")                            -- HEIST_AI: the guards' hearing, awareness and barks (section 18)
+pcall(include, "heist_combat")                 -- HEIST_COMBAT: the LOUD route: cover, flanks, police and SWAT (section 24; optional)
 include("heist_intel")                         -- heist_intel(ctx): the INTEL board's content and the hints (section 19)
 include("heist_guide")                         -- heist_guide(ctx): the first-play objective line, key strip and prompts (section 23d)
 pcall(include, "heist_ar")                     -- the AR specs and diagnostics (section 20; presentation only, optional)
@@ -47,6 +48,7 @@ local S = {
   civilians       = 18,      -- bank staff (unarmed; aim at one to make it surrender, keep aiming and it hands over what it carries)
   hearing         = 1.0,     -- guard hearing scale (silenced PP7: heard within 100 units on a first shot, 500 at its cap)
   ai              = true,    -- hearing, awareness, barks, check-ins, backup (section 18); hearing_* / ai_tune: tools/heist_ai.lua
+  combat          = {},      -- the combat layer and the heat (section 24): false = stock fighting; keys: tools/heist_combat.lua
   vision          = 3000,    -- guard sight range, units (corridors here are 100-300 wide, rooms 500-1500)
   guard_weapons   = { "kf7", "kf7", "kf7", "d5k", "zmg", "dd44" },
   guard_bodies    = { "St_Petersburg_Guard", "St_Petersburg_Guard", "Russian_Soldier" },
@@ -266,6 +268,7 @@ local function note_guard(c, kind, area)
   -- the door rules: which keyed doors this guard may open on his way (S.door_access)
   spawn.role(c, (kind == "squad" and "squad") or (kind == "vault" and "vault") or area)
   HEIST_AI.guard(c, kind)
+  if HEIST_COMBAT then HEIST_COMBAT.guard(c, kind) end
 end
 
 -- ------------------------------------------------------------------------------------------------------------------------------------
@@ -1253,6 +1256,7 @@ on("stage_start", function(stage)
     cctv.alarm_on_spot(false)
   end
   HEIST_AI.setup(S, H)
+  if HEIST_COMBAT and HEIST_COMBAT.setup then HEIST_COMBAT.setup{ S = S, H = H, P = P, DOORS = DOORS, flash = flash, hostiles = hostiles_alive, guard_opts = guard_opts } end
   H.hand = S.cover and S.start_hand or S.start_weapons[1]
   for p = 0, bond.count() - 1 do
     bond.warp(p, P.start[p % #P.start + 1], (p >= #P.start) and 60 or 0, 0)
@@ -1283,11 +1287,11 @@ on("stage_start", function(stage)
     return guard_opts({ behaviour = "chase", body = pick({ "Siberian_Special_Forces", "St_Petersburg_Guard" }), weapon = pick({ "kf7", "d5k", "zmg" }) })
   end
   waves = heist.reinforce{ pads = P.waves_front, interval = S.wave_interval, per_wave = math.max(1, diff.wave), max_alive = scaled(S.wave_max_alive, 4),
-                           first = S.wave_first, reserve = S.reserve_slots, opts = wave_opts, on_spawn = function(c) spawn.role(c, "wave") end,
+                           first = S.wave_first, reserve = S.reserve_slots, opts = wave_opts, on_spawn = function(c) spawn.role(c, "wave"); if HEIST_COMBAT then HEIST_COMBAT.guard(c, "wave") end end,
                            active = function() return H.hot and not H.ended and hostiles_alive() < S.hostile_cap end }
   response = heist.reinforce{ pads = { P.waves_front[1], P.waves_dock[1], P.waves_front[2], P.waves_dock[2] }, interval = S.response_interval,
                               per_wave = scaled(S.response_size, 1), max_alive = scaled(S.wave_max_alive, 4), first = 0, reserve = S.reserve_slots,
-                              on_spawn = function(c) spawn.role(c, "response") end,
+                              on_spawn = function(c) spawn.role(c, "response"); if HEIST_COMBAT then HEIST_COMBAT.guard(c, "response") end end,
                               opts = function() return guard_opts({ behaviour = "chase", body = pick({ "Siberian_Special_Forces", "Janus_Special_Forces" }),
                                                                     weapon = pick({ "rcp90", "ar33" }), armour = 1.5, sunglasses = true }) end,
                               active = function() return H.hot and not H.ended and H.hot_at and H.elapsed - H.hot_at >= S.response_after
@@ -1340,6 +1344,7 @@ on("tick", function(dt)
   end
   security_tick()
   HEIST_AI.tick()
+  if HEIST_COMBAT and HEIST_COMBAT.tick then HEIST_COMBAT.tick() end
   if P.breaker then power_tick(dt) end
   crack_tick(dt)
   vault_tick(dt)

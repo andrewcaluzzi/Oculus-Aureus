@@ -1753,6 +1753,11 @@ static lua_State *portLuaState(void)
 
         portLuaAiRegister(sL);
     }
+    {   /* the heist's combat layer: combat.* (port_luavm_combat.c, port/src/port_combat.c; section 24) */
+        extern void portLuaCombatRegister(lua_State *L);
+
+        portLuaCombatRegister(sL);
+    }
     {   /* the heist's gadgets: gadget.* (port_luavm_gadgets.c, port/src/port_gadgets.c) */
         extern void portLuaGadgetsRegister(lua_State *L);
 

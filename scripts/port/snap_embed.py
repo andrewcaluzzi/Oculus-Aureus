@@ -42,6 +42,8 @@ SIM_PORT = {
     'port_noise.c', 'port_ai.c',
     # door interlocks: mantraps, sally ports (designs/bank-heist.md section 29)
     'port_interlock.c',
+    # the heist's combat layer: cover, peeks, flanks (designs/bank-heist.md section 24)
+    'port_combat.c',
 }
 # port/src files that are presentation or transport: never rewound.
 PRES_PORT = {

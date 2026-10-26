@@ -111,6 +111,11 @@ void portHeistStageReset(void)
         portAiStageReset();
     }
     {
+        extern void portCombatStageReset(void);   /* port_combat.c: cover, peeks, flanks (section 24) */
+
+        portCombatStageReset();
+    }
+    {
         extern void portGadgetsReset(void);   /* port_gadgets.c: the gadgets' triggers, reels and disguises */
 
         portGadgetsReset();
@@ -1491,6 +1496,11 @@ int portHeistChrNoAi(ChrRecord *c)
     int i;
 
     if (portArFreezeAi()) return 1;
+    {
+        extern int portCombatOwns(const ChrRecord *c);   /* port_combat.c: in cover, peeking, flanking (section 24) */
+
+        if (portCombatOwns(c)) return 1;
+    }
     if (sKoBusy <= 0) return 0;
     for (i = 0; i < sKoN; i++)
     {
@@ -1513,6 +1523,11 @@ int portHeistChrWaking(const ChrRecord *c)
         extern int portAiSteers(const ChrRecord *c);   /* port_ai.c: a guard walking to a noise, a search pad, his post, his patrol */
 
         if (c != NULL && portAiSteers(c)) return 1;
+    }
+    {
+        extern int portCombatOwns(const ChrRecord *c);   /* port_combat.c: the combat layer runs him to cover / a flank point */
+
+        if (portCombatOwns(c)) return 1;
     }
     if (sKoBusy <= 0 || c == NULL) return 0;
     for (i = 0; i < sKoN; i++)
@@ -2050,6 +2065,11 @@ void portHeistAiTick(void)
         extern void portInterlockTick(void);   /* port_interlock.c: the doors-closing timer, the hold, the queue (section 29) */
 
         portInterlockTick();
+    }
+    {
+        extern void portCombatTick(void);   /* port_combat.c: guards in a fight take cover, peek, flank, fall back (section 24) */
+
+        portCombatTick();
     }
 }
 
@@ -2993,6 +3013,11 @@ unsigned portHeistStateHash(void)
         extern unsigned portAiHash(void);   /* port_ai.c / port_noise.c: awareness, the hearing layer (section 18) */
 
         h = h * 16777619u + portAiHash();
+    }
+    {
+        extern unsigned portCombatHash(void);   /* port_combat.c: the combat layer (section 24) */
+
+        h = h * 16777619u + portCombatHash();
     }
     {
         extern unsigned portGadgetsHash(void);   /* port_gadgets.c: triggers, reels, disguises */

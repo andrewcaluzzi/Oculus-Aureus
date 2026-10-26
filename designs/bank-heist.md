@@ -1227,6 +1227,141 @@ is worth a look on a quiet machine with real GL: a spawn wave or a path plot tha
   lobby captain had left his post on a backup call. Carriers never leave their posts for backup, check-ins or rounds now (above), and
   `take_card` falls back to the nearest pad by x, z when Bond lands more than 60 units from the card.
 
+
+## 24. The LOUD route: combat and the heat (branch `combat`)
+
+Before this, once a fight started a guard's stock attack list ran him straight at Bond and stood him there shooting; only the backup
+call spread anyone out (§18d limits). Now the guards fight like a team, and an alarm keeps getting worse until the crew leaves.
+
+### 24a. What a player notices
+
+- **Cover.** A guard who is shot at (hit, or a near miss), or who has had you in sight for a moment in a fight (`react`: 2.2 s at
+  Agent .. 0.9 s at 007), shouts "Taking fire! Get to cover!" (or "Into cover!") and runs to a spot near him (1.3 to 7 m) where you
+  cannot see him crouched: behind a pillar, a door jamb, a counter or a desk. He kneels there.
+- **Peek and shoot.** After a hide (1.8 to 3.2 s at Agent, 1 to 2 s at 007) he steps out a pace (1.5 m, across your line) and fires a
+  burst, standing or kneeling, then ducks back. Shoot him while he is out, or rush him while he hides.
+- **Flanked.** Walk round his cover so you can see him and he moves ("He's flanking us! Moving!") to new cover against where you are now,
+  or shoots it out if there is nowhere to go. Two peeks with no sight of you and he finds cover against your new position.
+- **Flanking pairs.** Two guards in the same fight (within 14 m of each other) pair up (each second, `flank_chance`: 0.15 at Agent ..
+  0.45 at 007): one stays in cover with shorter hides and longer bursts ("Covering! Go!"), the other runs round you, about 80 degrees
+  from his partner's side ("Cover me! I'm flanking!"), and fires from there. Watch your sides when one goes quiet.
+- **Falling back.** A guard down to half his health (`retreat_hp`) falls back to cover further from you ("I'm hit! Falling back!") and
+  hides longer.
+- **Losing you.** No sight of you for 8 s: "Where'd he go?", and he goes back to his own list, which hunts your last known position.
+- **The heat.** After the alarm: the bank's own reinforcements as before (`wave_first`, the hall); then **the police**, `police_at`
+  seconds after it (45 s at Agent, 35, 30, 25 s at 007), in militia uniform (`Russian_Infantry`, KF7 or DD44), from the job's entrances
+  in turn (the map's `P.police` pads if the job names them, else its front and dock wave pads: on the bank the street and the dock),
+  `police_size` a wave every `police_interval` s (Agent 2 every 35 s, at most 6 alive .. 007 4 every 25 s, 12
+  alive). The HUD flashes "POLICE at the street and the dock!" and the first officer in shouts the megaphone line over the radio
+  ("POLICE! The building is surrounded - drop your weapons!"). Then **SWAT**: the mode's armoured response (`response_after`, 120 s)
+  is announced ("SWAT is in the building"), and the vault-stair (RED) doors swing shut. A RED card still opens them, and the exits (the
+  front doors, the dock door) never close or lock, so the escape is always possible: fight through, or leave another way. Every one of
+  them fights with the combat layer.
+
+The quiet route does not change: nothing here starts until a guard is in a fight (the cover still decides who sees you), and an alarm
+raiser runs for his panel first.
+
+### 24b. How it works
+
+`port/src/port_combat.c` (Lua `combat.*`, `port/luavm/port_luavm_combat.c`) with three hooks in `port_heist.c` (the stage reset, the
+AI tick, the state hash) and one each in `portHeistChrNoAi` and `portHeistChrWaking`. `tools/heist_combat.lua` sets it up and runs the
+heat; `mode_heist.lua` has six one-line hooks (the include, `S.combat`, `note_guard`, the waves' and the response's `on_spawn`, the stage
+start, the tick).
+
+- **Who.** Every guard the mode places (`note_guard`) and every wave, police and SWAT chr is registered (`combat.guard(chr, kind)`).
+  Every 4 ticks a registered guard who is up, armed, not surrendering and not on a scripted walk is checked: in a fight (the ai
+  layer's combat state, the stock "saw Bond in the last 2 s", or an attack action) or under fire (a hit, the stock near-miss flag, a
+  Bond's shot within 26 m that has the line to him). A hit is his `damage` going up; a shot is the hearing layer's last noise
+  (`portNoiseLast`, polled each tick: only Bonds' shots are noises). No C event listener: the first version listened on
+  `PORT_EV_NOISE` / `PORT_EV_DAMAGE` and the first-play guide's knock-out check then failed (a guard found the carrier; with the layer
+  off it passed). A listener on `PORT_EV_NOISE` makes `port_noise.c` emit every noise, and each event type has 8 listener slots.
+- **Taking him over.** While the layer drives a guard, `portHeistChrNoAi` says his AI list does not run (as for a knock-out waker), and
+  `portHeistChrWaking` keeps the arena's direct route off him. Everything he does is a stock action: `plot_course_for_actor` (run),
+  `check_if_able_to_then_kneel`, `actor_aim_at_actor` / `actor_kneel_aim_at_actor` with `TARGET_BOND` (fire), `chraiStopAnimation`.
+  While his list is off the layer keeps his stock sight fields (`lastseetarget60`, `lastknowntargetpos`) true, so the ai layer still
+  sees him in combat and his list picks up where Bond is when he is released.
+- **Cover search.** Rings of 12 points at 1.3, 2.3, 3.4, 4.6, 5.8 and 7 m round him (each guard starts his ring at a different angle,
+  from his chr number), nearest ring first. A point must be on his floor (a stand tile within 70 of his ground), not by a doorway
+  (`portNoiseNearDoor`), not held by another guard (1.3 m), not much closer to Bond (no more than 2.5 m closer; a retreat: 1.5 m
+  further), reachable straight (the stock side-step test, `chrlvCall7F0B0E24WithChrWidthHeight`: two lines a body apart through his
+  height band, so low furniture refuses it), and hidden from Bond at a crouched head's height (90 above the floor; the stock stan line
+  with objects, doors and path blockers). Its peek point is 1.5 m (or 0.9 m) to either side across Bond's line, a straight walk from
+  the cover point, with Bond's line at standing height (140). The best point in the first ring that has any is the one nearest 8 m from
+  Bond. At most 3 searches a scan, one a second per guard.
+- **Pairing** (every second): two driven guards within `flank_range`, neither paired nor fallen back, with `flank_chance`; the healthier
+  one flanks. His point: Bond's position, turned 80 degrees (and 60 / 100 / 120) either way from the partner's bearing, at the partner's
+  distance (4.5 to 9 m, or 3/4 of it), on his floor, off doorways, at least 2.5 m from him and with Bond's line; he runs there on the
+  stock route. After his burst the pair ends and he fights from cover like anyone.
+- **Barks** go through `portAiBark` (the guard_bark event: the AR bubble and the ai layer's ROM grunt or radio sound by id: "hey" is
+  `GET_HIT_MALE5_SFX`, "radio" `RADIO_SFX` + `RADIO_MESSAGE_SFX`, "backup" the double squelch); one line per guard per 3 s.
+- **Determinism.** Every decision reads sim state; the random hides, bursts, kneels, pairings and flank sides draw `randomGetNext` (the
+  sim RNG). All of it is in `portCombatHash` (folded into the heist state hash after `portAiHash`), and `port_combat.c` is a SIM file for
+  the snapshot (`scripts/port/snap_embed.py`). The heat stage is kept in C (`combat.stage`) so it is hashed too; the police are spawned
+  chrs (in the engine's own hash).
+
+### 24c. Settings and API
+
+`S.combat` (`false`: stock fighting, no police, no SWAT announcement). Keys (all optional): `tune` (any `combat.tune` name), `difficulty`
+(per difficulty overrides of the table in `tools/heist_combat.lua`), `police` (true), `police_at`, `police_size`, `police_interval`,
+`police_max`, `swat` (true), `shutters` (true), `megaphone` (true).
+
+`combat.tune` names (defaults in C, then the difficulty's): `react` 1.5, `hide_min` 1.2, `hide_max` 2.4, `burst_min` 1.2, `burst_max` 2.2,
+`cover_min` 120, `cover_max` 700, `peek_dist` 150, `retreat_hp` 0.5, `flank_chance` 0.35, `flank_range` 1400, `lose` 8, `cooldown` 3,
+`kneel` 0.5, `engage` 2600, `cover` / `flank` / `retreat` (1 on, 0 off), `searches` 3.
+
+| Difficulty | react | hide | burst | flank chance | retreat at | police at / size / every / alive |
+| --- | --- | --- | --- | --- | --- | --- |
+| Agent | 2.2 s | 1.8-3.2 s | 1.0-1.6 s | 0.15 | 45 % | 45 s / 2 / 35 s / 6 |
+| Secret Agent | 1.6 | 1.5-2.8 | 1.1-1.9 | 0.25 | 50 % | 35 / 3 / 30 / 8 |
+| 00 Agent | 1.2 | 1.2-2.4 | 1.2-2.2 | 0.35 | 50 % | 30 / 3 / 28 / 10 |
+| 007 | 0.9 | 1.0-2.0 | 1.4-2.4 | 0.45 | 55 % | 25 / 4 / 25 / 12 |
+
+Lua: `combat.enable(on)`, `combat.on()`, `combat.guard(chr [, kind])`, `combat.tune{...}`, `combat.info(chr)` -> {state, name (idle,
+to_cover, hide, to_peek, shoot, flank), role (none, suppress, flank), cover_x, cover_z, peek_x, peek_z, pair, peeks, covers, flanks,
+retreated}, `combat.counts()` -> {covers, peeks, flanks, retreats, moves, releases, barks, searches, fails}, `combat.los(chr [, p])` (Bond
+p, default the nearest, has the layer's line to him), `combat.under_fire(chr)` (as a near miss), `combat.pair(flanker, partner)`,
+`combat.stage([n])`. `HEIST_COMBAT.police` is the police controller (`heist.reinforce`: `spawned`, `waves`, `mine`).
+
+### 24d. Tests
+
+`tests/heist/run_combat.sh` (`tests/heist/heist_combat.lua`, the real mode on bank v3, Agent, seed 7, one scenario per run):
+
+| Run | Checks | What it shows |
+| --- | --- | --- |
+| cover | 12 | a test guard on a hall pad 7.8 m from Bond, in his line: under fire he runs 4.8 m to a cover point (3 units from it) that breaks Bond's line, barks, peeks out and fires with the line, ducks back; Bond walks round to a spot that sees him in cover: he moves to new cover |
+| flank | 8 | two guards in the hall: they pair, "Cover me! I'm flanking!" / "Covering! Go!"; the flanker runs 10.7 m round Bond (85 degrees from his partner's side) and fires from there while his partner holds his cover (moved 1 m) and fires |
+| retreat | 5 | `retreat_hp` above his health: he falls back from 2.8 m to 5.8 m from Bond, "I'm hit! Falling back!", out of Bond's line |
+| heat | 12 | the alarm; police on the timer (4 s in the test), 2 at once from the street and the dock, they take cover against Bond; the megaphone line; SWAT on the timer; the RED doors shut; the front doors and the dock door keep no card; the police keep coming (4); the crew gets out at the dock with the gold: "Heist complete" |
+
+Regression on `combat` after the merge of `heist` 15db916 (headless, two containers, then one; Agent unless said):
+
+| Check | Expected | Got |
+| --- | --- | --- |
+| `run_combat.sh` cover / flank / retreat / heat | new | 12 / 8 / 5 / 12, twice (before and after the listener fix) |
+| determinism solo / co-op | pass | 3 of 3 (4358 ticks) / 5 of 5 (4364 ticks, view-switched too) after the fix; 3 / 5 before it too (3582 / 3289 ticks: the listeners changed the run, see 24b) |
+| winpath win / trapped / fail / quiet / count | 59 / 17 / 5 / 11 / 2 | 59 / 17 / 5 / 11 / 2 |
+| firstplay | 6 | 6 after the fix (5 + 1 fail with the listeners; 6 with `GE_COMBAT_OFF=1`) |
+| guards (seed 7) | 37 | 37 (a first run under three-game load timed out in the 150-chr crowd with 36 passed, as noted in 23b) |
+| cover | 12 runs | 12 of 12 (87 checks) |
+| cctv / ko / bindings | 41 / 26 / 38 | 41 / 26 / 38 |
+| ar | 13 + proof | 13, proof 4365 ticks identical (2 of 2) |
+| gadgets | all runs | piton 17, lockpick 13, pocket 8, coin 10; the rest cut when the machine ran out of CPU |
+| dam1 | identical | identical (453 lines) |
+| ai | 56+ | not rerun to the end (cut for CPU) |
+
+Cover, cctv, ko, bindings, guards, winpath and dam1 ran on the build with the event listeners (before the fix); the fix only removes
+them.
+
+### 24e. Limits and next
+
+- The cover search samples points round him, not the level's geometry: in a big open room with nothing to hide behind he finds none
+  and fights as before (his own list). Bank v3's generator could emit `cover_<n>` pads by pillars, counters and door jambs for a better
+  pick (the layer would only need to add them to its candidates).
+- `TARGET_BOND` is the stock "current player" target: in co-op every driven guard fires at the same Bond the stock lists would (the
+  nearest Bond decides where he takes cover and where he flanks, not whom he shoots).
+- No grenades, no suppressive blind fire, no stacking up at doors; SWAT have no shields. The police do not negotiate (no hostage talk).
+- The megaphone is a radio bark and a HUD line: GoldenEye has no megaphone voice.
+- No screenshots this stream (the time went into the tests).
 ## 26. The debrief (stream `debrief`, 2026-10-26)
 
 AC's brief: an end-of-heist debrief that makes each run feel like a scored spy mission, a GoldenEye-style end screen with a heist flavour.
