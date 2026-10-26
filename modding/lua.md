@@ -337,6 +337,18 @@ The scan runs every 4 ticks for every cover guard and every Bond, reads only sim
 
 **Scripted walks.** `spawn.go(chr, pad [, run])`: the chr walks (runs) to the pad on the stock waypoint route (`chrGoToPad`); its own list keeps running (a posted guard stays a posted guard), and the arena's direct route does not re-aim it while it is on the way (up to a minute).
 
+### Door interlocks: `interlock.*`
+
+designs/bank-heist.md section 29: `port/src/port_interlock.c`, used by `tools/heist_interlock.lua` (the bank's mantrap and sally port). Any mode may define groups. Of a group's doors only one may stand open: every open order (a Bond's use, a guard's door finder, an AI list, `door.open`) is checked in `doorActivate`; a refused one is queued and the group opens it once every door is shut and the hold is over. Each door closes itself. In the state hash and the rollback snapshot. Test: `tests/heist/run_interlock.sh`.
+
+| Call | Notes |
+| --- | --- |
+| `interlock.define{doors = {i, ...}, hold = 3, close = 4, fail = "safe" \| "secure"}` | 2-4 door indices (a double door's leaves count as one). `hold`: seconds every door stays shut after the last one shuts (the verification window); `close`: the doors-closing timer; `fail`: with the power out, `"safe"` drops the interlock, `"secure"` freezes every door. Returns the group id, or nil. |
+| `interlock.get(g)` | `{phase, doors, open, pending, last, by, hold, hold_len, lock, cycles, refused, violations, queued, fail}`. `phase`: `"ready" "cycle" "verifying" "lockdown" "nopower" "released"`; `by`: the chr that opened the cycle (-2 a Bond or a script). |
+| `interlock.of(door)`, `interlock.clear(g)` | The group and slot of a door; remove a group (plain doors again). |
+| `interlock.lockdown(g, secs)`, `interlock.override(door, secs)` | Hold every door shut (0 releases); let one door ignore its group. |
+| `interlock.label(door)` | The AR specs' word and colour: `INTERLOCK`, `WAIT`, `WAIT (QUEUED)`, `VERIFYING`, `LOCKDOWN`, `CYCLE`, `NO POWER`, `RELEASED`, `OVERRIDE`. |
+
 ### Gadgets (heist)
 
 designs/bank-heist.md section 21: `tools/heist_gadgets.lua` (the piton gun, lockpicks, coins, the tape loop, sleep gas, the thermal imager, the pickpocket, disguises, vents) on `port/src/port_gadgets.c`. Test mode `tests/heist/heist_gadgets.lua` (`tests/heist/run_gadgets.sh`).

@@ -152,6 +152,7 @@ local S = {
   spawn_per_tick  = 24,      -- chrs placed per 0.25 s at the start (no hitch)
   test            = false,   -- test hooks on (HEIST.* below are always there; this only adds log lines)
   ar              = true,    -- the Q-Branch specs (tools/heist_ar.lua, section 20): suspicion "?" / "!", bubbles, key brackets, waypoints
+  interlock       = true,    -- the mantrap and sally-port interlocks (tools/heist_interlock.lua, section 29); a table tunes them
   debrief         = true,    -- the end-of-heist DEBRIEF (tools/heist_debrief.lua, section 26): rating, payout, stats, commendations, records
   -- difficulty (mission.difficulty(): 0 Agent .. 3 007). force: the share of the full force above (posted guards, raisers, vault
   -- guards, wave cap, squads, the response); acc: the guards' accuracy rating (0 = stock, 5 = 1.5x, 10 = 2x: the stock aim is scaled by
@@ -1348,6 +1349,8 @@ end)
 
 -- the crew's gadgets (designs/bank-heist.md section 21): their own handlers, after the heist's (their state rides in mode.state)
 include("heist_gadgets")
+-- the door interlocks: the staff entrance mantrap and the sally port (designs/bank-heist.md section 29; their state rides in mode.state)
+if S.interlock ~= false then include("heist_interlock") end
 -- the end-of-heist DEBRIEF (designs/bank-heist.md section 26): reads the run's events, scores it at finish() (presentation only)
 if S.debrief ~= false then include("heist_debrief") end
 -- the AR specs and diagnostics (tools/heist_ar.lua): after every handler above, so the map is loaded when its stage_start runs

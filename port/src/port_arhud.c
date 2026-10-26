@@ -966,6 +966,14 @@ static void drawDoors(int lp, struct player *pl)
                 glyph(kKey, sx, sy + 7.0f, 2, withAlpha(col, a * 0.6f), 0, 1.0f);
             }
         }
+        if (sArOn && sLayer[ARL_DOORS] && d < 1400.0f)
+        {   /* an interlocked door (port_interlock.c, section 29): INTERLOCK / WAIT / VERIFYING / LOCKDOWN ... */
+            extern const char *portInterlockLabel(int idx, unsigned *rgba);
+            unsigned ilc = 0;
+            const char *il = portInterlockLabel(dr.idx, &ilc);
+
+            if (il != NULL) textC((s32) sx, (s32) sy + 22, il, withAlpha(ilc, distFade(d, 500.0f, 1400.0f)));
+        }
         if (sDiagOn)
         {
             char ln[48];

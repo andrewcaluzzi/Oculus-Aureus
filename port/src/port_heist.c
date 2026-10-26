@@ -115,6 +115,11 @@ void portHeistStageReset(void)
 
         portGadgetsReset();
     }
+    {
+        extern void portInterlockReset(void);   /* port_interlock.c: mantraps and sally ports (section 29) */
+
+        portInterlockReset();
+    }
 }
 
 static void heistScan(void)
@@ -148,6 +153,8 @@ int portHeistSetupIndex(const void *rec)
     return -1;
 }
 
+static DoorRecord *heistDoor(int idx);
+void *portHeistDoorRecord(int idx) { return heistDoor(idx); }   /* port_interlock.c */
 static DoorRecord *heistDoor(int idx)
 {
     heistScan();
@@ -2034,6 +2041,11 @@ void portHeistAiTick(void)
 
         portAiTick();
     }
+    {
+        extern void portInterlockTick(void);   /* port_interlock.c: the doors-closing timer, the hold, the queue (section 29) */
+
+        portInterlockTick();
+    }
 }
 
 /* ---- cover: the banker disguise (designs/bank-heist.md section 16, AC's answers 2026-10-25) ----
@@ -2798,7 +2810,17 @@ void portHeistDoorStats(int *refused, int *opened) { *refused = sDoorRefused; *o
  * opens it unless the door is locked to AI), 2 = the rule lets him (he opens it although the rule's own AI-lock bit is on it: the stock
  * door finder skips a door with that bit, so without this no allowed guard on screen opened a ruled door; a door locked to AI in the
  * layout itself stays shut, 1) */
+static int heistChrDoorRule(ChrRecord *self, void *door);
 int portHeistChrMayOpenDoor(ChrRecord *self, void *door)
+{   /* the role rule first, then the door's interlock (port_interlock.c, section 29): 0 he waits his turn, 2 he may open it */
+    extern int portInterlockChrGate(void *chr, void *door);
+    int r = heistChrDoorRule(self, door), il;
+
+    if (r == 0) return 0;
+    il = portInterlockChrGate(self, door);
+    return il < 0 ? r : il;
+}
+static int heistChrDoorRule(ChrRecord *self, void *door)
 {
     int idx, i;
 
@@ -2971,6 +2993,11 @@ unsigned portHeistStateHash(void)
         extern unsigned portGadgetsHash(void);   /* port_gadgets.c: triggers, reels, disguises */
 
         h = h * 16777619u + portGadgetsHash();
+    }
+    {
+        extern unsigned portInterlockHash(void);   /* port_interlock.c: the interlock groups (section 29) */
+
+        h = h * 16777619u + portInterlockHash();
     }
     return h;
 }
