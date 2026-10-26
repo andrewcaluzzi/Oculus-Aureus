@@ -809,6 +809,10 @@ int main(int argc, char **argv)
         extern void portConInit(void);
         portConInit();
     }
+    {   /* GE_HIDDEN=1 / --hidden: never-shown window, silent, no controllers (port_hidden.c); before SDL and the ini */
+        extern void portHiddenInit(int argc, char **argv);
+        portHiddenInit(argc, argv);
+    }
     {   /* netplay: GE_COOP / GE_FIXEDTICK / GE_TICKHZ / ... must be in the environment before the ini and the tick rate
          * are read; a no-op when GE_NET is unset */
         extern void portNetPreinit(void);
