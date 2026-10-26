@@ -13,6 +13,7 @@ local LINE = 63                                    -- a HUD line holds 63 charac
 
 function heist_guide(ctx)
   local S, H, M, K = ctx.S, ctx.H, ctx.M, ctx.keys
+  local JG = (ctx.job or heist_job()).guide          -- the job's steps and words (tools/jobs/<job>.lua)
   local L = LEVEL
   local G = {}
   local P = M.P or {}
@@ -41,25 +42,17 @@ function heist_guide(ctx)
   local function step(p)
     if inside(p) then got_in[p] = true end
     if not got_in[p] then
-      return "in", "Next: walk in the bank's front door, gun holstered",
-             S.cover and "Holstered you pass as staff. A drawn gun makes guards look" or "Get inside the bank"
+      return "in", JG.in_what, S.cover and JG.in_how_cover or JG.in_how
     end
-    if not bond.has_key(p, K.GREEN) then
-      return "green", "Next: GREEN card - head teller or lobby captain (hall)",
-             "Teller: aim a gun at her. Captain: slap him twice, USE to search"
+    -- the job's card ladder (JOB.guide.steps; the bank: GREEN, BLUE, RED)
+    for _, st in ipairs(JG.steps) do
+      if not bond.has_key(p, K[st.key]) then
+        if not st.role then return st.id, st.what, st.how end
+        local r = carrier_room(st.role)
+        return st.id, fit(st.what .. (r and (" (" .. r .. ")") or st.none)), st.how
+      end
     end
-    if not bond.has_key(p, K.BLUE) then
-      local r = carrier_room("security chief")
-      return "blue", fit("Next: BLUE card - the security chief" .. (r and (" (" .. r .. ")") or " (offices)")),
-             "Catch him alone: slap twice (he's tough), then USE to search"
-    end
-    if not bond.has_key(p, K.RED) then
-      local r = carrier_room("branch manager")
-      return "red", fit("Next: RED card - the branch manager" .. (r and (" (" .. r .. ")") or "")),
-             "Aim a gun at him and he hands it over (BLUE opens the offices)"
-    end
-    return "vault", "Next: the vault - down the RED stairs, a floor down",
-           "Pick the DOOR DECODER (next weapon), fire it at vault door A"
+    return "vault", JG.vault_what, JG.vault_how
   end
 
   function G.objective(p)
