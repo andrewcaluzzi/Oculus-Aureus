@@ -180,6 +180,12 @@ local function tick_card(flags, label)
     if pick.tries >= 0 and not pick.keyed then
       log("%s: the bot's key step (picks %d, %s)", label, pick.tries, standing and "carrier standing" or "carrier down or the card loose")
       pick.keyed = true
+      if standing and not H.hot then
+        -- walk up holstered: drawn from the street, the hall guards saw the gun long before the counter (seed 7, 2026-10-26)
+        local cx, cz = spawn.where(c.chr)
+        local _, py = pads.pos(c.pad)
+        if cx then push(string.format("goto %.0f %.0f %.0f 350", cx, py or 0, cz)) end
+      end
       push("holster 0")   -- (staff hand a card over only at gunpoint)
     end
     if H.hot or (H.blown or 0) > 0 then set_peace(false) end
