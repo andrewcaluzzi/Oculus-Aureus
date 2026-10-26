@@ -1034,11 +1034,24 @@ Screenshots of the merged build on v3 are on AC's machine, not in the repo, in `
     inventory keys. Only the INTEL board is local, and it is cleared before the window. So the feed keys were already synced: no
     code change. Test: `run_netcctv.sh` (host and guest on loopback; the host's record carries a next_weapon press every 45
     ticks while Bond 0 watches). Both machines cycled Bond 0's feed on the same ticks to the same cameras (6 of 6 cycles).
-  - **New gap, found by that test: cycling the feed desyncs netplay.** From tick 1246 only `rng` differs, then chrs, chrai and
-    props. The extra chrs the feed pass draws restore the RNG (`portCctvDrawChrs`), but the world draw from the camera does not:
-    a camera with other rooms in view (a guard firing there) takes sim RNG on the watching machine only. The standard scenario
-    keeps one camera, so `run_determinism.sh net` does not see it. Not fixed. Next step: `GE_NET_RNGTRACE` (`net_rngdiff.sh`) on that
-    tick. `run_netcctv.sh` fails its hash and DESYNC checks until this is fixed.
+  - ~~**New gap, found by that test: cycling the feed desyncs netplay.**~~ **Fixed (branch `netcctv`).** `GE_NET_RNGTRACE` +
+    `net_rngdiff.sh` named it: at tick 1245 the guest drew the RNG twice in `process_monitor_animation_microcode` (propobj.c, a
+    monitor's tv command list: `RANDSETCMDLIST`) in Bond 0's pass, the host did not. The feed's world draw was the camera walk's
+    room list alone (bg.c `bgCctvListBuild`), sorted from the camera, so the watching machine skipped the security room's monitors
+    (and reordered the props it did draw). In GoldenEye drawing a prop is sim: a monitor's screen advances and draws the RNG, a
+    muzzle flash draws the RNG, the sim reads a model's matrices back. Now the feed draws exactly the canonical list (the sim
+    walk's rooms, in its order, with their props) plus the camera's rooms the sim walk did not reach, geometry only (the co-op
+    margin rule, `bgRenderListMerge`), and the room sort uses Bond's position in a feed pass too. The normal views have no such gap:
+    under co-op and lockstep every machine runs every Bond's pass and its world draw (a non-local pass's display list is
+    rewound, its draws still happen), so draw-time RNG is the same everywhere; only the feed changed one machine's draw. Rule:
+    a presentation pass may add geometry, never drop or reorder a canonical prop draw. Tests: `run_netcctv.sh` 3/3 (2113 ticks
+    hash-identical, no DESYNC, 22 cycles).
+  - **A Bond sees himself on a camera (AC's playtest).** The feed poses and draws Bonds' bodies too (`portCctvDrawChrs`: a
+    `PROP_TYPE_VIEWER` with a body, in the camera's rooms): the watching Bond himself (never onscreen in his own view) and his
+    partner when his own view does not have him, standing where they stand and facing their yaw, inside the same RNG / pool /
+    model save and restore as the guards. Co-op and netplay only: a solo Bond has no body (`bondviewRemovePlayerBody`), so he is
+    still not on the feed (keeping the body in a solo heist is a sim change; it needs the solo suites rerun). Test:
+    `run_cctvself.sh` (local co-op: the hall camera at the screens, the security camera at its pad; `cctv.render_info().bonds`).
   - Tests: `run_inputfix.sh [seeds]` (use in front of a facing guard: cover holds; behind but looking away: no pickpocket; B behind
     each carrier: event and lift; A from the slappers: the PP7).
 - **The Windows exe was not smoke-run on Windows**, because the port has no hidden-window option. The same source booted the heist

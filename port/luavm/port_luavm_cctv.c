@@ -97,6 +97,12 @@ static int cctvRenderInfo(lua_State *L)
     lua_setfield(L, -2, "frames");
     lua_pushinteger(L, portCctvExtraChrs());
     lua_setfield(L, -2, "chrs");
+    {
+        extern int portCctvExtraBonds(void);
+
+        lua_pushinteger(L, portCctvExtraBonds());
+        lua_setfield(L, -2, "bonds");   /* of them Bonds' bodies (the watcher himself, his partner) */
+    }
     lua_createtable(L, n, 0);
     for (i = 0; i < n; i++)
     {
