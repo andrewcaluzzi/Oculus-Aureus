@@ -7907,7 +7907,7 @@ void portInputPadMerge(s32 idx, OSContPad *pad)
                 pad->stick_y = (s8) g_PortGotoStickY;
             }
         }
-        { /* cctv.test_press (port_cctvview.c, tests): raw N64 buttons held on slot 0 for a few SIM TICKS (counted down in
+        { /* test.press (port_cctvview.c, tests): raw N64 buttons held on slot 0 for a few SIM TICKS (counted down in
            * portInputMouseTickConsume: polls per tick follow the wall clock, so a poll count made the press land on a different
            * tick from run to run) */
             extern u16 g_PortTestButtons;
@@ -8858,13 +8858,13 @@ void portInputMouseUpdate(void)
  * Every reader (portInputMouseLookDelta / ...Deg / the aim path) keeps
  * seeing one stable s_MouseDX/DY for the whole tick.
  */
-u32 g_PortSimTickNo;   /* sim ticks since boot (the GE_SKIPINTRO taps and cctv.test_press count these, not polls) */
+u32 g_PortSimTickNo;   /* sim ticks since boot (the GE_SKIPINTRO taps and test.press count these, not polls) */
 
 void portInputMouseTickConsume(void)
 {
     g_PortSimTickNo++;
     {
-        extern s32 g_PortTestButtonPolls;   /* cctv.test_press: held for this many sim ticks */
+        extern s32 g_PortTestButtonPolls;   /* test.press: held for this many sim ticks */
         if (g_PortTestButtonPolls > 0)
         {
             g_PortTestButtonPolls--;

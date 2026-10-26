@@ -111,7 +111,7 @@ local function hall_fight(n)
       end
     end
   end
-  bond.face(0, gx, gz)
+  test.face(0, gx, gz)
   wait(1)
   return out, px, pz
 end

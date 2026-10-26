@@ -18,9 +18,10 @@
  *   intel.text(x, y, text, rgba [, scale [, wrap [, font]]])   wrap = width in board units (0 none); font 1 = the big face; "\n" breaks
  *   intel.marker(x, y, kind, rgba [, size [, label]])    kind: dot ring x pin check box tri diamond cam stairs door star
  *   intel.briefing()                     open the board once on this machine as the start-of-heist briefing (skipped in automated runs)
- *   intel.count([live]) -> n             items in a layer (tests)
- *   intel.test_show(open, page, floor)   tests and screenshots: set this machine's view (never call it from game logic)
- *   intel.view() -> open, page, floor    this machine's view (tests only: game logic must never read it) */
+ * In the test table (modding/lua.md "The test table"):
+ *   test.intel_count([live]) -> n             items in a layer
+ *   test.intel_show(open [, page [, floor]])  tests and screenshots: set this machine's view (never call it from game logic)
+ *   test.intel_view() -> open, page, floor    this machine's view (game logic must never read it) */
 #include <string.h>
 #include "lua.h"
 #include "lauxlib.h"
@@ -136,9 +137,11 @@ void portLuaIntelRegister(lua_State *L)
     static const luaL_Reg lib[] = {
         { "enable", lEnable }, { "clear", lClear }, { "title", lTitle }, { "page", lPage }, { "map_page", lMapPage }, { "floor", lFloor },
         { "bond", lBond }, { "at", lAt }, { "rect", lRect }, { "frame", lFrame }, { "line", lLine }, { "tri", lTri }, { "poly", lPoly },
-        { "text", lText }, { "marker", lMarker }, { "briefing", lBriefing }, { "count", lCount }, { "test_show", lTestShow },
-        { "view", lView }, { NULL, NULL } };
+        { "text", lText }, { "marker", lMarker }, { "briefing", lBriefing }, { NULL, NULL } };
+    static const luaL_Reg testAdd[] = { { "intel_count", lCount }, { "intel_show", lTestShow }, { "intel_view", lView }, { NULL, NULL } };
+    extern void portLuaAddTo(lua_State *L, const char *lib, const luaL_Reg *reg);
 
     luaL_newlib(L, lib);
     lua_setglobal(L, "intel");
+    portLuaAddTo(L, "test", testAdd);
 }

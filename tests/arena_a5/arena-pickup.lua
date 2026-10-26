@@ -36,12 +36,12 @@ on("tick", function(dt)
       local pad = nearest_pad(x, z)
       local px, _, pz = pads.pos(pad)
       print("ge: pickuptest: warp", tostring(bond.warp(0, pad, x - px + 37, z - pz + 41)))
-      local item, before, after = bond.take_drop(0, 800)
+      local item, before, after = test.take_drop(0, 800)
       print(string.format("ge: pickuptest: take_drop item %d, ammo of its type %d -> %d", item, before, after))
     end
   elseif step == 3 and t > 8 then
     step = 4
-    local item, before, after = bond.take_drop(0, 800)
+    local item, before, after = test.take_drop(0, 800)
     print(string.format("ge: pickuptest: take_drop item %d, ammo of its type %d -> %d", item, before, after))
     pools("after pickup")
   end

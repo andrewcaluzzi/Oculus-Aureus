@@ -192,7 +192,7 @@ end
 local function seen_act(p, why)
   if not S.cover or cover.alert() then return false end
   if cover.seen(p) then
-    cover.test_act(p)
+    cover.act(p)
     G.stats.blown = G.stats.blown + 1
     log("Bond %d seen %s: an act in view", p, why)
     return true
@@ -655,7 +655,7 @@ local function pickpocket(p)
   local aware = H.hot or cover.alert()
   local st = cover.state(c)
   if st and (((st.witness or 0) >> p) & 1) == 1 then aware = true end
-  if cover.suspicion(c, p) and cover.suspicion(c, p) >= 0.5 then aware = true end
+  if cover.suspicion(p, c) and cover.suspicion(p, c) >= 0.5 then aware = true end
   local ai = rawget(_G, "ai")
   if type(ai) == "table" and ai.awareness then
     local s = ai.awareness(c)
@@ -678,7 +678,7 @@ local function pickpocket(p)
   -- caught: behind him, but he (or the alarm) is on to Bond
   log("Bond %d: pickpocket on chr %d caught (on to him, %.0f deg off his facing)", p, c, off)
   if kind == "guard" and S.cover and not cover.alert() and cover.state(c) then
-    cover.blow(c, p)
+    cover.blow(p, c)
     G.stats.blown = G.stats.blown + 1
     flash_p(p, "He caught your hand! Drop him before he radios", 4)
   else

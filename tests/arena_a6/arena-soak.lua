@@ -20,10 +20,10 @@ on("tick", function(dt)
     end
   end
   if best then
-    bond.walk(0, best.x, best.z)
+    test.walk(0, best.x, best.z)
     walking = true
   elseif walking then
-    bond.walk_stop()
+    test.walk_stop()
     walking = false
   end
 end)

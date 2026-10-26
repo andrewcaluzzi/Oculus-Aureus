@@ -372,7 +372,7 @@ coord3d *portCctvEye(void) { return &sEye; }
 
 static u8 sRoomOn[256];   /* the rooms the feed draws (this pass) */
 
-/* bg.c: what the camera's walk drew (tests, cctv.render_info) */
+/* bg.c: what the camera's walk drew (tests, test.cctv_info) */
 void portCctvNoteRooms(s32 start, const s32 *rooms, s32 n, s32 geomonly)
 {
     s32 i;
@@ -701,7 +701,7 @@ int portCctvOverlayGet(int *cam, char *name, int namelen, int *index, int *count
     return 1;
 }
 
-/* cctv.render_info(): what this machine's last camera-feed pass drew */
+/* test.cctv_info(): what this machine's last camera-feed pass drew */
 int portCctvRenderInfo(int *cam, int *start, int *rooms, int max, int *geom, int *frames)
 {
     s32 i, n = sInfo.n < max ? sInfo.n : max;
@@ -714,10 +714,10 @@ int portCctvRenderInfo(int *cam, int *start, int *rooms, int max, int *geom, int
     return n;
 }
 
-/* ---- test helper: cctv.test_press(button) holds raw N64 buttons on pad 0 for a few sim ticks (input_pc.c), the real input path ---- */
+/* ---- test helper: test.press(button) holds raw N64 buttons on pad 0 for a few sim ticks (input_pc.c), the real input path ---- */
 u16 g_PortTestButtons;
 s32 g_PortTestButtonPolls;   /* sim ticks left (input_pc.c counts them down once per tick; it was 6 polls: a wall-clock-dependent hold) */
-s32 g_PortTestUse[4];        /* cctv.test_use(p): one Port use-action tap in Bond p's next tick (joy_port.c portJoyPortUseTap) */
+s32 g_PortTestUse[4];        /* test.use(p): one Port use-action tap in Bond p's next tick (joy_port.c portJoyPortUseTap) */
 
 void portCctvTestPress(int mask)
 {
@@ -730,7 +730,7 @@ void portCctvTestUse(int p)
     if (p >= 0 && p < 4) g_PortTestUse[p] = 1;
 }
 
-/* cctv.test_shot(): a GE_SHOT capture of the next presented frame (gfx_sdl2.cpp; none in a headless build) */
+/* test.screenshot(): a GE_SHOT capture of the next presented frame (gfx_sdl2.cpp; none in a headless build) */
 extern int ge_shot_force __attribute__((weak));
 
 void portCctvTestShot(void)

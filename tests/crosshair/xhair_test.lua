@@ -1,5 +1,5 @@
 -- Crosshair styles (modding/lua.md "Crosshair styles"): the crosshair.* API, the pack, the draw hook, and one screenshot per pack
--- style ("XHAIR SHOT <name>" lines, cctv.test_shot). Run: tests/crosshair/run.sh api (headless; a mode on Dam, so no guards).
+-- style ("XHAIR SHOT <name>" lines, test.screenshot). Run: tests/crosshair/run.sh api (headless; a mode on Dam, so no guards).
 -- Prints "XHAIR PASS|FAIL ..." and "XHAIR DONE <n> passed, <m> failed".
 local SHOTS = mode.env_flag("GE_XHAIR_SHOTS")
 local pass, fail = 0, 0
@@ -23,7 +23,7 @@ local hookCalls, hookOk = 0, true
 local frames = 0
 local steps = {}
 local function shot(name)
-  if SHOTS then print("XHAIR SHOT " .. name); cctv.test_shot() end
+  if SHOTS then print("XHAIR SHOT " .. name); test.screenshot() end
 end
 
 on("stage_start", function()
@@ -36,10 +36,10 @@ on("stage_start", function()
     steps[#steps + 1] = function() crosshair.use(n) end
     steps[#steps + 1] = function() shot(n) end
   end
-  steps[#steps + 1] = function() crosshair.use("cross"); crosshair.test_hit(true) end
-  steps[#steps + 1] = function() crosshair.test_hit(true); shot("cross_headshot_marker") end
+  steps[#steps + 1] = function() crosshair.use("cross"); test.crosshair_hit(true) end
+  steps[#steps + 1] = function() test.crosshair_hit(true); shot("cross_headshot_marker") end
   steps[#steps + 1] = function()
-    local d0 = crosshair.draws()
+    local d0 = test.crosshair_draws()
     check("draws_counted", d0 > 0, "draws=" .. d0)
     check("hook_called", hookCalls > 0 and hookOk, "calls=" .. hookCalls)
     check("current_player", select(2, crosshair.current()) == "player" and crosshair.current() == "cross")
@@ -48,10 +48,10 @@ on("stage_start", function()
     local s, who = crosshair.current()
     check("script_wins", s == "x" and who == "script", tostring(s) .. "/" .. tostring(who))
     crosshair.hide(true)
-    steps.hiddenAt = crosshair.draws()
+    steps.hiddenAt = test.crosshair_draws()
   end
   steps[#steps + 1] = function()
-    check("hide_stops_drawing", crosshair.draws() == steps.hiddenAt and crosshair.hidden(), "draws=" .. crosshair.draws())
+    check("hide_stops_drawing", test.crosshair_draws() == steps.hiddenAt and crosshair.hidden(), "draws=" .. test.crosshair_draws())
     crosshair.reset()
     check("reset", crosshair.current() == "cross" and not crosshair.hidden())
     crosshair.use("off")

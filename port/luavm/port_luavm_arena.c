@@ -11,9 +11,9 @@
  *   spawn.bodies() -> body names, head names
  *   drop A5: spawn.chr also takes knife_range=, knife_cooldown= (seconds), sight= (visionrange, units), engage= (effective range, units).
  *   spawn.pools() -> loose, held, free weapon slots, free props;  spawn.trim_drops(max [, keep_radius]);  bond.give_ammo(player, frac)
- *   test helpers: spawn.kill(chr), bond.warp(player, pad [, dx, dz]), bond.take_drop(player [, radius])
+ *   spawn.kill(chr [, "head"]) (a death through the damage path), bond.warp(player, pad [, dx, dz]);  test.take_drop(player [, radius])
  *   drop A6: spawn.item(pad, item [, {ammo=, amount=}]) -> handle | nil;  spawn.item_alive(h);  spawn.item_remove(h);  spawn.item_pos(h) -> x, z
- *   test helpers: bond.walk(player, x, z) -> distance (real stick input toward x, z, every tick), bond.walk_stop()
+ *   test hooks: test.walk(player, x, z) -> distance (real stick input toward x, z, every tick), test.walk_stop()
  * behaviour: "chase" (default), "rush", "hold", "snipe", "standard". health is a multiplier (1 = stock). */
 #include <string.h>
 #include <stdio.h>
@@ -174,7 +174,7 @@ static int arenaSpawnRemove(lua_State *L)
     return 1;
 }
 
-/* spawn.kill(chr [, "head"]) -> bool: test helper, lethal damage (a normal death: drops, events); "head" counts it as a headshot */
+/* spawn.kill(chr [, "head"]) -> bool: lethal damage (a normal death: drops, events); "head" counts it as a headshot */
 static int arenaSpawnKill(lua_State *L)
 {
     const char *part = luaL_optstring(L, 2, "");
@@ -243,12 +243,12 @@ static int arenaBondGiveAmmo(lua_State *L)
     return 1;
 }
 
-/* bond.take_drop(player [, radius]) -> item id (0 = none near), ammo of its type before, after: test helper, the real pickup */
+/* test.take_drop(player [, radius]) -> item id (0 = none near), ammo of its type before, after: test helper, the real pickup */
 static int arenaBondTakeDrop(lua_State *L)
 {
     int before = 0, after = 0, item;
 
-    needStage(L, "bond.take_drop");
+    needStage(L, "test.take_drop");
     item = portLuaGameTakeDrop((int) luaL_checkinteger(L, 1), (float) luaL_optnumber(L, 2, 400.0), &before, &after);
     lua_pushinteger(L, item);
     lua_pushinteger(L, before);
@@ -256,7 +256,7 @@ static int arenaBondTakeDrop(lua_State *L)
     return 3;
 }
 
-/* bond.warp(player, pad [, dx, dz]): test helper, Bond to a pad (plus an offset from its centre) */
+/* bond.warp(player, pad [, dx, dz]) -> bool: Bond to a pad (plus an offset from its centre) */
 static int arenaBondWarp(lua_State *L)
 {
     needStage(L, "bond.warp");
@@ -361,11 +361,11 @@ static int arenaSpawnItemPos(lua_State *L)
     return 2;
 }
 
-/* bond.walk(player, x, z) -> distance (test helper): steer Bond toward x, z with the real stick for this tick (call it every tick);
- * bond.walk_stop() releases the stick. Player 0 only. */
+/* test.walk(player, x, z) -> distance (test helper): steer Bond toward x, z with the real stick for this tick (call it every tick);
+ * test.walk_stop() releases the stick. Player 0 only. */
 static int arenaBondWalk(lua_State *L)
 {
-    needStage(L, "bond.walk");
+    needStage(L, "test.walk");
     lua_pushnumber(L, portLuaGameBondWalk((int) luaL_checkinteger(L, 1), (float) luaL_checknumber(L, 2), (float) luaL_checknumber(L, 3)));
     return 1;
 }
@@ -810,8 +810,10 @@ void portLuaArenaRegister(lua_State *L)
         { "item_remove", arenaSpawnItemRemove }, { "item_pos", arenaSpawnItemPos }, { "headshot", arenaSpawnHeadshot }, { "idle", arenaSpawnIdle },
         { NULL, NULL } };
     static const luaL_Reg bondAdd[] = { { "give", arenaBondGive }, { "heal", arenaBondHeal },
-        { "vitals", arenaBondVitals }, { "warp", arenaBondWarp }, { "give_ammo", arenaBondGiveAmmo }, { "take_drop", arenaBondTakeDrop },
-        { "ammo", arenaBondAmmo }, { "walk", arenaBondWalk }, { "walk_stop", arenaBondWalkStop }, { NULL, NULL } };
+        { "vitals", arenaBondVitals }, { "warp", arenaBondWarp }, { "give_ammo", arenaBondGiveAmmo }, { "ammo", arenaBondAmmo }, { NULL, NULL } };
+    /* test hooks (modding/lua.md "The test table") */
+    static const luaL_Reg testAdd[] = { { "take_drop", arenaBondTakeDrop }, { "walk", arenaBondWalk }, { "walk_stop", arenaBondWalkStop },
+        { NULL, NULL } };
 
     static const luaL_Reg benchLib[] = { { "run_start", benchRunStart }, { "note", benchNote }, { "begin", benchBegin },
         { "tag", benchTag }, { "pools", benchPools }, { "finish", benchFinish }, { "look", benchLook }, { "sweep", benchSweep }, { "sweep_off", benchSweepOff }, { "last", benchLast }, { "exit", benchExit },
@@ -831,4 +833,5 @@ void portLuaArenaRegister(lua_State *L)
     lua_setglobal(L, "sound");
     addTo(L, "spawn", spawnAdd);
     addTo(L, "bond", bondAdd);
+    addTo(L, "test", testAdd);
 }

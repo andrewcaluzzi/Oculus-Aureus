@@ -1,6 +1,6 @@
 #!/bin/sh
 # Heist CCTV self-view test (designs/bank-heist.md 23c): Bond 0 watches a camera that sees him at the banking hall's screens, then the
-# security camera with him on its pad; the feed must draw his own body (cctv.render_info().bonds). Inside the build container with
+# security camera with him on its pad; the feed must draw his own body (test.cctv_info().bonds). Inside the build container with
 # Xvfb on :99 and build_pc built. Screenshots: build_pc/heist_cctvself_shots/shot_NNNNN.bmp (convert with tests/bmp2png.py, delete the BMPs).
 #   run_cctvself.sh [coop|solo|all]   coop: local co-op (GE_COOP=1), the Bonds' own bodies; solo: one Bond, port_cctvbody.c's
 #                                     presentation-only body. Default all. Last line "HEIST CCTVSELF DONE <n> passed, <m> failed".

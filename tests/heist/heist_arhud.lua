@@ -1,6 +1,6 @@
 -- The AR specs and the diagnostics layer (designs/bank-heist.md section 20) on the Janus bank with the real tools/mode_heist.lua.
 -- Run: tests/heist/run_ar.sh (headless). Checks the ar.* / diag.* API and the heist wiring, and with GE_AR_SHOTS=1 takes the showcase
--- screenshots ("HEIST SHOT <name>" lines, cctv.test_shot):
+-- screenshots ("HEIST SHOT <name>" lines, test.screenshot):
 --   ar_keys     a card carrier with his key tag and bracket corners
 --   ar_diag     the diagnostics layer over the banking hall (chr lines, sight cones, hearing rings, the panel, the radar)
 --   ar_suspect  a guard watching a drawn gun: the "?" over his head filling
@@ -27,7 +27,7 @@ local function wait(sec)
   while t < sec do
     t = t + coroutine.yield()
     bond.heal(0, 1, 1)
-    if face then bond.face(0, face[1], face[2], face[3]) end
+    if face then test.face(0, face[1], face[2], face[3]) end
   end
 end
 local function wait_for(sec, fn)
@@ -39,7 +39,7 @@ local function d2(ax, az, bx, bz) return math.sqrt((ax - bx) ^ 2 + (az - bz) ^ 2
 local function shot(name)
   if not SHOTS then return end
   print("HEIST SHOT " .. name .. string.format(" t=%.1f hot=%s meter=%s", HEIST.elapsed, tostring(HEIST.hot), (cover.meter(0))))
-  cctv.test_shot()
+  test.screenshot()
   wait(0.3)
 end
 local function warp_xz(x, z)
@@ -98,7 +98,7 @@ local function body()
   check("ar.say / ar.mark / ar.outline / ar.clear / ar.noise take their arguments",
         pcall(ar.say, HEIST.guards[1].chr, "test", 1, "radio") and pcall(ar.mark, HEIST.guards[1].chr, { label = "T", rgba = "cyan", bracket = true })
         and pcall(ar.outline, HEIST.guards[1].chr, "gold") and pcall(ar.clear, HEIST.guards[1].chr) and pcall(ar.noise, bx, by, bz, 300, "shot"))
-  check("diag.freeze is refused nowhere in solo, and off again", diag.freeze(true) and diag.freeze(false))
+  check("test.freeze is refused nowhere in solo, and off again", test.freeze(true) and test.freeze(false))
 
   -- a card carrier (a guard): his key tag and brackets
   local carrier

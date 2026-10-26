@@ -209,7 +209,7 @@ local function face_to_face(c, floor_y)
   local gyaw = gadget.chr_yaw(c)
   local a = math.rad(gyaw or 0)
   local ok = warp_xz(0, cx + math.sin(a) * 100, floor_y, cz + math.cos(a) * 100)
-  bond.face(0, cx, cz)
+  test.face(0, cx, cz)
   local bx, by, bz = bond.pos(0)
   print(string.format("HEIST   face to face with chr %d (yaw %.0f, y %s): warp %s, Bond %.0f from him, dy %.0f", c, gyaw or -1, tostring(cy), tostring(ok),
         d2(bx, bz, cx, cz), by - (cy or 0)))
@@ -223,7 +223,7 @@ local function bribe_path()
   ai.trait(blue.chr, "bribable")
   face_to_face(blue.chr, select(2, pads.pos(blue.pad)))
   wait(0.3)
-  local s0 = cover.suspicion(blue.chr, 0) or 0
+  local s0 = cover.suspicion(0, blue.chr) or 0
   local ok, r = HEIST_TRAITS.try_bribe(0)
   check("face to face, unsuspicious: he takes the money", ok and r == "ok", string.format("%s %s, meter %.2f", tostring(ok), tostring(r), s0))
   check("... and hands over his card (BLUE)", bond.has_key(0, 0x4))
@@ -267,21 +267,21 @@ end
 
 local function shot_path()
   bond.warp(0, pad("hall_mid"))
-  bond.face(0, select(1, pads.pos(pad("hall_mid"))), select(3, pads.pos(pad("hall_mid"))) - 800)
+  test.face(0, select(1, pads.pos(pad("hall_mid"))), select(3, pads.pos(pad("hall_mid"))) - 800)
   local seen = wait_for(6, function() local n = 0; for _, e in ipairs(ai.traits()) do if e.observed then n = n + 1 end end; return n >= 4 end)
   local n = 0
   for _, e in ipairs(ai.traits()) do if e.observed then n = n + 1 end end
   check("from the hall the crew has had a look at some guards", n >= 2, tostring(n))
   wait(1)
   print("HEIST SHOT traits_ar")
-  cctv.test_shot()
+  test.screenshot()
   wait(0.6)
-  intel.test_show(true, 4, 0)
+  test.intel_show(true, 4, 0)
   wait(1.2)
   print("HEIST SHOT traits_personnel")
-  cctv.test_shot()
+  test.screenshot()
   wait(0.6)
-  intel.test_show(false)
+  test.intel_show(false)
 end
 
 local finished = false

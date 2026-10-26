@@ -6,10 +6,10 @@
  *   cctv.viewing(p) -> cam | nil
  *   cctv.name(cam [, text]) -> name    the label the feed shows (default "CAMERA n")
  *   cctv.sees(cam, chr) -> bool        a working camera has the chr (or bond.id(p)) in its live cone with a clear line
- *   cctv.render_info() -> table        this machine's last feed pass: {cam, start, rooms = {...}, geom_only, frames} | nil (tests)
+ *   test.cctv_info() -> table          this machine's last feed pass: {cam, start, rooms = {...}, geom_only, chrs, bonds, frames, ...} | nil
  *   hud.panel(lines | nil [, p])       up to 8 lines in a box at the top right (nil or {} clears); p = that Bond only
  *   bond.room(p) -> room | nil         spawn.room(chr) -> room | nil
- *   bond.rooms_drawn(p) -> {room, ...} the bg rooms view p drew last (tests)
+ *   test.rooms_drawn([p]) -> {room, ...}   the bg rooms view p drew last; test.press / screenshot / use / hud_panel / hud_line
  * Event: cctv_view(p, cam, why): cam -1 = the view ended; why 0 a script, 1 cycled, 2 the Bond left (B / use), 3 hit, 4 down. */
 #include <string.h>
 #include <stdio.h>
@@ -163,13 +163,13 @@ static int bondRoom(lua_State *L)
     return 1;
 }
 
-/* bond.rooms_drawn(p) -> {room, ...}: the bg rooms view p drew last frame (this machine's draw: presentation, tests only) */
+/* test.rooms_drawn([p]) -> {room, ...}: the bg rooms view p drew last frame (this machine's draw: presentation, tests only) */
 static int bondRoomsDrawn(lua_State *L)
 {
     int rooms[64];
     int i, n;
 
-    needStage(L, "bond.rooms_drawn");
+    needStage(L, "test.rooms_drawn");
     n = portRoomVisDrawn((int) luaL_optinteger(L, 1, 0), rooms, 64);
     lua_createtable(L, n, 0);
     for (i = 0; i < n; i++)
@@ -190,17 +190,17 @@ static int spawnRoom(lua_State *L)
     return 1;
 }
 
-/* cctv.test_press(button): test helper, holds raw N64 "a" / "b" / "z" / "cl" / "cr" on pad 0 for a few polls (the real input path) */
+/* test.press(button): test helper, holds raw N64 "a" / "b" / "z" / "cl" / "cr" on pad 0 for a few polls (the real input path) */
 static int cctvTestPress(lua_State *L)
 {
     int m = portCctvButtonMask(luaL_checkstring(L, 1));
 
-    if (m == 0) return luaL_error(L, "cctv.test_press: unknown button '%s' (a, b, z, cl, cr)", luaL_checkstring(L, 1));
+    if (m == 0) return luaL_error(L, "test.press: unknown button '%s' (a, b, z, cl, cr)", luaL_checkstring(L, 1));
     portCctvTestPress(m);
     return 0;
 }
 
-/* cctv.test_use([p]): test helper, one use-action tap (the Port use bind, not B) in Bond p's next tick (default 0) */
+/* test.use([p]): test helper, one use-action tap (the Port use bind, not B) in Bond p's next tick (default 0) */
 static int cctvTestUse(lua_State *L)
 {
     portCctvTestUse((int) luaL_optinteger(L, 1, 0));
@@ -222,7 +222,7 @@ static int modeState(lua_State *L)
     return 0;
 }
 
-/* hud.line(n [, p]) -> the text of HUD line n (1..3) Bond p sees (his own line, else the shared one), "" none (tests) */
+/* test.hud_line(n [, p]) -> the text of HUD line n (1..3) Bond p sees (his own line, else the shared one), "" none (tests) */
 static int hudLine(lua_State *L)
 {
     extern const char *portModeHudGetFor(int player, int line);
@@ -233,7 +233,7 @@ static int hudLine(lua_State *L)
     return 1;
 }
 
-/* hud.panel_lines() -> the lines this machine's panel shows (tests) */
+/* test.hud_panel() -> the lines this machine's panel shows (tests) */
 static int hudPanelLines(lua_State *L)
 {
     int i, n = 0;
@@ -262,13 +262,16 @@ static void addTo(lua_State *L, const char *lib, const luaL_Reg *reg)
 void portLuaCctvRegister(lua_State *L)
 {
     static const luaL_Reg cctvAdd[] = { { "view", cctvView }, { "view_off", cctvViewOff }, { "viewing", cctvViewing }, { "name", cctvName },
-        { "sees", cctvSees }, { "render_info", cctvRenderInfo }, { "test_press", cctvTestPress }, { "test_shot", cctvTestShot },
-        { "test_use", cctvTestUse }, { NULL, NULL } };
-    static const luaL_Reg hudAdd[] = { { "panel", hudPanel }, { "panel_lines", hudPanelLines }, { "line", hudLine }, { NULL, NULL } };
-    static const luaL_Reg bondAdd[] = { { "room", bondRoom }, { "use_key", bondUseKey }, { "rooms_drawn", bondRoomsDrawn }, { NULL, NULL } };
+        { "sees", cctvSees }, { NULL, NULL } };
+    static const luaL_Reg hudAdd[] = { { "panel", hudPanel }, { NULL, NULL } };
+    static const luaL_Reg bondAdd[] = { { "room", bondRoom }, { "use_key", bondUseKey }, { NULL, NULL } };
     static const luaL_Reg spawnAdd[] = { { "room", spawnRoom }, { NULL, NULL } };
     static const luaL_Reg modeAdd[] = { { "state", modeState }, { NULL, NULL } };
+    /* test hooks (modding/lua.md "The test table") */
+    static const luaL_Reg testAdd[] = { { "cctv_info", cctvRenderInfo }, { "press", cctvTestPress }, { "screenshot", cctvTestShot },
+        { "use", cctvTestUse }, { "hud_panel", hudPanelLines }, { "hud_line", hudLine }, { "rooms_drawn", bondRoomsDrawn }, { NULL, NULL } };
 
+    addTo(L, "test", testAdd);
     addTo(L, "mode", modeAdd);
     addTo(L, "cctv", cctvAdd);
     addTo(L, "hud", hudAdd);

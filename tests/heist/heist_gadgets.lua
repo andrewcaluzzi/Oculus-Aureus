@@ -46,7 +46,7 @@ local function wait(sec)
   while t < sec do
     t = t + coroutine.yield()
     for p = 0, bond.count() - 1 do bond.heal(p, 1, 1) end
-    if face then bond.face(0, face[1], face[2]) end
+    if face then test.face(0, face[1], face[2]) end
   end
 end
 local function wait_for(sec, fn)
@@ -60,7 +60,7 @@ local function room(n) return LEVEL.rooms[n].id end
 local function shot(name)
   if not SHOTS then return end
   print("HEIST SHOT " .. name .. string.format(" t=%.1f", HEIST.elapsed))
-  cctv.test_shot()
+  test.screenshot()
   wait(0.3)
 end
 local blown = {}
@@ -171,7 +171,7 @@ local function piton_path()
   local t = G.grapple_target(0)
   check("at the " .. F.id .. " line's foot it is in reach", t ~= nil and t.up and t.pair.id == F.id, t and t.pair.id or "none")
   face = nil
-  cctv.test_press("z")
+  test.press("z")
   local started = wait_for(1.5, function() return (gadget.reeling(0)) end)
   check("the fire button fires the line (not the stock grenade)", started, string.format("reels %d", G.stats.grapples))
   wait(0.5)
@@ -191,7 +191,7 @@ local function piton_path()
   t = G.grapple_target(0)
   check("at the top the line goes down", t ~= nil and not t.up, t and tostring(t.up) or "none")
   face = nil
-  gadget.test_fire(0, 0, 1)
+  test.fire(0, 0, 1)
   done = reeled(0, 6)
   x, _, z = bond.pos(0)
   check("abseiled back down to its foot", done and x and d2(x, z, F.l[1], F.l[3]) < 80, tostring(LEVEL.room_name[bond.room(0) or 0]))
@@ -209,7 +209,7 @@ local function piton_path()
   face = { hx, hz }
   wait(0.5)
   face = nil
-  gadget.test_fire(0, 0, 1)
+  test.fire(0, 0, 1)
   done = reeled(0, 6)
   local gp
   for _, q in ipairs(G.pairs) do if q.id == "gallery" then gp = q end end
@@ -223,7 +223,7 @@ local function piton_path()
       face = { gp.h[1], gp.h[3] }
       wait(1)
       face = nil
-      gadget.test_fire(0, 0, 1)
+      test.fire(0, 0, 1)
       done = reeled(0, 7)
       local hx, _, hz = pads.pos(gp.hi)
       local x, _, z = bond.pos(0)
@@ -245,7 +245,7 @@ local function lockpick_path()
         string.format("%s (want %d)", tostring(G.pick_target(0)), blue))
   check("without the card it is locked", door.get(blue).keyflags == 0x4 and not bond.has_key(0, 0x4))
   local t0 = HEIST.elapsed
-  gadget.test_fire(0, 60 * 14)
+  test.fire(0, 60 * 14)
   wait(5)
   local st = G.picked[blue] or G.picked[O.sec_back.pair]
   print(string.format("HEIST   picking after 5 s: %.1f of %.1f s", st and st.prog or -1, st and st.need or -1))
@@ -255,7 +255,7 @@ local function lockpick_path()
   check("held fire picks the BLUE lock in about 10 s", open and took >= 8.5 and took <= 12, string.format("%.1f s", took))
   check("the picked door opens", wait_for(3, function() return door.get(blue).open > 0.5 end), string.format("open %.2f", door.get(blue).open))
   check("a quiet pick makes no noise", G.stats.noises == 0, tostring(G.stats.noises))
-  gadget.test_fire(0, 0, 0)
+  test.fire(0, 0, 0)
   wait(1)
   -- rushed: the GREEN maintenance door from the canteen, by taps
   local green = O.maint_door.index
@@ -263,7 +263,7 @@ local function lockpick_path()
   wait(1.5)
   check("the GREEN maintenance door is in reach", G.pick_target(0) == green, tostring(G.pick_target(0)))
   t0 = HEIST.elapsed
-  gadget.test_fire(0, 0, 12)
+  test.fire(0, 0, 12)
   open = wait_for(5, function() return door.get(green).keyflags == 0 end)
   took = HEIST.elapsed - t0
   check("rushed by taps: the GREEN lock (6 s held) opens much faster", open and took < 4, string.format("%.1f s", took))
@@ -286,7 +286,7 @@ local function pocket_path()
   wait(0.5)
   local fx, fz = spawn.where(c)
   print(string.format("HEIST   chief at (%.0f %.0f) facing %.0f deg; Bond %.0f behind him", fx, fz, yaw, d2(bx, bz, fx, fz)))
-  cctv.test_use(0)
+  test.use(0)
   local got = wait_for(1.5, function() return bond.has_key(0, 0x4) end)
   check("from behind, unseen: the BLUE card lifted", got and G.stats.lifts == 1, string.format("lifts %d", G.stats.lifts))
   check("he did not notice (no cover blown)", #blown == 0, #blown > 0 and blown[1].why or "")
@@ -312,7 +312,7 @@ local function pocket_path()
   face = { gx, gz }
   wait(0.5)
   local nb = #blown
-  cctv.test_use(0)
+  test.use(0)
   wait(1)
   check("facing him: no card", not bond.has_key(0, 0x100))
   -- (until 2026-10-26 this press was "caught" and blew the cover; a press in front of a guard is no pickpocket now: 23c)
@@ -326,7 +326,7 @@ local function coin_path()
   wait(2)
   check("coins in hand", bond.weapon(0) == 53, tostring(bond.weapon(0)))
   face = nil
-  gadget.test_fire(0, 0, 1)
+  test.fire(0, 0, 1)
   wait(1.5)
   check("the coin lands and makes a noise", G.stats.coins == 1 and G.stats.noises == 1, string.format("coins %d noises %d", G.stats.coins, G.stats.noises))
   if target and rawget(_G, "noise") and noise.emit and rawget(_G, "ai") and ai.awareness then
@@ -388,7 +388,7 @@ local function loop_path()
   G.debug = true
   check("the camera is in the tape loop's aim", G.loop_target(0) == cam, tostring(G.loop_target(0)))
   G.debug = false
-  gadget.test_fire(0, 0, 1)
+  test.fire(0, 0, 1)
   wait(0.75)
   check("the loop is planted", G.loops[cam] ~= nil and G.stats.loops == 1, cctv.name(cam))
   for _, other in ipairs(cctv.list()) do if other ~= cam then cctv.disable(other) end end   -- (only the looped one can see him)
@@ -422,11 +422,11 @@ local function disguise_path()
   local bx, _, bz = bond.pos(0)
   local _, by = bond.pos(0)
   print(string.format("HEIST   body at (%.0f %.0f %.0f), Bond %.0f from it (y %.0f), ko %s", cx, cy or -1, cz, d2(bx, bz, cx, cz), by or -1, tostring(ko.is(c))))
-  cctv.test_use(0)
+  test.use(0)
   wait(1)
   if not G.searched[c] then print("HEIST   (the use tap did not search; ko.search: " .. tostring(ko.search(0)) .. ")"); wait(0.5) end
   check("the first press searches him", G.searched[c] == true)
-  cctv.test_use(0)
+  test.use(0)
   wait(0.75)
   local me = G.players[0]
   check("the second press: changing into his uniform", me.task and me.task.kind == "disguise", me.task and me.task.kind or "none")
@@ -469,7 +469,7 @@ local function vent_path()
   for _, v in ipairs(G.vents) do   -- (by name: any layout)
     bond.warp(0, v.a)
     wait(1)
-    cctv.test_use(0)
+    test.use(0)
     if v.id == "vault" then
       wait(1)
       check("the vault ventilator refuses with the power on", not (gadget.reeling(0)) and G.stats.vents == n)
@@ -491,7 +491,7 @@ local function gas_path()
   if not c then check("a hall guard", false); return end
   wait(2)
   face = nil
-  gadget.test_fire(0, 0, 1)
+  test.fire(0, 0, 1)
   wait(0.5)
   check("the gas is thrown", #G.gas == 1)
   -- every guard standing where it landed is out cold 3 s later (where it lands depends on the line of the throw, not on him)
@@ -519,14 +519,14 @@ local function thermal_path()
   warp_xz(0, -2600, -300, 0)   -- (office A, west of the hall: its guards are behind two walls)
   face = { 0, -300 }
   wait(1)
-  gadget.test_fire(0, 0, 1)
+  test.fire(0, 0, 1)
   wait(1)
   local me = G.players[0]
   check("fire: the imager is on", me.xray_until and me.xray_until > HEIST.elapsed, tostring(me.xray_until))
   shot("thermal")
   wait(10)
   check("10 s later it is off and recharging", HEIST.elapsed >= me.xray_until and HEIST.elapsed < me.xray_ready)
-  gadget.test_fire(0, 0, 1)
+  test.fire(0, 0, 1)
   wait(1)
   check("while recharging, fire does nothing", (G.stats.thermal or 0) == 1, tostring(G.stats.thermal))
 end
@@ -540,7 +540,7 @@ local function safe_path()
   local sf = G.safe_target(0)
   check("the director's safe in reach of the lockpicks", sf ~= nil and sf.idx == sfo.index, sf and sf.name or "none")
   if not sf then return end
-  gadget.test_fire(0, 0, 1)
+  test.fire(0, 0, 1)
   wait(0.75)
   local me = G.players[0]
   check("fire: listening at the dial", me.crack ~= nil and me.crack.tumbler == 1)
@@ -555,7 +555,7 @@ local function safe_path()
     return (want - ph) % T.safe_period
   end
   local n0 = G.stats.noises
-  gadget.test_fire(0, 0, 1, delay_to((c.center + 0.5) % 1) - 1)
+  test.fire(0, 0, 1, delay_to((c.center + 0.5) % 1) - 1)
   wait(2)
   check("a press outside the window: a miss, it rattles", me.crack.tumbler == 1 and (me.crack.misses or 0) == 1 and G.stats.noises == n0 + 1,
         string.format("tumbler %d misses %s", me.crack.tumbler, tostring(me.crack.misses)))
@@ -563,7 +563,7 @@ local function safe_path()
     c = me.crack
     if not c then break end
     now = gadget.now(0)
-    gadget.test_fire(0, 0, 1, delay_to(c.center) - 1)
+    test.fire(0, 0, 1, delay_to(c.center) - 1)
     wait(2)
   end
   local opened = wait_for(3, function() return door.get(sfo.index).open > 0.3 end)
@@ -583,33 +583,33 @@ local function det_path()
   face = { F.h[1], F.h[3] }
   wait(0.5)
   face = nil
-  gadget.test_fire(0, 0, 1)
-  if n > 1 then gadget.test_fire(1, 0, 1) end
+  test.fire(0, 0, 1)
+  if n > 1 then test.fire(1, 0, 1) end
   reeled(0, 6)
   print(string.format("HEIST DET roof room %s t=%.2f", tostring(bond.room(0)), HEIST.elapsed))
-  gadget.test_fire(0, 0, 1)
+  test.fire(0, 0, 1)
   reeled(0, 6)
   bond.warp(0, pad("cust_4"))
   bond.equip(0, "creditcard")
   if n > 1 then bond.equip(1, "creditcard") end
   wait(2)
-  gadget.test_fire(0, 0, 1)
-  if n > 1 then gadget.test_fire(1, 0, 1) end
+  test.fire(0, 0, 1)
+  if n > 1 then test.fire(1, 0, 1) end
   wait(3)
   print(string.format("HEIST DET coin noises %d pulled %d", G.stats.noises, #G.pulled))
   stand_at_door(LEVEL.objects.sec_back.index, "back_corr_e")
   bond.equip(0, "gaskeyring")
   wait(2)
   face = nil
-  gadget.test_fire(0, 0, 4)
-  gadget.test_fire(0, 60 * 3)
+  test.fire(0, 0, 4)
+  test.fire(0, 60 * 3)
   wait(4)
   print(string.format("HEIST DET pick noises %d", G.stats.noises))
   local V = G.vents[1]
   for _, v in ipairs(G.vents) do if v.id ~= "vault" then V = v; break end end
   bond.warp(0, V.a)
   wait(0.5)
-  cctv.test_use(0)
+  test.use(0)
   reeled(0, 5)
   print(string.format("HEIST DET vent room %s", tostring(bond.room(0))))
   wait(6)

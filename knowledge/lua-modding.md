@@ -79,7 +79,7 @@ A mode script runs identically on every machine in co-op and netplay, and in sol
   a relink. A whole round of bot measurements ran stale heist Lua this way.
 - `Data/Scripts/*.lua` also runs inside modes: a leftover weapon-tuning script changes a mode's balance.
 - An error disables only that handler (logged once); errors are never fatal. Check `ge: lua: error:` in the log.
-- Lua cannot see the window, so a script cannot know what is on screen. `bond.rooms_drawn(p)` exists for tests and is
+- Lua cannot see the window, so a script cannot know what is on screen. `test.rooms_drawn(p)` exists for tests and is
   presentation, not sim state.
 
 ## Related

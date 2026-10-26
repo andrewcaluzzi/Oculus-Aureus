@@ -683,9 +683,17 @@ static int portLuaOn(lua_State *L)
         if (strcmp(sEvents[k].name, name) == 0) break;
     }
     if (k == LUA_EV_N)
-    {
-        return luaL_error(L, "unknown event '%s' (chr_died zone_enter zone_leave stage_start bond_died "
-                             "hostage_follow hostage_wait damage chr_spawned item_pickup objective_changed alarm cctv_spotted cctv_view use gadget_used body_found civilian_killed civilian_surrendered civilian_robbed cover_blown cover_report tick test_key draw_crosshair)", name);
+    {   /* the list is built from sEvents, so it never goes stale */
+        luaL_Buffer b;
+
+        luaL_buffinit(L, &b);
+        for (k = 0; k < LUA_EV_N; k++)
+        {
+            if (k > 0) luaL_addchar(&b, ' ');
+            luaL_addstring(&b, sEvents[k].name);
+        }
+        luaL_pushresult(&b);
+        return luaL_error(L, "unknown event '%s' (%s)", name, lua_tostring(L, -1));
     }
     type = sEvents[k].type;
     lua_getfield(L, LUA_REGISTRYINDEX, LUA_HANDLERS_KEY);
@@ -1490,6 +1498,21 @@ static void portLuaRegisterLib(lua_State *L, const char *name, const luaL_Reg *r
     lua_setglobal(L, name);
 }
 
+/* Adds reg's functions to the global table `lib`, made when it is missing. The other port_luavm_*.c files use it for the test table
+ * (modding/lua.md "The test table": the hooks that fake input or events, and the readers only a test may use). */
+void portLuaAddTo(lua_State *L, const char *lib, const luaL_Reg *reg)
+{
+    if (lua_getglobal(L, lib) != LUA_TTABLE)
+    {
+        lua_pop(L, 1);
+        lua_newtable(L);
+        lua_pushvalue(L, -1);
+        lua_setglobal(L, lib);
+    }
+    luaL_setfuncs(L, reg, 0);
+    lua_pop(L, 1);
+}
+
 /* ---- deterministic math.random ------------------------------------------------------------------------------------------------
  * Lua's own math.random is seeded from the clock and an address when the state is made, so two machines of a netplay session draw different
  * numbers: a mode script that placed spawns with it would desync. This generator (SplitMix64, 64-bit state) replaces math.random and
@@ -1727,6 +1750,8 @@ static lua_State *portLuaState(void)
     portLuaRegisterLib(sL, "hostages", sHostagesLib);
     portLuaRegisterLib(sL, "mission", sMissionLib);
     portLuaRegisterLib(sL, "probe", sProbeLib);
+    lua_newtable(sL);   /* the test table: each port_luavm_*.c file adds its test hooks to it (portLuaAddTo) */
+    lua_setglobal(sL, "test");
     {   /* arena mode additions to spawn and bond (port_luavm_arena.c) */
         extern void portLuaArenaRegister(lua_State *L);
 

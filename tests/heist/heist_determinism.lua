@@ -61,24 +61,24 @@ local function body()
   wait(1)
 
   -- 1. the camera feeds: a use press at the hall's screen wall, A (next camera), B (out)
-  -- (cctv.test_press holds raw buttons on pad 0, which in co-op feeds the LOCAL Bond: the co-op runs switch the local player, so they
-  -- cycle and leave through the API; cctv.test_use taps the use action in Bond p's own tick, the same for any local player)
+  -- (test.press holds raw buttons on pad 0, which in co-op feeds the LOCAL Bond: the co-op runs switch the local player, so they
+  -- cycle and leave through the API; test.use taps the use action in Bond p's own tick, the same for any local player)
   local coop = bond.count() > 1
   warp_xz(watcher, MP.screens_at[1], MP.screens_at[2])
-  bond.face(watcher, MP.screens_face[1], MP.screens_face[2])
+  test.face(watcher, MP.screens_face[1], MP.screens_face[2])
   wait(1)
-  cctv.test_use(watcher)
+  test.use(watcher)
   wait(1)
   note("feeds open: viewing %s", tostring(cctv.viewing(watcher)))
   if coop then
     local list = cctv.list()
     cctv.view(watcher, list[2])
   else
-    cctv.test_press("a")
+    test.press("a")
   end
   wait(1)
   note("after A: viewing %s", tostring(cctv.viewing(watcher)))
-  if coop then cctv.view_off(watcher) else cctv.test_press("b") end
+  if coop then cctv.view_off(watcher) else test.press("b") end
   wait(1)
   note("after B: viewing %s", tostring(cctv.viewing(watcher)))
 
@@ -87,12 +87,12 @@ local function body()
   if civ then
     local x, z = spawn.where(civ)
     warp_xz(worker, x + 60, z)
-    bond.face(worker, x, z)
+    test.face(worker, x, z)
     bond.equip(worker, "fist")
     wait(0.5)
-    ko.test_slap(worker, civ)
+    test.slap(worker, civ)
     wait(0.5)
-    ko.test_slap(worker, civ)
+    test.slap(worker, civ)
     wait(1)
     note("civilian %d ko %s", civ, tostring(ko.is(civ)))
   end
@@ -120,20 +120,20 @@ local function body()
     end
     if hostage then
       local x, z = spawn.where(hostage)
-      local f = math.rad(shield.face(hostage))
+      local f = math.rad(test.chr_face(hostage))
       wait(1)   -- (the PP7 comes out)
       for _, r in ipairs({ 250, 150, 100 }) do
         warp_xz(worker, x + math.sin(f) * r, z + math.cos(f) * r)
-        bond.face(worker, x, z)
+        test.face(worker, x, z)
         local t = 0
         while t < 2 and civilian.state(hostage) ~= "surrendered" do wait(0.25); t = t + 0.25 end
         if civilian.state(hostage) == "surrendered" then break end
       end
       note("hostage %d %s", hostage, tostring(civilian.state(hostage)))
       warp_xz(worker, x - math.sin(f) * 70, z - math.cos(f) * 70)
-      bond.face(worker, x, z)
+      test.face(worker, x, z)
       wait(0.25)
-      cctv.test_use(worker)
+      test.use(worker)
       wait(1)
       note("hostage held by %d: %s", worker, tostring(shield.held(worker)))
     end
@@ -145,7 +145,7 @@ local function body()
   note("hot %s", tostring(HEIST.hot))
   if hostage then
     wait(3)
-    cctv.test_use(worker)
+    test.use(worker)
     wait(1)
     local inf = shield.info(hostage) or {}
     note("hostage released: held %s, %s, %.2f s, counts %d/%d", tostring(shield.held(worker)), tostring(inf.why), inf.secs or -1,
@@ -155,13 +155,13 @@ local function body()
   -- 4. the crack: plant, a forced jam, the restart, the vault opens
   bond.warp(worker, MP.crack)
   wait(0.5)
-  bond.test_gadget(worker, "doordecoder")
+  test.gadget_used(worker, "doordecoder")
   wait(4)
   note("cracking %s %.3f", HEIST.phase, HEIST.progress)
   HEIST.force_jam()
   wait(1.5)
   note("jammed %s %.3f", HEIST.phase, HEIST.progress)
-  bond.test_gadget(worker, "doordecoder")
+  test.gadget_used(worker, "doordecoder")
   wait(0.5)
   note("restarted %s", HEIST.phase)
 
@@ -174,7 +174,7 @@ local function body()
   note("vault %s", HEIST.phase)
   if watcher == worker then
     warp_xz(watcher, MP.screens_at[1], MP.screens_at[2])
-    bond.face(watcher, MP.screens_face[1], MP.screens_face[2])
+    test.face(watcher, MP.screens_face[1], MP.screens_face[2])
     wait(0.5)
     HEIST.watch(watcher, MP.feed_cam)
   end
@@ -193,7 +193,7 @@ local function body()
   note("watcher on camera %s", tostring(cctv.viewing(watcher)))
   if not cctv.viewing(watcher) then   -- (solo: the worker left the screens for the loot) back on a feed while the waves come
     warp_xz(watcher, MP.screens_at[1], MP.screens_at[2])
-    bond.face(watcher, MP.screens_face[1], MP.screens_face[2])
+    test.face(watcher, MP.screens_face[1], MP.screens_face[2])
     wait(0.5)
     HEIST.watch(watcher, MP.feed_cam)
   end

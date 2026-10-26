@@ -370,7 +370,7 @@ void portShieldUse(int p, int target)
     grab(p, chr);
 }
 
-/* shield.grab(p [, chr]): a test hook, as a use press at nothing (chr: that civilian, if it qualifies) */
+/* test.grab(p [, chr]): a test hook, as a use press at nothing (chr: that civilian, if it qualifies) */
 int portShieldTestGrab(int p, int chrnum)
 {
     int had = sGrabN;
@@ -639,7 +639,7 @@ int portShieldInfo(int chrnum, int *by, int *held, float *secs, int *hurt, int *
     return 1;
 }
 
-/* shield.face(chr): the way a chr faces, degrees (a heading to a point is atan2(x - cx, z - cz)); -1000 none */
+/* test.chr_face(chr): the way a chr faces, degrees (a heading to a point is atan2(x - cx, z - cz)); -1000 none */
 float portShieldFace(int chrnum)
 {
     ChrRecord *c = chrFindByLiteralId(chrnum);

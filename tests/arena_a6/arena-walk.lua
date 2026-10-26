@@ -1,4 +1,4 @@
--- A6: does Bond collect a spawn.item pickup by WALKING onto it (real stick input, bond.walk), and what does a warp do?
+-- A6: does Bond collect a spawn.item pickup by WALKING onto it (real stick input, test.walk), and what does a warp do?
 -- GE_MODE=arena-walk GE_STAGE=colosseum GE_SKIPINTRO=1 GE_CHEATS=invuln (no waves: this is a bare script)
 local t, ti, st, st_t = 0, 0, "wait", 0
 local function nearest_pad(x, z)
@@ -23,8 +23,8 @@ local TESTS = {
 }
 -- between tests Bond walks back to the pit centre (a straight line from the centre along an axis is clear of the pillars / low walls)
 local function home()
-  local d = bond.walk(0, 0, 0)
-  if d and d < 120 then bond.walk_stop(); return true end
+  local d = test.walk(0, 0, 0)
+  if d and d < 120 then test.walk_stop(); return true end
   return false
 end
 local cur
@@ -60,17 +60,17 @@ on("tick", function(dt)
     local x, z = spawn.item_pos(cur.h)
     local bx, _, bz = bond.pos(0)
     if x then
-      local d = bond.walk(0, x, z)
+      local d = test.walk(0, x, z)
       if math.floor(st_t * 2) ~= math.floor((st_t - dt) * 2) then
         print(string.format("ge: walktest: #%d walking, dist to item %.0f (bond %.0f,%.0f)", ti, d, bx, bz))
       end
     else
-      bond.walk_stop()
+      test.walk_stop()
       print(string.format("ge: walktest: #%d COLLECTED after %.1fs | after: %s (before: %s)", ti, st_t, ammo(cur.item), cur.before))
       st, st_t = "wait", 0; t = 0
     end
     if x and st_t > 25 then
-      bond.walk_stop()
+      test.walk_stop()
       print(string.format("ge: walktest: #%d TIMEOUT, still on the floor | %s", ti, ammo(cur.item)))
       spawn.item_remove(cur.h)
       st, st_t = "wait", 0; t = 0

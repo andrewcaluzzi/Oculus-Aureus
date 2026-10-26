@@ -4,7 +4,7 @@
 --   1 the level loads and the mode picks the casino job (not the bank) from the layout
 --   2 the INTEL board and the first-play guide describe this job (its people, its keys, its rooms, its exits)
 --   3 guards, civilians, card carriers and the 29 cameras spawn in the casino's areas; the casino's door tiers are set
---   4 a stick-input WALK (bond.walk) from the place to the house vault's door: the atrium, the Salle Renaissance, the Salle Europe,
+--   4 a stick-input WALK (test.walk) from the place to the house vault's door: the atrium, the Salle Renaissance, the Salle Europe,
 --     the north corridor, the RED stairs, the vault corridor, the antechamber (doors opened by the script: reachability, not cards);
 --     and up the security stair core to the surveillance room's console
 --   5 the scripted win path: GREEN, BLUE, RED off their carriers (knock-out + search), the tiers they open, the console, the crack,
@@ -205,13 +205,13 @@ local seen = {}
 local function walk_to(x, z, limit)
   local t = 0
   while true do
-    local d = bond.walk(0, x, z)
+    local d = test.walk(0, x, z)
     local r = bond.room(0)
     if r then seen[LEVEL.room_name[r] or "?"] = true end
-    if d and d < 55 then bond.walk_stop(); return true end
+    if d and d < 55 then test.walk_stop(); return true end
     t = t + coroutine.yield()
     bond.heal(0, 1, 1)
-    if t > (limit or 25) then bond.walk_stop(); return false end
+    if t > (limit or 25) then test.walk_stop(); return false end
   end
 end
 local function padxz(id) local x, _, z = pads.pos(id); return x, z end
@@ -283,7 +283,7 @@ local function win_path()
   check("BLUE opens the security stair core", door.try(0, O.core_door.index) == true)
   bond.warp(0, LEVEL.pads.console)
   wait(0.5)
-  cctv.test_use(0)
+  test.use(0)
   wait(0.5)
   local cam = cctv.get(cctv.list()[1])
   check("the surveillance console blinds every camera", HEIST.cam_off_until ~= nil and cam and cam.disabled)
@@ -298,7 +298,7 @@ local function win_path()
   wait(0.5)
   bond.equip(0, "doordecoder")
   wait(1)
-  bond.test_gadget(0, "doordecoder")
+  test.gadget_used(0, "doordecoder")
   wait(0.5)
   check("the cracker starts at the house vault's door", HEIST.phase == "cracking", HEIST.phase)
   local opened = wait_for(30, function() return HEIST.phase == "open" end)

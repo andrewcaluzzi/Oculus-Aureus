@@ -82,17 +82,17 @@ local function job()
       local cx, cz = spawn.where(c)
       local yaw = gadget.chr_yaw(c)
       warp_xz(cx - math.sin(math.rad(yaw)) * 85, cz - math.cos(math.rad(yaw)) * 85)
-      bond.face(0, cx, cz)
+      test.face(0, cx, cz)
       wait(0.5)
-      bond.face(0, cx, cz)
-      cctv.test_use(0)
+      test.face(0, cx, cz)
+      test.use(0)
       check("quiet: the BLUE card lifted from behind", wait_for(1.5, function() return bond.has_key(0, 0x4) end))
     end
     HEIST.camera_switch(0)
   end
   bond.warp(0, W.crack)
   wait(0.5)
-  bond.test_gadget(0, "doordecoder")
+  test.gadget_used(0, "doordecoder")
   check("the vault opens", wait_for(30, function() return HEIST.phase == "open" end), HEIST.phase)
   check("bars grabbed", grab(3) >= 3, "bars " .. HEIST.bars)
   bond.warp(0, W.outside)
@@ -108,9 +108,9 @@ local function body()
   local ready = wait_for(20, function() return HEIST.ready end)
   check("mode ready", ready)
   wait(1.5)
-  local _, runs0 = debrief.record_info(0)   -- (tests only: one machine's file)
+  local _, runs0 = test.debrief_record_info(0)   -- (tests only: one machine's file)
   job()
-  local new_best, runs1, _, best, saved = debrief.record_info(0)
+  local new_best, runs1, _, best, saved = test.debrief_record_info(0)
   check("the debrief ran at the end", R ~= nil)
   if R then
     print(string.format("HEIST   rating %s, payout %d, alarm %s, spotted %d, commendations: %s", R.rating, R.payout, tostring(R.alarm),
@@ -139,11 +139,11 @@ local function body()
       check("quiet: NEW BEST on a fresh records file", runs0 > 0 or new_best == true, tostring(new_best))
     end
     check("the records file is written and counts the run", saved and runs1 == runs0 + 1 and best > 0,
-          string.format("%s: runs %d -> %d, best %.0f", debrief.records_path(), runs0, runs1, best))
-    check("the panel is up on this machine", debrief.is_open())
+          string.format("%s: runs %d -> %d, best %.0f", test.debrief_path(), runs0, runs1, best))
+    check("the panel is up on this machine", test.debrief_open())
   end
   wait(1)
-  if not LOUD then print("HEIST SHOT debrief"); cctv.test_shot(); wait(0.5) end
+  if not LOUD then print("HEIST SHOT debrief"); test.screenshot(); wait(0.5) end
   print(string.format("HEIST DONE %d passed, %d failed", pass, fail))
   finished = true
   if ended.win then real_win(ended.win) elseif ended.fail then real_fail(ended.fail) else real_fail("debrief test: no ending") end

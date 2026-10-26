@@ -59,8 +59,8 @@ typedef struct
     s32 held;             /* fire held now (with a gadget in hand) */
     s32 heldTicks;        /* ticks it has been held */
     u16 prevBtn;
-    s32 testFire;         /* gadget.test_fire: ticks of a held fire still to give */
-    s32 testTaps;         /* gadget.test_fire(p, 0, n): press edges to give */
+    s32 testFire;         /* test.fire: ticks of a held fire still to give */
+    s32 testTaps;         /* test.fire(p, 0, n): press edges to give */
     u32 edgeTick;         /* the stage tick of the last press (the safe's dial is timed to the tick) */
     s32 testDelay;        /* ticks before the test taps start */
     /* the reel */

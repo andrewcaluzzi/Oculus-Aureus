@@ -8,9 +8,10 @@
  *                                "HEIST RECORD {json}". Call it after debrief.set.
  *   debrief.show([on])           open (default) or close the panel on this machine (it then takes the input until dismissed)
  *   debrief.log(text)            one log line of up to 2000 characters (print() stops at 511)
- *   debrief.is_open() -> bool    tests only: game logic must never read it (it is one machine's view)
- *   debrief.record_info(difficulty) -> new_best, runs, wins, best_payout, saved    tests only (one machine's file)
- *   debrief.records_path() -> path */
+ * In the test table (modding/lua.md "The test table"; game logic must never read them: one machine's view and file):
+ *   test.debrief_open() -> bool
+ *   test.debrief_record_info([difficulty]) -> new_best, runs, wins, best_payout, saved
+ *   test.debrief_path() -> path */
 #include <stdlib.h>
 #include <string.h>
 #include "lua.h"
@@ -149,9 +150,12 @@ static int lPath(lua_State *L) { lua_pushstring(L, portDebriefRecordsPath()); re
 
 void portLuaDebriefRegister(lua_State *L)
 {
-    static const luaL_Reg lib[] = { { "set", lSet }, { "record", lRecord }, { "show", lShow }, { "log", lLog }, { "is_open", lIsOpen },
-                                    { "record_info", lRecordInfo }, { "records_path", lPath }, { NULL, NULL } };
+    static const luaL_Reg lib[] = { { "set", lSet }, { "record", lRecord }, { "show", lShow }, { "log", lLog }, { NULL, NULL } };
+    static const luaL_Reg testAdd[] = { { "debrief_open", lIsOpen }, { "debrief_record_info", lRecordInfo }, { "debrief_path", lPath },
+                                        { NULL, NULL } };
+    extern void portLuaAddTo(lua_State *L, const char *lib, const luaL_Reg *reg);
 
     luaL_newlib(L, lib);
     lua_setglobal(L, "debrief");
+    portLuaAddTo(L, "test", testAdd);
 }

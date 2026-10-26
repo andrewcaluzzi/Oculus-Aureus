@@ -6,8 +6,8 @@
  *   ai.traits() -> { {chr, trait, observed, seen_by, bribed, skips, clocked}, ... }   every traited guard, in deal order
  *   ai.trait_val(chr, field) -> number       hear, susp, turn, checkin, retreat, surrender, pads, backup, full (neutral when off)
  *   ai.trait_stations({pads})                the watchclock stations (a veteran may skip them)
- *   ai.trait_observe(chr, p)                 Bond p has had a look at him (a camera feed; direct sight is scanned in C)
- *   ai.trait_bribe(chr, p, cost) -> "ok" | "refused" | "no" | "already"
+ *   ai.trait_observe(p, chr) -> bool         Bond p has had a look at him (a camera feed; direct sight is scanned in C)
+ *   ai.trait_bribe(p, chr [, cost]) -> "ok" | "refused" | "no" | "already"
  *   ai.trait_stats() -> {skips, clocked, bribes, bribe_cost, radios, observed, rookie, veteran, book, bribable, none}
  *   ai.trait_tune{ skip = 0.5, radio_cooldown = 20, radio_range = 1600, acc_rookie = -40, acc_veteran = 10 } */
 #include <string.h>
@@ -101,9 +101,10 @@ static int trStations(lua_State *L)
     return 1;
 }
 
+/* (p, chr) in Lua: the player comes first (modding/lua.md "Argument order"); the C helpers take chr first */
 static int trObserve(lua_State *L)
 {
-    lua_pushboolean(L, portTraitObserve((int) luaL_checkinteger(L, 1), (int) luaL_optinteger(L, 2, 0)));
+    lua_pushboolean(L, portTraitObserve((int) luaL_checkinteger(L, 2), (int) luaL_checkinteger(L, 1)));
     return 1;
 }
 
@@ -112,7 +113,7 @@ static int trBribe(lua_State *L)
     int r;
 
     if (!portLuaGameStageLive()) return luaL_error(L, "ai.trait_bribe needs a live stage");
-    r = portTraitBribe((int) luaL_checkinteger(L, 1), (int) luaL_checkinteger(L, 2), (int) luaL_optinteger(L, 3, 0));
+    r = portTraitBribe((int) luaL_checkinteger(L, 2), (int) luaL_checkinteger(L, 1), (int) luaL_optinteger(L, 3, 0));
     lua_pushstring(L, r == 1 ? "ok" : (r == -1 ? "refused" : (r == 2 ? "already" : "no")));
     return 1;
 }

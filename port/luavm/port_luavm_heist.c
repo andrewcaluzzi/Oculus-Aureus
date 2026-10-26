@@ -9,10 +9,11 @@
  *   alarm.start() / alarm.stop() / alarm.active()
  *   cctv.list() / cctv.get(i) / cctv.disable(i) / cctv.enable(i) / cctv.set_alarm_time(seconds [, i]) / cctv.alarm_on_spot(on)
  *   hud.countdown(seconds | nil) / hud.countdown_left()
- *   spawn.ko(chr [, p]) / ko.is / ko.count / ko.slaps / ko.wake / ko.waker / ko.search(p) / ko.test_slap(p, chr)
+ *   spawn.ko(chr [, p]) / ko.is / ko.count / ko.slaps / ko.wake / ko.waker / ko.search(p)
  *   mode.slaps_to_ko([n]) / mode.guards_wake(on)   (knock-outs, job 5)
  *   bond.equip(p, item) / bond.weapon(p) / mission.difficulty()   (job 6; loot is spawn.item "goldbar"/"money", port_luavm_arena.c)
- *   obj.get(i) / obj.test_damage(i, amount [, p])   (any setup object; levelgen P2.2)
+ *   obj.get(i)   (any setup object; levelgen P2.2)
+ *   test.heard / fire_stats / gadget_used / face / shot_noise / slap / obj_damage   (test hooks: the test table, modding/lua.md)
  * Door and camera indices are the setup-record indices the probe logs. */
 #include <string.h>
 #include <stdio.h>
@@ -158,10 +159,10 @@ static int doorSnap(lua_State *L)
     return 1;
 }
 
-/* bond.test_gadget(p, name): test hook, fires gadget_used as if Bond p used that gadget (doordecoder, bombdefuser, datathief, safecracker, lockexploder) */
+/* test.gadget_used(p, name): test hook, fires gadget_used as if Bond p used that gadget (doordecoder, bombdefuser, datathief, safecracker, lockexploder) */
 static int bondTestGadget(lua_State *L)
 {
-    needStage(L, "bond.test_gadget");
+    needStage(L, "test.gadget_used");
     lua_pushboolean(L, portHeistTestGadget((int) luaL_checkinteger(L, 1), luaL_checkstring(L, 2)));
     return 1;
 }
@@ -378,29 +379,29 @@ static int modeBodyCheck(lua_State *L)
     return 0;
 }
 
-/* bond.test_noise(p, noise): test helper, Bond p "fires" a shot of that loudness (alerts every chr within hearingscale * noise * 100 units) */
+/* test.shot_noise(p, noise): test helper, Bond p "fires" a shot of that loudness (alerts every chr within hearingscale * noise * 100 units) */
 static int bondTestNoise(lua_State *L)
 {
-    needStage(L, "bond.test_noise");
+    needStage(L, "test.shot_noise");
     lua_pushboolean(L, portHeistTestNoise((int) luaL_checkinteger(L, 1), (float) luaL_checknumber(L, 2)));
     return 1;
 }
 
-/* spawn.heard(chr [, clear]) -> bool: the chr is in the "heard Bond" state (set by a shot within its hearing); nil = no such chr */
+/* test.heard(chr [, clear]) -> bool: the chr is in the "heard Bond" state (set by a shot within its hearing); nil = no such chr */
 static int spawnHeard(lua_State *L)
 {
     int r;
 
-    needStage(L, "spawn.heard");
+    needStage(L, "test.heard");
     r = portHeistChrHeard((int) luaL_checkinteger(L, 1), lua_toboolean(L, 2));
     if (r < 0) lua_pushnil(L); else lua_pushboolean(L, r);
     return 1;
 }
 
-/* bond.face(p, x, z): test helper, turn Bond p's view onto (x, z) */
+/* test.face(p, x, z): test helper, turn Bond p's view onto (x, z) */
 static int bondFace(lua_State *L)
 {
-    needStage(L, "bond.face");
+    needStage(L, "test.face");
     lua_pushboolean(L, portHeistFaceBond((int) luaL_checkinteger(L, 1), (float) luaL_checknumber(L, 2), (float) luaL_checknumber(L, 3), 0.0f));
     return 1;
 }
@@ -454,10 +455,10 @@ static int koSearch(lua_State *L)
     return 1;
 }
 
-/* ko.test_slap(p, chr): test hook, Bond p's slappers hit chr through the stock hit path -> true if the hit landed */
+/* test.slap(p, chr): test hook, Bond p's slappers hit chr through the stock hit path -> true if the hit landed */
 static int koTestSlap(lua_State *L)
 {
-    needStage(L, "ko.test_slap");
+    needStage(L, "test.slap");
     lua_pushboolean(L, portHeistTestSlap((int) luaL_checkinteger(L, 1), (int) luaL_checkinteger(L, 2)));
     return 1;
 }
@@ -485,7 +486,7 @@ static int modeHoldFire(lua_State *L)
     return 1;
 }
 
-/* spawn.fire_stats(chr) -> fired, held: shots the chr fired and shots it held for a civilian in the line (tests) */
+/* test.fire_stats(chr) -> fired, held: shots the chr fired and shots it held for a civilian in the line (tests) */
 static int spawnFireStats(lua_State *L)
 {
     int fired, held;
@@ -566,12 +567,12 @@ static int objGet(lua_State *L)
     return 1;
 }
 
-/* obj.test_damage(i, amount [, p]) -> true | nil: the stock damage path as Bond p's hit (shoot off a padlock, shoot out an alarm box) */
+/* test.obj_damage(i, amount [, p]) -> true | nil: the stock damage path as Bond p's hit (shoot off a padlock, shoot out an alarm box) */
 static int objTestDamage(lua_State *L)
 {
     int r;
 
-    needStage(L, "obj.test_damage");
+    needStage(L, "test.obj_damage");
     r = portHeistObjDamage((int) luaL_checkinteger(L, 1), (float) luaL_checknumber(L, 2), (int) luaL_optinteger(L, 3, 0));
     if (r < 0) lua_pushnil(L); else lua_pushboolean(L, 1);
     return 1;
@@ -668,13 +669,13 @@ static int coverState(lua_State *L)
     return 1;
 }
 
-/* cover.suspicion(chr, p) -> 0..1 | nil */
+/* cover.suspicion(p, chr) -> 0..1 | nil: guard chr's meter on Bond p (modding/lua.md "Argument order": the player comes first) */
 static int coverSuspicion(lua_State *L)
 {
     float s;
 
     needStage(L, "cover.suspicion");
-    s = portHeistCoverSusp((int) luaL_checkinteger(L, 1), (int) luaL_checkinteger(L, 2));
+    s = portHeistCoverSusp((int) luaL_checkinteger(L, 2), (int) luaL_checkinteger(L, 1));
     if (s < 0.0f) lua_pushnil(L); else lua_pushnumber(L, s);
     return 1;
 }
@@ -698,17 +699,18 @@ static int coverCount(lua_State *L) { lua_pushinteger(L, portHeistCoverCount());
 static int coverSpeed(lua_State *L) { lua_pushnumber(L, portHeistCoverBondSpeed((int) luaL_checkinteger(L, 1))); return 1; }
 static int coverWhyName(lua_State *L) { lua_pushstring(L, portHeistCoverWhyName((int) luaL_checkinteger(L, 1))); return 1; }
 
-/* cover.blow(chr, p): that guard sees through Bond p now (a script); cover.test_act(p): test hook, Bond p slapped / robbed / fired */
+/* cover.blow(p, chr): guard chr sees through Bond p now (a script); cover.act(p): Bond p did something that blows the cover of every
+ * cover guard who has him in view (as a slap, a robbery or a shot seen; the gadgets and the interlock use it) */
 static int coverBlow(lua_State *L)
 {
     needStage(L, "cover.blow");
-    lua_pushboolean(L, portHeistCoverBlow((int) luaL_checkinteger(L, 1), (int) luaL_checkinteger(L, 2)));
+    lua_pushboolean(L, portHeistCoverBlow((int) luaL_checkinteger(L, 2), (int) luaL_checkinteger(L, 1)));
     return 1;
 }
 
-static int coverTestAct(lua_State *L)
+static int coverAct(lua_State *L)
 {
-    needStage(L, "cover.test_act");
+    needStage(L, "cover.act");
     lua_pushboolean(L, portHeistCoverTestAct((int) luaL_checkinteger(L, 1)));
     return 1;
 }
@@ -816,23 +818,25 @@ void portLuaHeistRegister(lua_State *L)
     static const luaL_Reg alarmLib[] = { { "start", alarmStart }, { "stop", alarmStop }, { "active", alarmActive }, { NULL, NULL } };
     static const luaL_Reg cctvLib[] = { { "list", cctvList }, { "get", cctvGet }, { "disable", cctvDisable }, { "enable", cctvEnable },
         { "set_alarm_time", cctvSetAlarmTime }, { "alarm_on_spot", cctvAlarmOnSpot }, { NULL, NULL } };
-    static const luaL_Reg spawnAdd[] = { { "key", spawnKey }, { "key_at", spawnKeyAt }, { "key_alive", spawnKeyAlive }, { "down", spawnDown }, { "heard", spawnHeard },
-        { "ko", spawnKo }, { "fire_stats", spawnFireStats }, { "go", spawnGo }, { NULL, NULL } };
-    static const luaL_Reg bondAdd[] = { { "has_key", bondHasKey }, { "keys", bondKeys }, { "test_gadget", bondTestGadget }, { "face", bondFace }, { "test_noise", bondTestNoise },
-        { "equip", bondEquip }, { "weapon", bondWeapon }, { NULL, NULL } };
+    static const luaL_Reg spawnAdd[] = { { "key", spawnKey }, { "key_at", spawnKeyAt }, { "key_alive", spawnKeyAlive }, { "down", spawnDown },
+        { "ko", spawnKo }, { "go", spawnGo }, { NULL, NULL } };
+    static const luaL_Reg bondAdd[] = { { "has_key", bondHasKey }, { "keys", bondKeys }, { "equip", bondEquip }, { "weapon", bondWeapon }, { NULL, NULL } };
+    /* test hooks (modding/lua.md "The test table"): never for a shipped mode */
+    static const luaL_Reg testAdd[] = { { "heard", spawnHeard }, { "fire_stats", spawnFireStats }, { "gadget_used", bondTestGadget },
+        { "face", bondFace }, { "shot_noise", bondTestNoise }, { "slap", koTestSlap }, { "obj_damage", objTestDamage }, { NULL, NULL } };
     static const luaL_Reg missionAdd[] = { { "difficulty", missionDifficulty }, { NULL, NULL } };
     static const luaL_Reg modeAdd[] = { { "per_player_keys", modePerPlayerKeys }, { "body_check", modeBodyCheck }, { "slaps_to_ko", modeSlapsToKo },
         { "guards_wake", modeGuardsWake }, { "hold_fire", modeHoldFire }, { NULL, NULL } };
     static const luaL_Reg koLib[] = { { "is", koIs }, { "count", koCount }, { "slaps", koSlaps }, { "wake", koWake }, { "waker", koWaker },
-        { "search", koSearch }, { "test_slap", koTestSlap }, { NULL, NULL } };
+        { "search", koSearch }, { NULL, NULL } };
     static const luaL_Reg civLib[] = { { "state", civState }, { "killed", civKilled }, { "tune", civTune }, { NULL, NULL } };
     static const luaL_Reg bodiesLib[] = { { "found", bodiesFound }, { NULL, NULL } };
     static const luaL_Reg hudAdd[] = { { "countdown", hudCountdown }, { "countdown_left", hudCountdownLeft }, { NULL, NULL } };
-    static const luaL_Reg objLib[] = { { "get", objGet }, { "test_damage", objTestDamage }, { NULL, NULL } };
+    static const luaL_Reg objLib[] = { { "get", objGet }, { NULL, NULL } };
     static const luaL_Reg coverLib[] = { { "on", coverOn }, { "alert", coverAlert }, { "guard", coverGuard }, { "room", coverRoom },
         { "carrying", coverCarrying }, { "tune", coverTune }, { "state", coverState }, { "suspicion", coverSuspicion }, { "meter", coverMeter },
         { "seen", coverSeen }, { "count", coverCount }, { "speed", coverSpeed }, { "why_name", coverWhyName }, { "blow", coverBlow },
-        { "test_act", coverTestAct }, { "radio", coverRadio }, { NULL, NULL } };
+        { "act", coverAct }, { "radio", coverRadio }, { NULL, NULL } };
     static const luaL_Reg doorAdd[] = { { "guard_access", doorGuardAccess }, { "guard_stats", doorGuardStats }, { NULL, NULL } };
     static const luaL_Reg spawnAdd2[] = { { "role", spawnRole }, { NULL, NULL } };
     static const luaL_Reg modeAdd2[] = { { "guard_doors", modeGuardDoors }, { NULL, NULL } };
@@ -864,4 +868,5 @@ void portLuaHeistRegister(lua_State *L)
     addTo(L, "mode", modeAdd);
     addTo(L, "hud", hudAdd);
     addTo(L, "mission", missionAdd);
+    addTo(L, "test", testAdd);
 }

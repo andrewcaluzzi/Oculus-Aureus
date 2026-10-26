@@ -54,7 +54,7 @@ a live log offline is the independent check; it is how the blood-animation clock
 
 | # | Cause | Where | Fix |
 | --- | --- | --- | --- |
-| 1 | `GE_SKIPINTRO` tapped A on a **poll** count; polls per tick follow the wall clock, so first-person play, `stage_start` and every spawn began on a different tick each run | `port/src/input_pc.c` ~7917 | counts sim ticks (`g_PortSimTickNo`, ~8822) and stops once Bond is in the player's hands. `cctv.test_press` had the same bug (6 polls -> 4 sim ticks) |
+| 1 | `GE_SKIPINTRO` tapped A on a **poll** count; polls per tick follow the wall clock, so first-person play, `stage_start` and every spawn began on a different tick each run | `port/src/input_pc.c` ~7917 | counts sim ticks (`g_PortSimTickNo`, ~8822) and stops once Bond is in the player's hands. `test.press` had the same bug (6 polls -> 4 sim ticks) |
 | 2 | A solo mode's Lua `math.random` was **seeded from the clock** | `port/src/port_lua.c` `portLuaGameRandomSeed` ~318 | with `GE_SEED` set a solo run takes that seed (co-op uses the session seed). Without it solo play still gets a fresh seed |
 | 3 | The CCTV feed's posed-chr draw took numbers from the **sim RNG** (a gun's muzzle flash, `model.c`) on the watching machine only | `port/src/port_cctvview.c` | both generators and their draw counts are put back |
 | 4 | That draw **allocated from the frame's linear pool**, shifting every later allocation of the sim's own draw on one machine (Bond 1's autoaim parted in its last bits at tick 3469) | `src/game/dyn.c` | the feed draws from its own corner at the top of the pool and puts the pointer back |

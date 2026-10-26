@@ -25,10 +25,10 @@ on("tick", function(dt)
   elseif h and t > 4 then
     local x, z = spawn.item_pos(h)
     if x then
-      bond.walk(0, x, z)
-      if t > 30 then print("ge: ammobox: TIMEOUT"); bond.walk_stop(); h = nil; t = -1e9 end
+      test.walk(0, x, z)
+      if t > 30 then print("ge: ammobox: TIMEOUT"); test.walk_stop(); h = nil; t = -1e9 end
     else
-      bond.walk_stop()
+      test.walk_stop()
       print("ge: ammobox: COLLECTED at", t, "| after:", reserves(), "| before:", before)
       h = nil; t = -1e9
     end

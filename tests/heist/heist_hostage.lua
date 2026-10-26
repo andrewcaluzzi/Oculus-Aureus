@@ -81,7 +81,7 @@ local function civ_in(area)
   end
 end
 -- the civilian's facing, as a unit vector
-local function fwd(c) local f = math.rad(shield.face(c)); return math.sin(f), math.cos(f) end
+local function fwd(c) local f = math.rad(test.chr_face(c)); return math.sin(f), math.cos(f) end
 -- Bond 0 at `dist` from civilian c on its side `side` (1 front, -1 behind, 0 beside), facing it
 local function stand(c, side, dist)
   local x, z = spawn.where(c)
@@ -90,7 +90,7 @@ local function stand(c, side, dist)
   local ox, oz = fx * side, fz * side
   if side == 0 then ox, oz = fz, -fx end
   warp_xz(0, x + ox * dist, y, z + oz * dist)
-  bond.face(0, x, z)
+  test.face(0, x, z)
 end
 local function surrender(c)
   bond.equip(0, "pp7sil")
@@ -102,7 +102,7 @@ local function take(c)
   if not surrender(c) then return false end
   stand(c, -1, 70)
   wait(0.1)
-  return shield.grab(0)
+  return test.grab(0)
 end
 
 -- the hostage of Bond 0 is in the line from guard g to Bond 0 (the same test as the layer's, from the positions)
@@ -127,24 +127,24 @@ local function grab_path()
   bond.equip(0, "pp7sil")
   stand(c, -1, 70)
   wait(0.25)
-  check("an idle civilian cannot be grabbed", civilian.state(c) == "idle" and not shield.grab(0) and shield.held(0) == nil, tostring(civilian.state(c)))
+  check("an idle civilian cannot be grabbed", civilian.state(c) == "idle" and not test.grab(0) and shield.held(0) == nil, tostring(civilian.state(c)))
   -- 2. surrendered, behind it, slappers in hand: no ("nogun")
   check("aimed at, it surrenders", surrender(c), tostring(civilian.state(c)))
   bond.equip(0, "fist"); wait(1.2)
   stand(c, -1, 70)
   wait(0.25)
-  local ok = shield.grab(0)
+  local ok = test.grab(0)
   check("no gun drawn (the slappers): no grab", not ok and shield.last(0) == "nogun", shield.last(0))
   -- 3. in front of it with the gun: no ("front")
   bond.equip(0, "pp7sil"); wait(1.2)
   stand(c, 1, 70)
   wait(0.25)
-  ok = shield.grab(0)
+  ok = test.grab(0)
   check("in front of it: no grab (get beside or behind)", not ok and shield.last(0) == "front", shield.last(0))
   -- 4. beside it with the PP7: yes
   stand(c, 0, 70)
   wait(0.1)
-  ok = shield.grab(0)
+  ok = test.grab(0)
   check("beside it, the PP7 drawn, a use press: a hostage", ok and shield.held(0) == c and shield.holder(c) == 0, tostring(shield.held(0)))
   wait(1)
   local pf = HEIST.pflash[0]
@@ -153,13 +153,13 @@ local function grab_path()
   local hx, hz = spawn.where(c)
   check("pinned in front of him (about 45 units)", d2(bx, bz, hx, hz) > 15 and d2(bx, bz, hx, hz) < 70, string.format("%.0f units", d2(bx, bz, hx, hz)))
   -- he turns: it stays in front
-  bond.face(0, bx + 500, bz)
+  test.face(0, bx + 500, bz)
   wait(0.5)
   hx, hz = spawn.where(c)
   check("he turns east: it is east of him", hx - bx > 25 and math.abs(hz - bz) < 25, string.format("dx %.0f dz %.0f", hx - bx, hz - bz))
   -- 5. USE again lets go; it cowers
-  ok = shield.grab(0)   -- (a use press at nothing: while holding, the release)
-  bond.face(0, bx - 500, bz)   -- (his gun off it: pointed at, a cowering civilian puts its hands up again)
+  ok = test.grab(0)   -- (a use press at nothing: while holding, the release)
+  test.face(0, bx - 500, bz)   -- (his gun off it: pointed at, a cowering civilian puts its hands up again)
   wait(0.5)
   local inf = shield.info(c) or {}
   check("USE again: let go, unharmed", shield.held(0) == nil and inf.why == "use" and inf.clean, string.format("%s %s", tostring(inf.why), tostring(inf.clean)))
@@ -167,7 +167,7 @@ local function grab_path()
   -- 6. a two-handed gun lets go
   stand(c, -1, 70)
   wait(0.1)
-  ok = shield.grab(0)
+  ok = test.grab(0)
   check("re-taken (cowering is compliant)", ok and shield.held(0) == c)
   bond.give(0, "kf7")
   bond.equip(0, "kf7"); wait(1.2)
@@ -178,7 +178,7 @@ local function grab_path()
   bond.equip(0, "pp7sil"); wait(1.2)
   stand(c, -1, 70)
   wait(0.1)
-  ok = shield.grab(0)
+  ok = test.grab(0)
   local k0 = civilian.killed()
   spawn.kill(c)
   wait(0.75)
@@ -214,18 +214,18 @@ local function fire_path()
   if not g then return end
   shield.tune{ flank = 0 }
   local gx, gz = spawn.where(g)
-  local f0, h0 = spawn.fire_stats(g)
+  local f0, h0 = test.fire_stats(g)
   local through, held_ticks, fired_last = 0, 0, f0
   local t = 0
   while t < 10 do
-    bond.face(0, gx, gz)
+    test.face(0, gx, gz)
     wait(0.25); t = t + 0.25
-    local f = spawn.fire_stats(g)
+    local f = test.fire_stats(g)
     if f > fired_last and in_line(g, c) then through = through + (f - fired_last) end
     if in_line(g, c) then held_ticks = held_ticks + 1 end
     fired_last = f
   end
-  local f1, h1 = spawn.fire_stats(g)
+  local f1, h1 = test.fire_stats(g)
   check("facing him, the hostage in his line: 0 shots fired through it", through == 0 and held_ticks >= 30,
         string.format("%d shots in line, %d of 40 samples in line, fired %d held %d", through, held_ticks, f1 - f0, h1 - h0))
   check("... he holds his shots (the hold counted)", h1 - h0 > 0 and shield.counts().held_shots > 0, string.format("held %d", h1 - h0))
@@ -234,44 +234,44 @@ local function fire_path()
   check("... the hostage is unhurt", not (shield.info(c) or {}).hurt and spawn.alive(c))
   if mode.env_flag("GE_HG_SHOT") then   -- the screenshot (section 31): the shield, the AR bracket, the guard holding his fire
     local a = math.atan(gx - bx, gz - bz) + math.rad(14)   -- (a little off him: the hostage still in his line, both in view)
-    bond.face(0, bx + math.sin(a) * 500, bz + math.cos(a) * 500)
+    test.face(0, bx + math.sin(a) * 500, bz + math.cos(a) * 500)
     ar.say(g, "Hold your fire! He's got a hostage!", 3, "hey")
     wait(0.5)
-    cctv.test_shot()
+    test.screenshot()
     print("HEIST SHOT hostage")
     wait(0.25)
   end
   -- side-on: the hostage out of his line, he fires
   local ux, uz = (gx - bx) / d2(gx, gz, bx, bz), (gz - bz) / d2(gx, gz, bx, bz)
   local sx, sz = bx + uz * 500, bz - ux * 500
-  local f2 = spawn.fire_stats(g)
+  local f2 = test.fire_stats(g)
   local c0 = shield.counts().clear_shots
   t = 0
   local clear_samples = 0
   while t < 8 do
-    bond.face(0, sx, sz)
+    test.face(0, sx, sz)
     wait(0.25); t = t + 0.25
     if not in_line(g, c) then clear_samples = clear_samples + 1 end
   end
-  local f3 = spawn.fire_stats(g)
+  local f3 = test.fire_stats(g)
   check("side-on (a clear line): he fires", f3 > f2 and shield.counts().clear_shots > c0 and clear_samples >= 24,
         string.format("fired %d, clear shots %d, %d of 32 samples clear", f3 - f2, shield.counts().clear_shots - c0, clear_samples))
   -- a combat guard held in line goes round for a clear shot
   combat.guard(g, 1)
   shield.tune{ flank = 1, flank_after = 1 }
   local fl0 = shield.counts().flanks
-  local went = wait_for(10, function() bond.face(0, gx, gz); return shield.counts().flanks > fl0 end)
+  local went = wait_for(10, function() test.face(0, gx, gz); return shield.counts().flanks > fl0 end)
   check("a combat guard with the hostage in his line goes round for a clear shot", went, string.format("flanks %d, %s", shield.counts().flanks,
         combat.info(g) and combat.info(g).name or "?"))
   if went then
     local x0, z0 = spawn.where(g)
-    local f4 = spawn.fire_stats(g)
-    local moved = wait_for(16, function() bond.face(0, gx, gz); return not in_line(g, c) and spawn.fire_stats(g) > f4 end)
+    local f4 = test.fire_stats(g)
+    local moved = wait_for(16, function() test.face(0, gx, gz); return not in_line(g, c) and test.fire_stats(g) > f4 end)
     local x1, z1 = spawn.where(g)
-    check("... and fires from there, the hostage out of his line", moved, string.format("fired %d, moved %.0f, %s", spawn.fire_stats(g) - f4,
+    check("... and fires from there, the hostage out of his line", moved, string.format("fired %d, moved %.0f, %s", test.fire_stats(g) - f4,
           d2(x0, z0, x1, z1), combat.info(g) and combat.info(g).name or "?"))
   end
-  shield.grab(0)
+  test.grab(0)
 end
 
 local function standoff_path()
@@ -310,7 +310,7 @@ local function standoff_path()
   local ok = take(civ)
   check("taken as a hostage", ok)
   if not ok then return end
-  local function face_cop() local x, z = spawn.where(cop); if x then bond.face(0, x, z) end end
+  local function face_cop() local x, z = spawn.where(cop); if x then test.face(0, x, z) end end
   local stood, st = wait_for(6, function() face_cop(); return (shield.info(civ) or {}).standoff end)
   check("in the officer's line: the stand-off", stood and HEIST.standoff == 30 and HEIST_HOSTAGES.standoffs == 1,
         string.format("standoff %s, clock +%s, after %.1f s", tostring(stood), tostring(HEIST.standoff), st))
@@ -324,7 +324,7 @@ local function standoff_path()
   wait(6)
   check("once per hostage: no second stand-off", HEIST.standoff == 30 and HEIST_HOSTAGES.standoffs == 1, tostring(HEIST.standoff))
   -- let go, unharmed; out with the gold: Negotiator
-  shield.grab(0)
+  test.grab(0)
   wait(0.5)
   local inf = shield.info(civ) or {}
   check("let go unharmed", shield.held(0) == nil and inf.clean, tostring(inf.why))
@@ -343,7 +343,7 @@ local function debrief_path()
   if not c then check("a civilian in the hall", false); return end
   check("a hostage (quiet: nobody sees)", take(c))
   wait(12)
-  shield.grab(0)
+  test.grab(0)
   wait(0.5)
   local inf = shield.info(c) or {}
   check("let go after about 12 s", shield.held(0) == nil and inf.secs > 11 and inf.secs < 14, string.format("%.1f s", inf.secs or -1))
@@ -374,7 +374,7 @@ local function off_path()
   check("aimed at, it surrenders", surrender(c))
   stand(c, -1, 70)
   wait(0.1)
-  check("behind it, PP7 drawn: no hostage (the old game)", not shield.grab(0) and shield.held(0) == nil and #shield.list() == 0)
+  check("behind it, PP7 drawn: no hostage (the old game)", not test.grab(0) and shield.held(0) == nil and #shield.list() == 0)
   check("no HOSTAGES card on the board, no report", HEIST.hostage_report == nil and HEIST.hostage_note == nil)
 end
 

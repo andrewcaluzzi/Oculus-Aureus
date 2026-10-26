@@ -1,5 +1,5 @@
 -- Heist CCTV test (P1 T1 + T2): the camera feeds and the control-room intel, on the real tools/mode_heist.lua (the Janus bank since P2.4).
--- Run: tests/heist/run_cctv.sh (headless; GE_FULLHEIGHT=0 GE_EDGEINSET=1 under Xvfb). Screenshots via cctv.test_shot() land in
+-- Run: tests/heist/run_cctv.sh (headless; GE_FULLHEIGHT=0 GE_EDGEINSET=1 under Xvfb). Screenshots via test.screenshot() land in
 -- build_pc/heist_cctv_shots/ (the "gfx: wrote shot_N.bmp" line follows each "HEIST SHOT <name>").
 -- Covers: a B press at the hall's screens does NOT open the feeds (B is also reload), the use action does (cctv_view event), the mode's own
 -- HUD lines are hidden on the feed and back after it, the feed's room walk starts at the camera, Bond is held
@@ -54,7 +54,7 @@ end
 
 local function shot(name)
   print("HEIST SHOT " .. name)
-  cctv.test_shot()
+  test.screenshot()
   wait(0.5)
 end
 
@@ -71,51 +71,51 @@ local function body()
 
   -- 1. a real use press (B) at the hall's screen wall opens the feeds
   warp_xz(HEIST.M.P.screens_at[1], HEIST.M.P.screens_at[2])
-  bond.face(0, HEIST.M.P.screens_face[1], HEIST.M.P.screens_face[2])
+  test.face(0, HEIST.M.P.screens_face[1], HEIST.M.P.screens_face[2])
   wait(1)
   check("Bond is in the control room (the banking hall)", bond.room(0) == HEIST.M.intel_room, "room=" .. tostring(bond.room(0)))
   check("at a screen", HEIST.near_monitor(0))
-  local lines = hud.panel_lines()
+  local lines = test.hud_panel()
   check("intel box in the control room", #lines >= 7 and lines[1]:find("CONTROL ROOM") ~= nil, lines[1] or "none")
-  check("the mode's HUD lines show before the feeds", hud.line(1, 0):find("JANUS BANK") ~= nil, hud.line(1, 0))
-  cctv.test_press("b")   -- B is use AND reload: a reload next to the screens must not open them
+  check("the mode's HUD lines show before the feeds", test.hud_line(1, 0):find("JANUS BANK") ~= nil, test.hud_line(1, 0))
+  test.press("b")   -- B is use AND reload: a reload next to the screens must not open them
   wait(1)
   check("B at the screens does not open the feeds (B is also reload)", cctv.viewing(0) == nil, "cam=" .. tostring(cctv.viewing(0)))
-  cctv.test_use()        -- the use action (the Port use bind)
+  test.use()        -- the use action (the Port use bind)
   wait(1)
   local v = cctv.viewing(0)
   check("the use action at the screens opens the feeds", v ~= nil, "cam=" .. tostring(v))
   check("cctv_view event (p, cam, why 0)", last_view().p == 0 and last_view().cam == v and last_view().why == 0)
   if not v then v = cams[1]; cctv.view(0, v); wait(0.5) end
-  check("the mode's HUD lines are hidden on the feed", hud.line(1, 0) == "" and hud.line(2, 0) == "" and hud.line(3, 0) == "",
-        string.format("'%s' '%s' '%s'", hud.line(1, 0), hud.line(2, 0), hud.line(3, 0)))
+  check("the mode's HUD lines are hidden on the feed", test.hud_line(1, 0) == "" and test.hud_line(2, 0) == "" and test.hud_line(3, 0) == "",
+        string.format("'%s' '%s' '%s'", test.hud_line(1, 0), test.hud_line(2, 0), test.hud_line(3, 0)))
 
   -- 2. the feed's room visibility is the camera's, not Bond's
-  local ri = cctv.render_info()
+  local ri = test.cctv_info()
   local cg = cctv.get(v)
   check("the feed's room walk starts in the camera's room", ri ~= nil and ri.cam == v and ri.start == cg.room,
         string.format("cam %s start %s camroom %s", tostring(ri and ri.cam), tostring(ri and ri.start), tostring(cg.room)))
   check("... and draws that room", ri ~= nil and has(ri.rooms, cg.room), "rooms=" .. (ri and table.concat(ri.rooms, ",") or ""))
-  check("intel box on the feed", (hud.panel_lines()[1] or ""):find("CAMERA FEEDS") ~= nil, hud.panel_lines()[1] or "none")
+  check("intel box on the feed", (test.hud_panel()[1] or ""):find("CAMERA FEEDS") ~= nil, test.hud_panel()[1] or "none")
 
   -- 3. Bond stands at the console: the stick does not move him
   local x0, _, z0 = bond.pos(0)
   local bk = back_from_screens(x0, z0, 600)               -- straight back from the screen wall (sideways would be a turn on the feed)
-  for _ = 1, 8 do bond.walk(0, bk[1], bk[2]); wait(0.25) end
-  bond.walk_stop()
+  for _ = 1, 8 do test.walk(0, bk[1], bk[2]); wait(0.25) end
+  test.walk_stop()
   local x1, _, z1 = bond.pos(0)
   check("held while watching (the stick is ignored)", d2(x0, z0, x1, z1) < 5, string.format("moved %.1f", d2(x0, z0, x1, z1)))
   check("still watching after the stick", cctv.viewing(0) == v)
 
   -- 4. cycling: A = next, C-left = previous
-  cctv.test_press("a")
+  test.press("a")
   wait(0.75)
   local want = next_cam(cams, v, 1)
   check("A: the next camera", cctv.viewing(0) == want and last_view().why == 1, "now " .. tostring(cctv.viewing(0)) .. " want " .. tostring(want))
-  cctv.test_press("cl")
+  test.press("cl")
   wait(0.75)
   check("C-left: back to the previous camera", cctv.viewing(0) == v, "now " .. tostring(cctv.viewing(0)))
-  cctv.test_press("cr")
+  test.press("cr")
   wait(0.75)
   check("C-right: the next camera", cctv.viewing(0) == want, "now " .. tostring(cctv.viewing(0)))
 
@@ -124,7 +124,7 @@ local function body()
   for _, cam in ipairs({ CAM_HALL, CAM_SEC, CAM_VAULT }) do
     cctv.view(0, cam)
     wait(1.5)
-    local r = cctv.render_info()
+    local r = test.cctv_info()
     local g = cctv.get(cam)
     check("feed " .. cam .. " (" .. cctv.name(cam) .. ") walks from room " .. tostring(g.room), r ~= nil and r.cam == cam and r.start == g.room and #r.rooms > 0,
           r and string.format("start %d, %d rooms (%d geometry only), %d chrs posed: %s", r.start, #r.rooms, r.geom_only, r.chrs, table.concat(r.rooms, ",")) or "nil")
@@ -137,12 +137,12 @@ local function body()
   cctv.disable(CAM_CORR)
   cctv.view(0, CAM_CORR)
   wait(1)
-  local r6 = cctv.render_info()
+  local r6 = test.cctv_info()
   check("an offline camera's feed is static", r6 ~= nil and r6.offline == true and cctv.viewing(0) == CAM_CORR, r6 and tostring(r6.offline) or "nil")
   shot("feed_corridor_offline")
   cctv.enable(CAM_CORR)
   wait(0.5)
-  check("back on: no static", cctv.render_info().offline == false)
+  check("back on: no static", test.cctv_info().offline == false)
 
   -- 7. damage throws him out
   cctv.view(0, CAM_HALL)
@@ -155,21 +155,21 @@ local function body()
 
   -- 8. B leaves; the B still held does not reopen the feeds
   wait(1)
-  cctv.test_use()
+  test.use()
   wait(1)
   check("the use action at the screens again: watching", cctv.viewing(0) ~= nil)
-  cctv.test_press("b")
+  test.press("b")
   wait(1.5)
   check("B leaves the feed (why 2)", cctv.viewing(0) == nil and last_view().why == 2, "why " .. tostring(last_view().why))
-  check("the mode's HUD lines are back after leaving", hud.line(1, 0):find("JANUS BANK") ~= nil, hud.line(1, 0))
-  cctv.test_press("b")
+  check("the mode's HUD lines are back after leaving", test.hud_line(1, 0):find("JANUS BANK") ~= nil, test.hud_line(1, 0))
+  test.press("b")
   wait(1)
   check("B at the screens still does not reopen them", cctv.viewing(0) == nil, "cam=" .. tostring(cctv.viewing(0)))
   check("Bond moves again after leaving", (function()
     local ax, _, az = bond.pos(0)
     local bk = back_from_screens(ax, az, 300)
-    for _ = 1, 6 do bond.walk(0, bk[1], bk[2]); wait(0.25) end
-    bond.walk_stop()
+    for _ = 1, 6 do test.walk(0, bk[1], bk[2]); wait(0.25) end
+    test.walk_stop()
     local bx, _, bz = bond.pos(0)
     return d2(ax, az, bx, bz) > 20
   end)())
@@ -183,10 +183,10 @@ local function body()
   -- 10. the intel box: not outside the control room, back on a feed anywhere
   bond.warp(0, LEVEL.pads.dock_mid)   -- the loading dock
   wait(1)
-  check("no intel box outside the control room", #hud.panel_lines() == 0, "lines=" .. #hud.panel_lines())
+  check("no intel box outside the control room", #test.hud_panel() == 0, "lines=" .. #test.hud_panel())
   cctv.view(0, CAM_HALL)
   wait(1)
-  local il = hud.panel_lines()
+  local il = test.hud_panel()
   local joined = table.concat(il, " | ")
   check("intel on a feed from anywhere", #il >= 7, joined)
   check("intel: vault, cards, guards", joined:find("VAULT:") and joined:find("GREEN") and joined:find("BLUE") and joined:find("RED")
@@ -234,7 +234,7 @@ local function body()
   check("a camera that is off sees nothing", none)
   cctv.enable(CAM_HALL)
   wait(1)
-  local up = (hud.panel_lines()[1] or "")
+  local up = (test.hud_panel()[1] or "")
   check("the box is gone after leaving the feed (the dock)", up == "", up)
 
   print(string.format("HEIST DONE %d passed, %d failed", pass, fail))

@@ -8,7 +8,7 @@
 --   3 openings: from the hall the galleries and the upper windows are drawn through the hall's walls, and from a gallery the hall;
 --     nobody walks through one (a gallery's rail stops Bond)
 --   4 blocks: the teller counter stops Bond, its flap lets him through; a records shelf stops him
---   5 the full route on stick input (bond.walk), every room in order: street, the hall, the GREEN offices, the staff corridor, the grand
+--   5 the full route on stick input (test.walk), every room in order: street, the hall, the GREEN offices, the staff corridor, the grand
 --     stair up to the mezzanine, the first floor, the east stair to the second floor, the library and the loggia, up the stair core to
 --     the executive floor and the roof, down the core to the ground floor, the BLUE security wing, the RED stairs to the vault level, the
 --     vault, the deposit hall, up the service ramp to the dock, the alley, the street; then the plant level: down from the vault corridor,
@@ -35,13 +35,13 @@ local function wait(sec)
   while t < sec do
     t = t + coroutine.yield()
     bond.heal(0, 1, 1)
-    if face then bond.face(0, face[1], face[2]) end
+    if face then test.face(0, face[1], face[2]) end
   end
 end
 
 local function shot(name)
   print("LEVELGEN SHOT " .. name)
-  cctv.test_shot()
+  test.screenshot()
   wait(0.2)
 end
 
@@ -51,7 +51,7 @@ local function pad(name) local x, _, z = pads.pos(LEVEL.pads[name]); return { x,
 local function padxz(id) local x, _, z = pads.pos(id); return { x, z } end
 local function drawn()
   local s = {}
-  for _, r in ipairs(bond.rooms_drawn(0)) do s[r] = true end
+  for _, r in ipairs(test.rooms_drawn(0)) do s[r] = true end
   return s
 end
 local function count(t) local n = 0; for _ in pairs(t) do n = n + 1 end; return n end
@@ -98,12 +98,12 @@ local function walk_to(p, limit)
   face = nil
   local t = 0
   while true do
-    local d = bond.walk(0, p[1], p[2])
+    local d = test.walk(0, p[1], p[2])
     track()
-    if d and d < 55 then bond.walk_stop(); return true end     -- (40 left Bond circling a pad he came at sharply, short of it)
+    if d and d < 55 then test.walk_stop(); return true end     -- (40 left Bond circling a pad he came at sharply, short of it)
     t = t + coroutine.yield()
     bond.heal(0, 1, 1)
-    if t > (limit or 25) then bond.walk_stop(); return false end
+    if t > (limit or 25) then test.walk_stop(); return false end
   end
 end
 
@@ -129,7 +129,7 @@ local function step(s)
     local D, near, far = doorway(s[2], s[3], s[4])
     if not D then stuck = "no doorway " .. s[2] .. "-" .. s[3]; return false end
     if not walk_to(padxz(near)) then stuck = "before " .. D.name; return false end
-    if D.padlock then obj.test_damage(D.padlock, 1000, 0); wait(0.3) end
+    if D.padlock then test.obj_damage(D.padlock, 1000, 0); wait(0.3) end
     open_door(D)
     if not walk_to(padxz(far)) then stuck = "through " .. D.name; return false end
   end

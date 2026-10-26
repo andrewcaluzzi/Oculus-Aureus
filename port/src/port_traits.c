@@ -290,7 +290,7 @@ int portTraitStations(const int *pads, int n)
 
 /* ---- bribes ---- */
 
-/* ai.trait_bribe(chr, p, cost): 1 paid off, 0 not bribable, -1 refused (he is suspicious, or the alarm is up), 2 already paid */
+/* ai.trait_bribe(p, chr, cost) (Lua order; this helper takes chr first): 1 paid off, 0 not bribable, -1 refused (he is suspicious, or the alarm is up), 2 already paid */
 int portTraitBribe(int chrnum, int p, int cost)
 {
     Tr *e = tFind(chrnum);

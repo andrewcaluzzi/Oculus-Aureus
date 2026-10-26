@@ -1,7 +1,7 @@
 -- The generated level's headless test (designs/bank-heist.md P2.1, modding/levelgen.md). Run: tests/levelgen/run.sh.
 -- On the layout compiled onto the slot (lshape.json: rooms A, B, C in an L; testbox.json: A and B; the checks that need C are skipped):
 --   1 culling: Bond in A facing away from the doorway draws only A; facing the doorway draws A and B, and not C (two walls away)
---   2 Bond WALKS (real stick input, bond.walk) from A through the doorway into B: bond.room goes A -> B, never jumps
+--   2 Bond WALKS (real stick input, test.walk) from A through the doorway into B: bond.room goes A -> B, never jumps
 --   3 from B: A is drawn looking back through the doorway; C through the B-C doorway
 --   4 Bond walks back to A; an unarmed guard spawned in the far room routes to him through the doorways (spawn.room: C -> B -> A)
 -- Prints "LEVELGEN PASS|FAIL <name> ..." per check, "LEVELGEN SHOT <name>" before each screenshot, and "LEVELGEN DONE <n> passed, <m> failed".
@@ -20,7 +20,7 @@ local function wait(sec)
   while t < sec do
     t = t + coroutine.yield()
     bond.heal(0, 1, 1)
-    if face then bond.face(0, face[1], face[2]) end
+    if face then test.face(0, face[1], face[2]) end
   end
 end
 
@@ -30,13 +30,13 @@ local D0, D1 = LEVEL.doors[1], LEVEL.doors[2]
 
 local function drawn()
   local s, l = {}, {}
-  for _, r in ipairs(bond.rooms_drawn(0)) do s[r] = true; l[#l + 1] = tostring(r) end
+  for _, r in ipairs(test.rooms_drawn(0)) do s[r] = true; l[#l + 1] = tostring(r) end
   return s, table.concat(l, ",")
 end
 
 local function shot(name)
   print("LEVELGEN SHOT " .. name)
-  cctv.test_shot()
+  test.screenshot()
   wait(0.2)
 end
 
@@ -52,14 +52,14 @@ local function walk(points, limit)
   for _, p in ipairs(points) do
     local t = 0
     while true do
-      local d = bond.walk(0, p[1], p[2])
+      local d = test.walk(0, p[1], p[2])
       track_bond()
       if d and d < 45 then break end
       t = t + coroutine.yield()
-      if t > (limit or 15) then bond.walk_stop(); return false, p end
+      if t > (limit or 15) then test.walk_stop(); return false, p end
     end
   end
-  bond.walk_stop()
+  test.walk_stop()
   return true
 end
 

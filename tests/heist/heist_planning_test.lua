@@ -3,7 +3,7 @@
 --   GE_PLAN_OFF=1      planning off (an automated run without GE_PLANNING): today's start exactly: no plan, the default kit
 --   (GE_PLANNING=1)    the plan: the clock waits and nobody moves while it is up; a buying spree never goes over the budget, selling never
 --                      below nothing, the sally port is refused (not on today's job); then a scripted plan through the board's own
---                      input (plan.test_input: the sim's events) - LOADOUT: lockpicks, two coins; ENTRY: the roof (the piton gun comes
+--                      input (test.plan_input: the sim's events) - LOADOUT: lockpicks, two coins; ENTRY: the roof (the piton gun comes
 --                      with it); START - and the heist starts with exactly that kit on the roof. Then a quick job (the crack, three
 --                      bars, the van): the payout is the loot + the quiet bonus - the planning cost, the debrief carries it.
 --                      GE_PLAN_SHOTS=1: screenshots of LOADOUT and ENTRY ("HEIST SHOT plan_*")
@@ -13,7 +13,7 @@
 --   GE_PLAN_HOLD=1     the hold (section 27, the planfix): with the pad stick (GE_DRIVE), the mouse (GE_FAKEMOUSE) and the Move keys
 --                      (GE_FAKEDIGMOVE) all fed, Bond neither moves nor turns while the board is up; a mouse click on CONFIRM goes, and
 --                      then the same feeds do move and turn him (the feeds are real)
--- The plan scenario also drives the board's MOUSE (plan.test_mouse: the real hit test, the click a session command into the sim) and
+-- The plan scenario also drives the board's MOUSE (test.plan_mouse: the real hit test, the click a session command into the sim) and
 -- checks the tabs: LOADOUT / ENTRY / CREW only while planning, the job's five after the confirm.
 local OFF, KEYS, DET, SHOTS = mode.env_flag("GE_PLAN_OFF"), mode.env_flag("GE_PLAN_KEYS"), mode.env_flag("GE_PLAN_DET"), mode.env_flag("GE_PLAN_SHOTS")
 local HOLD = mode.env_flag("GE_PLAN_HOLD")
@@ -50,11 +50,11 @@ local function wait_for(sec, fn)
   return fn(), t
 end
 local function d2(ax, az, bx, bz) return math.sqrt((ax - bx) ^ 2 + (az - bz) ^ 2) end
-local function has_item(p, name) return plan.has(p, name) end   -- (bond.equip would give it)
+local function has_item(p, name) return test.has_item(p, name) end   -- (bond.equip would give it)
 local function kit(p)   -- what Bond p carries of the shop's items (for the messages)
   local t = {}
   for _, n in ipairs({ "pp7", "pp7sil", "mp5ksil", "pitongun", "gaskeyring", "creditcard", "datathief", "bombdefuser", "camera", "doordecoder" }) do
-    if plan.has(p, n) then t[#t + 1] = n end
+    if test.has_item(p, n) then t[#t + 1] = n end
   end
   return table.concat(t, ",")
 end
@@ -62,7 +62,7 @@ end
 local P = PLANNING
 local EV = P and P.EV
 local function press(mask, n)   -- n presses (queued in order, as n Bond ticks of presses), then one script tick
-  for _ = 1, n or 1 do plan.test_input(0, mask) end
+  for _ = 1, n or 1 do test.plan_input(0, mask) end
   ticks(1)
 end
 local function grab(maxn)
@@ -81,11 +81,11 @@ end
 local function scripted_plan()
   press(EV.DOWN, 5); press(EV.SELECT)           -- row 6: LOCKPICKS
   press(EV.DOWN); press(EV.SELECT, 2)           -- row 7: THROWING COINS x2
-  plan.test_mouse(400, 78 + 7 * 25 + 14)        -- (the cursor hovers row 8, TAPE LOOPS: no click)
-  if SHOTS then print("HEIST SHOT plan_loadout"); cctv.test_shot(); ticks(2) end
+  test.plan_mouse(400, 78 + 7 * 25 + 14)        -- (the cursor hovers row 8, TAPE LOOPS: no click)
+  if SHOTS then print("HEIST SHOT plan_loadout"); test.screenshot(); ticks(2) end
   press(EV.RIGHT)                               -- ENTRY
   press(EV.DOWN, 2); press(EV.SELECT)           -- row 3: THE ROOF (the piton gun comes with it)
-  if SHOTS then print("HEIST SHOT plan_entry"); cctv.test_shot(); ticks(2) end
+  if SHOTS then print("HEIST SHOT plan_entry"); test.screenshot(); ticks(2) end
   press(EV.START)
   print(string.format("HEIST   confirmed: clock %.3f", HEIST.elapsed))
   return HEIST.elapsed
@@ -116,7 +116,7 @@ local function body_keys()
   wait_for(15, function() return P.tab ~= t0 end)
   wait(1.5)
   check("keys: next_weapon presses flipped the tabs (LOADOUT -> ENTRY -> CREW)", P.tab == P.base + 3, string.format("tab %d from %d", P.tab, t0))
-  local open, page = intel.view()
+  local open, page = test.intel_view()
   check("keys: the board shows the plan's tab", open and page == P.tab, string.format("open %s page %d", tostring(open), page))
   check("keys: the weapon in hand did not change (the presses went to the board)", bond.weapon(0) == w0, string.format("%s -> %s", tostring(w0), tostring(bond.weapon(0))))
 end
@@ -131,7 +131,7 @@ local function body_plan()
   check("plan: the clock waits", math.abs(HEIST.elapsed) < 0.001, string.format("%.4f", HEIST.elapsed))
   local x1, _, z1 = bond.pos(0)
   check("plan: Bond is held", d2(x0, z0, x1, z1) < 1, string.format("%.1f units", d2(x0, z0, x1, z1)))
-  local open, page = intel.view()
+  local open, page = test.intel_view()
   check("plan: the board is up on LOADOUT", open and page == P.base + 1 and P.tab == P.base + 1, string.format("open %s page %d", tostring(open), page))
   check("plan: no kit before the plan", not has_item(0, "pp7sil") and not has_item(0, "pitongun") and has_item(0, "doordecoder"), kit(0))
   -- a spree: every row 6 presses, over and over: never over the budget
@@ -157,30 +157,30 @@ local function body_plan()
   press(EV.LEFT)      -- back to LOADOUT, row 1
   check("plan: back on LOADOUT row 1", P.tab == P.base + 1 and P.rows.loadout == 1, string.format("tab %d row %d", P.tab, P.rows.loadout))
   -- the tabs: the plan's own three only (the job's five pages come after the confirm)
-  local tf, tn = plan.tabs()
+  local tf, tn = test.plan_tabs()
   check("tabs: only LOADOUT, ENTRY, CREW while planning", tf == P.base + 1 and tn == 3, string.format("first %d, %d tabs", tf, tn))
-  -- the mouse: plan.test_mouse runs the board's real hit test and sends the click as a session command (the sim applies it)
+  -- the mouse: test.plan_mouse runs the board's real hit test and sends the click as a session command (the sim applies it)
   local function ry(i) return 78 + (i - 1) * 25 + 11 end
-  local pg, row = plan.test_mouse(320, ry(1))
+  local pg, row = test.plan_mouse(320, ry(1))
   check("mouse: the cursor over LOADOUT row 1 (hover)", pg == P.base + 1 and row == 1, string.format("page %d row %d", pg, row))
   check("mouse: hovering buys nothing", P.cost() == 0, tostring(P.cost()))
-  plan.test_mouse(320, ry(1), 1); ticks(1)
+  test.plan_mouse(320, ry(1), 1); ticks(1)
   check("mouse: a left click buys the row (the silenced PP7)", (P.have.pp7 or 0) == 1 and P.cost() == 15000, string.format("spent %d", P.cost()))
-  plan.test_mouse(320, ry(7), 1); ticks(1)
-  plan.test_mouse(320, ry(7), 1); ticks(1)
+  test.plan_mouse(320, ry(7), 1); ticks(1)
+  test.plan_mouse(320, ry(7), 1); ticks(1)
   check("mouse: two clicks on THROWING COINS buy two, the row follows the cursor", (P.have.coins or 0) == 2 and P.rows.loadout == 7,
         string.format("coins %d row %d", P.have.coins or 0, P.rows.loadout))
-  plan.test_mouse(320, ry(7), 2); ticks(1)
-  plan.test_mouse(320, ry(7), 2); ticks(1)
-  plan.test_mouse(320, ry(1), 2); ticks(1)
+  test.plan_mouse(320, ry(7), 2); ticks(1)
+  test.plan_mouse(320, ry(7), 2); ticks(1)
+  test.plan_mouse(320, ry(1), 2); ticks(1)
   check("mouse: right clicks sell (back to nothing)", P.cost() == 0 and P.rows.loadout == 1, string.format("spent %d row %d", P.cost(), P.rows.loadout))
-  plan.test_mouse(320, 20, 1); ticks(1)
-  local _, vpage = intel.view()
+  test.plan_mouse(320, 20, 1); ticks(1)
+  local _, vpage = test.intel_view()
   check("mouse: a click on the ENTRY tab switches to it", P.tab == P.base + 2 and vpage == P.base + 2, string.format("tab %d view %d", P.tab, vpage))
-  plan.test_mouse(320, 200, 5); ticks(1)
+  test.plan_mouse(320, 200, 5); ticks(1)
   check("mouse: a wheel notch down moves the row", P.rows.entry == 2, "row " .. tostring(P.rows.entry))
-  plan.test_mouse(320, 200, 4); ticks(1)
-  plan.test_mouse(120, 20, 1); ticks(1)
+  test.plan_mouse(320, 200, 4); ticks(1)
+  test.plan_mouse(120, 20, 1); ticks(1)
   check("mouse: wheel up, then the LOADOUT tab: LOADOUT row 1 again, nothing bought", P.tab == P.base + 1 and P.rows.loadout == 1
         and P.rows.entry == 1 and P.cost() == 0 and P.entry == "front", string.format("tab %d rows %d/%d spent %d", P.tab, P.rows.loadout, P.rows.entry, P.cost()))
   local clock0 = scripted_plan()
@@ -195,15 +195,15 @@ local function body_plan()
         and me.coins == 2 and me.loops == 0 and me.gas == 0, string.format("coins %d loops %d gas %d", me.coins, me.loops, me.gas))
   check("plan: nothing else (no PP7, D5K, thermal, tape, gas)", not has_item(0, "pp7sil") and not has_item(0, "mp5ksil") and not has_item(0, "camera")
         and not has_item(0, "datathief") and not has_item(0, "bombdefuser"), kit(0))
-  local open2 = intel.view()
+  local open2 = test.intel_view()
   check("plan: the board is put away", not open2)
-  local tf2, tn2 = plan.tabs()
+  local tf2, tn2 = test.plan_tabs()
   check("tabs: after the confirm the INTEL board has the job's five pages only", tf2 == 1 and tn2 == P.base and P.base == 5,
         string.format("first %d, %d tabs", tf2, tn2))
-  intel.test_show(true, 1)
+  test.intel_show(true, 1)
   ticks(2)
-  if SHOTS then print("HEIST SHOT intel_after"); cctv.test_shot(); ticks(2) end
-  intel.test_show(false)
+  if SHOTS then print("HEIST SHOT intel_after"); test.screenshot(); ticks(2) end
+  test.intel_show(false)
   check("plan: the clock starts at 0 on the confirm tick", math.abs(clock0) < 0.001, string.format("%.3f, %.3f a script tick later", clock0, HEIST.elapsed))
   if bond.count() > 1 then
     local x2, _, z2 = bond.pos(1)
@@ -219,7 +219,7 @@ local function body_plan()
   local W = HEIST.M.P
   bond.warp(0, W.crack)
   wait(0.5)
-  bond.test_gadget(0, "doordecoder")
+  test.gadget_used(0, "doordecoder")
   check("job: the vault opens", wait_for(30, function() return HEIST.phase == "open" end), HEIST.phase)
   check("job: bars grabbed", grab(3) >= 3, "bars " .. HEIST.bars)
   bond.warp(0, W.outside)
@@ -248,7 +248,7 @@ local function body_hold()
         string.format("yaw %.3f -> %.3f, pitch %.3f -> %.3f", yaw0, yaw1, pitch0, pitch1))
   check("hold: still planning", P.on and not P.confirmed and HEIST.phase == "planning", HEIST.phase)
   local cy = 78 + #P.ITEMS * 25 + 2 + 12
-  local pg, row = plan.test_mouse(320, cy, 1)
+  local pg, row = test.plan_mouse(320, cy, 1)
   check("hold: the mouse is over CONFIRM", pg == P.base + 1 and row == #P.ITEMS + 1, string.format("page %d row %d", pg, row))
   ticks(2)
   check("hold: a click on CONFIRM starts the job", P.confirmed and not plan.held() and HEIST.phase == "casing", HEIST.phase)

@@ -164,7 +164,7 @@ void portIntelPlanPages(int first, int n)
     sPlanN = (first >= 1 && n > 0 && first - 1 + n <= IN_PAGES) ? n : 0;
 }
 
-/* plan.tabs() -> first (1-based), count: the tabs the board shows now (tests) */
+/* test.plan_tabs() -> first (1-based), count: the tabs the board shows now (tests) */
 void portIntelTabs(int *first, int *n)
 {
     s32 lo, k;
@@ -963,7 +963,7 @@ static void intelHitTest(f32 x, f32 y, s32 *page, s32 *row)
     }
 }
 
-static s32 sTestClick;   /* plan.test_mouse: the click is Bond 1's, as plan.test_input(0, ...), whichever Bond this machine shows */
+static s32 sTestClick;   /* test.plan_mouse: the click is Bond 1's, as test.plan_input(0, ...), whichever Bond this machine shows */
 
 /* a click: never applied here - a session command, so in netplay both machines apply it at the same tick (port_netcmd.c). It is
  * this machine's Bond's click (the plan takes Bond 1's only, as his keys) */
@@ -1019,7 +1019,7 @@ int portIntelMouse(s32 mx, s32 my, s32 winw, s32 winh, u32 mbuttons, s32 wheelUp
     return 1;
 }
 
-/** plan.test_mouse(x, y [, button]): tests and screenshots: the cursor to board point (x, y), then 1 = a left click, 2 = a right
+/** test.plan_mouse(x, y [, button]): tests and screenshots: the cursor to board point (x, y), then 1 = a left click, 2 = a right
  * click, 4 / 5 = a wheel notch up / down there, through the same hit test and session command as the real mouse. */
 void portIntelTestMouse(float x, float y, int button, int *page, int *row)
 {

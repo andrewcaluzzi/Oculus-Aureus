@@ -14,7 +14,7 @@
 --   GE_COVER_GENERATOR=1 the backup generator restores the power after its delay; disabled first, it does not
 --   GE_COVER_DOORS=1     the guard door rules: noise inside the vault brings guards to door A and it stays shut; a hall guard cannot open
 --                        the BLUE door, a security guard can; a barracks door opens for its own squad
--- GE_COVER_SHOTS=1 adds a few screenshots (cctv.test_shot: "HEIST SHOT <name>" lines). Prints "HEIST PASS|FAIL ..." and "HEIST DONE".
+-- GE_COVER_SHOTS=1 adds a few screenshots (test.screenshot: "HEIST SHOT <name>" lines). Prints "HEIST PASS|FAIL ..." and "HEIST DONE".
 local RUN = "hall"
 for _, r in ipairs({ "gun", "loot", "restricted", "staff", "ko", "cam", "camdown", "power", "interrupt", "generator", "doors" }) do
   if mode.env_flag("GE_COVER_" .. r:upper()) then RUN = r end
@@ -47,7 +47,7 @@ local function wait(sec)
   while t < sec do
     t = t + coroutine.yield()
     bond.heal(0, 1, 1)
-    if face then bond.face(0, face[1], face[2]) end
+    if face then test.face(0, face[1], face[2]) end
   end
 end
 local function wait_for(sec, fn)
@@ -60,7 +60,7 @@ local function pad(n) return LEVEL.pads[n] end
 local function shot(name)
   if not SHOTS then return end
   print("HEIST SHOT " .. name .. string.format(" t=%.1f hot=%s meter=%s", HEIST.elapsed, tostring(HEIST.hot), (cover.meter(0))))
-  cctv.test_shot()
+  test.screenshot()
   wait(0.5)
 end
 
@@ -122,7 +122,7 @@ local function hall_path()
   wait(1)
   for i = 2, #route do
     local x, _, z = pads.pos(pad(route[i]))
-    bond.walk(0, x, z)
+    test.walk(0, x, z)
     for _ = 1, 16 do
       wait(0.25)
       local st, lvl = cover.meter(0)
@@ -132,16 +132,16 @@ local function hall_path()
       local bx, _, bz = bond.pos(0)
       if d2(bx, bz, x, z) < 60 then break end
     end
-    if i == 8 and SHOTS then bond.walk_stop(); face = { 300, 600 }; wait(0.6); shot("cover_hall"); face = nil end
+    if i == 8 and SHOTS then test.walk_stop(); face = { 300, 600 }; wait(0.6); shot("cover_hall"); face = nil end
   end
-  bond.walk_stop()
+  test.walk_stop()
   print(string.format("HEIST   walking the hall: top speed %.0f units/s, highest meter %.2f", maxspeed, maxlvl))
   check("the hall's guards have Bond in sight (the eye is open)", watched)
   check("walking at full stick through a public room keeps the meters low", maxlvl < 0.5, string.format("%.2f", maxlvl))
   check("disguised in the hall: no guard sees through him", #blown == 0, #blown > 0 and (blown[1].why .. " by " .. blown[1].g) or "")
   check("no alarm", not HEIST.hot and not alarm.active())
   check("the stock sight is hidden: no hall guard attacks (no shots fired)", (function()
-    for _, c in ipairs(hall) do local f = spawn.fire_stats(c); if f > 0 then return false end end
+    for _, c in ipairs(hall) do local f = test.fire_stats(c); if f > 0 then return false end end
     return true end)())
 end
 
@@ -217,7 +217,7 @@ local function staff_path()
   if not g then return end
   local t0 = HEIST.elapsed
   wait(1.5)
-  local s1 = cover.suspicion(g, 0) or 0
+  local s1 = cover.suspicion(0, g) or 0
   check("staff only: the meter builds", s1 > 0.1 and s1 < 0.8 and #blown == 0, string.format("%.2f after 1.5 s", s1))
   local st = cover.meter(0)
   check("the eye says suspicious", st == "suspicious", st)
@@ -257,7 +257,7 @@ local function ko_path()
       if h.chr ~= g and hx and d2(hx, hz, gx, gz) < 900 then spawn.remove(h.chr) end
     end
   end
-  cover.blow(g, 0)
+  cover.blow(0, g)
   check("he sees through Bond", witness(g))
   wait(2)
   spawn.ko(g, 0)
@@ -312,7 +312,7 @@ local function to_breaker()
   bond.warp(0, HEIST.M.P.power_to)
   face = HEIST.M.P.breaker
   wait(0.5)
-  cctv.test_use(0)
+  test.use(0)
   wait(0.5)
 end
 
@@ -331,9 +331,9 @@ local function power_path()
   check("the alarm cannot be raised (no panel, no siren)", not alarm.active() and not HEIST.hot)
   bond.warp(0, pad("screens"))
   wait(0.5)
-  cctv.test_use(0)
+  test.use(0)
   wait(1.5)
-  local ri = cctv.render_info()
+  local ri = test.cctv_info()
   check("a feed shows static", cctv.viewing(0) ~= nil and ri ~= nil and ri.offline == true,
         string.format("viewing=%s offline=%s", tostring(cctv.viewing(0)), tostring(ri and ri.offline)))
   shot("cover_power_feed")
@@ -376,7 +376,7 @@ local function generator_path()
   bond.warp(0, HEIST.M.P.generator_front)
   face = HEIST.M.P.generator
   wait(0.5)
-  cctv.test_use(0)
+  test.use(0)
   wait(0.5)
   check("a use press at the generator starts work on it", HEIST.power.task == "generator", tostring(HEIST.power.task))
   local off = wait_for(8, function() return HEIST.power.gen_off end)
@@ -418,7 +418,7 @@ local function vault_noise()
   bond.warp(0, pad("vault_captain"))
   wait(0.5)
   local r0 = door.guard_stats()
-  for _ = 1, 4 do bond.test_noise(0, 40); wait(1) end   -- loud enough for the antechamber (the guards' hearing x 40 x 100 units)
+  for _ = 1, 4 do test.shot_noise(0, 40); wait(1) end   -- loud enough for the antechamber (the guards' hearing x 40 x 100 units)
   local ma = door_open_max(O.vault_door_a.index, 14)
   local mb = math.max(door.get(O.vault_door_b.index).open, 0)
   local r1 = door.guard_stats()

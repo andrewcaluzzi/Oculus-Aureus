@@ -164,7 +164,7 @@ void portRoomVisNote(const char *fmt, ...)
 
 /* Called from bgLevelRender (the world draw of a pass), where bgRoomVisibilityRelated has already run for g_CurrentPlayer: the
  * rooms the view is about to draw (draw[]) against its canonical sim walk. */
-static s32 sDrawn[4][64];   /* the rooms each view drew last (bond.rooms_drawn, tests: the generated level's culling check) */
+static s32 sDrawn[4][64];   /* the rooms each view drew last (test.rooms_drawn, tests: the generated level's culling check) */
 static s32 sDrawnN[4];
 
 s32 portRoomVisDrawn(s32 pl, s32 *out, s32 max)

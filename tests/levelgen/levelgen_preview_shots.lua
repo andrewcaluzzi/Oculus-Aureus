@@ -25,8 +25,8 @@ end
 
 local function shot(name)
   local r = bond.room(0)
-  print(string.format("LEVELGEN SHOT %s (Bond in %s, %d rooms drawn)", name, r and LEVEL.room_name[r] or "?", #bond.rooms_drawn(0)))
-  cctv.test_shot()
+  print(string.format("LEVELGEN SHOT %s (Bond in %s, %d rooms drawn)", name, r and LEVEL.room_name[r] or "?", #test.rooms_drawn(0)))
+  test.screenshot()
   wait(0.3)
 end
 

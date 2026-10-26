@@ -1032,7 +1032,7 @@ s32 portJoyPortUseTap(void)
     }
     joyPortDrop(pad, PORTACT_MENU_ACCEPT); /* menu-only: drop banked presses */
     p = portJoyPortTake(pad, PORTACT_USE);
-    {   /* cctv.test_use(p) (tests): one use-action tap in Bond p's own tick, as the Port use key gives it */
+    {   /* test.use(p) (tests): one use-action tap in Bond p's own tick, as the Port use key gives it */
         extern s32 g_PortTestUse[4];
         s32 me = get_cur_playernum();
 

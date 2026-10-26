@@ -28,13 +28,13 @@ end
 local function walk_to(x, z, maxsec)
   local t = 0
   while t < maxsec do
-    local d = bond.walk(0, x, z)
-    if d and d < 25 then bond.walk_stop(); return true end
+    local d = test.walk(0, x, z)
+    if d and d < 25 then test.walk_stop(); return true end
     local bx, by, bz = bond.pos(0)
     if math.floor(t * 4) % 8 == 0 then print(string.format("HEIST walk d=%.0f bond=%.0f,%.0f,%.0f target=%.0f,%.0f", d or -1, bx or 0, by or 0, bz or 0, x, z)) end
     t = t + coroutine.yield()
   end
-  bond.walk_stop()
+  test.walk_stop()
   return false
 end
 
@@ -136,7 +136,7 @@ local function body()
   check("floor key picked up", bond.has_key(0, 0x40) == true and bond.keys(0) == 0x48, "keys=" .. bond.keys(0))
 
   -- gadget event plumbing
-  check("bond.test_gadget", bond.test_gadget(0, "doordecoder") == true and #ev.gadget == 1 and ev.gadget[1][1] == 0)
+  check("test.gadget_used", test.gadget_used(0, "doordecoder") == true and #ev.gadget == 1 and ev.gadget[1][1] == 0)
 
   -- countdown
   check("countdown idle", hud.countdown_left() == nil)

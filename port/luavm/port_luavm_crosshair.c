@@ -12,7 +12,7 @@
  *   crosshair.list() -> names         the pack's styles; crosshair.shapes() -> the shape names
  *   crosshair.current() -> shape, who the shape drawn now ("classic" when none) and whose it is ("script" / "player" / nil)
  *   crosshair.spread() -> px          the dynamic gap last drawn (HUD px)
- *   crosshair.draws() -> n, crosshair.test_hit([head])   tests: frames drawn by a custom sight; a hit marker now
+ *   test.crosshair_draws() -> n, test.crosshair_hit([head])   the test table: frames drawn by a custom sight; a hit marker now
  *   on("draw_crosshair", function(x, y, ctx) ... end)   every frame the sight could show (not in netplay); ctx.line(x0, y0, x1, y1
  *                                     [, thickness [, color]]), ctx.rect(x0, y0, x1, y1 [, color]), ctx.circle(x, y, r [, thickness
  *                                     [, color]]) (thickness 0: filled), ctx.dot(x, y [, size [, color]]); ctx.spread, ctx.since_hit
@@ -635,12 +635,15 @@ void portLuaXhairConsole(const char *a1, const char *a2)
 
 static const luaL_Reg kXhairLib[] = {
     { "style", xStyle }, { "hide", xHide }, { "hidden", xHidden }, { "reset", xReset }, { "use", xUse }, { "list", xList },
-    { "shapes", xShapes }, { "current", xCurrent }, { "spread", xSpread }, { "draws", xDraws }, { "test_hit", xTestHit },
-    { NULL, NULL }
+    { "shapes", xShapes }, { "current", xCurrent }, { "spread", xSpread }, { NULL, NULL }
 };
+static const luaL_Reg kXhairTest[] = { { "crosshair_draws", xDraws }, { "crosshair_hit", xTestHit }, { NULL, NULL } };
 
 void portLuaXhairRegister(lua_State *L)
 {
+    extern void portLuaAddTo(lua_State *L, const char *lib, const luaL_Reg *reg);
+
     luaL_newlib(L, kXhairLib);
     lua_setglobal(L, "crosshair");
+    portLuaAddTo(L, "test", kXhairTest);
 }

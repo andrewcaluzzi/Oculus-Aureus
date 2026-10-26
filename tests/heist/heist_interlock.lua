@@ -257,9 +257,9 @@ local function verify()
   -- the override: lockpicks, hold FIRE at the inner door
   bond.equip(0, "gaskeyring")
   wait(1)
-  bond.face(0, door.get(m.inner).x, door.get(m.inner).z)
+  test.face(0, door.get(m.inner).x, door.get(m.inner).z)
   local t0 = HEIST.elapsed
-  gadget.test_fire(0, 60 * (IL.T.pick_time + 2))
+  test.fire(0, 60 * (IL.T.pick_time + 2))
   local o = wait_for(IL.T.pick_time + 4, function() return open(m.inner) end)
   check("the override cylinder (lockpicks, hold FIRE) opens the inner door in a lockdown", o and IL.stats.overrides == 1,
         string.format("%.1f s, overrides %d", HEIST.elapsed - t0, IL.stats.overrides))
@@ -340,7 +340,7 @@ local function win()
   -- the vault
   bond.warp(0, HEIST.M.P.crack)
   wait(0.5)
-  bond.test_gadget(0, "doordecoder")
+  test.gadget_used(0, "doordecoder")
   check("the crack runs", wait_for(3, function() return HEIST.phase == "cracking" end))
   check("the vault opens", wait_for(40, function() return HEIST.phase == "open" end), HEIST.phase)
   local n = 0
@@ -377,7 +377,7 @@ local function delivery_plan()
   check("delivery: the planning board is up", P ~= nil and P.on)
   if not P then return end
   wait_for(20, function() return P.ready end)
-  local function press(mask, n) for _ = 1, n or 1 do plan.test_input(0, mask) end; wait(0.05) end
+  local function press(mask, n) for _ = 1, n or 1 do test.plan_input(0, mask) end; wait(0.05) end
   press(P.EV.RIGHT); press(P.EV.DOWN, 4); press(P.EV.SELECT)
   check("delivery: the SALLY PORT entry is on offer today and chosen", P.entry == "sally", P.msg)
   press(P.EV.START)

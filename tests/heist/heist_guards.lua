@@ -45,7 +45,7 @@ local function wait(sec)
   while t < sec do
     t = t + coroutine.yield()
     if pin then bond.warp(0, PBOND) end
-    if aim then bond.face(0, aim[1], aim[2]) end
+    if aim then test.face(0, aim[1], aim[2]) end
     if heal then bond.heal(0, 1, 1) end
   end
 end
@@ -73,10 +73,10 @@ local function body()
     local bx, _, bz = bond.pos(0)
     local gx, gz = spawn.where(g)
     local d = dist2(bx, bz, gx, gz)
-    spawn.heard(g, true)
-    bond.test_noise(0, noise)
+    test.heard(g, true)
+    test.shot_noise(0, noise)
     wait(0.1)
-    local heard = spawn.heard(g)
+    local heard = test.heard(g)
     local radius = (opts.hearing or 1) * noise * 100
     check("hearing " .. label, heard == (d < radius), string.format("d=%.0f radius=%.0f heard=%s", d, radius, tostring(heard)))
     spawn.remove(g)
@@ -107,7 +107,7 @@ local function body()
   wait(1)
   bond.warp(0, PG, -200, 0); wait(0.5)
   local sx, sz = spawn.where(g)
-  bond.test_noise(0, 3.0)        -- guard hears Bond: the raiser list runs to the pad
+  test.shot_noise(0, 3.0)        -- guard hears Bond: the raiser list runs to the pad
   local arrived, t = false, 0
   while t < 25 and not alarm.active() do
     local gx, gz = spawn.where(g)
@@ -215,7 +215,7 @@ local function body()
   local gd = spawn.chr(PARMED, { behaviour = "standard", weapon = "ak47" })
   wait(2)
   check("civilian idle while nobody aims", civilian.state(civ) == "idle" and spawn.alive(civ))
-  bond.test_noise(0, 12.0)   -- a loud shot: the civilian cowers (before anyone aims at it)
+  test.shot_noise(0, 12.0)   -- a loud shot: the civilian cowers (before anyone aims at it)
   wait(0.5)
   check("civilian cowers on gunfire", civilian.state(civ) == "cowering", civilian.state(civ) or "nil")
   wait(5.5)
@@ -278,9 +278,9 @@ local function body()
   local shooter = spawn.chr(PSHOOT, { behaviour = "snipe", weapon = "kf7", vision = 20000, face = { bx, bz } })
   aim = { gx, gz }
   local t0 = 0
-  while t0 < 15 and select(1, spawn.fire_stats(shooter or -1)) == 0 do wait(0.25); t0 = t0 + 0.25 end
+  while t0 < 15 and select(1, test.fire_stats(shooter or -1)) == 0 do wait(0.25); t0 = t0 + 0.25 end
   wait(1)
-  local f0, h0 = spawn.fire_stats(shooter or -1)
+  local f0, h0 = test.fire_stats(shooter or -1)
   check("hold fire: with a clear line the guard shoots at Bond", shooter ~= nil and f0 > 0 and h0 == 0, string.format("fired %d, held %d (first shot after %.1f s)", f0, h0, t0))
   -- then a civilian steps beside the line, 70 units out from the guard and 25 off it: it does not block his sight of Bond (the stock
   -- sight test would stop him shooting at all), but a shot past it is the crossfire that killed the bot's staff
@@ -305,15 +305,15 @@ local function body()
   local sx, sz = 0, 0
   if shield then sx, sz = spawn.where(shield) end
   local killed0 = civilian.killed()
-  local f0b, h0b = spawn.fire_stats(shooter or -1)
+  local f0b, h0b = test.fire_stats(shooter or -1)
   wait(3)
-  local f1, h1 = spawn.fire_stats(shooter or -1)
+  local f1, h1 = test.fire_stats(shooter or -1)
   check("hold fire: with a civilian by his line of fire to Bond the guard holds his shots", shooter ~= nil and shield ~= nil and f1 == f0b
         and h1 > h0b and civilian.killed() == killed0, string.format("fired %d, held %d in 3 s; guard %s (%.0f, %.0f), civilian %s %s (%.0f, %.0f), Bond (%.0f, %.0f), killed %d",
         f1 - f0b, h1 - h0b, tostring(shooter), gx, gz, tostring(shield), tostring(shield and civilian.state(shield)), sx, sz, bx, bz, civilian.killed() - killed0))
   if shield then spawn.remove(shield) end
   wait(4)
-  local f2, h2 = spawn.fire_stats(shooter or -1)
+  local f2, h2 = test.fire_stats(shooter or -1)
   check("... and once the civilian is gone he shoots again", f2 > f1, string.format("fired %d more (held %d)", f2 - f1, h2 - h1))
   if shooter then spawn.remove(shooter) end
   mode.hold_fire(false)

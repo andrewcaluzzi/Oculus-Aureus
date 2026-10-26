@@ -44,10 +44,10 @@ on("tick", function(dt)
       st, st_t = "wait", 0; t = 0
     end
   elseif st == "walk" then
-    local d = bond.walk(0, cx, cz)
+    local d = test.walk(0, cx, cz)
     if loose() == 0 or st_t > 20 or d < 40 then
       if st_t > 3 or loose() == 0 then
-        bond.walk_stop()
+        test.walk_stop()
         print(string.format("ge: droptest: #%d (walk) after %.1fs, dist %.0f: loose %d | %s", k, st_t, d, loose(), ammo()))
         st, st_t = "wait", 0; t = 0
       end

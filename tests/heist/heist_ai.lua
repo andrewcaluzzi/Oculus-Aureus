@@ -14,7 +14,7 @@
 --   GE_AI_LURE=1     a coin 600 behind a guard draws him over; one at the edge of his hearing (860) only turns him
 --   GE_AI_CAMWARN=1  Bond at an unsearched body in a camera's view: the AR's red CAMERA warning; cameras off: none
 --   GE_AI_HOLDCARD=1 a missed check-in and a missed watchclock station next to a key-card carrier: someone else is sent, he holds his post
--- GE_AI_SHOTS=1 adds screenshots (cctv.test_shot). Prints "HEIST PASS|FAIL ..." and "HEIST DONE".
+-- GE_AI_SHOTS=1 adds screenshots (test.screenshot). Prints "HEIST PASS|FAIL ..." and "HEIST DONE".
 local RUN = "hear"
 for _, r in ipairs({ "slap", "door", "giveup", "camko", "camact", "camdown", "checkin", "patrol", "backup", "lure", "camwarn", "holdcard" }) do
   if mode.env_flag("GE_AI_" .. r:upper()) then RUN = r end
@@ -51,7 +51,7 @@ local function pad(n) return LEVEL.pads[n] end
 local function shot(name)
   if not SHOTS then return end
   print("HEIST SHOT " .. name)
-  cctv.test_shot()
+  test.screenshot()
   wait(0.4)
 end
 local barks = {}
@@ -127,13 +127,13 @@ local function investigates(c, nx, nz, label)
   check(label .. ": heard (awareness up)", i.state >= 1, string.format("%s %s level %.2f", i.name, i.sub, i.level))
   check(label .. ": he turns to the noise (regardless of facing)", turned,
         string.format("face %.0f, to the noise %.0f", i.face, heading(gx, gz, nx, nz)))
-  if SHOTS then warp_xz(0, gx + 380, select(2, pads.pos(pad("hall_mid"))), gz + 120); bond.face(0, gx, gz); wait(0.4); shot("ai_turn") end
+  if SHOTS then warp_xz(0, gx + 380, select(2, pads.pos(pad("hall_mid"))), gz + 120); test.face(0, gx, gz); wait(0.4); shot("ai_turn") end
   local went = wait_for(14, function() local x, z = spawn.where(c); return x and d2(x, z, nx, nz) < 160 end)
   local x, z = spawn.where(c)
   i = info(c)
   check(label .. ": searching, he walks over to the noise", went and i.state >= 2,
         string.format("%.0f from it, %s %s", x and d2(x, z, nx, nz) or -1, i.name, i.sub))
-  if SHOTS then bond.face(0, x, z); wait(0.6); shot("ai_search") end
+  if SHOTS then test.face(0, x, z); wait(0.6); shot("ai_search") end
   check(label .. ": barks (huh / hey / investigate)", barked(c) ~= nil, barked(c) and (barked(c).kind .. ": " .. barked(c).text) or "none")
   away()
 end
@@ -159,7 +159,7 @@ local function slap_path()
   if not v then return end
   wait(1)
   local vx, vz = spawn.where(v)
-  ko.test_slap(0, v)   -- Bond is out in the street: the guard hears it, nobody sees who
+  test.slap(0, v)   -- Bond is out in the street: the guard hears it, nobody sees who
   local n = noises[#noises]
   check("the slap is a noise where she stands", n ~= nil and n.kind == "slap" and d2(n.x, n.z, vx, vz) < 30, n and n.kind or "none")
   investigates(c, vx, vz, "a real slap")
@@ -268,10 +268,10 @@ local function camact_path()
   local vx, vz = spawn.where(v)
   local _, vy = pads.pos(pad("cust_1"))
   warp_xz(0, vx + 60, vy, vz)
-  bond.face(0, vx, vz)
+  test.face(0, vx, vz)
   wait(1.5)
   check("holstered at the counter: the camera reports nothing", #spotted == 0, tostring(#spotted))
-  ko.test_slap(0, v)
+  test.slap(0, v)
   local sp = wait_for(1.5, function() return #spotted > 0 end)
   check("a slap in the camera's view is reported at once (an act)", sp and spotted[1].p == 0, sp and ("camera " .. spotted[1].cam) or "none")
   local hot = wait_for(HEIST_SETTINGS.security_delay + 2, function() return HEIST.hot end)
@@ -351,7 +351,7 @@ local function camwarn_path()
   local vx, vz = spawn.where(v)
   local _, vy = pads.pos(pad("cust_1"))
   warp_xz(0, vx + 60, vy, vz)
-  bond.face(0, vx, vz)
+  test.face(0, vx, vz)
   local w = wait_for(2, function() return next(heist_ar.warn) ~= nil end)
   check("at the body in the camera's view: the CAMERA warning", w, tostring(next(heist_ar.warn)))
   shot("ai_camwarn")

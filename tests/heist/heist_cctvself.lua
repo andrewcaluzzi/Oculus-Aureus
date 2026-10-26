@@ -1,6 +1,6 @@
 -- Heist CCTV self-view test: a Bond watching a camera that covers him sees his own body on the feed (and his co-op partner's).
 -- Run: tests/heist/run_cctvself.sh [coop|solo] (co-op: the Bonds' own bodies; solo: port_cctvbody.c's presentation-only body).
--- Screenshots via cctv.test_shot() land in build_pc/heist_cctvself_shots/.
+-- Screenshots via test.screenshot() land in build_pc/heist_cctvself_shots/.
 HEIST_SETTINGS = { test = true }
 include("heist")
 mods.set("invincible", true)
@@ -29,7 +29,7 @@ local function warp_xz(p, x, z)
 end
 local function shot(name)
   print("HEIST SHOT " .. name)
-  cctv.test_shot()
+  test.screenshot()
   wait(0.5)
 end
 
@@ -39,7 +39,7 @@ local function body()
   -- Bond 0 at the banking hall's screens, Bond 1 beside him
   local sx, sz = HEIST.M.P.screens_at[1], HEIST.M.P.screens_at[2]
   warp_xz(0, sx, sz)
-  bond.face(0, HEIST.M.P.screens_face[1], HEIST.M.P.screens_face[2])
+  test.face(0, HEIST.M.P.screens_face[1], HEIST.M.P.screens_face[2])
   wait(0.5)
   -- the cameras that see Bond 0 where he stands
   local seen = {}
@@ -51,7 +51,7 @@ local function body()
   for _, cam in ipairs(seen) do
     cctv.view(0, cam)
     wait(1)
-    local r = cctv.render_info()
+    local r = test.cctv_info()
     print(string.format("HEIST INFO cam %d (%s): %d chrs posed, %d Bonds", cam, tostring(cctv.name(cam)), r and r.chrs or -1, r and r.bonds or -1))
     if r and r.bonds > bestbonds then bestbonds = r.bonds end
   end
@@ -74,16 +74,16 @@ local function body()
     local dn = math.max(1, math.sqrt(dx * dx + dz * dz))
     -- part of the way towards the camera and a step aside: in front of whoever stands on the pad
     bond.warp(0, g.lookpad, dx * 0.4 + dz / dn * 120, dz * 0.4 - dx / dn * 120)
-    bond.face(0, g.x, g.z)
+    test.face(0, g.x, g.z)
     local n = math.max(1, math.sqrt(dx * dx + dz * dz))
     if bond.count() > 1 then
       bond.warp(1, g.lookpad, -dz / n * 90, dx / n * 90)   -- 90 to his side
-      bond.face(1, g.x, g.z)
+      test.face(1, g.x, g.z)
     end
     wait(0.5)
     cctv.view(0, cs)
     wait(1.5)
-    local r = cctv.render_info()
+    local r = test.cctv_info()
     print(string.format("HEIST INFO security cam %d: %d chrs posed, %d Bonds", cs, r and r.chrs or -1, r and r.bonds or -1))
     -- (Bond 1 stands in Bond 0's own view, so the canonical world draw draws him; only Bond 0's body is posed by the feed)
     check("the security camera's feed draws Bond 0's own body at its pad", r ~= nil and r.bonds >= 1, "bonds=" .. tostring(r and r.bonds))

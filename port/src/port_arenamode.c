@@ -703,7 +703,7 @@ int portLuaGamePools(int *loose, int *held, int *freeSlots, int *freeProps)
 extern TICKOP propPickupByPlayer(PropRecord *prop, bool showstring);   /* propobj.c: the real pickup */
 extern void propExecuteTickOperation(PropRecord *prop, TICKOP op);
 
-/* test helper (bond.take_drop): Bond picks up the nearest loose weapon within `radius` through the real pickup path. Returns the item id
+/* test helper (test.take_drop): Bond picks up the nearest loose weapon within `radius` through the real pickup path. Returns the item id
  * (0 = none near) and the ammo of its type before and after, so a test can see that a drop brings its ammo. */
 int portLuaGameTakeDrop(int player, float radius, int *ammoBefore, int *ammoAfter)
 {
@@ -1375,7 +1375,7 @@ int portLuaGameBondAmmo(int player, const char *name, int *has, int *ammo)
     return 1;
 }
 
-/* ---- test helper: bond.walk(player, x, z) -> distance. Real movement: sets pad 0's stick toward (x, z) through the GE_GOTO hook of
+/* ---- test helper: test.walk(player, x, z) -> distance. Real movement: sets pad 0's stick toward (x, z) through the GE_GOTO hook of
  * input_pc.c (g_PortGoto*), driven from Lua each tick, so the pickup tests walk Bond onto an item instead of warping him. Player 0 only. */
 extern s32 g_PortGotoActive, g_PortGotoStickX, g_PortGotoStickY;
 

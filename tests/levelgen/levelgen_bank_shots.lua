@@ -28,8 +28,8 @@ local function stand(padname, x, z, pitch, dx, dz)
 end
 
 local function shot(name, where)
-  print(string.format("LEVELGEN SHOT %s (Bond in %s, %d rooms drawn)", name, where, #bond.rooms_drawn(0)))
-  cctv.test_shot()
+  print(string.format("LEVELGEN SHOT %s (Bond in %s, %d rooms drawn)", name, where, #test.rooms_drawn(0)))
+  test.screenshot()
   wait(0.3)
 end
 

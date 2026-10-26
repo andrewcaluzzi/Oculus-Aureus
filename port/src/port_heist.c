@@ -25,7 +25,7 @@
 #include "game/bondview.h"
 #include "game/lv.h"
 #include "game/math_atan2f.h"   /* the game's atan2f: the shadow <math.h> (include/math.h) declares only sinf/cosf/sqrtf, and an
-                                 * implicit atan2f / fabsf returned garbage (bond.face, the civilian aim test, offset spawns) */
+                                 * implicit atan2f / fabsf returned garbage (test.face, the civilian aim test, offset spawns) */
 #include "snd.h"
 #include "music.h"
 #include "port_blocks.h"
@@ -373,7 +373,7 @@ int portHeistTestGadget(int player, const char *name)
     return 0;
 }
 
-/* ---- any object (obj.get / obj.test_damage; the levelgen object tests, P2.2) ---- */
+/* ---- any object (obj.get / test.obj_damage; the levelgen object tests, P2.2) ---- */
 
 extern void objApplyDamage(ObjectRecord *obj, f32 damage, coord3d *pos, ITEM_IDS itemnum, s32 playernum);
 extern bool objIsHealthy(ObjectRecord *self);
@@ -1126,7 +1126,7 @@ static void fireStat(s32 chrnum, int held)
     if (held) sFireStat[i].held++; else sFireStat[i].fired++;
 }
 
-/* spawn.fire_stats(chr) -> shots fired, shots held (since the stage started; the first 64 chrs that tried to shoot) */
+/* test.fire_stats(chr) -> shots fired, shots held (since the stage started; the first 64 chrs that tried to shoot) */
 int portHeistFireStats(int chrnum, int *fired, int *held)
 {
     int i;
@@ -2347,7 +2347,7 @@ void portHeistCoverFired(void)
     coverShot(p);
 }
 
-/* cover.test_act(p): test hook, Bond p did something that blows the cover in view (a slap, a robbery, a shot) */
+/* cover.act(p): Bond p did something that blows the cover in view (as a slap, a robbery, a shot: the act timer) */
 int portHeistCoverTestAct(int p)
 {
     if (!coverActive() || p < 0 || p >= (int) portBondCount()) return 0;
@@ -2375,7 +2375,7 @@ static void coverHey(HeistCover *e, ChrRecord *g, int p, int why)
     portEventEmit(PORT_EV_COVER_BLOWN, e->chrnum, p, why, 0);
 }
 
-/* cover.blow(chr, p): a script makes that guard see through Bond p now */
+/* cover.blow(p, chr) (the Lua order; this C helper takes chr first): a script makes that guard see through Bond p now */
 int portHeistCoverBlow(int chrnum, int p)
 {
     HeistCover *e = covFind(chrnum);

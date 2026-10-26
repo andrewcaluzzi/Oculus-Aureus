@@ -5,14 +5,15 @@
  *   shield.tune{ dist =, reach =, speed =, drop =, line =, flank_after =, front =, flank = 0|1 }
  *   shield.held(p) -> chr | nil              the hostage Bond p holds
  *   shield.holder(chr) -> p | nil
- *   shield.grab(p [, chr]) -> bool           test hook: as a use press at nothing (chr: only that civilian)
  *   shield.release(p [, why]) -> bool        why: "use" "hurt" "two_hands" "weapon" "script" (default)
  *   shield.last(p) -> what, serial           what the last use press did: "none" "grab" "nogun" "front" "release"
  *   shield.info(chr) -> {by, held, secs, hurt, standoff, clean, takes, why} | nil   (a chr ever taken this stage)
  *   shield.list() -> { chr, ... }            every hostage taken this stage
  *   shield.standoff(chr) -> bool             mark the police stand-off used for it (true = newly)
- *   shield.face(chr) -> degrees              the way a chr faces (tests: stand behind one)
- *   shield.counts() -> {grabs, releases, refused, held_shots, clear_shots, drops, flanks, barks} */
+ *   shield.counts() -> {grabs, releases, refused, held_shots, clear_shots, drops, flanks, barks}
+ * In the test table (modding/lua.md "The test table"):
+ *   test.grab(p [, chr]) -> bool             as a use press at nothing (chr: only that civilian)
+ *   test.chr_face(chr) -> degrees            the way a chr faces (stand behind one) */
 #include <string.h>
 #include "lua.h"
 #include "lauxlib.h"
@@ -141,9 +142,12 @@ static int shCounts(lua_State *L)
 void portLuaShieldRegister(lua_State *L)
 {
     static const luaL_Reg lib[] = { { "enable", shEnable }, { "on", shOn }, { "tune", shTune }, { "held", shHeld }, { "holder", shHolder },
-        { "grab", shGrab }, { "release", shRelease }, { "last", shLast }, { "info", shInfo }, { "list", shList }, { "standoff", shStandoff },
-        { "counts", shCounts }, { "face", shFace }, { NULL, NULL } };
+        { "release", shRelease }, { "last", shLast }, { "info", shInfo }, { "list", shList }, { "standoff", shStandoff },
+        { "counts", shCounts }, { NULL, NULL } };
+    static const luaL_Reg testAdd[] = { { "grab", shGrab }, { "chr_face", shFace }, { NULL, NULL } };
+    extern void portLuaAddTo(lua_State *L, const char *lib, const luaL_Reg *reg);
 
     luaL_newlib(L, lib);
     lua_setglobal(L, "shield");
+    portLuaAddTo(L, "test", testAdd);
 }

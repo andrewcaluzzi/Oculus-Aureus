@@ -26,7 +26,7 @@ local function wait(sec)
   while t < sec do
     t = t + coroutine.yield()
     bond.heal(0, 1, 1)
-    if face then bond.face(0, face[1], face[2]) end
+    if face then test.face(0, face[1], face[2]) end
   end
 end
 local function wait_for(sec, fn)
@@ -43,12 +43,12 @@ local BD, CE, DE = doorway("B-D"), doorway("C-E"), doorway("D-E")
 
 local function drawn()
   local s, l = {}, {}
-  for _, r in ipairs(bond.rooms_drawn(0)) do s[r] = true; l[#l + 1] = tostring(r) end
+  for _, r in ipairs(test.rooms_drawn(0)) do s[r] = true; l[#l + 1] = tostring(r) end
   return s, table.concat(l, ",")
 end
 local function shot(name)
   print("LEVELGEN SHOT " .. name)
-  cctv.test_shot()
+  test.screenshot()
   wait(0.2)
 end
 local function padxz(id) local x, _, z = pads.pos(id); return { x, z } end
@@ -57,13 +57,13 @@ local function walk(points, limit)
   for _, p in ipairs(points) do
     local t = 0
     while true do
-      local d = bond.walk(0, p[1], p[2])
+      local d = test.walk(0, p[1], p[2])
       if d and d < 45 then break end
       t = t + coroutine.yield()
-      if t > (limit or 15) then bond.walk_stop(); return false, p end
+      if t > (limit or 15) then test.walk_stop(); return false, p end
     end
   end
-  bond.walk_stop()
+  test.walk_stop()
   return true
 end
 local function stand(pad, look)          -- warp onto a pad and look at a point
@@ -143,7 +143,7 @@ local function body()
   stand(LEVEL.pads.d_monitor, { 1600, -500 })
   shot("d_monitor_and_alarm")
   uses = {}
-  cctv.test_use(0)
+  test.use(0)
   local watching = wait_for(3, function() return cctv.viewing(0) ~= nil end)
   local u = uses[1] or {}
   check("a use press at the monitor names it (use event: its index, objtype 10)", u.idx == OB.monitor_office.index and u.objtype == 10,
@@ -166,7 +166,7 @@ local function body()
         string.format("%.1f s, raiser at (%.0f, %.0f), box pad %d", t1, rx or 0, rz or 0, OB.alarm_office.pad))
   if r1 then spawn.kill(r1) end
   alarm.stop()
-  obj.test_damage(OB.alarm_office.index, 5000, 0)
+  test.obj_damage(OB.alarm_office.index, 5000, 0)
   wait(0.5)
   check("the alarm box can be shot out", obj.get(OB.alarm_office.index).destroyed, string.format("damage %.1f of %.1f", obj.get(OB.alarm_office.index).damage,
         obj.get(OB.alarm_office.index).health))
@@ -195,7 +195,7 @@ local function body()
   stand(DE.pad_a, { DE.x, DE.z })
   check("the padlocked shutter refuses Bond", door.try(0, OB.shutter.index) == false, dstate(OB.shutter.index))
   shot("d_padlocked_shutter")
-  obj.test_damage(DE.padlock, 5000, 0)
+  test.obj_damage(DE.padlock, 5000, 0)
   wait(0.5)
   -- (door.get().padlocked marks a door that HAS a padlock record; whether it still holds is the padlock object's health)
   check("the padlock is shot off", obj.get(DE.padlock).destroyed, string.format("damage %.0f of %.0f", obj.get(DE.padlock).damage,
@@ -215,7 +215,7 @@ local function body()
   s, l = drawn()
   check("the shut vault door culls E from C", s[C] and not s[E], "drawn {" .. l .. "}")
   gadgets = {}
-  bond.test_gadget(0, "doordecoder")
+  test.gadget_used(0, "doordecoder")
   local gu = gadgets[1] or {}
   check("the cracker at the vault door names it (gadget_used)", gu.idx == vd, "gadget idx " .. tostring(gu.idx) .. " vault " .. vd)
   door.open(vd)                           -- what the mode's crack does when it is done

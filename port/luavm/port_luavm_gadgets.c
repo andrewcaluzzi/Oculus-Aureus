@@ -3,7 +3,7 @@
  *
  *   gadget.items({item, ...})                 the ITEM_* ids that are gadgets: in hand, their fire button is the script's, not the gun's
  *   gadget.fire(p) -> presses, held, ticks     fire presses since the last call (taken), whether it is held now, for how many ticks
- *   gadget.test_fire(p, ticks [, taps [, delay]])   test hook: hold fire for `ticks` sim ticks, or give `taps` presses (every other
+ *   test.fire(p, ticks [, taps [, delay]])    test hook (the test table): hold fire for `ticks` sim ticks, or give `taps` presses (every other
  *                                             tick) after `delay` ticks
  *   gadget.aim(p) -> yaw, pitch, x, y, z, feet Bond p's view (degrees: yaw is vv_theta, forward = (-sin, cos)) and eye / feet height
  *   gadget.reel(p, {{x,y,z}, ...}, secs, from_pad, to_pad) -> bool   carry Bond p along the feet points, set him down on to_pad
@@ -77,7 +77,7 @@ static int gFire(lua_State *L)
 
 static int gTestFire(lua_State *L)
 {
-    needStage(L, "gadget.test_fire");
+    needStage(L, "test.fire");
     lua_pushboolean(L, portGadgetsTestFire((int) luaL_checkinteger(L, 1), (int) luaL_optinteger(L, 2, 0), (int) luaL_optinteger(L, 3, 0),
                                            (int) luaL_optinteger(L, 4, 0)));
     return 1;
@@ -218,11 +218,14 @@ static int gNow(lua_State *L)
 
 void portLuaGadgetsRegister(lua_State *L)
 {
-    static const luaL_Reg lib[] = { { "items", gItems }, { "fire", gFire }, { "test_fire", gTestFire }, { "aim", gAim }, { "reel", gReel },
+    static const luaL_Reg lib[] = { { "items", gItems }, { "fire", gFire }, { "aim", gAim }, { "reel", gReel },
         { "reeling", gReeling }, { "floor_point", gFloorPoint }, { "chr_yaw", gChrYaw }, { "lift_key", gLiftKey }, { "disguise", gDisguise },
         { "bar", gBar }, { "marker", gMarker }, { "xray", gXray }, { "dial", gDial }, { "now", gNow },
         { NULL, NULL } };
+    static const luaL_Reg testAdd[] = { { "fire", gTestFire }, { NULL, NULL } };
+    extern void portLuaAddTo(lua_State *L, const char *lib, const luaL_Reg *reg);
 
     luaL_newlib(L, lib);
     lua_setglobal(L, "gadget");
+    portLuaAddTo(L, "test", testAdd);
 }

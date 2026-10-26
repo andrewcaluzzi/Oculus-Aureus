@@ -1,4 +1,4 @@
--- Heist screenshots on the Janus bank (P2.4): the real mode, Bond warped to a few spots, one cctv.test_shot() each (sparse).
+-- Heist screenshots on the Janus bank (P2.4): the real mode, Bond warped to a few spots, one test.screenshot() each (sparse).
 -- Run: tests/heist/run_bank_shots.sh (headless). Each shot follows a "HEIST SHOT <name>" line in the log.
 --   hall     the banking hall from the blast shutters: guards on post, staff at the counter, the HUD
 --   screens  the hall's screen wall (the monitors' pictures)
@@ -15,14 +15,14 @@ local function wait(sec)
   while t < sec do
     t = t + coroutine.yield()
     bond.heal(0, 1, 1)
-    if face then bond.face(0, face[1], face[2]) end
+    if face then test.face(0, face[1], face[2]) end
   end
 end
 local function pad(n) return LEVEL.pads[n] end
 local function look(x, z) face = { x, z } end
 local function shot(name)
   print("HEIST SHOT " .. name .. string.format(" t=%.1f phase=%s hot=%s", HEIST.elapsed, HEIST.phase, tostring(HEIST.hot)))
-  cctv.test_shot()
+  test.screenshot()
   wait(0.5)
 end
 
@@ -39,7 +39,7 @@ local function body()
   shot("screens")
   bond.warp(0, pad("screens"))
   wait(1)
-  cctv.test_use(0)
+  test.use(0)
   wait(1.5)
   shot("feed")
   cctv.view_off(0)
@@ -47,7 +47,7 @@ local function body()
   face = nil
   bond.warp(0, pad("crack"))
   wait(0.5)
-  bond.test_gadget(0, "doordecoder")
+  test.gadget_used(0, "doordecoder")
   while HEIST.phase ~= "open" do wait(0.25) end
   wait(2)
   bond.warp(0, pad("vault_in_a"))

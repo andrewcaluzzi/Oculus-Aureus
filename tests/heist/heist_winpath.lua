@@ -172,7 +172,7 @@ local function setup_map()
     W.green_door, W.office_at, W.office_door = O.green_hall.index, approach("hall-office_corr"), O.green_hall.index
     W.sec_at, W.sec_door = approach("hall-sec_office"), O.blue_hall.index
     W.console_at = LEVEL.pads.console
-    W.console_press = function() cctv.test_use(0) end         -- a real use press (nothing in reach: the console zone takes it)
+    W.console_press = function() test.use(0) end         -- a real use press (nothing in reach: the console zone takes it)
     W.mgr_at, W.mgr_door = approach("back_corr_w-manager"), O.manager_door.index
     W.red_at, W.red_door = approach("back_corr_e-stairs"), O.red_stairs.index
     W.safe_at, W.safe_door = LEVEL.pads.safe_front, O.mgr_safe.index
@@ -273,10 +273,10 @@ local function bank_checks()
   -- the camera feeds from the hall's screen wall: a real use press there
   local sx, sz = W.P.screens_at[1], W.P.screens_at[2]
   bond.warp(0, LEVEL.pads.screens)
-  bond.face(0, W.P.screens_face[1], W.P.screens_face[2])
+  test.face(0, W.P.screens_face[1], W.P.screens_face[2])
   wait(1)
   check("bank: Bond at the screens is in the intel room, near a screen", HEIST.near_monitor(0), string.format("room %s at %.0f, %.0f", tostring(bond.room(0)), sx, sz))
-  cctv.test_use(0)
+  test.use(0)
   wait(1)
   local v = cctv.viewing(0)
   check("bank: a use press at the hall's screens opens the camera feeds", v ~= nil, "viewing " .. tostring(v))
@@ -307,13 +307,13 @@ local function win_path()
   if RANDOM then guide_says(0x2, "GREEN") end
   if RANDOM and mode.env_flag("GE_HEIST_RANDOM_SHOTS") then   -- (run_random.sh shots: THE KEYS and PERSONNEL of today's bank)
     for _, page in ipairs({ 3, 4 }) do
-      intel.test_show(true, page, 0)
+      test.intel_show(true, page, 0)
       wait(0.6)
       print("HEIST SHOT random_intel_" .. page)
-      cctv.test_shot()
+      test.screenshot()
       wait(0.6)
     end
-    intel.test_show(false)
+    test.intel_show(false)
   end
 
   -- the ladder
@@ -356,7 +356,7 @@ local function win_path()
   wait(0.5)
   bond.equip(0, "doordecoder")
   wait(1)
-  bond.test_gadget(0, "doordecoder")
+  test.gadget_used(0, "doordecoder")
   wait(0.5)
   check("the cracker starts in the zone", HEIST.phase == "cracking", HEIST.phase)
   check("crack squad sent", HEIST.squads >= 1)
@@ -374,12 +374,12 @@ local function win_path()
   check("a jammed cracker makes no progress", HEIST.progress == pj and HEIST.phase == "jammed")
   bond.warp(0, W.outside)
   wait(0.5)
-  bond.test_gadget(0, "doordecoder")
+  test.gadget_used(0, "doordecoder")
   wait(0.5)
   check("restart refused outside the zone", HEIST.phase == "jammed", HEIST.phase)
   bond.warp(0, W.crack)
   wait(0.5)
-  bond.test_gadget(0, "doordecoder")
+  test.gadget_used(0, "doordecoder")
   wait(0.5)
   check("restarted back in the zone", HEIST.phase == "cracking" and HEIST.jams == 1, HEIST.phase)
   local opened = crack_to_open()
@@ -421,7 +421,7 @@ local function win_path()
   -- round him and kill the tellers (4 in ~10 s in the screenshot run). They hold their fire now while a civilian is beside him.
   local function shots()
     local f, h = 0, 0
-    for c = 8000, 8400 do local a, b = spawn.fire_stats(c); f, h = f + (a or 0), h + (b or 0) end
+    for c = 8000, 8400 do local a, b = test.fire_stats(c); f, h = f + (a or 0), h + (b or 0) end
     return f, h
   end
   -- (RANDOM: skipped. The deal moves the crew's path, and an early alarm can pull the hall's guards away, so nobody shoots and the check
@@ -452,7 +452,7 @@ local function trapped_path()
   check("phase casing", HEIST.phase == "casing", HEIST.phase)
   bond.warp(0, W.crack)
   wait(0.5)
-  bond.test_gadget(0, "doordecoder")
+  test.gadget_used(0, "doordecoder")
   check("crack opens the vault", crack_to_open(), HEIST.phase)
   local _, n = grab("vault", 2)
   check("bars grabbed", n >= 2, "n=" .. n)
@@ -479,7 +479,7 @@ local function trapped_path()
   wait(0.5)
   local da2 = door.get(W.vault_a)
   check("... and stays shut", da2 and da2.open < 0.05, da2 and string.format("%.2f", da2.open) or "nil")
-  if HEIST.phase ~= "recracking" then bond.test_gadget(0, "doordecoder") end   -- (the use press itself restarts the cracker)
+  if HEIST.phase ~= "recracking" then test.gadget_used(0, "doordecoder") end   -- (the use press itself restarts the cracker)
   wait(0.5)
   check("re-crack from the inside", HEIST.phase == "recracking", HEIST.phase)
   local out = wait_for(15, function() return HEIST.phase == "escaped" end)
@@ -505,7 +505,7 @@ local function quiet_path()
   end
   bond.warp(0, W.crack)
   wait(0.5)
-  bond.test_gadget(0, "doordecoder")
+  test.gadget_used(0, "doordecoder")
   check("crack opens the vault", crack_to_open(), HEIST.phase)
   local _, n = grab("vault", 3)
   check("bars grabbed", n >= 3, "n=" .. n)

@@ -291,7 +291,7 @@ Cards come off a carrier when he is robbed (a civilian: aim until it surrenders 
 
 ### 9b. The security-wing shutters 78/79 (checked 2026-10-25)
 
-The player bot reported that doors 78/79 (stock vertical shutters in room 46, between the security rooms 43 and 44: unkeyed, `PROPFLAG_CULL_BEHIND_DOOR`, 25 s auto-close, a narrow 65-unit opening whose centre sits high, y 304 against Bond's 172) never open for B. A probe on the heist build (keep_locks on) says they do: a real B press (`cctv.test_press("b")`) from room 43, from room 44 and from inside 46 opens each one fully (0.95), `door.try` does too, and Bond walks through. So the route 44-46-43 works for a player and the mode needs no key or switch for it; nothing changed. The bot's miss is its own: the stock interact test (`doorTestForInteract`) wants Bond within 200 units of the door's centre and his view between the door's two edges (measured from 22 units ahead of him, ±20 degrees), which a narrow door makes tight; the bot should face the door's centre from close by before pressing B, or go through the BLUE doors 52/53 into room 43 directly.
+The player bot reported that doors 78/79 (stock vertical shutters in room 46, between the security rooms 43 and 44: unkeyed, `PROPFLAG_CULL_BEHIND_DOOR`, 25 s auto-close, a narrow 65-unit opening whose centre sits high, y 304 against Bond's 172) never open for B. A probe on the heist build (keep_locks on) says they do: a real B press (`test.press("b")`) from room 43, from room 44 and from inside 46 opens each one fully (0.95), `door.try` does too, and Bond walks through. So the route 44-46-43 works for a player and the mode needs no key or switch for it; nothing changed. The bot's miss is its own: the stock interact test (`doorTestForInteract`) wants Bond within 200 units of the door's centre and his view between the door's two edges (measured from 22 units ahead of him, ±20 degrees), which a narrow door makes tight; the bot should face the door's centre from close by before pressing B, or go through the BLUE doors 52/53 into room 43 directly.
 
 ## 10. P1: the camera feeds (T2) and the control-room intel (T1) (built)
 
@@ -311,7 +311,7 @@ The player bot reported that doors 78/79 (stock vertical shutters in room 46, be
 
 **Determinism first.** Two identical headless runs used to part by the time the setup finished. Causes found and fixed, in the order the test met them:
 
-1. **`GE_SKIPINTRO` counted polls, not sim ticks** (`input_pc.c`). Its A taps through the intro landed on a wall-clock-dependent tick, so the stage's first-person play (and with it `stage_start`, the spawns, everything) began on a different tick from run to run. It counts sim ticks now (`g_PortSimTickNo`), and stops for the stage once Bond is in the player's hands (a camera feed takes the controls away, and a later tap there cycled the cameras). `cctv.test_press` had the same bug (6 polls); it holds for 4 sim ticks now. Test-harness bugs, not netplay ones (netplay feeds the input per tick), but they made every test run differ.
+1. **`GE_SKIPINTRO` counted polls, not sim ticks** (`input_pc.c`). Its A taps through the intro landed on a wall-clock-dependent tick, so the stage's first-person play (and with it `stage_start`, the spawns, everything) began on a different tick from run to run. It counts sim ticks now (`g_PortSimTickNo`), and stops for the stage once Bond is in the player's hands (a camera feed takes the controls away, and a later tap there cycled the cameras). `test.press` had the same bug (6 polls); it holds for 4 sim ticks now. Test-harness bugs, not netplay ones (netplay feeds the input per tick), but they made every test run differ.
 2. **A solo mode's `math.random` was seeded from the clock** (`port_lua.c`). With `GE_SEED` set (every headless test) a solo run takes the seed from it, as co-op takes the session's. Without `GE_SEED` solo play still gets a fresh clock seed.
 3. **The camera feed drew from the sim RNG.** The posed chrs' draw (`port_cctvview.c`) runs the model draw, which takes numbers from the SIM RNG for a gun's muzzle flash (`model.c`). It happens only on the watching Bond's machine: in co-op / netplay the two machines' RNGs parted the moment a guard fired on the feed (view 0 vs view 1 at tick 1052). The feed now puts both generators and their draw counts back.
 4. **The feed's allocations moved the sim's.** The posed chrs took their matrices and vertices from the frame's linear pool (`dyn.c`), so every allocation the sim's own draw made after them landed elsewhere on the watching machine, and that pool's layout is read back through stale pointers: Bond 1's autoaim differed in its last bits (tick 3469). The feed now draws from its own corner at the top of the pool (512 KB more pool in a heist mode) and puts the pointer back, and also restores the posed models' rw data.
@@ -346,7 +346,7 @@ The test: `tests/heist/run_determinism.sh` runs the scripted heist `tests/heist/
 
 ## 13. P2 job 2: setup objects for generated levels (built)
 
-`tools/gen_level.py` writes the setup objects a layout asks for as the stock records word for word (the same `_mkword` layout and tails as the compiled stock setups), so the stock setup code builds them: a door in a doorway (sliding or a shutter; key flags; an optional padlock + `LockDoor`; `PROPFLAG_CULL_BEHIND_DOOR` on a bound pad just inside the passage, so `setupDoor` finds the doorway's portal and closes it while the door is shut), CCTV cameras, alarm boxes and monitors on wall bound pads (the stock wall mount), keys on floor pads, Bunker 2's safe (body + swinging door), generic props, and named loot pad lists. Monitors and alarm boxes get a stock Tag record: an untagged object is not a use target. The layout keys, the model ids and `LEVEL.objects` are in `modding/levelgen.md` ("Objects"). New bindings: `obj.get(i)`, `obj.test_damage(i, amount [, p])`.
+`tools/gen_level.py` writes the setup objects a layout asks for as the stock records word for word (the same `_mkword` layout and tails as the compiled stock setups), so the stock setup code builds them: a door in a doorway (sliding or a shutter; key flags; an optional padlock + `LockDoor`; `PROPFLAG_CULL_BEHIND_DOOR` on a bound pad just inside the passage, so `setupDoor` finds the doorway's portal and closes it while the door is shut), CCTV cameras, alarm boxes and monitors on wall bound pads (the stock wall mount), keys on floor pads, Bunker 2's safe (body + swinging door), generic props, and named loot pad lists. Monitors and alarm boxes get a stock Tag record: an untagged object is not a use target. The layout keys, the model ids and `LEVEL.objects` are in `modding/levelgen.md` ("Objects"). New bindings: `obj.get(i)`, `test.obj_damage(i, amount [, p])`.
 
 **Proven** on `tools/levelgen/objects.json` (the L plus an office D behind a GREEN door and a vault E behind a vault door and a padlocked shutter), `tests/levelgen/run_objects.sh`, 33 checks: shut doors cull and open ones show the room; the GREEN door blocks Bond until he holds the card from its pad; the camera spots him and raises the alarm; a use press on the monitor names it and opens the feed; a raiser sounds the alarm box, and a shot-out box no longer works for the next one; the safe opens with GOLD; the padlock blocks the shutter until shot off; no card opens the vault door, the cracker's `gadget_used` names it, `door.open` opens it (the mode's crack), the loot pads take gold, `door.snap` shuts it. The walk test still passes on this layout.
 
@@ -645,7 +645,7 @@ Lua: `noise.emit(x, y, z, radius, kind [, src])` -> the number of guards that he
 | Run | Checks | What it shows |
 | --- | --- | --- |
 | hear | 8 | a test guard in the emptied hall facing north; a slap noise 300 behind him: heard (1 guard), he turns to it (face 180, the noise at 180), walks to it (114 from it, searching) and barks ("Hey! What was that?", "Over there! Checking it out.") |
-| slap | 8 | the same with a real slap (the stock hit path, `ko.test_slap`) on a teller 300 behind him, Bond out in the street: the noise is where she stands, he turns and goes |
+| slap | 8 | the same with a real slap (the stock hit path, `test.slap`) on a teller 300 behind him, Bond out in the street: the noise is where she stands, he turns and goes |
 | door | 7 | a test guard in the security office 300 inside the shut BLUE door, his back to it: a slap 600 away in the hall is not heard, nor one 300 away right behind the door (factor 0.25); the door opened, 300 away: heard |
 | giveup | 5 | searching, he looks round, gives up after 7.8 s ("Must be nothing."), unaware, back on his post (32 units) and his facing |
 | camko | 5 | a knocked-out teller where the hall camera looks: reported in 0.2 s; the alarm 4.0 s later (`security_delay` 4 in the test) |
@@ -776,7 +776,7 @@ screenshot.
 | `ar.config{ range =, cone = }`, `ar.sound(bool)`, `ar.reset()` | the diagnostics' cone; bubble sounds; forget everything |
 | `diag.on()`, `diag.off()`, `diag.enabled()` | the diagnostics layer |
 | `diag.door(idx, label [, rgba])`, `diag.room(id, label)`, `diag.text(n, text)` | labels for doors, rooms, and panel lines 1..4 |
-| `diag.freeze(bool) -> ok` | the AI freeze (refused in co-op / netplay) |
+| `test.freeze(bool) -> ok` (was `diag.freeze`) | the AI freeze (refused in co-op / netplay) |
 
 Colours are `0xRRGGBBAA` or a name (`red green blue gold white cyan yellow orange`).
 
@@ -1013,7 +1013,7 @@ Screenshots of the merged build on v3 are on AC's machine, not in the repo, in `
     a standing chr within 120 on Bond's floor that Bond stands **behind** (100 degrees or more off his facing) and **looks at**
     (within 60 degrees of his view, `pick_cone`). With no such chr the press stays a plain use press (doors, screens, console). Behind
     a guard who is on to Bond, it is still caught. `run_gadgets.sh pocket`'s "facing him" check now expects the cover to hold.
-  - *"B behind a carrier fires no use event"* was the bot, not the game. Raw B (`cctv.test_press`) behind the lobby captain, the
+  - *"B behind a carrier fires no use event"* was the bot, not the game. Raw B (`test.press`) behind the lobby captain, the
     security chief and the branch manager fires `use` and lifts the card on every press. The bot's `press b 3` never pressed: a step
     pushed onto an idle plan kept the clock of the step before it (`stepTick`), so a timed step ended on its first tick.
     `portPlayerBotPushLine` now begins the step on the push.
@@ -1057,7 +1057,7 @@ Screenshots of the merged build on v3 are on AC's machine, not in the repo, in `
     given), posed from his position, floor and yaw with the unarmed MP idle / walk / crouch animations, ticked and drawn only in the
     feed pass inside its save and restore, lit from his floor tile. Rebuilt each stage. `GE_CCTV_NOSELF=1` turns it off.
     Tests: `run_cctvself.sh [coop|solo|hash]` (the hall camera at the screens, the security camera near its pad,
-    `cctv.render_info().bonds`; hash: the solo run with the feed drawn and with no feed render, 2591 ticks hash-identical); the solo
+    `test.cctv_info().bonds`; hash: the solo run with the feed drawn and with no feed render, 2591 ticks hash-identical); the solo
     determinism scenario drawn vs `GE_CCTV_NORENDER=1`: 5856 ticks identical.
   - Tests: `run_inputfix.sh [seeds]` (use in front of a facing guard: cover holds; behind but looking away: no pickpocket; B behind
     each carrier: event and lift; A from the slappers: the PP7).
@@ -1718,20 +1718,20 @@ vault's cracker), the slappers, the pickpocket and the vents, which are free.
 **Lua API** (`plan.*`):
 - `plan.hold(on)`, `plan.held()`;
 - `plan.input(p) -> event`: one at a time, 0 when none (1 up, 2 down, 4 left, 8 right, 16 select, 32 back, 64 start);
-- `plan.test_input(p, mask)`: tests only;
-- `plan.view(on, page, floor, footer)`, `plan.clear()`, `plan.at(page)`, `plan.count()`;
-- `plan.has(p, item)`: tests only. It reads the inventory; `bond.equip` would add the item;
+- `test.plan_input(p, mask)`: tests only;
+- `plan.view(on, page, floor, footer)`, `plan.clear()`, `plan.at(page)`, `test.plan_count()`;
+- `test.has_item(p, item)`: tests only. It reads the inventory; `bond.equip` would add the item;
 - `plan.strip(p, item)`: takes an item out of Bond p's inventory (sim). At the stage start the plan strips the stage's own start
   gun (the PP7), so the guns are bought too;
-- `plan.pages(first, n)`: the plan's tabs; `plan.tabs() -> first, n`: the tabs shown now (tests);
+- `plan.pages(first, n)`: the plan's tabs; `test.plan_tabs() -> first, n`: the tabs shown now (tests);
 - `plan.hit(page, row, x0, y0, x1, y1)`: a row's mouse box; `plan.pointer(p) -> a, b | nil`: Bond p's next click (sim);
-- `plan.test_mouse(x, y [, button])  -> page, row`: tests. It moves the cursor to a board point; button 1 / 2 is a left / right click,
+- `test.plan_mouse(x, y [, button])  -> page, row`: tests. It moves the cursor to a board point; button 1 / 2 is a left / right click,
   4 / 5 a wheel notch, through the real hit test and session command, as Bond 1.
 
 ### 27c. Tests
 
 `tests/heist/run_planning.sh` (container, Xvfb `:99`; `tests/heist/heist_planning_test.lua` on the real mode, `GE_SEED` 7,
-`GE_FIXEDTICK=1`). The plan is driven through the board's own input queue (`plan.test_input`: the same sim events a Bond's buttons
+`GE_FIXEDTICK=1`). The plan is driven through the board's own input queue (`test.plan_input`: the same sim events a Bond's buttons
 make), so the real buying, entry and confirm code runs. Results on this branch (2026-10-26, the machine shared, load average ~70):
 
 | Run | Checks | What it shows |
@@ -2106,7 +2106,7 @@ in their line and try to get round it; the police hold back once for each hostag
   tile up to 45 units ahead. Walls and doors stop it shorter: 70 %, 40 %, or at his feet. Its yaw is set to the Bond's facing, its
   rooms are detected again, and the "surrender" animation is kept.
 - **Hold fire.** The test is geometric, on sim positions: the hostage's projection on the shooter-to-Bond segment, `t` in (0, 1), and
-  its distance from the line at most `line` (34). A held shot counts in the guard's own `spawn.fire_stats` "held". The guard's record
+  its distance from the line at most `line` (34). A held shot counts in the guard's own `test.fire_stats` "held". The guard's record
   (the first and last held shot) drives his barks and, for a combat guard, the flank. The flank point is the Bond's position turned
   1.25, 1.5, 1.05 or 1.8 radians off his facing, toward the guard's side first. It is at the guard's distance (350 to 900), or 0.7 of
   it, on the guard's floor, and the Bond must see it. He tries again every 6 s at most.
@@ -2142,7 +2142,7 @@ in their line and try to get round it; the police hold back once for each hostag
 | off | 5 | `S.hostages = false`: the layer off; surrendered, Bond behind it, PP7 drawn: no hostage; no HOSTAGES card, no report |
 
 `tests/heist/heist_determinism.lua` has two switches:
-- `GE_HEIST_DET_HOSTAGE=1` takes a hostage with a real use press (`cctv.test_use`) before the alarm, holds it through the alarm, and
+- `GE_HEIST_DET_HOSTAGE=1` takes a hostage with a real use press (`test.use`) before the alarm, holds it through the alarm, and
   lets it go;
 - `GE_HEIST_DET_NOHOSTAGES=1` runs with the layer off.
 
@@ -2160,11 +2160,11 @@ his fire ("Hold your fire! He's got a hostage!"), and the HOSTAGE tag.
 - `shield.enable(on)`, `shield.on()`
 - `shield.tune{ dist = 45, reach = 120, speed = 0.5, drop = 0.35, line = 34, flank_after = 2, front = 0.5, flank = 1 }`
 - `shield.held(p) -> chr | nil`, `shield.holder(chr) -> p | nil`
-- `shield.grab(p [, chr])`: a use press at nothing (test hook).
+- `test.grab(p [, chr])`: a use press at nothing (test hook).
 - `shield.release(p [, why])`
 - `shield.last(p) -> what, serial`: `what` is "grab", "nogun", "front" or "release".
 - `shield.info(chr) -> { by, held, secs, hurt, standoff, clean, takes, why }`
-- `shield.list()`, `shield.standoff(chr)`, `shield.face(chr)`
+- `shield.list()`, `shield.standoff(chr)`, `test.chr_face(chr)`
 - `shield.counts() -> { grabs, releases, refused, held_shots, clear_shots, drops, flanks, barks }`
 
 Log lines: `ge: shield: Bond <p> takes chr <c> as a hostage`, `... lets hostage chr <c> go (<why>, <secs> s held)`,
@@ -2251,7 +2251,7 @@ scales the hit chance by (1 + r / 10) above 0 and by (100 + r) / 100 below.
 - **What the crew has seen.** Every 15 ticks, a Bond in play with an unobstructed stan line to a traited guard within 1400 units (300
   in height) marks him as seen by that Bond. The Lua side adds any guard a Bond watches on a camera feed (`cctv.viewing` +
   `cctv.sees`).
-- **Bribes.** `ai.trait_bribe(chr, p, cost)` returns "ok", "refused", "no" or "already". C makes the test: the alarm, `cover.alert`,
+- **Bribes.** `ai.trait_bribe(p, chr, cost)` returns "ok", "refused", "no" or "already". C makes the test: the alarm, `cover.alert`,
   his cover meter for that Bond at 0.25 or more, his awareness state suspicious or higher, or his level at 0.15 or more. The card goes
   over with the pickpocket's `gadget.lift_key`. C keeps the bribes' total, and `finish()` takes it off the payout (one line, after the
   planning spend).
@@ -2277,7 +2277,7 @@ Lua:
 - `ai.traits()` -> { {chr, trait, observed, seen_by, bribed, skips, clocked, skip_pad}, ... }.
 - `ai.trait_val(chr, field)`: hear, susp, turn, checkin, retreat, surrender, pads, backup, full.
 - `ai.trait_stats()` -> {skips, clocked, bribes, bribe_cost, radios, observed, and a count per trait}.
-- `ai.trait_stations{pads}`, `ai.trait_observe(chr, p)`, `ai.trait_bribe(chr, p, cost)`, `ai.trait_enable(on)`, `ai.trait_on()`,
+- `ai.trait_stations{pads}`, `ai.trait_observe(p, chr)`, `ai.trait_bribe(p, chr, cost)`, `ai.trait_enable(on)`, `ai.trait_on()`,
   `ai.trait_tune{}`.
 - `HEIST_TRAITS.try_bribe(p)` is the USE press.
 

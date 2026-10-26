@@ -1,5 +1,5 @@
 /* port_luavm_ar.c - Lua bindings for the AR overlay and the diagnostics layer (port/src/port_arhud.c; designs/bank-heist.md section 20).
- * Presentation only: nothing here changes the sim (diag.freeze is the one test switch that does; solo only).
+ * Presentation only: nothing here changes the sim (test.freeze, registered here, is the one test switch that does; solo only).
  *
  *   ar.on(bool) / ar.enabled() -> bool       the specs (off until a mode turns them on; Shift+F3 / console `ar` toggle them)
  *   ar.layer(name [, bool]) -> bool          suspicion, speech, keys, points, doors, cameras, radar
@@ -16,7 +16,7 @@
  *   diag.door(idx, label [, rgba])           a door's rule label in the diagnostics
  *   diag.room(id, label)                     a room's name and zone in the diagnostics panel
  *   diag.text(n, text)                       panel lines 1..4 for the mode's own numbers
- *   diag.freeze(bool) -> ok                  no AI list runs (SIM-AFFECTING; refused in co-op and netplay)
+ *   test.freeze(bool) -> ok                  (the test table) no AI list runs (SIM-AFFECTING; refused in co-op and netplay)
  * Colours: an integer 0xRRGGBBAA or a name (red green blue gold white cyan yellow orange). */
 #include <string.h>
 #include "lua.h"
@@ -186,10 +186,13 @@ void portLuaArRegister(lua_State *L)
         { "mark", arMark }, { "say", arSay }, { "outline", arOutline }, { "clear", arClear }, { "point", arPoint }, { "unpoint", arUnpoint },
         { "noise", arNoise }, { "reset", arReset }, { NULL, NULL } };
     static const luaL_Reg diagLib[] = { { "on", diagOn }, { "off", diagOff }, { "enabled", diagEnabled }, { "door", diagDoor },
-        { "room", diagRoom }, { "text", diagText }, { "freeze", diagFreeze }, { NULL, NULL } };
+        { "room", diagRoom }, { "text", diagText }, { NULL, NULL } };
+    static const luaL_Reg testAdd[] = { { "freeze", diagFreeze }, { NULL, NULL } };
+    extern void portLuaAddTo(lua_State *L, const char *lib, const luaL_Reg *reg);
 
     luaL_newlib(L, arLib);
     lua_setglobal(L, "ar");
     luaL_newlib(L, diagLib);
     lua_setglobal(L, "diag");
+    portLuaAddTo(L, "test", testAdd);
 }

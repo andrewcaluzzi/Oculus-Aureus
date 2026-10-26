@@ -389,7 +389,7 @@ window reads). Presentation hooks (HUD, camera override) are a separate list and
   - script state that matters goes into the state hash through `mode.state(text)`: its FNV hash is folded into the
     `flags` sub-hash and the text into the desync dump (`portHeistModeState`, `port_heist.c` ~1973);
   - in netplay the handshake hashes every script, so both machines run the same files.
-- **Presentation-only APIs** (HUD text, sounds, the camera feed, `bond.rooms_drawn`) never change sim state.
+- **Presentation-only APIs** (HUD text, sounds, the camera feed, `test.rooms_drawn`) never change sim state.
 - **If upstream designs its own Lua layer**, the fork's API is a record of what an arena and a heist needed, and the
   modes would be ported to theirs. **If upstream wants C engine mods only**, the heist's 1.1k lines of Lua rules would be
   rewritten in C against tier 2 **(estimate: similar size)**, or the mod keeps its own Lua.

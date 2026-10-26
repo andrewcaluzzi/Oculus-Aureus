@@ -4,7 +4,7 @@
 #   off     planning off (an automated run): no plan, the default kit, Bond on the street, the clock runs
 #   plan    GE_PLANNING=1: the hold, the budget, the scripted plan (lockpicks, 2 coins, the roof) and the quick job: the payout less the
 #           planning cost; two screenshots of the board -> $SHOTS/plan_loadout.png, plan_entry.png
-#           + the board's mouse (plan.test_mouse clicks: buy, sell, tabs, the wheel) and the tabs (3 while planning, the job's 5
+#           + the board's mouse (test.plan_mouse clicks: buy, sell, tabs, the wheel) and the tabs (3 while planning, the job's 5
 #           after); a third screenshot: the INTEL board after the confirm -> $SHOTS/intel_after.png
 #   keys    GE_PLANNING=1 with GE_JOYPORT_AUTO next_weapon presses: the board's page keys flip the plan's tabs (sim input)
 #   hold    GE_PLANNING=1 with the pad stick (GE_DRIVE=1), the mouse (GE_FAKEMOUSE) and the Move keys (GE_FAKEDIGMOVE) fed: Bond

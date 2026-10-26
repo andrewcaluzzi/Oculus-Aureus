@@ -1,5 +1,5 @@
 -- Heist input fixes (designs/bank-heist.md 23c, branch `inputfix`): the use press and the pickpocket, and drawing the gun from the opening
--- slappers, through the real input path (cctv.test_press holds raw N64 buttons on pad 0; cctv.test_use taps the Port use action).
+-- slappers, through the real input path (test.press holds raw N64 buttons on pad 0; test.use taps the Port use action).
 -- tests/heist/run_inputfix.sh (GE_SEED: the seed; the mode picks the carriers' pads and the GREEN carrier by it).
 -- Prints "HEIST PASS|FAIL ..." and "HEIST DONE <n> passed, <m> failed".
 --   1. a use press in front of a guard who faces Bond, nothing in reach: no pickpocket, the cover holds (B and the use key)
@@ -28,7 +28,7 @@ local function wait(sec)
   while t < sec do
     t = t + coroutine.yield()
     bond.heal(0, 1, 1)
-    if face then bond.face(0, face[1], face[2]) end
+    if face then test.face(0, face[1], face[2]) end
   end
 end
 local function wait_for(sec, fn)
@@ -86,12 +86,12 @@ local function front_case()
   local gx, gz = spawn.where(g)
   face = { bx + (bx - gx) * 4, bz + (bz - gz) * 4 }
   wait(0.6)
-  cctv.test_press("b")
+  test.press("b")
   wait(1)
   check("behind him, looking away: no pickpocket", not bond.has_key(0, 0x100))
   stand_by(g, 85, 180)
   wait(0.6)
-  cctv.test_press("b")
+  test.press("b")
   wait(1)
   check("behind him, facing his back: the lift", bond.has_key(0, 0x100))
   -- then in front of him, his pocket empty now: B, the use key
@@ -99,7 +99,7 @@ local function front_case()
     stand_by(g, 85, 0)
     wait(0.6)
     local nb, nu, lifts = #blown, #uses, G.stats.lifts
-    if how == "b" then cctv.test_press("b") else cctv.test_use(0) end
+    if how == "b" then test.press("b") else test.use(0) end
     wait(1)
     local fired = #uses > nu and uses[#uses].idx < 0
     check("in front of a facing guard, " .. how .. " with nothing in reach: the use event fired", fired, string.format("%d use events", #uses - nu))
@@ -116,7 +116,7 @@ local function press_behind(cr)
   stand_by(cr.chr, 85, 180)
   wait(0.6)
   local nu, lifts = #uses, G.stats.lifts
-  cctv.test_press("b")
+  test.press("b")
   wait(0.8)
   return #uses - nu, G.stats.lifts - lifts
 end
@@ -152,12 +152,12 @@ local function draw_case()
   -- the opening hand: the slappers (S.start_hand "fist"); A draws the PP7 and back with the previous weapon
   local w0 = bond.weapon(0)
   check("the crew starts holstered (the slappers)", w0 == 0 or w0 == 1, tostring(w0))
-  cctv.test_press("a")
+  test.press("a")
   local drew = wait_for(3, function() return bond.weapon(0) == 5 end)
   check("A from the opening slappers draws the PP7", drew, tostring(bond.weapon(0)))
   bond.equip(0, "fist")
   wait(1.5)
-  cctv.test_press("a")
+  test.press("a")
   drew = wait_for(3, function() return bond.weapon(0) == 5 end)
   check("A again after holstering: the PP7", drew, tostring(bond.weapon(0)))
   bond.equip(0, "fist")

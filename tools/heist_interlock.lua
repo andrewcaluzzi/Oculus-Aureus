@@ -250,7 +250,7 @@ local function pick_tick(p, dt)
   if not st or st.door ~= best then st = { door = best, prog = 0 }; me.pick = st end
   if held then
     st.prog = st.prog + dt
-    if S.cover and not cover.alert() and cover.seen(p) then cover.test_act(p); log("Bond %d seen at the override cylinder", p) end
+    if S.cover and not cover.alert() and cover.seen(p) then cover.act(p); log("Bond %d seen at the override cylinder", p) end
     if st.prog >= T.pick_time then
       interlock.override(best, T.override_time)
       door.open(best)

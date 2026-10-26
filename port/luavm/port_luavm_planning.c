@@ -5,20 +5,21 @@
  *   plan.held() -> bool
  *   plan.input(p) -> mask               Bond p's board events since the last call, taken (1 up, 2 down, 4 left, 8 right, 16 select,
  *                                       32 back, 64 start); his own synchronized input, the same on every machine
- *   plan.test_input(p, mask)            tests: events for Bond p as if pressed (sim side)
  *   plan.view(on [, page [, floor [, footer]]])   the board up on this page / floor with this footer (on every machine: the page comes
  *                                       from the plan's sim state), or put away
  *   plan.clear()                        drop the plan's pages (the board's plan layer; intel.clear never touches it)
  *   plan.at(page)                       the next intel.rect / text / marker ... go on the plan layer of that page
- *   plan.count() -> n                   items on the plan layer (tests)
- *   plan.has(p, item) -> bool           tests: Bond p carries that item (a bond.give name) - reads only
  *   plan.strip(p, item) -> bool         take that item out of Bond p's inventory (sim: the stage's own start gun, at the stage start)
  *   plan.pages(first, n)                the plan's own tabs: only they show while planning; after it only the pages before them
- *   plan.tabs() -> first, n             the tabs the board shows now (tests)
  *   plan.hit(page, row, x0, y0, x1, y1) a clickable row of a plan page (board units; cleared by plan.clear): the board's mouse
  *   plan.pointer(p) -> a, b | nil       Bond p's next board click, taken (sim: a session command): a = page * 64 + row (0 = none),
  *                                       b = 1 select (left), 2 back (right), 3 tab, 4 row up, 5 row down (the wheel)
- *   plan.test_mouse(x, y [, button]) -> page, row   tests: the cursor to a board point; button 1 / 2 clicks, 4 / 5 wheel notches
+ * In the test table (modding/lua.md "The test table"):
+ *   test.plan_input(p, mask)            events for Bond p as if pressed (sim side)
+ *   test.plan_mouse(x, y [, button]) -> page, row   the cursor to a board point; button 1 / 2 clicks, 4 / 5 wheel notches
+ *   test.plan_count() -> n              items on the plan layer
+ *   test.plan_tabs() -> first, n        the tabs the board shows now
+ *   test.has_item(p, item) -> bool      Bond p carries that item (a bond.give name) - reads only
  * The drawing is presentation only: built from the plan's sim state, never read back. */
 #include "lua.h"
 #include "lauxlib.h"
@@ -126,7 +127,7 @@ static int lHas(lua_State *L)
     for (; *name != '\0' && n < sizeof(key) - 1; name++) key[n++] = (*name >= 'a' && *name <= 'z') ? (char) (*name - 32) : *name;
     key[n] = '\0';
     id = portLuaGameItemId(key);
-    if (id < 0) return luaL_error(L, "plan.has: unknown item '%s'", luaL_checkstring(L, 2));
+    if (id < 0) return luaL_error(L, "test.has_item: unknown item '%s'", luaL_checkstring(L, 2));
     lua_pushboolean(L, portPlanningHasItem((int) luaL_checkinteger(L, 1), id));
     return 1;
 }
@@ -134,10 +135,14 @@ static int lHas(lua_State *L)
 void portLuaPlanningRegister(lua_State *L)
 {
     static const luaL_Reg lib[] = {
-        { "hold", lHold }, { "held", lHeld }, { "input", lInput }, { "test_input", lTestInput }, { "view", lView },
-        { "clear", lClear }, { "at", lAt }, { "count", lCount }, { "has", lHas }, { "strip", lStrip },
-        { "pages", lPages }, { "tabs", lTabs }, { "hit", lHit }, { "pointer", lPointer }, { "test_mouse", lTestMouse }, { NULL, NULL } };
+        { "hold", lHold }, { "held", lHeld }, { "input", lInput }, { "view", lView },
+        { "clear", lClear }, { "at", lAt }, { "strip", lStrip },
+        { "pages", lPages }, { "hit", lHit }, { "pointer", lPointer }, { NULL, NULL } };
+    static const luaL_Reg testAdd[] = { { "plan_input", lTestInput }, { "plan_mouse", lTestMouse }, { "plan_count", lCount },
+        { "plan_tabs", lTabs }, { "has_item", lHas }, { NULL, NULL } };
+    extern void portLuaAddTo(lua_State *L, const char *lib, const luaL_Reg *reg);
 
     luaL_newlib(L, lib);
     lua_setglobal(L, "plan");
+    portLuaAddTo(L, "test", testAdd);
 }

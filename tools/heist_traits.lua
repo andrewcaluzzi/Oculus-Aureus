@@ -130,7 +130,7 @@ function T.try_bribe(p)
   local c = bribe_mark(p)
   if not c or ai.trait(c) ~= "bribable" then return false end
   local cost = S.bribe_cost or 50000
-  local r = ai.trait_bribe(c, p, cost)
+  local r = ai.trait_bribe(p, c, cost)
   if r == "ok" then
     local flags = gadget.lift_key and gadget.lift_key(p, c) or 0
     if flags > 0 then bribed_card[c] = flags end
@@ -165,7 +165,7 @@ on("tick", function(dt)
     local cam = cctv.viewing(p)
     if cam then
       for _, e in ipairs(list) do
-        if ((e.seen_by >> p) & 1) == 0 and spawn.alive(e.chr) and not spawn.down(e.chr) and cctv.sees(cam, e.chr) then ai.trait_observe(e.chr, p) end
+        if ((e.seen_by >> p) & 1) == 0 and spawn.alive(e.chr) and not spawn.down(e.chr) and cctv.sees(cam, e.chr) then ai.trait_observe(p, e.chr) end
       end
     end
   end
