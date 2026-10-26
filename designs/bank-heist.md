@@ -1191,3 +1191,162 @@ folder): the quiet run's GHOST panel.
   Windows (no hidden-window option); AC should check that a press after dismissing reaches the stock screen as usual.
 - Next: per-crew-member lines in co-op (who did what), a "case file" page on the INTEL board listing the best runs, more commendations
   from the AI layer (never searched for, a coin that pulled a guard off a camera's view).
+
+## 27. The planning phase (stream `planning`, 2026-10-26)
+
+AC likes the idea "even just for single player": before the clock starts, the crew sits in the van and plans the job on the board.
+
+### 27a. What a player sees, and the keys
+
+The heist opens on the **planning board**. It is the INTEL board (section 19) with three tabs of its own after the five job pages:
+`1 THE PLAN`, `2 SCHEMATICS`, `3 THE KEYS`, `4 PERSONNEL`, `5 NOTES`, then **`6 LOADOUT`**, **`7 ENTRY`** and **`8 CREW`**. It opens on
+LOADOUT. Until you confirm:
+- the heist clock does not run;
+- nobody in the crew moves;
+- the bank stands placed but idle: the heist's own systems (camera reports, the AI layer, the cover's reports, waves) have not started.
+
+| Do | Keyboard / mouse | Pad |
+| --- | --- | --- |
+| Change tab | the INTEL board's page keys: mouse wheel, `,` `.`; or A / D (stick left / right) | LB / RB, stick or D-pad left / right |
+| Move along the rows | W / S (stick up / down) | stick or D-pad up / down, C-up / C-down |
+| Buy (or choose an entry, hire an extra) | FIRE (left mouse) | fire (Z / RT) or A |
+| Sell (or drop an extra) | USE (E) | B / use |
+| Confirm and go | the red **CONFIRM** row at the bottom of each plan tab, or START | START |
+| Floors on SCHEMATICS | W / S | stick up / down |
+
+The header shows the budget, what you spent and what is left. The footer repeats what is left, with the keys. The line under the rows
+says what just happened ("Bought LOCKPICKS", "Over budget: SLEEP GAS costs $45,000, $20,000 left").
+
+**The budget** grows with the difficulty (a bigger job pays for a bigger prep): Agent $300,000, Secret Agent $350,000, 00 Agent
+$400,000, 007 $450,000. `S.plan_budget` overrides it. **Everything you spend comes off the payout**: the mode's score is loot + quiet
+bonus - fines - planning, and the DEBRIEF's payout line ends "- planning costs $X".
+
+**LOADOUT.** Prices are for the crew: in co-op every Bond gets one of each. Nothing else is in the van except the door decoder (the
+vault's cracker), the slappers, the pickpocket and the vents, which are free.
+
+| Item | Price | Notes |
+| --- | --- | --- |
+| Silenced PP7 | $15,000 | with the usual half a magazine of spare ammo |
+| Suppressed D5K | $40,000 | the D5K Deutsche, silenced (`mp5ksil`) |
+| Body armour | $35,000 | a full vest |
+| Spare magazines | $10,000 | every gun you carry, full |
+| Piton gun | $40,000 | section 21 |
+| Lockpicks | $30,000 | and the stethoscope at the safes |
+| Throwing coins | $5,000 each | up to 6 |
+| Tape loops | $20,000 each | up to 3 |
+| Sleep gas | $45,000 each | up to 2 |
+| Thermal imager | $35,000 | |
+| Disguise kit | $30,000 | without it you cannot change into a knocked-out guard's uniform |
+
+**ENTRY** sets where the crew starts and how they look.
+
+| Entry | Price | Start |
+| --- | --- | --- |
+| Front door | free | the street by the van, as today: bank staff, gun holstered |
+| Staff entrance | $60,000 | the alley at the staff door (`alley_staff`). The forged badge unlocks the GREEN `staff_outer` door, the mantrap (`staff_entry`) counts as a staff room for the cover, and the crew wears a staffer's ID (the gadgets' staff disguise: staff rooms are public) |
+| The roof | $25,000 + the piton gun | the roof terrace (`roof_w`), by the lantern line into the hall. Choosing it buys the piton gun if you have none; you cannot sell the gun while the roof is chosen |
+| Canal tunnel dig | $20,000 | the deep archive (`deep_1`) on the vault level, by the sewer vent. The dig costs 4:00: the heist clock starts at 4:00 (the debrief's time and the Speedrun medal feel it) |
+| Sally port | $90,000 | the sally port (`sally_in`) in the security firm's uniform (the guard disguise). Only when today's job has a cash delivery: `HEIST.job.sally` (for the randomiser's job of the day) or `S.plan_sally = true`. Otherwise it is greyed out: "NOT ON TODAY'S JOB" |
+
+**CREW** extras:
+
+| Extra | Price | What it does |
+| --- | --- | --- |
+| Inside contact | $80,000 | the GREEN card's carrier (the head teller or the lobby captain) is on the payroll: the card is in Bond 1's pocket at the start (the gadgets' key lift) |
+| Power cut on a timer | $100,000 | the mains drop 2:00 after the start (`H.cut_power("the planned cut")`): no alarm, the cameras dark, until the generator (section 16) |
+| Time-lock tamper | $70,000 | the vault stays open 30 s longer (`S.vault_time` + 30) |
+
+### 27b. How it works
+
+- **The off switch.** `S.planning` (default `true`). It is off in every automated run (`GE_FRAMES`, `GE_PLAYERBOT` or `GE_INPUTPLAY`
+  set) unless `GE_PLANNING=1`, so every existing test starts exactly as before. With it off, `tools/heist_planning.lua` returns at the
+  top and changes nothing. The two hooks in `mode_heist.lua` test `H.plan` and `H.plan_cost`, which are then nil.
+- **The start it replaces** (at include time, only when it is on):
+  - the mode's start kit becomes the door decoder alone (`S.start_weapons`, `S.start_ammo = 0`);
+  - the gadgets' loadout is emptied (`S.gadgets`: piton, lockpicks, coins, loops, gas, thermal and disguise off; their tuning kept);
+  - the start-of-heist briefing is skipped (the planning board is the briefing).
+- **The hold.** The script calls `plan.hold(true)` at the stage start. `port/src/port_planning.c` runs in every Bond's tick (a hook in
+  `bondview2.c` next to the gadgets' and the CCTV view's, before `MoveBond`):
+  - it turns his synchronized buttons and stick into board events (edges: up, down, left, right, select, back, start). The Port's next
+    and previous weapon and inventory and the use key come from `joy_port.c` through the CCTV view's own `portJoyPortCctvTake`;
+  - it zeroes his input, so nobody moves or fires;
+  - the events queue in order. The script ticks at 4 Hz, so two presses between script ticks stay two.
+- **The clock.** The mode's tick calls `H.plan.tick(dt)` after the spawn queue and the INTEL content. While planning it:
+  - takes the clock's `dt` back (`H.elapsed` stays at 0);
+  - keeps `H.ready` false (the heist's systems, the gadgets, the debrief and the AR layer all wait on it);
+  - sets the phase to `planning`.
+- **Confirm** works only once the bank is placed; before that the board says "the crew is still getting into position". Then:
+  - each Bond gets the kit (`bond.give`, `bond.heal` for the vest, `bond.give_ammo`), the gadgets' counts (`GADGETS.players[p]`) and
+    switches (`GADGETS.T`);
+  - each Bond goes to the entry (`bond.warp` to the entry pad, the crew spread by 60 units) with its disguise; the entry's door and room
+    class are set, and the dig's time goes on the clock;
+  - the extras are armed and `H.plan_cost` is set;
+  - the hold is let go and the board is put away. The heist runs on this very tick (`H.ready`, phase `casing`).
+- **The board** (presentation). `port_intel.c` gains two things:
+  - a third item layer for the plan (`plan.clear`, `plan.at(page)`, then the usual `intel.rect / text / marker`), which `intel.clear`
+    never touches;
+  - a **plan mode** (`plan.view(on, page, floor, footer)`). The board is up on every machine, and its page and floor are the plan's
+    sim state. The INTEL key does nothing. The page keys are let through to the sim (they are the tabs). The footer is the script's.
+
+  The plan's pages are rebuilt from the plan's state whenever it changes, and once more at the confirm (a green CONFIRMED stamp). So
+  tabs 6-8 stay on the INTEL board all heist as a record of the plan. With `S.intel = false` the board has only the three plan tabs and
+  is switched off again at the confirm.
+- **Sim state.**
+  - The plan (tab, rows, floor, what is bought, the entry, the extras, the spend, the timer) is Lua state (the arena: the rollback
+    snapshot). It rides in the heist's hashed text: `H.state_text` is wrapped and adds ` PL[...]`.
+  - The hold, the input edges and the event queue are in `portPlanningHash`, folded into `port_heist.c`'s state hash and reset at every
+    stage start. `port_planning.c` is SIM in `scripts/port/snap_embed.py`.
+  - No randomness.
+- **Co-op.** There is one plan for the crew, made by Bond 1 (the host; pad 0 in local co-op). The partners' presses are taken and
+  dropped while the plan is up. The shared budget buys each item for every Bond, and everyone starts at the same entry. Per-player
+  loadouts from a shared budget would need a cursor per player and a split board in local split screen, so they are not done.
+- **Files.** New: `tools/heist_planning.lua`, `port/src/port_planning.c`, `port/luavm/port_luavm_planning.c`,
+  `tests/heist/heist_planning_test.lua`, `tests/heist/run_planning.sh`. Hooks:
+  - `mode_heist.lua`: the setting, an include before the gadgets, one tick line, one line in `finish()`;
+  - `heist_debrief.lua`: the `planning` field and the payout note;
+  - `port_intel.c`: the plan layer and plan mode;
+  - `bondview2.c`: one call;
+  - `port_heist.c`: the reset and the hash;
+  - `port_luavm.c`: one register call;
+  - `snap_embed.py` and `CMakeLists.txt` (the copy).
+
+**Lua API** (`plan.*`):
+- `plan.hold(on)`, `plan.held()`;
+- `plan.input(p) -> event`: one at a time, 0 when none (1 up, 2 down, 4 left, 8 right, 16 select, 32 back, 64 start);
+- `plan.test_input(p, mask)`: tests only;
+- `plan.view(on, page, floor, footer)`, `plan.clear()`, `plan.at(page)`, `plan.count()`;
+- `plan.has(p, item)`: tests only. It reads the inventory; `bond.equip` would add the item;
+- `plan.strip(p, item)`: takes an item out of Bond p's inventory (sim). At the stage start the plan strips the stage's own start
+  gun (the PP7), so the guns are bought too.
+
+### 27c. Tests
+
+`tests/heist/run_planning.sh` (container, Xvfb `:99`; `tests/heist/heist_planning_test.lua` on the real mode, `GE_SEED` 7,
+`GE_FIXEDTICK=1`). The plan is driven through the board's own input queue (`plan.test_input`: the same sim events a Bond's buttons
+make), so the real buying, entry and confirm code runs. Results on this branch (2026-10-26, the machine shared, load average ~70):
+
+| Run | Checks | What it shows |
+| --- | --- | --- |
+| off | 7 | planning off (an automated run, no `GE_PLANNING`): no plan; the mode is ready at once; the default gadgets (4 coins, 2 loops, 1 gas); the PP7, the piton gun and the thermal imager in the kit; Bond on the street; the clock runs; nothing held |
+| plan | 24 | the plan is up and holds; the bank is placed (36 guards) while the heist waits (phase `planning`, `H.ready` false) and the clock stays at 0; Bond does not move; the board is up on LOADOUT; no kit but the door decoder. **Budget:** a buying spree over every row stops at $295,000 of $300,000 ("Over budget: DISGUISE KIT costs $30,000, $5,000 left"); selling everything back ends at 0, never below; the sally port is refused ("not on today's job"). **The scripted plan** (lockpicks, two coins, the roof, START): confirmed; the cost is $105,000 (30k + 2 x 5k + the piton gun's 40k + the roof's 25k); Bond starts on the roof (0 units from `roof_w`, in the roof room); exactly the lockpicks, the piton gun and 2 coins, nothing else (no PP7, D5K, thermal, tape, gas); the board is put away; the clock is 0 on the confirm tick. **The job** (the crack, 12 bars, the van): win; the score is loot + quiet bonus - $105,000 ($1,695,000); the debrief's `planning` is 105000 and its payout the score |
+| keys | 4 | the real Port keys: two `next_weapon` presses (`GE_JOYPORT_AUTO`) flip the tabs LOADOUT -> ENTRY -> CREW; the board shows the plan's tab; the weapon in hand does not change (the presses went to the board) |
+| det | 78 + 4 | the scripted plan then 20 s of the heist, twice solo and twice in local co-op (the second view-switched, the netplay condition; Bond 2 starts on the roof with the same kit): 2265 ticks hash-identical in each pair, the notes (the plan's hashed state at the confirm) identical |
+| offdet | 1 | planning off is today's start: `heist_determinism.lua` as is (planning off: automated) and with `planning = false`: 4365 ticks hash-identical |
+
+All 118 checks passed. Screenshots (AC's machine): `E:\midas-temp\planning\shots\plan_loadout.png`, `plan_entry.png`, and
+`plan-plan_loadout.jpg`, `plan-plan_entry.jpg` in the overnight `img` folder.
+
+### 27d. Limits and next
+
+- **Co-op is host-only**: one plan, made by Bond 1, everyone gets the same kit and entry. Per-player loadouts from the shared budget
+  are not done (a cursor per player, and a split board in local split screen).
+- **START** confirms, but on a pad it may also open the pause watch; the CONFIRM row is the safe way. Not checked by eye.
+- **The board's input runs at the script's 4 Hz**: a press shows up to a quarter second later (none are lost: they queue).
+- **The world is not frozen**: the guards and staff stand and walk their posts while you plan (the stock AI runs); only the heist's
+  own clock and systems wait. Nobody can see the crew in the van.
+- **The sally port** waits for the randomiser's job of the day (`HEIST.job.sally`); until it merges only `S.plan_sally = true` opens it.
+  The getaway-driver extra in the brief has no mechanic to hang on yet (the exits never close), so the CREW tab has the time-lock tamper
+  instead.
+- **Entry pads** are bank v3's names; on a layout without one the entry is greyed out ("NOT ON THIS MAP").
+- **The dig's 4:00** is clock only (the debrief's time, the Speedrun medal); nothing else in the mode keeps a deadline.
+- **Not run on Windows by eye.** The planning board was checked in headless screenshots only.
