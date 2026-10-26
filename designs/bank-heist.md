@@ -1040,3 +1040,100 @@ specs off it still shows, because it is the mode's own HUD lines. `S.guide = fal
 - **Screenshots** (AC's machine): `polish-before-*.jpg` and `polish-after-*.jpg` in the overnight `img` folder. Before, line 2 said only
   "GREEN card: head teller or lobby captain", with no hint of how to get it or what Tab does.
 
+## 26. The debrief (stream `debrief`, 2026-10-26)
+
+AC's brief: an end-of-heist debrief that makes each run feel like a scored spy mission, a GoldenEye-style end screen with a heist flavour.
+
+### 26a. What a player sees
+
+When the crew gets out (or the job fails), a full-screen panel comes up in the INTEL board's style: the cork frame, the blueprint
+paper, a manila case file and an index-card tab reading DEBRIEF. It shows:
+
+- **The case file (left):** "HEIST COMPLETE - THE CREW GOT OUT" (or "HEIST FAILED - <why>"), the **rating** stamped in its colour, a
+  line of flavour, the **CREW PAYOUT** (the mode's score: loot + quiet bonus - civilian fines; "a head" in co-op), how it adds up, and a
+  red **NEW BEST** stamp (or BEST TIME) with the best on that difficulty.
+- **The job in numbers (right):** result and exit, time, loot, the alarm (never / raised at m:ss), times spotted (cover guards who saw
+  through a Bond + cameras that timed one), radio reports, bodies found by guards, cameras (looped, console, power cuts), knocked out
+  (guards, staff), guards killed, civilians hurt / killed, gadgets used, locks picked, the **route** ("Front door > Lift shaft > Vault >
+  Van"), and how each card was got (pickpocket / knock-out / intimidation / off a body / picked up).
+- **Commendations (bottom):** 15 medals, earned ones lit gold.
+
+| Rating | When |
+| --- | --- |
+| GHOST | out, no alarm, never spotted, no body found, nobody killed or hurt |
+| PROFESSIONAL | out, no alarm, at most 2 guards killed, no civilian killed |
+| COWBOY | out with the alarm up, no civilian killed, under 15 guards killed |
+| CHAOS | out, but a civilian died or 15+ guards did |
+| BUSTED | the job failed (every Bond down, or too many civilians dead) |
+
+Commendations: **Never Seen** (no guard or camera made you, no alarm), **No Bodies** (nobody died), **Quiet Job** (no alarm),
+**Pickpocket** (a card lifted), **Tumbler** (a safe opened by stethoscope), **Spider** (a piton line), **Rat Run** (a vent), **Locksmith**
+(a lock picked), **Quick Change** (a uniform), **Lights Out** (the power cut), **Blind Spot** (a tape loop or the console), **Speedrun**
+(out in under 6:00 on Agent, 7:00 Secret Agent, 8:00 00 Agent, 9:00 007), **Full Vault** (every vault bar), **Clean Hands** (no civilian
+hurt), **Sandman** (five knock-outs, no kills).
+
+**Dismiss:** USE, INTEL (Tab / Back), A or Start, after 0.75 s. The panel stays over whatever comes next (the stage's last frames, the
+death cam, the stock mission screen) until then, and it takes the input while it is up, so the press that closes it does not also skip
+the stock screen (the pads stay blank until every key is let go).
+
+**Records:** the best per difficulty (payout, time, best rating, runs, wins, the last run) is kept in
+`Data/Saves/heist_records.json` next to the exe (`GE_PROFILE` moves it with the saves). Delete the file to start the record book again.
+
+**Log lines** (for tests and AC): `HEIST DEBRIEF {json}` (every number above, the route, the keys, the commendations; one line) and
+`HEIST RECORD {json}` (difficulty, new_best, best_time, runs, wins, best_payout, saved, path).
+
+`S.debrief = false` (or `HEIST_SETTINGS = { debrief = false }`) leaves it all out.
+
+### 26b. How it works
+
+- **The numbers** (`tools/heist_debrief.lua`, included at the end of `tools/mode_heist.lua`): handlers on the sim's own events
+  (`chr_knocked_out`, `chr_died`, `damage`, `cover_blown`, `cctv_spotted`, `body_found`, `chr_searched`, `civilian_robbed`,
+  `item_pickup` for cards) and a tick that reads the heist (`HEIST`), the gadgets' stats and reel ids (`GADGETS`), the Bonds' rooms and
+  the console. It only reads: nothing goes into `mode.state`, nothing calls a sim API that changes anything, no `math.random`. A card's
+  "how" is settled a tick after its pickup (a pickpocket's lift counts in the gadgets' stats after the stock pickup fires).
+- **The end:** `finish()` calls `HEIST.debrief_end(win, msg, bonus, killed)` (one line, in a `pcall`) just before `mission.win/fail`:
+  it rates the run, logs the line, fills the panel (`debrief.set{...}`), counts the run (`debrief.record{...}`) and opens it
+  (`debrief.show()`).
+- **The panel** (`port/src/port_debrief.c`, `port/luavm/port_luavm_debrief.c`): its own copy of the board's primitives (fill
+  rectangles, triangles, the stock Bank Gothic and Zurich faces) into two display lists of its own, drawn from `portConRender` on every
+  screen (not only in a mode). Hooks: `port_console.c` (one render call), `joy_port.c` (while the panel is up the poll's actions are
+  cleared; use / INTEL / menu keys are its dismiss edge), `libultra_shim.c` (the pads read neutral; A / B / Start dismiss),
+  `port_luavm.c` (one register call). PRES in `scripts/port/snap_embed.py`. In an automated run (`GE_FRAMES`) it draws but never takes
+  the input (`GE_DEBRIEF_CAPTURE=1` forces it).
+- **The records stay in C.** The file is this machine's, and the Lua arena is sim state (the rollback snapshot), so its contents never
+  go back to the script: `debrief.record` takes the run, reads and writes the file, and fills the stamp and its line in C. The file name
+  is fixed in C (nothing outside the game folder). A rollback that re-simulates the last tick runs the end again: it is counted once.
+
+### 26c. Tests
+
+`tests/heist/run_debrief.sh` (container, Xvfb `:99`; the records file is deleted first): **42 passed, 0 failed**.
+
+| Case | Checks | What it shows |
+| --- | --- | --- |
+| quiet | 19 + 2 | `tests/heist/heist_debrief_test.lua` on the real mode: the security chief's BLUE card lifted from behind, the console, the crack, the bars, out before the time lock, the van. GHOST; no alarm, never spotted; Never Seen, No Bodies, Quiet Job, Clean Hands, Pickpocket, Blind Spot, Speedrun; BLUE "pickpocket"; payout = the mode's score with the quiet bonus; NEW BEST on the fresh file; the panel up. The `HEIST DEBRIEF` line parses (python `json`) with every field; the records file and the `HEIST RECORD` line count 1 run, new_best true. Screenshot |
+| loud | 17 + 3 | the alarm up from the start, a civilian killed: CHAOS; the alarm counted (raised at 0:02); the death counted and fined; no quiet commendations; no NEW BEST (the quiet run paid more); the file counts 2 runs; the line parses. With `GE_DEBRIEF_CAPTURE=1` and INTEL presses every 300 polls: an INTEL press dismisses the panel ("ge: debrief: dismissed") |
+| det | 1 | presentation only: `heist_determinism.lua` with the debrief in vs left out (`debrief = false`): 4365 ticks hash-identical |
+
+**Regression on this branch** (2026-10-26, the machine shared with five other agents): heist determinism solo 3/3 (4366 ticks) and
+co-op 5/5 (4363 / 4364 ticks, view-switched too); win path 59, trapped 17, civilian fail 5 (each now also prints its `HEIST DEBRIEF`
+and `HEIST RECORD` lines: the win path rates COWBOY with every card "knock-out", the trapped run COWBOY out of the dock, the civilian
+fail BUSTED); firstplay 6; bindings 38; gadgets pocket 8, safe 6, piton 17; dam1 IDENTICAL (453 lines); `tests/run_logic_tests.sh`
+all pass. Netplay determinism not run (the integration pass runs it alone).
+
+Screenshot (AC's machine): `E:\midas-temp\debrief\shots\debrief_panel.png` (and `debrief-debrief_panel.jpg` in the overnight `img`
+folder): the quiet run's GHOST panel.
+
+### 26d. Limits and next
+
+- **The route** is the way in (the first room off the street: "Front door" from the hall, else "Side way in (<area>)"), the lines and
+  vents in order, the vault and the exit. A test that warps Bond shows "Side way in". It does not know the stairs or doors taken.
+- **"Times spotted"** counts cover blows and cameras that timed a Bond (a camera that spots him after the alarm counts too). The AI
+  layer's awareness states (suspicious, searching) are not counted.
+- **Guards killed** are chrs a Bond killed that are not bank staff (posted guards, waves, squads). Kills by the sleep gas are knock-outs.
+- **Lockpicked cards:** a picked lock is counted ("Locks picked") but is not a card got; THE KEYS rows say "-" for a card never held.
+- **Dismissing in netplay** is per machine; the records are per machine (each machine its own file). A rollback that re-simulates the
+  last tick counts the run once. A predicted end that a rollback then undoes would still have been counted (not seen in practice).
+- **The input capture** was tested with INTEL presses in a headless run. The stock mission screen behind it was not checked by eye on
+  Windows (no hidden-window option); AC should check that a press after dismissing reaches the stock screen as usual.
+- Next: per-crew-member lines in co-op (who did what), a "case file" page on the INTEL board listing the best runs, more commendations
+  from the AI layer (never searched for, a coin that pulled a guard off a camera's view).
