@@ -235,6 +235,19 @@ void portArNoise(float x, float y, float z, float r, int kind)
     int i, best = 0;
 
     if (!arLuaOk()) return;
+    /* a Bond's footsteps (and anything else made where he stands) come at his prop, which is at eye height: put the ring at his feet,
+     * or it is a circle round the camera itself and jumps about as he moves */
+    for (i = 0; i < 4; i++)
+    {
+        struct player *pl = g_playerPointers[i];
+
+        if (pl == NULL || pl->prop == NULL) continue;
+        if (fabsf(x - pl->prop->pos.x) < 80.0f && fabsf(z - pl->prop->pos.z) < 80.0f && fabsf(y - pl->prop->pos.y) < 60.0f)
+        {
+            y = pl->prop->pos.y - pl->eyeheight;
+            break;
+        }
+    }
     for (i = 0; i < AR_RINGS; i++)
     {
         if (!sRing[i].used) { best = i; break; }

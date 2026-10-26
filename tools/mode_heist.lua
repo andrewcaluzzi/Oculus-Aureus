@@ -146,6 +146,7 @@ local S = {
   intel           = true,    -- false: no board at all (the determinism proof compares the two)
   hints           = true,    -- one-line contextual hints (a keyed door, the vault door, the breaker, the console, the screens)
   briefing        = true,    -- open the board once at the start ("press INTEL to close"; skipped in automated runs)
+  noise_rings     = false,   -- the AR specs' noise rings: a ripple on the floor for every noise (steps, doors, slaps, shots); off for now
   spawn_per_tick  = 24,      -- chrs placed per 0.25 s at the start (no hitch)
   test            = false,   -- test hooks on (HEIST.* below are always there; this only adds log lines)
   ar              = true,    -- the Q-Branch specs (tools/heist_ar.lua, section 20): suspicion "?" / "!", bubbles, key brackets, waypoints

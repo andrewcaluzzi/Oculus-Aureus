@@ -173,7 +173,9 @@ function heist_ar.attach(H, S)
     if type(kind) == "number" then kind = BARK_KIND[kind + 1] or "huh" end
     say(chr, (type(text) == "string" and text ~= "") and text or BARK[kind] or "...", 3, kind)
   end)
-  pcall(on, "noise", function(x, y, z, radius, kind) if x and y and z then ar.noise(x, y, z, radius or 300, kind) end end)
+  if S.noise_rings then
+    pcall(on, "noise", function(x, y, z, radius, kind) if x and y and z then ar.noise(x, y, z, radius or 300, kind) end end)
+  end
 
   local acc, wacc = 0, 0
   on("tick", function(dt)
