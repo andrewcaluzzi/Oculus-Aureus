@@ -37,6 +37,7 @@
 #ifndef _WIN32
 #include <SDL.h>
 #endif
+#include "port_hidden.h" /* GE_HIDDEN: the adapter is never opened */
 
 #define RAPHNET_VID          0x289B
 #define RQ_RAW_SI_COMMAND    0x80
@@ -902,6 +903,10 @@ static s32 raphnetAsyncReady(void)
  */
 s32 portRaphnetAvailable(void)
 {
+    if (portHidden())
+    {
+        return 0;   /* hidden mode: never open (or suspend) the player's adapter */
+    }
     if (s_Thread != NULL)
     {
         return raphnetIsOpen() || s_Lost;
@@ -920,7 +925,7 @@ s32 portRaphnetPoll(s32 chan, u16 *btn, s8 *x, s8 *y)
 {
     u32 w;
 
-    if (chan < 0 || chan >= RAPHNET_MAX_CHAN)
+    if (chan < 0 || chan >= RAPHNET_MAX_CHAN || portHidden())
     {
         return -1;
     }
@@ -1135,7 +1140,7 @@ static s32 raphnetPakWrite(s32 chan, u16 block, u8 fill)
  */
 s32 portRaphnetRumble(s32 chan, s32 on)
 {
-    if (chan < 0 || chan >= RAPHNET_MAX_CHAN)
+    if (chan < 0 || chan >= RAPHNET_MAX_CHAN || portHidden())
     {
         return -1;
     }

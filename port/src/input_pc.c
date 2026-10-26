@@ -32,6 +32,7 @@
 #include <SDL.h>
 #include "port_console.h" /* the tilde console: fixed keys feed it below */
 #include "port_coop.h"    /* portCoopPadSwap: co-op player index -> device slot */
+#include "port_hidden.h"  /* GE_HIDDEN: no mouse capture */
 static const char *inputDevRecPath(const char *id);   /* per-device records, below */
 
 #define INPUT_MAX_PADS 4
@@ -8596,6 +8597,10 @@ void portInputStickGate(OSContPad *pad, s32 slot)
  * anything that re-shows the arrow is corrected. */
 static void portMouseApplyCapture(int on)
 {
+    if (portHidden())
+    {
+        return;   /* hidden mode: never grab or hide the player's pointer */
+    }
     if (on)
     {
         s_WarpPending = 0;   /* a warp issued as the lock flipped must not be judged later */
@@ -8626,7 +8631,7 @@ void portInputMouseUpdate(void)
     { /* per-poll re-assert: the arrow stays hidden over the window for the
        * life of the mouse feature (and returns if it is turned off) */
         int wantshow = s_OptMouse ? SDL_DISABLE : SDL_ENABLE;
-        if (SDL_ShowCursor(SDL_QUERY) != wantshow)
+        if (!portHidden() && SDL_ShowCursor(SDL_QUERY) != wantshow)
         {
             SDL_ShowCursor(wantshow);
         }

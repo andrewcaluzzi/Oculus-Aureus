@@ -10,6 +10,7 @@
 #include "gfx_screen_config.h"
 #include "glad/glad.h" /* GE bring-up: glReadPixels for GE_SHOT screenshots */
 #include "icon_rgba.h"  /* the window icon (scripts/port/make_icon.py) */
+#include "port_hidden.h" /* GE_HIDDEN=1 / --hidden: the window is never shown */
 
 #ifdef _WIN32
 /* Hybrid-GPU laptops: NVIDIA / AMD drivers read these two exports to run the exe
@@ -232,7 +233,9 @@ static void set_borderless_fullscreen(bool on) {
 
 static void set_fullscreen(bool on, bool call_callback) {
     fullscreen_state = on;
-    if (fullscreen_flag == SDL_WINDOW_FULLSCREEN) {
+    if (portHidden()) {
+        /* hidden mode: the state is kept, the window is never touched */
+    } else if (fullscreen_flag == SDL_WINDOW_FULLSCREEN) {
         const bool was_borderless = borderless_state;
         set_borderless_fullscreen(false);
         if (on && was_borderless) {
@@ -255,6 +258,9 @@ static void set_fullscreen(bool on, bool call_callback) {
 
 static void set_maximize_window(bool on) {
 	maximized_state = on;
+	if (portHidden()) {
+		return; /* SDL_MaximizeWindow / SDL_RestoreWindow would show the window */
+	}
 	if (on) {
 		SDL_MaximizeWindow(wnd);
 	} else {
@@ -326,9 +332,15 @@ static void gfx_sdl_init(const struct GfxWindowInitSettings *set) {
 
     // we will unhide the window once the GL context is successfully created
     Uint32 flags = SDL_WINDOW_HIDDEN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_OPENGL;
+    /* hidden mode (port_hidden.c): stays hidden, no taskbar entry, and never
+     * fullscreen or maximized (SDL maximizes with ShowWindow, which shows it) */
+    const bool hidden = portHidden() != 0;
+    if (hidden) {
+        flags |= SDL_WINDOW_SKIP_TASKBAR;
+    }
 
     // if fullscreen was requested, start the window in fullscreen right away
-    if (set->fullscreen) {
+    if (set->fullscreen && !hidden) {
         fullscreen_state = true;
         if (fullscreen_flag == SDL_WINDOW_FULLSCREEN) {
             flags |= fullscreen_flag;
@@ -370,7 +382,7 @@ static void gfx_sdl_init(const struct GfxWindowInitSettings *set) {
         }
     }
 
-    if (set->maximized) {
+    if (set->maximized && !hidden) {
         flags |= SDL_WINDOW_MAXIMIZED;
         maximized_state = true;
     }
@@ -486,9 +498,13 @@ static void gfx_sdl_init(const struct GfxWindowInitSettings *set) {
     }
 
     SDL_GL_MakeCurrent(wnd, ctx);
-    SDL_GL_SetSwapInterval(1);
+    SDL_GL_SetSwapInterval(hidden ? 0 : 1);
 
-    SDL_ShowWindow(wnd);
+    if (hidden) {
+        sysLogPrintf(LOG_NOTE, "SDL: hidden mode: the window is never shown (flags 0x%x)", (unsigned) SDL_GetWindowFlags(wnd));
+    } else {
+        SDL_ShowWindow(wnd);
+    }
     if (fullscreen_state && fullscreen_flag == SDL_WINDOW_FULLSCREEN) {
         /* the display lines above were logged before an exclusive-fullscreen boot
          * switched modes, so also log the mode actually in use (its refresh caps the frame rate) */
@@ -1095,6 +1111,9 @@ extern "C" SDL_Window* gfx_sdl_get_window(void) {
 }
 
 static bool gfx_sdl_set_swap_interval(int interval) {
+    if (portHidden()) {
+        interval = 0; /* hidden mode: never wait for a display's vblank */
+    }
     const bool success = SDL_GL_SetSwapInterval(interval) >= 0;
     vsync_enabled = success && (interval != 0);
     if (!success) {
