@@ -4,7 +4,7 @@
 --                           other line up to its high pad (any layout: by pad name), and the gallery line in a posted guard's view (an
 --                           act: cover blown)
 --   GE_GADGETS_LOCKPICK=1   a BLUE door picked by holding fire (about 10 s), a GREEN door rushed by taps (fast, noisy)
---   GE_GADGETS_POCKET=1     the security chief's BLUE card lifted from behind; a guard facing Bond catches his hand (cover blown)
+--   GE_GADGETS_POCKET=1     the security chief's BLUE card lifted from behind; a use press facing a guard is no pickpocket (cover holds)
 --   GE_GADGETS_COIN=1       a coin: with the AI layer (section 18) it goes through noise.emit and the hall guard ahead hears it, walks
 --                           over, searches, gives up and walks back to his post; without it the gadgets' own pull sends him and back
 --   GE_GADGETS_LOOP=1       a camera on a tape loop does not see an armed Bond; when the loop runs out it does
@@ -309,7 +309,8 @@ local function pocket_path()
   cctv.test_use(0)
   wait(1)
   check("facing him: no card", not bond.has_key(0, 0x100))
-  check("he catches the hand: he sees through Bond", #blown > nb and blown[#blown].g == g, string.format("%d blown", #blown))
+  -- (until 2026-10-26 this press was "caught" and blew the cover; a press in front of a guard is no pickpocket now: 23c)
+  check("facing him the press is no pickpocket: the cover holds", #blown == nb, string.format("%d blown", #blown - nb))
 end
 
 local function coin_path()

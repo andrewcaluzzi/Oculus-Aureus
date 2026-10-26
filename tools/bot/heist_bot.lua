@@ -131,7 +131,8 @@ local function pick_try(c)
   local y = py or cy or 0
   local bx, bz = cx - math.sin(math.rad(yaw)) * 85, cz - math.cos(math.rad(yaw)) * 85
   if pick.at_back then
-    -- there: press only if he is the nearest standing chr (the pickpocket takes the nearest within 120) and Bond is behind him
+    -- there: press only if he is the nearest standing chr and Bond is behind him (the pickpocket takes the nearest chr within 120
+    -- that Bond is behind and faces; a press that finds none is a plain use press since 2026-10-26)
     pick.at_back = false
     local x, _, z = bond.pos(0)
     local dc = d2(x, z, cx, cz)

@@ -59,6 +59,7 @@ local DEFAULT = {
   gas_radius = 330,
   pick_pocket_reach = 120,
   behind = 100,             -- degrees off his facing that count as behind him
+  pick_cone = 60,           -- degrees off Bond's view: the pickpocket's mark must be in front of Bond (he reaches for that pocket)
   disguise_time = 4,
   disguise_reach = 150,
   vent_reach = 120,
@@ -617,16 +618,40 @@ local function body_near(p, reach, want_down)
   return best, kind, bd
 end
 
+-- the pickpocket's mark: the nearest standing chr within reach, on Bond's floor, that Bond stands behind (T.behind or more off his
+-- facing) and looks at (within T.pick_cone of his view). nil: the press is no pickpocket. (Until 2026-10-26 any use press with nothing
+-- in reach went for the nearest chr: a press at a door just out of reach, next to a guard facing Bond, was "caught" and blew the cover.)
+local function pick_mark(p)
+  local yaw, _, x, _, z, feet = gadget.aim(p)
+  if not x then return nil end
+  local fx, fz = -math.sin(math.rad(yaw)), math.cos(math.rad(yaw))   -- (gadget.aim: forward = (-sin, cos))
+  local cone = math.cos(math.rad(T.pick_cone))
+  local best, bd, kind, boff
+  for _, pair in ipairs({ { H.guards, "guard" }, { H.civs, "staff" } }) do
+    for _, e in ipairs(pair[1]) do
+      local c = e.chr
+      if spawn.alive(c) and not spawn.down(c) then
+        local cx, cz = spawn.where(c)
+        local d = cx and d2(cx, cz, x, z)
+        if d and d <= T.pick_pocket_reach and (not bd or d < bd) then
+          local gyaw, cy = gadget.chr_yaw(c)
+          local off = math.abs(wrap(deg(math.atan(x - cx, z - cz)) - (gyaw or 0)))
+          local look = d > 1 and ((cx - x) * fx + (cz - z) * fz) / d or 1
+          if off >= T.behind and look >= cone and not (cy and feet and math.abs(cy - feet) > 200) then
+            best, bd, kind, boff = c, d, pair[2], off
+          end
+        end
+      end
+    end
+  end
+  return best, kind, boff
+end
+G.pick_mark = pick_mark
+
 local function pickpocket(p)
   if not T.pickpocket then return false end
-  local c, kind = body_near(p, T.pick_pocket_reach, false)
-  if not c then return false end
-  local _, _, x, _, z = gadget.aim(p)
-  local cx, cz = spawn.where(c)
-  local gyaw = gadget.chr_yaw(c)
-  local to_bond = deg(math.atan(x - cx, z - cz))
-  local off = math.abs(wrap(to_bond - (gyaw or 0)))
-  local behind = off >= T.behind
+  local c, kind, off = pick_mark(p)
+  if not c then return false end   -- (not behind anyone he faces: the press stays a plain use press)
   local aware = H.hot or cover.alert()
   local st = cover.state(c)
   if st and (((st.witness or 0) >> p) & 1) == 1 then aware = true end
@@ -636,7 +661,7 @@ local function pickpocket(p)
     local s = ai.awareness(c)
     if s and s >= 2 then aware = true end
   end
-  if behind and not aware then
+  if not aware then
     local flags = gadget.lift_key(p, c)
     if flags > 0 then
       local nm = {}
@@ -650,8 +675,8 @@ local function pickpocket(p)
     flash_p(p, "Nothing in his pockets", 2)
     return true
   end
-  -- caught
-  log("Bond %d: pickpocket on chr %d caught (%s, %.0f deg off his facing)", p, c, aware and "on to him" or "facing him", off)
+  -- caught: behind him, but he (or the alarm) is on to Bond
+  log("Bond %d: pickpocket on chr %d caught (on to him, %.0f deg off his facing)", p, c, off)
   if kind == "guard" and S.cover and not cover.alert() and cover.state(c) then
     cover.blow(c, p)
     G.stats.blown = G.stats.blown + 1
