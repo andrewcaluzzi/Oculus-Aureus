@@ -30,6 +30,8 @@ SIM_PORT = {
     'port_cctvview.c',
     # the heist gadgets: triggers, the piton reel, disguises (sim); the overlay's inputs are rewritten by the script every tick
     'port_gadgets.c',
+    # the heist planning phase: the hold and the board's input events (sim; designs/bank-heist.md section 27)
+    'port_planning.c',
     # input latches the sim reads (held / edge / zoom state per pad); its live accumulators are excluded by portSnapLive()
     'joy_port.c',
     # the sim's own view of the sounds it starts (tokens, end times in sim fields): modding/snapshot-fidelity.md

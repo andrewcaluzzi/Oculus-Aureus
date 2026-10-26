@@ -115,6 +115,11 @@ void portHeistStageReset(void)
 
         portGadgetsReset();
     }
+    {
+        extern void portPlanningReset(void);   /* port_planning.c: the planning hold and its input (section 27) */
+
+        portPlanningReset();
+    }
 }
 
 static void heistScan(void)
@@ -2971,6 +2976,11 @@ unsigned portHeistStateHash(void)
         extern unsigned portGadgetsHash(void);   /* port_gadgets.c: triggers, reels, disguises */
 
         h = h * 16777619u + portGadgetsHash();
+    }
+    {
+        extern unsigned portPlanningHash(void);   /* port_planning.c: the planning hold and its input */
+
+        h = h * 16777619u + portPlanningHash();
     }
     return h;
 }

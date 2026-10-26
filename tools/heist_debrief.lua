@@ -220,7 +220,7 @@ function H.debrief_end(win, msg, bonus, killed)
                   + (gs.vents or 0) + (gs.safes or 0) + (gs.thermal or 0) + ((gs.gassed or 0) > 0 and 1 or 0)
   local R = {
     result = win and "escaped" or "failed", why = msg, difficulty = dif, crew = bond.count(), time = math.floor(H.elapsed * 100 + 0.5) / 100,
-    payout = H.score or 0, loot = H.loot, bars = H.bars, cash = H.cash, quiet_bonus = bonus or 0, fines = (killed or 0) * S.civ_fine,
+    payout = H.score or 0, loot = H.loot, bars = H.bars, cash = H.cash, quiet_bonus = bonus or 0, fines = (killed or 0) * S.civ_fine, planning = H.plan_cost or 0,
     alarm = H.hot and true or false, alarm_at = H.hot_at and math.floor(H.hot_at) or nil, alarms = H.hot and 1 or 0,
     spotted = D.spotted, cover_blown = D.blown, camera_spots = D.cam_spots, reports = H.reports or 0, bodies_found = D.bodies_found,
     cams_looped = gs.loops or 0, console = D.consoles, power_cuts = H.power and H.power.cuts or 0,
@@ -275,6 +275,7 @@ function H.debrief_end(win, msg, bonus, killed)
   for _, m in ipairs(med) do medals[#medals + 1] = { m[1]:upper(), m[2], m[3] and true or false } end
   local dn = DIFF_NAME[dif] or "?"
   local note = string.format("Loot %s + quiet bonus %s - fines %s", money(R.loot), money(R.quiet_bonus), money(R.fines))
+  if R.planning > 0 then note = note .. string.format(" - planning costs %s", money(R.planning)) end   -- (section 27)
   if R.crew > 1 and win then note = note .. string.format(".  %s a head", money(R.payout // R.crew)) end
   if debrief and debrief.set then
     debrief.set{

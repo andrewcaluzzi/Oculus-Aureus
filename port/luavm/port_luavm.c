@@ -1765,6 +1765,11 @@ static lua_State *portLuaState(void)
 
         portLuaDebriefRegister(sL);
     }
+    {   /* the heist planning phase: plan.* (port_luavm_planning.c) */
+        extern void portLuaPlanningRegister(lua_State *L);
+
+        portLuaPlanningRegister(sL);
+    }
     lua_pushcfunction(sL, portLuaOn);
     lua_setglobal(sL, "on");
     lua_pushcfunction(sL, portLuaInclude);
