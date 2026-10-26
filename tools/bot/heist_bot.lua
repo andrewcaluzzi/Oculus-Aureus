@@ -131,7 +131,8 @@ local function pick_try(c)
   local y = py or cy or 0
   local bx, bz = cx - math.sin(math.rad(yaw)) * 85, cz - math.cos(math.rad(yaw)) * 85
   if pick.at_back then
-    -- there: press only if he is the nearest standing chr (the pickpocket takes the nearest within 120) and Bond is behind him
+    -- there: press only if he is the nearest standing chr and Bond is behind him (the pickpocket takes the nearest chr within 120
+    -- that Bond is behind and faces; a press that finds none is a plain use press since 2026-10-26)
     pick.at_back = false
     local x, _, z = bond.pos(0)
     local dc = d2(x, z, cx, cz)
@@ -179,6 +180,12 @@ local function tick_card(flags, label)
     if pick.tries >= 0 and not pick.keyed then
       log("%s: the bot's key step (picks %d, %s)", label, pick.tries, standing and "carrier standing" or "carrier down or the card loose")
       pick.keyed = true
+      if standing and not H.hot then
+        -- walk up holstered: drawn from the street, the hall guards saw the gun long before the counter (seed 7, 2026-10-26)
+        local cx, cz = spawn.where(c.chr)
+        local _, py = pads.pos(c.pad)
+        if cx then push(string.format("goto %.0f %.0f %.0f 350", cx, py or 0, cz)) end
+      end
       push("holster 0")   -- (staff hand a card over only at gunpoint)
     end
     if H.hot or (H.blown or 0) > 0 then set_peace(false) end
