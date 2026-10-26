@@ -999,8 +999,9 @@ Screenshots of the merged build on v3 are on AC's machine, not in the repo, in `
   between: about 6.7 m in the open, 4 m through an open doorway, 1.7 m through a shut door. Fainter, he only turns ("Huh?") and looks
   from where he stands. Test: `run_ai.sh` `lure`.
 - **Fixed (`polish-ai`): backup calls pulled key-card carriers off their posts.** A carrier (ai kind 3) never answers a backup call;
-  the nearest other free guards do. He still calls backup himself when he is the one in combat. The watchclock and check-in dispatches
-  are unchanged. Test: `run_ai.sh` `backup` (`ai.backup(chr)` calls it from a script).
+  the nearest other free guards do. He still calls backup himself when he is the one in combat. Test: `run_ai.sh` `backup`
+  (`ai.backup(chr)` calls it from a script). **Since 23f** the missed check-in and the watchclock (`ai.nearest_free`) skip carriers
+  too. Test: `run_ai.sh` `holdcard`.
 - **Fixed (`polish-ai`): the camera rule is legible.** When a Bond is within reach of an unsearched knocked-out body or a standing card
   carrier (about to search or pickpocket), and a live camera sees him, the AR specs put a red **CAMERA SEES YOU** diamond on that
   camera ("CAMERA SEES P2" in co-op). A live camera is on, not on a tape loop, with someone in the security room. The diamond is
@@ -1039,4 +1040,89 @@ specs off it still shows, because it is the mode's own HUD lines. `S.guide = fal
   confirmed). So a player in the hall has to search fast.
 - **Screenshots** (AC's machine): `polish-before-*.jpg` and `polish-after-*.jpg` in the overnight `img` folder. Before, line 2 said only
   "GREEN card: head teller or lobby captain", with no hint of how to get it or what Tab does.
+
+### 23f. Seed sweep (2026-10-26, branch `soak`)
+
+Every suite had only ever run on `GE_SEED` 7. A sweep ran them across other seeds to find flakes and seed-dependent bugs.
+
+**How:** `tests/heist/seed_sweep.sh` (new). Each (suite, run, seed) job is one game, fast-forwarded the bot harness's way:
+`GE_FIXEDTICK=1 GE_NOSLEEP=1 GE_CLOCKSCALE=20`, with an unbounded `GE_FRAMES`. The script kills the game once it prints `HEIST DONE`.
+`GE_SIMONLY_TEST=2,59,60` renders one tick in 60 (port_simonly.c: the sim is the same). The win path takes 14 s instead of 219 s, and
+seed 7 gives the same 59 checks either way. The suites' own `run_*.sh` scripts stay paced in real time, because `GE_FRAMES` counts
+pumps, and those run out under `GE_NOSLEEP` before the scenario ends. `seed_sweep.sh all 1 2 3` runs the list 6 at a time, and
+`seed_sweep.sh table` sums it up. `run_ai.sh`, `run_gadgets.sh`, `run_cover.sh` and `run_firstplay.sh` honour `GE_SEED` now (default 7).
+
+**Before the fixes** (b389df2, seeds 1–12; a seed counts as clean only if every run of the suite passed on it):
+
+| Suite | Clean seeds | Failing (seed: run) |
+| --- | --- | --- |
+| winpath (5 runs) | 10 / 12 | 5, 11: quiet |
+| guards | 9 / 11 | 1, 3 |
+| ai (12 runs) | 11 / 11 | none |
+| gadgets (10 runs) | 7 / 11 | 5: pocket, disguise; 8, 10, 11: pocket |
+| cover (12 runs) | 5 / 11 | 2, 10: ko; 5, 6, 9, 11: staff |
+| firstplay | 7 / 11 | 3, 6, 9, 10 |
+
+**Fixes.** Every failure reproduced on its own seed, because the sim is deterministic per seed. Two were game bugs:
+- **A key-card carrier left his post for a missed check-in or a missed watchclock station** (afd2430; it was the known gap in 23c).
+  `nearestFree`'s carrier rule now covers both dispatches as well as backup calls, and `ai.nearest_free` never names a carrier. The
+  check-in also looked for the colleague at y 0, not on the downed guard's floor. Test: `run_ai.sh holdcard`, 12 checks. The old build
+  fails 4 of them.
+- **A guard or customer could stand on a carrier's pad** (cd59b06, 17891dc). The carriers' pads are random. The posts, raisers and
+  staff placed after them cycled their area's pads, and spawn_at put one 110 units off the carrier. With seed 5, a posted guard stood
+  next to the security chief, so the guard saw every pickpocket from behind the chief. This was gadgets `pocket` on 4 of 11 seeds. Now
+  the chr whose pad a carrier took moves to the next pad in its list. Renumbering the whole list instead moved every post after it, and
+  3 layout-bound checks failed on seeds 12–14, so the change is the narrow one.
+
+The rest were test assumptions (9acd63a):
+- **guards, witness.** The witness's stock reaction to a death is a roll: he runs at Bond, or he runs to the corpse and stands over it.
+  Both now count as the alert. A witness who stays put still fails.
+- **winpath quiet, vault door.** "Sealed" is the close order. A crack-squad guard in the doorway stops the door, and the time lock snaps
+  it shut 1.5 s later. The check waited only 1 s; it now waits for the snap.
+- **gadgets pocket.** The test guard's spot (`hall_mid`) can be taken, so he spawns a little off it.
+- **gadgets disguise.** The guard heard something and walked off. Bond now follows him, as a player would.
+- **cover staff.** The warp could land a floor away: it now takes pads on the guard's floor only, and tries nearer spots (all outside
+  `close`).
+- **cover ko.** Bond waits in the street, not in the office corridor where another guard saw him. The guards within earshot of the
+  knock-out's thud are removed: with seed 5 the security chief heard it and caught Bond, a fair catch, but not the radio rule this check
+  is about.
+- **firstplay.** The cover's warning wins HUD line 3 by design, so the prompt check turns the cover off.
+
+**After the fixes.**
+- The final build (17891dc) passes every suite on seed 7. It also passes the runs that failed: pocket 5, 8, 10 and 11, disguise 5,
+  staff 5, ko 5, quiet 11, guards 3, piton 12 and 13, and win 14.
+- With cd59b06 (before 17891dc's narrowing), the failing suites passed on seeds 1–11: winpath 11 / 11, guards 11 / 11, gadgets pocket
+  and disguise, cover ko and staff, firstplay 11 / 11, and ai checkin, patrol, holdcard and backup.
+- The same build ran every suite on seeds 12–14. All were clean except the three layout-bound runs that 17891dc fixed.
+- Seeds 15–30 were not run, for lack of time: `seed_sweep.sh all 15 16 ...` runs them.
+
+**Bench** (`run_bench.sh` on v3, headless llvmpipe, with about 11 cores of other streams' games on the 12 threads). The sim column is
+the longest game-code stretch per frame, including the display-list building and GL submission. Average / max, in ms:
+
+| Phase | Agent (36 guards) | 007 (103 guards) |
+| --- | --- | --- |
+| hall | 63 / 249 (frame p95 151) | 92 / 988 (frame p95 205) |
+| vault | 44 / 134 | 60 / 152 |
+| hot | 81 / 221 | 108 / 447 |
+
+All of these are over the 16.7 ms budget at 60 Hz. But this is software GL on a loaded machine, so the numbers measure the machine's
+load, not the game, and there is no baseline from the same conditions. Nothing was optimised. The 007 hall's single 988 ms frame (sim)
+is worth a look on a quiet machine with real GL: a spawn wave or a path plot that hitches. The pools have room: 141 of 460 chr slots,
+610 of 2400 props, and 181 of 485 KB of display list at the peak.
+
+**Determinism on the final build.**
+- **dam1:** identical (453 lines).
+- **Netplay** (`run_determinism.sh net`): run with none of this stream's games going, but with about 11 cores of other streams' load
+  that this stream could not stop.
+  - At the default budget, host and guest were hash-identical over 1731 ticks, with no DESYNC.
+  - At `GE_FRAMES=12000 NETTICKS=4100`, they were hash-identical over 2794 ticks, the scenario notes were identical (24 lines), and there
+    was no DESYNC.
+  - Both runs were short of the 3500 ticks the check needs, so the late steps were not reached (the camera-view knock-out and the
+    wave). This is the same environmental limit as in 16e and 23b, where a quiet machine got 3802 identical ticks.
+
+- **Not reproduced: the GREEN card dropped and not picked up within 4 s** (23c). Every win-path seed above put Bond on the card ("0
+  apart"), and every card was picked up. The likely cause: the card can fall outside the body's room (a carrier down in a doorway),
+  while `take_card`'s `warp_xz` takes only pads in the body's room, so Bond lands away from the card. The one miss came right after the
+  lobby captain had left his post on a backup call. Carriers never leave their posts for backup, check-ins or rounds now (above), and
+  `take_card` falls back to the nearest pad by x, z when Bond lands more than 60 units from the card.
 
