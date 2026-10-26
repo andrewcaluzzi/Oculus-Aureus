@@ -232,6 +232,15 @@ local function fire_path()
   check("... and barks (\"Hold your fire!\" / \"Let them go!\")", said(g, "Hold your fire") ~= nil or said(g, "Let ") ~= nil,
         said(g) and said(g).text or "none")
   check("... the hostage is unhurt", not (shield.info(c) or {}).hurt and spawn.alive(c))
+  if mode.env_flag("GE_HG_SHOT") then   -- the screenshot (section 31): the shield, the AR bracket, the guard holding his fire
+    local a = math.atan(gx - bx, gz - bz) + math.rad(14)   -- (a little off him: the hostage still in his line, both in view)
+    bond.face(0, bx + math.sin(a) * 500, bz + math.cos(a) * 500)
+    ar.say(g, "Hold your fire! He's got a hostage!", 3, "hey")
+    wait(0.5)
+    cctv.test_shot()
+    print("HEIST SHOT hostage")
+    wait(0.25)
+  end
   -- side-on: the hostage out of his line, he fires
   local ux, uz = (gx - bx) / d2(gx, gz, bx, bz), (gz - bz) / d2(gx, gz, bx, bz)
   local sx, sz = bx + uz * 500, bz - ux * 500

@@ -119,9 +119,14 @@ local function body()
     if hostage then
       local x, z = spawn.where(hostage)
       local f = math.rad(shield.face(hostage))
-      warp_xz(worker, x + math.sin(f) * 300, z + math.cos(f) * 300)
-      bond.face(worker, x, z)
-      wait(2)
+      wait(1)   -- (the PP7 comes out)
+      for _, r in ipairs({ 250, 150, 100 }) do
+        warp_xz(worker, x + math.sin(f) * r, z + math.cos(f) * r)
+        bond.face(worker, x, z)
+        local t = 0
+        while t < 2 and civilian.state(hostage) ~= "surrendered" do wait(0.25); t = t + 0.25 end
+        if civilian.state(hostage) == "surrendered" then break end
+      end
       note("hostage %d %s", hostage, tostring(civilian.state(hostage)))
       warp_xz(worker, x - math.sin(f) * 70, z - math.cos(f) * 70)
       bond.face(worker, x, z)
