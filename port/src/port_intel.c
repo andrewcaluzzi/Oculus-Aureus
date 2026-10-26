@@ -963,13 +963,16 @@ static void intelHitTest(f32 x, f32 y, s32 *page, s32 *row)
     }
 }
 
-/* a click: never applied here - a session command, so in netplay both machines apply it at the same tick (port_netcmd.c) */
+static s32 sTestClick;   /* plan.test_mouse: the click is Bond 1's, as plan.test_input(0, ...), whichever Bond this machine shows */
+
+/* a click: never applied here - a session command, so in netplay both machines apply it at the same tick (port_netcmd.c). It is
+ * this machine's Bond's click (the plan takes Bond 1's only, as his keys) */
 static void intelPlanClick(s32 page, s32 row, s32 act)
 {
     extern int portSessionCmdRun(int kind, int player, int a, int b);
     extern int portNetActive(void);
     extern int portNetCmdSelf(void);
-    const int me = portNetActive() ? portNetCmdSelf() : portLocalPlayer();
+    const int me = sTestClick ? 0 : (portNetActive() ? portNetCmdSelf() : portLocalPlayer());
 
     if (page < 1 || page > IN_PAGES || row < 0 || row > 63) return;
     portSessionCmdRun(PORT_NETCMD_PLAN_POINT, me < 0 ? 0 : me, page * 64 + row, act);
@@ -1024,8 +1027,10 @@ void portIntelTestMouse(float x, float y, int button, int *page, int *row)
     sPtrX = x;
     sPtrY = y;
     sPtrSeen = 1;
+    sTestClick = 1;
     if (sPlanOn) intelPointerAct(button == 1, button == 2, button == 4, button == 5);
     else intelHitTest(sPtrX, sPtrY, &sHoverPage, &sHoverRow);
+    sTestClick = 0;
     *page = sHoverPage;
     *row = sHoverRow;
 }
