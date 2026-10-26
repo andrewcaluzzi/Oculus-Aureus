@@ -1965,6 +1965,15 @@ in their line and try to get round it; the police hold back once for each hostag
   lets it go;
 - `GE_HEIST_DET_NOHOSTAGES=1` runs with the layer off.
 
+Results on this branch:
+- With a hostage taken: determinism solo 3/3 (4359 ticks) and co-op 5/5 (4364 ticks, view-switched too; Bond 1 held it while 8
+  guard shots were held).
+- Not run (the time box ran out): the comparison with the layer off against the default; winpath; firstplay; run_combat.sh;
+  debrief; guards; dam1. The hooks are inert while no hostage is held, and dam1 runs no mode.
+
+Screenshot: `hostage-shield.jpg` in the overnight `img` folder. It shows the back of the hostage's head, the guard behind it holding
+his fire ("Hold your fire! He's got a hostage!"), and the HOSTAGE tag.
+
 ### 31d. The Lua API (`shield.*`, any mode)
 
 - `shield.enable(on)`, `shield.on()`
