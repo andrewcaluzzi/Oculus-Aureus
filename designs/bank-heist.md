@@ -1265,7 +1265,9 @@ alarm had pulled the hall's guards away, so nobody fired and nothing was held), 
 | win path, seeds 1-10 (`run_random.sh win`) | 10 of 10 win, 69-70 checks each, 0 failed |
 | casino, randomised (`GE_HEIST_TEST_RANDOM=1 run_job2.sh`) | 52 passed, 0 failed, win (dealt within its cards: 7 dummies, the head croupier) |
 | casino, fixed (`run_job2.sh`) | 52 passed, 0 failed, win |
-| bank, fixed: win path (seed 7) | 59 / 0, as before |
+| bank, fixed: win path (seed 7) / trapped / fail / quiet / count | 59 / 17 / 5 / 11 / 2, 0 failed, as before |
+| determinism solo, randomised | 4366 ticks hash-identical, notes identical, coverage |
+| firstplay (fixed) | 5 of 6: a hall guard found the knocked-out teller and the "found someone out cold" flash took line 3 before the search prompt (the AI layer's timing; the fixed bank, randomiser off) |
 | before the merge: RED forced to the duty officer (`GE_HEIST_TEST_OFFICER=1`) | 69 / 0 |
 | before the merge: determinism randomised, solo / co-op (`GE_HEIST_TEST_RANDOM=1 run_determinism.sh`) | solo 4196 ticks identical; co-op a/b and the view switch 4126 ticks identical, coverage |
 | before the merge: fixed suites | dam1 identical (453), logic tests pass, ai 17 runs 0 failed, ar 13 + proof, intel 28, firstplay 6, trapped 17, fail 5, quiet 11, count 2 |
