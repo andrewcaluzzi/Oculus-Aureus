@@ -1040,3 +1040,56 @@ specs off it still shows, because it is the mode's own HUD lines. `S.guide = fal
 - **Screenshots** (AC's machine): `polish-before-*.jpg` and `polish-after-*.jpg` in the overnight `img` folder. Before, line 2 said only
   "GREEN card: head teller or lobby captain", with no hint of how to get it or what Tab does.
 
+### 23e. The player bot plays the bank (2026-10-26, branch `bot-bank`)
+
+The heist driver for the player bot, `tools/bot/heist_bot.lua`, targeted the retired Bunker 2 heist. It is rewritten for the bank:
+`GE_MODE=heist_bot GE_STAGE=levelgen GE_PLAYERBOT=1 GE_PLAYERBOT_HOLSTER=1`. Bond 0 is the bot. It moves on the stan tiles (its own
+A*), opens doors with B, and every act is a button press; no warps. The script reads the mode's state (`HEIST`, `HEIST.M`, `LEVEL`),
+which is how it knows where the card carriers are, and pushes plan steps (modding/bot.md). The mode is unchanged.
+
+**The route.** Holstered and at peace while the banker cover holds (`holster 1`, `peace 1`). GREEN, BLUE, RED in turn: a guard
+carrier's pocket is picked from behind (85 units behind him, face him level, B with nothing else in reach; the bot presses only when he
+is the nearest standing chr, Bond is 110 or nearer and at least 110 degrees off his facing). The head teller, and any carrier after 6
+misses or 120 s or once the run is hot, goes to the bot's own `key` step (staff held at gunpoint until they hand it over; a guard knocked
+out from behind, or shot, then searched). Then the security console, the crack spot (face vault door A, press B), holding the zone with
+`peace 0` (the vault level is restricted), restarting jams, the bars nearest first until 25 s before the time lock, the nearer exit. A
+blown cover or the alarm turns the fighting on at once. A watchdog drops a step that runs 30 s (a goto onto a spot the tiles cannot
+reach).
+
+**Bot changes (port_playerbot.c, input only).** A `holster 1|0` plan step: the slappers in hand while not fighting, reached with the port's
+previous-weapon action (A from the PP7 never got there in the heist). With `GE_PLAYERBOT_HOLSTER=1` set the stuck recovery's blind B
+press is skipped. The robbery's line test counts the same room as a line, as the heist's own aim test
+does: the tellers stand behind the raised counter and the bot walked into it for good.
+
+**The test.** `tests/heist/run_botheist.sh [seed ...]` (PAR, MAXSECS, EXTRA, SHOTS) runs headless with the bot's fast-forward
+(`GE_FIXEDTICK=1 GE_NOSLEEP=1 GE_CLOCKSCALE=20`, one tick in 60 drawn). `GE_FRAMES` is out of reach: with `GE_NOSLEEP` it counts
+pumps, which is why the heist suites ran out of frames; the run ends on the mission's end or the bot's `MAXSECS`. It prints a PASS or
+FAIL per checkpoint (`ready inside green blue console red vault_level cracking vault_open gold out win`; `out` is Bond in an exit zone)
+and the reach rate over the seeds.
+
+**Results (Agent, default settings, `MAXSECS=600`, seeds 7 8 11 12):** ready 4/4, inside 4/4, GREEN 4/4, BLUE 4/4, console 3/4, RED
+4/4, vault level 3/4, cracking 2/4, vault open 2/4, gold 2/4 (all 30 bars both times), out 1/4, **win 1/4** (seed 7: 386 s, 56 kills,
+one civilian). Every run went loud in the first 20 s; the end is mostly the bot's fighting, not the route. Earlier builds of the same
+driver: seeds 9 and 10 died in the hall at ~50 s; with `GE_HEIST_TUNE1` (carriers only) seeds 8 and 11 died because the bot never drew
+the gun (below), so that tuning is not measured with the final build.
+
+**Findings (not fixed):**
+- **A use press with nothing in reach is a pickpocket on the nearest chr within 120.** A press at a door just out of reach, next to a
+  guard who faces you, is "caught" and blows the cover. The bot did exactly that (its stuck recovery's blind B press). A player pressing
+  use near a guard for any other reason risks the same. Worth a design look (e.g. only from behind, or only with the pickpocket aimed).
+- **Drawing the gun from the opening slappers.** `advance_through_inventory` goes to the hand's *previous* weapon when the cycle's next
+  item is a gadget. With the slappers equipped from the start and never anything else, A did not reach the PP7 for the bot (25 s of
+  presses). The bot now draws once on the street before holstering, which keeps the previous weapon the PP7. Not checked with a human on
+  a pad; if it reproduces, the mode's start loadout (equip the PP7, then the slappers) is the place, but that attempt alone did not fix
+  the bot, so the cause is not fully known.
+- **The pickpocket press often does nothing.** Behind a carrier, facing him, B (3 ticks) frequently fired no `use` event at all, so no
+  pickpocket ran (seed 8: 6 tries, no event). Cause not found (the B tap path in bondview2.c `btap` / `field_D0`). One clean lift seen
+  (seed 8, an earlier build: the lobby captain's GREEN at 8 s, no cover lost).
+- **The crowded hall.** Once loud in the hall, the bot often cannot shoot: a civilian is in every line of fire, so it holds and is shot
+  (seeds 8 / 9 / 10 / 11 deaths at 50-120 s in earlier builds). The teller's robbery and the captain's knock-out are both seen by the
+  hall guards, so the GREEN card goes loud on most seeds.
+- A crew with no loot stands in the exit for ever (the mode needs something carried); the bot leaves at 25 s left even with 0 bars.
+
+**Left:** the quiet route (pickpocket presses that fire; taking GREEN without the hall seeing it; the tape loop or console before the
+crack), fighting in the crowded hall, the exit under the waves (2 of 2 looted runs died or won on the way out), a sweep over more seeds,
+and the record-and-replay check (`tests/bot/heist.sh` is still the Bunker 2 harness).

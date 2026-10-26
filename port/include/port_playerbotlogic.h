@@ -126,6 +126,8 @@ enum PblOp {
                          * 0 = shoot them all again */
     PBL_ESCORT,         /* a = AI list id (0 = off), r = distance: gotos wait while that chr is farther behind */
     PBL_VIA,            /* a waypoint passed through at full speed (speedrun routes): b = 0 pad a / 1 x y z; r (default 120) */
+    PBL_HOLSTER,        /* a = 1: keep the slappers in hand while not fighting (a heist's banker cover: a drawn gun gives Bond
+                         * away); a step that wants an item still gets it. 0 = the best gun again (the default) */
     PBL_COUNT_
 };
 
