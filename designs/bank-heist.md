@@ -1117,7 +1117,7 @@ the stock screen (the pads stay blank until every key is let go).
 **Regression on this branch** (2026-10-26, the machine shared with five other agents): heist determinism solo 3/3 (4366 ticks) and
 co-op 5/5 (4363 / 4364 ticks, view-switched too); win path 59, trapped 17, civilian fail 5 (each now also prints its `HEIST DEBRIEF`
 and `HEIST RECORD` lines: the win path rates COWBOY with every card "knock-out", the trapped run COWBOY out of the dock, the civilian
-fail BUSTED); firstplay 6; bindings 38; gadgets pocket 8, safe 6, piton 17; dam1 IDENTICAL (453 lines); `tests/run_logic_tests.sh`
+fail BUSTED), quiet 11, 007 count 2; firstplay 6; bindings 38; gadgets pocket 8, safe 6, piton 17; dam1 IDENTICAL (453 lines); `tests/run_logic_tests.sh`
 all pass. Netplay determinism not run (the integration pass runs it alone).
 
 Screenshot (AC's machine): `E:\midas-temp\debrief\shots\debrief_panel.png` (and `debrief-debrief_panel.jpg` in the overnight `img`
