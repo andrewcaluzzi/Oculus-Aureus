@@ -597,7 +597,7 @@ static void sendTo(AiG *g, ChrRecord *c, f32 x, f32 y, f32 z, int run, int st)
 }
 
 /* the nearest free guards to (x, z) within range, best first; returns how many. holdCards: a key-card carrier holds his post (a
- * backup call: the others answer it, so the card stays where the player cased it) */
+ * backup call, a missed check-in, a missed watchclock station: the others answer it, so the card stays where the player cased it) */
 static int nearestFree(f32 x, f32 y, f32 z, f32 range, int *out, int max, s32 exclude, int holdCards)
 {
     int i, n = 0, k;
@@ -661,12 +661,13 @@ int portAiBackup(int chrnum)
     return (int) (sBackupN - before);
 }
 
-/* ai.nearest_free(x, y, z [, range]) -> the nearest free tracked guard (up, his own list idle, not busy), -1 none */
+/* ai.nearest_free(x, y, z [, range]) -> the nearest free tracked guard (up, his own list idle, not busy), -1 none. Never a key-card
+ * carrier: the scripts send this guard off his post (a missed watchclock station), and a carrier holds his, as on a backup call */
 int portAiNearestFree(float x, float y, float z, float range, int exclude)
 {
     int who[1];
 
-    if (!portAiOn() || nearestFree(x, y, z, range > 0.0f ? range : 20000.0f, who, 1, exclude, 0) != 1) return -1;
+    if (!portAiOn() || nearestFree(x, y, z, range > 0.0f ? range : 20000.0f, who, 1, exclude, 1) != 1) return -1;
     return sG[who[0]].chrnum;
 }
 
@@ -1002,7 +1003,9 @@ static void checkins(void)
         g->missed = 1;
         if (found(g->chrnum) || alarmIsActive()) continue;
         sCheckinN++;
-        if (nearestFree(g->postx, 0.0f, g->postz, 20000.0f, who, 1, g->chrnum, 0) == 1)
+        /* (a key-card carrier holds his post here too, as on a backup call; the colleague comes from the downed guard's floor: the
+         * post's own height, not 0, so a post above or below the ground floor still gets someone) */
+        if (nearestFree(g->postx, g->posty, g->postz, 20000.0f, who, 1, g->chrnum, 1) == 1)
         {
             AiG *h = &sG[who[0]];
             ChrRecord *hc = gChr(h);
