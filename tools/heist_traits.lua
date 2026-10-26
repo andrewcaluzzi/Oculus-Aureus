@@ -85,12 +85,9 @@ end)
 local function who(chr)
   for role, c in pairs(H.carriers or {}) do if c.chr == chr then return (role:gsub("_", " ")):upper() end end
   for _, g in ipairs(H.guards) do
-    if g.chr == chr then
-      local a = H.M and H.M.AREA_LABEL and H.M.AREA_LABEL[g.area] or g.area or "?"
-      return string.format("#%d %s", chr, (tostring(a):gsub("_", " ")):upper())
-    end
+    if g.chr == chr then return (tostring(g.area or "guard"):gsub("_", " ")):upper() end
   end
-  return "#" .. chr
+  return "GUARD"
 end
 T.who = who
 
@@ -214,16 +211,17 @@ function T.intel()
     intel.text(x + 10, y + 84, "Rookies jump, veterans skip their rounds, some have a price (USE, face to face).", 0x8A1010FF, 0.68, 170)
     return
   end
-  local max = 8
+  local max = 7
   for i = 1, math.min(#seen, max) do
     local e = seen[i]
     local up = spawn.alive(e.chr) and not spawn.down(e.chr)
     local note = e.bribed and "Paid off" or NOTE[e.trait] or e.trait
     local col = e.bribed and 0x206020FF or ((e.trait == "none") and 0x404040FF or 0x8A1010FF)
-    intel.text(x + 10, y + 18 + i * 11, string.format("%s: %s%s", who(e.chr), note, up and "" or " (down)"), up and col or 0x808080FF, 0.66)
+    intel.text(x + 10, y + 18 + i * 11, string.format("%s: %s%s", who(e.chr), note, up and "" or " (down)"), up and col or 0x808080FF, 0.62)
   end
-  if #seen > max then intel.text(x + 10, y + 18 + (max + 1) * 11, string.format("+%d more", #seen - max), 0x404040FF, 0.66) end
-  if paid > 0 then intel.text(x + 120, y + h - 12, string.format("paid off: %d", paid), 0x206020FF, 0.62) end
+  if #seen > max then intel.text(x + 10, y + 18 + (max + 1) * 11, string.format("+%d more", #seen - max), 0x404040FF, 0.62) end
+  intel.text(x + 10, y + h - 12, paid > 0 and string.format("Paid off: %d.  Tags show in your specs.", paid) or "Tags show over them in your specs.",
+             0x204080FF, 0.6)
 end
 
 -- ---------------------------------------------------------------------------------------------------------------------------------

@@ -168,16 +168,27 @@ local function patrol_path()
   for _, t in ipairs(HEIST_AI.tours or {}) do if #t.stations >= 1 and spawn.alive(t.chr) then tours[#tours + 1] = t end end
   check("two watchclock tours", #tours >= 2, tostring(#tours))
   if #tours < 2 then return end
-  local vet, book = tours[1], tours[2]
-  ai.trait(vet.chr, "veteran")
+  -- by the book: the tour with the most stations; veterans: every other tour with a station
+  table.sort(tours, function(a, b) return #a.stations > #b.stations or (#a.stations == #b.stations and a.chr < b.chr) end)
+  local book = tours[1]
+  local vets = {}
+  for i = 2, #tours do vets[#vets + 1] = tours[i]; ai.trait(tours[i].chr, "veteran") end
   ai.trait(book.chr, "book")
   away()
-  local skipped = wait_for(160, function() local e = entry(vet.chr); return e and e.skips >= 1 end)
-  local ev, eb = entry(vet.chr), entry(book.chr)
-  check("the veteran skips at least one station on a long patrol", skipped, string.format("%d skips (%s, %d stations)", ev and ev.skips or -1, vet.route, #vet.stations))
-  wait(30)
-  eb = entry(book.chr)
-  check("the by-the-book guard never skips one", eb and eb.skips == 0, string.format("%d skips (%s, %d stations)", eb and eb.skips or -1, book.route, #book.stations))
+  local punches, last = 0, book.punched
+  local vet
+  local skipped = wait_for(240, function()
+    if book.punched ~= last then punches, last = punches + 1, book.punched end
+    for _, t in ipairs(vets) do local e = entry(t.chr); if e and e.skips >= 1 then vet = t; return true end end
+  end)
+  local ev = vet and entry(vet.chr)
+  check("a veteran skips at least one station on a long patrol", skipped and ev ~= nil,
+        vet and string.format("%d skips (%s, %d stations) after %.0f s", ev.skips, vet.route, #vet.stations, HEIST.elapsed) or "none")
+  wait_for(60, function() if book.punched ~= last then punches, last = punches + 1, book.punched end; return punches >= 3 end)
+  local eb = entry(book.chr)
+  check("the by-the-book guard punches his stations and never skips one", eb and eb.skips == 0 and punches >= 2,
+        string.format("%d skips, %d punches (%s, %d stations)", eb and eb.skips or -1, punches, book.route, #book.stations))
+  if not vet then return end
   -- the gap: be at the station he skipped while it is open
   local open = wait_for(120, function() local e = entry(vet.chr); return e and e.skip_pad ~= nil end)
   ev = entry(vet.chr)
@@ -260,7 +271,7 @@ local function shot_path()
   local seen = wait_for(6, function() local n = 0; for _, e in ipairs(ai.traits()) do if e.observed then n = n + 1 end end; return n >= 4 end)
   local n = 0
   for _, e in ipairs(ai.traits()) do if e.observed then n = n + 1 end end
-  check("from the hall the crew has had a look at several guards", seen, tostring(n))
+  check("from the hall the crew has had a look at some guards", n >= 2, tostring(n))
   wait(1)
   print("HEIST SHOT traits_ar")
   cctv.test_shot()

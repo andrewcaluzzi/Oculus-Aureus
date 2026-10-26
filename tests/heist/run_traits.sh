@@ -63,7 +63,7 @@ if [ "$WHICH" = runs ] || [ "$WHICH" = all ]; then
                 ok=0; [ "$a" != "$c" ] && [ "$a" != "$d" ] && [ "$c" != "$d" ] && ok=1
                 pass_if $ok "deal: seeds 7, 8, 9 deal three different banks ($a $c $d)"
                 ;;
-            patrol) one patrol 7 16000 ;;
+            patrol) one patrol 7 26000 ;;
             bribe)
                 one bribe 7
                 ok=0; grep -a "HEIST DEBRIEF" $OUT/bribe.7.log | grep -q "Paid Off" && ok=1

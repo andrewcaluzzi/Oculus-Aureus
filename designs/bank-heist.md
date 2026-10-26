@@ -1964,3 +1964,107 @@ the cage and its mantrap; the eye-in-the-sky catwalks behind one-way glass and t
 high-roller safe; and the house vault and count rooms below. The research, design and routes are in
 [`job2-casino.md`](job2-casino.md). It is built by `tools/levelgen/build_casino.py` and played from its own build dir
 (`-DGE_LEVELGEN_DIR=port/levelgen_casino`: the slot holds one layout per build). The test is `tests/heist/run_job2.sh`.
+
+## 32. Guard personalities (stream `personalities`, 2026-10-26)
+
+AC approved: each guard, and each card carrier, should be a little puzzle. Every one of the bank's own guards (posted, alarm raisers,
+card carriers) now has a **trait**, dealt by `tools/heist_traits.lua` from the sim RNG when the mode is ready: the same seed deals the
+same guards, and both machines of a session deal the same. `S.personalities = false` gives today's uniform guards exactly (32d).
+
+### 32a. What a player notices
+
+| Trait | Dossier note | How he behaves | The puzzle |
+| --- | --- | --- | --- |
+| ROOKIE | "Rookie - jumpy" | He hears more (x1.6 awareness per noise), his cover meter fills x1.6 faster, and he turns to a noise sooner. On a mere suspicion he radios it in ("W-what was that?" ... "Control, I think I saw something...") and the nearest free colleague walks over to look. In a fight he aims badly (accuracy -40: 60 % of the stock hit chance) and falls back early (`retreat_hp` x1.6). He gives up easily at gunpoint (`surrender` x2, for the hostages stream). | Don't make a sound near him. Or use him: a coin near a rookie pulls two guards. |
+| VETERAN | "Veteran - lazy, deadly" | He hears less (x0.55) and is slow to turn (x1.8, "...Probably nothing."). On a watchclock tour he **skips stations** (each with chance 0.5): his round goes on to the next pad and the station stays unvisited. His own missed check-in is noticed late (x1.5). Once in a fight he is deadly (accuracy +10: twice the hit chance) and holds his ground (`retreat_hp` x0.5). | Slip through the gap he leaves (the debrief's **Clocked Out**). Never fight him. |
+| BY-THE-BOOK | "By the book" | Every noise he notices gets a **full search**: he walks over even when a plain guard would only look from his post, and checks one more pad. He never skips a station. His missed check-in is noticed early (x0.6). In a fight he calls one more guard for backup ("Contact! Requesting backup, all units!"). | Don't lure him. Knock him out last, or be quick: he is missed early. |
+| BRIBABLE | "Has a price" | **USE face to face** (he faces you, you look at him, within 1.5 m) while he suspects nothing: he takes `S.bribe_cost` ($50,000) off the crew's payout and looks away for good. His cover meter never fills again, and he ignores every noise but a shot or the alarm ("Didn't see a thing."). He **hands over his card** if he carries one. Once he is suspicious (any awareness, a cover meter over 0.25 for you, or the alarm) he refuses ("He won't take money now"). | A card for cash: no knock-out, no body, if you reach him clean. |
+| (steady) | "Steady - no quirks" | As before. | |
+
+The deck (weights): steady 4, rookie 2, veteran 2, by-the-book 2, bribable 1 (`S.traits_deck`, or a job's own `JOB.random.traits`).
+Seed 7 at Agent deals 36 guards: 4 rookies, 10 veterans, 10 by-the-book, 4 bribable, 8 steady. Seed 8: 7 / 5 / 10 / 0 / 15.
+
+**Legibility.**
+- **INTEL, PERSONNEL.** The GUARDS dossier becomes the **GUARD FILE**. It lists each guard the crew has *seen* (a Bond had the line to
+  him within 14 m, or watched him on a camera feed) with his post or his card role and his note: "HALL: Rookie - jumpy",
+  "SECURITY CHIEF: Paid off". It shows how many of the file are seen and how many were paid off. Before anyone is seen, it says how to
+  fill it.
+- **The AR specs.** A small tag sits under each seen guard: ROOKIE yellow, VETERAN orange, BY-THE-BOOK cyan, BRIBABLE gold, PAID OFF
+  green. It is the specs' mark layer, so Shift+F3 hides it with the rest. A steady guard gets no tag.
+- **Barks.** Each trait says its own lines, as bubbles over him through the same `guard_bark` event:
+  - the rookie: "W-what was that?", "Oh God - hey! HEY!", "It was nothing... right? Right.";
+  - the veteran: "...Probably nothing.", "Fine. I'll look.", "Told you. Nothing.";
+  - by the book: "Noise. Logging it.", "Investigating, per procedure.", "Area clear. Logging it, Control.";
+  - a bribed guard: "I didn't hear anything.".
+
+  Each trait also adds its own stock ROM sound, by id, on top of the bark's (presentation, `port_gamesfx.c`): the rookie a high gasp
+  (`GET_HIT_MALE1_SFX` x1.45), the veteran a smoker's cough (`COUGH_SFX` x0.8), by the book a radio squelch as he logs it
+  (`RADIO_SFX`).
+- **The DEBRIEF.** A "Bribes" row (the count and the money), "- bribes $X" in the payout line, and "bribe" as a bribed card's "how".
+  Three commendations: **Paid Off** (bought a guard's blind eye), **Clocked Out** (a Bond came within 3.2 m of a station a veteran
+  skipped, within 45 s of the skip), **Profiler** (watched every guard on the file). That makes 18 with the traits on; the panel's
+  medal rows close up to fit six.
+
+### 32b. How it works
+
+`port/src/port_traits.c` keeps a trait per guard and a table of per-trait values (`port/include/port_traits.h` `TV_*`): the hearing
+gain, the cover-meter rate, the turn time, the check-in delay, the retreat threshold, the surrender ease, extra search pads, extra
+backup and the full search. Its Lua bindings, `ai.trait*` (`port/luavm/port_luavm_traits.c`), are added to the `ai` table. The layers
+read the values through one-line hooks:
+- `port_ai.c`: in `portAiHear`, the noise gain and a bribed guard's deafness; in the turn step, the turn time and the full search; the
+  search pads, the backup count and the check-in delay; the rookie's radio after his "Huh?"; the veteran's skip in the patrol step;
+  each bark's line and sound.
+- `port_combat.c`: `retreat_hp` x the trait (two places).
+- `port_heist.c`: the cover meter's rate x the trait in `coverScan` (0 = he looks away, which also ignores an instant act); the tick,
+  the stage reset and the hash.
+
+The aim is the stock accuracy rating, set on the chr when he gets his trait (the base is kept so it can be restored). `chraction.c`
+scales the hit chance by (1 + r / 10) above 0 and by (100 + r) / 100 below.
+
+- **The rookie's radio.** 0.6 s after his "Huh?" (the bark limit), at most once in `radio_cooldown` (20 s), he says "Control, I think
+  I saw something...". The nearest free guard (`ai.nearest_free`) within `radio_range` (1600) is sent (`ai.send`) to the noise point
+  ("Copy. I'll swing by and look."). Not after the alarm.
+- **The veteran's skip.** The patrol step picks his next pad. If it is a watchclock station (`ai.trait_stations`, the map's
+  `M.STATIONS`) and a sim RNG draw is under `skip` (0.5), he walks straight on to the pad after it. The skip opens a **gap** at that
+  station for 45 s, and a Bond within 320 units of it in that time counts once ("Clocked Out"). The Lua watchclock (`heist_ai.lua`)
+  punches by proximity, so a skipped station is simply not punched. His round counts as missed only if he punches none for three times
+  `station_late`.
+- **What the crew has seen.** Every 15 ticks, a Bond in play with an unobstructed stan line to a traited guard within 1400 units (300
+  in height) marks him as seen by that Bond. The Lua side adds any guard a Bond watches on a camera feed (`cctv.viewing` +
+  `cctv.sees`).
+- **Bribes.** `ai.trait_bribe(chr, p, cost)` returns "ok", "refused", "no" or "already". C makes the test: the alarm, `cover.alert`,
+  his cover meter for that Bond at 0.25 or more, his awareness state suspicious or higher, or his level at 0.15 or more. The card goes
+  over with the pickpocket's `gadget.lift_key`. C keeps the bribes' total, and `finish()` takes it off the payout (one line, after the
+  planning spend).
+
+**Determinism.** With the traits on, the deal draws `math.random` (the sim RNG) once per dealt guard, in placement order. The skip draws
+`randomGetNext` only for a veteran at a station. The traits, bribes, observations, skips, gaps, the rookie's pending radio and the
+counters are all in `portTraitHash`. It is folded into the heist state hash **only while the layer is on**, so with it off the hash is
+exactly the one from before this stream. `port_traits.c` is a SIM file for the snapshot (`scripts/port/snap_embed.py`). The dossier and
+the AR tags only read. With the traits off, every value is the neutral one (x1 or +0; a multiply by 1.0 is exact), nothing is drawn,
+and `heist_traits.lua` is not even included.
+
+### 32c. Settings and API
+
+Settings:
+- `S.personalities`: true. A test's `HEIST_SETTINGS` without the key gets false, as with `randomise`.
+- `S.bribe_cost`: 50000.
+- `S.bribe_reach`: 150.
+- `S.traits_deck`: weights by trait name.
+- `S.traits_tune`: `ai.trait_tune` names: `skip` 0.5, `radio_cooldown` 20, `radio_range` 1600, `acc_rookie` -40, `acc_veteran` 10.
+
+Lua:
+- `ai.trait(chr [, name])`: get the trait, or set it ("none", "rookie", "veteran", "book", "bribable").
+- `ai.traits()` -> { {chr, trait, observed, seen_by, bribed, skips, clocked, skip_pad}, ... }.
+- `ai.trait_val(chr, field)`: hear, susp, turn, checkin, retreat, surrender, pads, backup, full.
+- `ai.trait_stats()` -> {skips, clocked, bribes, bribe_cost, radios, observed, and a count per trait}.
+- `ai.trait_stations{pads}`, `ai.trait_observe(chr, p)`, `ai.trait_bribe(chr, p, cost)`, `ai.trait_enable(on)`, `ai.trait_on()`,
+  `ai.trait_tune{}`.
+- `HEIST_TRAITS.try_bribe(p)` is the USE press.
+
+C, which other streams can call through weak declarations: `portTraitVal(chrnum, TV_*)` and `portTraitOf(chrnum)`. **The hostages
+stream** can scale its surrender threshold by `portTraitVal(chr, TV_SURRENDER)`: rookie 2, veteran 0.5, by the book 0.8, bribable 1.2.
+
+### 32d. Tests
+
+TESTS_PLACEHOLDER
