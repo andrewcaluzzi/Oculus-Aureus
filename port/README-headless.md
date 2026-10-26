@@ -20,9 +20,17 @@ Code: `port/src/port_hidden.c` (the switch and its defaults), with small `portHi
 | Keyboard, mouse | SDL only delivers these to a focused window, and a hidden window never gets the focus. The mouse is never captured, warped or hidden (`portMouseApplyCapture`, the cursor re-assert). |
 | Other | `GE_NOINISAVE=1` and `GE_NOMSGBOX=1` unless set. On Windows the process runs at below-normal priority. Each default applies only when the variable isn't set already. |
 
-The log shows it twice:
+The log shows it three times:
 - `ge: hidden: window never shown, audio dummy, no controllers, window 1280x720, ini not written`
 - `SDL: hidden mode: the window is never shown (flags 0x...)`
+- `ge: hidden: 0 joysticks visible (every SDL backend off)`
+
+Hidden mode changes no sim state. The dam1 oracle is identical with `GE_HIDDEN=1`, and `port_hidden.c` is classed as
+PRES in `scripts/port/snap_embed.py`.
+
+First Windows run (2026-10-26, RTX 2080, driver 617.14): `SMOKE PASS` in 18 s. The pid owned up to 5 top-level
+windows and none were visible. 0 joysticks, audio on `dummy`, and the heist rendered normally into the hidden
+window's back buffer, so no FBO fallback was needed.
 
 The flags must include `SDL_WINDOW_HIDDEN` (0x8) and must not include `SDL_WINDOW_SHOWN` (0x4).
 
