@@ -440,7 +440,8 @@ void portCctvPassMatrices(void)
  * render reads and the sim's own next render of that chr recomputes.
  * Bonds too (PROP_TYPE_VIEWER with a body: co-op and netplay keep one per Bond, posed every tick): the watching Bond's own body is never
  * onscreen in his own view (he sees through his eyes), so a camera that covers him shows him only through this draw; his partner is
- * drawn here when Bond's own view does not have him. A solo Bond has no body (bondviewRemovePlayerBody), so he is not on the feed. */
+ * drawn here when Bond's own view does not have him. A solo Bond has no body (bondviewRemovePlayerBody): port_cctvbody.c keeps a
+ * presentation-only one for the feeds (portCctvBodyDraw, after the chrs). */
 extern ModelRenderData D_8002CCBC;
 extern void subcalcmatrices(ModelRenderData *arg0, Model *arg1);
 extern void instcalcmatrices(ModelRenderData *arg0, Model *arg1);
@@ -653,6 +654,18 @@ static Gfx *cctvDrawChrsLoop(Gfx *gdl, s32 *pn, u8 *top)
         n++;
         if (prop->type == PROP_TYPE_VIEWER)
         {
+            g_PortCctvBonds++;
+        }
+    }
+    if (top - g_GfxMemPos >= CV_POOL_CHR)
+    {   /* the solo Bond (no chr: port_cctvbody.c keeps a presentation-only body for the feeds) */
+        extern Gfx *portCctvBodyDraw(Gfx *gdl, const u8 *roomOn, const coord3d *eye, const coord3d *look, s32 *drawn);
+        s32 drawn = 0;
+
+        gdl = portCctvBodyDraw(gdl, sRoomOn, &sEye, &sLook, &drawn);
+        if (drawn)
+        {
+            n++;
             g_PortCctvBonds++;
         }
     }
