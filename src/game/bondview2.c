@@ -11679,6 +11679,11 @@ void bondviewMovePlayerUpdateViewport(s8 stick_x, s8 stick_y, u16 buttons)
 
             portGadgetsBondTick(get_cur_playernum(), &stick_x, &stick_y, &buttons);
         }
+        {   /* PORT: heist planning (port_planning.c): before the clock starts the crew is held and the buttons drive the board (sim) */
+            extern int portPlanningBondTick(int p, s8 *sx, s8 *sy, u16 *buttons);
+
+            portPlanningBondTick(get_cur_playernum(), &stick_x, &stick_y, &buttons);
+        }
         {   /* PORT: coop (job CO-OP-EXITS): a Bond held at the level exit cannot act (netplay already zeroed its record; this covers local co-op) */
             extern int portCoopBondHeld(int p);
 

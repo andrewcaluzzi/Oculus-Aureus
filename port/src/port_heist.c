@@ -120,6 +120,11 @@ void portHeistStageReset(void)
 
         portInterlockReset();
     }
+    {
+        extern void portPlanningReset(void);   /* port_planning.c: the planning hold and its input (section 27) */
+
+        portPlanningReset();
+    }
 }
 
 static void heistScan(void)
@@ -2998,6 +3003,11 @@ unsigned portHeistStateHash(void)
         extern unsigned portInterlockHash(void);   /* port_interlock.c: the interlock groups (section 29) */
 
         h = h * 16777619u + portInterlockHash();
+    }
+    {
+        extern unsigned portPlanningHash(void);   /* port_planning.c: the planning hold and its input */
+
+        h = h * 16777619u + portPlanningHash();
     }
     return h;
 }

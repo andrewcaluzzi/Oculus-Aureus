@@ -154,6 +154,7 @@ local S = {
   ar              = true,    -- the Q-Branch specs (tools/heist_ar.lua, section 20): suspicion "?" / "!", bubbles, key brackets, waypoints
   interlock       = true,    -- the mantrap and sally-port interlocks (tools/heist_interlock.lua, section 29); a table tunes them
   debrief         = true,    -- the end-of-heist DEBRIEF (tools/heist_debrief.lua, section 26): rating, payout, stats, commendations, records
+  planning        = true,    -- the PLANNING board before the clock starts (tools/heist_planning.lua, section 27); off in automated runs
   -- difficulty (mission.difficulty(): 0 Agent .. 3 007). force: the share of the full force above (posted guards, raisers, vault
   -- guards, wave cap, squads, the response); acc: the guards' accuracy rating (0 = stock, 5 = 1.5x, 10 = 2x: the stock aim is scaled by
   -- 1 + acc / 10); wave: guards per wave. (AC delegated, Claude's call 2026-10-25, revisit: the player bot won 10/10 with the carriers
@@ -1165,6 +1166,7 @@ local function finish(win, msg)
   local score = math.max(0, H.loot + bonus - killed * S.civ_fine)
   if not win then score = 0 end
   local best = ""
+  if win and H.plan_cost then score = math.max(0, score - H.plan_cost) end   -- (the planning spend, section 27)
   if win and score > HEIST_BEST then HEIST_BEST = score; best = "  NEW BEST" end
   log("%s: %s | loot %s (%d bars, %d cash) + quiet bonus %s - %d civilians x %s = SCORE %s | best this session %s | %d s, alarm %s",
       win and "WIN" or "FAIL", msg, money(H.loot), H.bars, H.cash, money(bonus), killed, money(S.civ_fine), money(score),
@@ -1326,6 +1328,7 @@ on("tick", function(dt)
     if not ok then log("setup step failed: %s", tostring(err)) end
   end
   if H.intel then H.intel.tick(dt) end   -- the INTEL board's content and the hints (presentation; tools/heist_intel.lua)
+  if H.plan and H.plan.tick(dt) then return end   -- the PLANNING phase holds the start (tools/heist_planning.lua, section 27)
   if not H.ready then return end
   if H.hot and S.siren_latch and not alarm.active() then alarm.start() end
   if H.cam_off_until and H.elapsed >= H.cam_off_until then
@@ -1347,6 +1350,8 @@ on("tick", function(dt)
   if hud_acc >= 0.5 then hud_acc = 0; if not H.ended then refresh_hud(); intel_tick() end end
 end)
 
+-- the PLANNING phase (designs/bank-heist.md section 27): before the gadgets (it empties their loadout until the plan is confirmed)
+include("heist_planning")
 -- the crew's gadgets (designs/bank-heist.md section 21): their own handlers, after the heist's (their state rides in mode.state)
 include("heist_gadgets")
 -- the door interlocks: the staff entrance mantrap and the sally port (designs/bank-heist.md section 29; their state rides in mode.state)

@@ -63,7 +63,7 @@ typedef struct {
     s32 tn;
 } IntelPool;
 
-static IntelPool *sPool[2];      /* 0 static (the map, the fixed notes), 1 live (rebuilt by the script on its clock) */
+static IntelPool *sPool[3];      /* 0 static (the map, the fixed notes), 1 live (rebuilt by the script on its clock), 2 the plan (below) */
 static s32 sEnabled;
 static s32 sEpoch = -1;
 static char sTitle[96];
@@ -78,6 +78,11 @@ static s32 sAtPage, sAtFloor, sAtLive;
 
 /* the view: this machine's */
 static s32 sOpen, sPage, sFloor = -1, sBrief, sHoldMode, sFrame;
+/* PLAN MODE (the heist's planning phase, section 27; tools/heist_planning.lua through plan.view): the board is up on every machine, its
+ * page and floor follow the plan's sim state (the crew's buttons, port_planning.c), the INTEL key and the page keys are left to the sim,
+ * and the footer is the script's. Pool 2 holds the plan's pages (plan.clear / plan.at): intel.clear never touches it. */
+static s32 sPlanOn;
+static char sPlanFoot[192];
 static u8 sPrevIntel, sPrevNav[4];
 static s32 sAutoN = -1;
 static s32 sAutoFrame[32];
@@ -114,7 +119,9 @@ static void intelEpochCheck(void)
         sBrief = 0;
         sPage = 0;
         sFloor = -1;
+        sPlanOn = 0;
         intelResetAll();
+        if (sPool[2]) { sPool[2]->n = 0; sPool[2]->tn = 0; }
     }
 }
 
@@ -124,8 +131,9 @@ static int intelPools(void)
     {
         sPool[0] = (IntelPool *) calloc(1, sizeof(IntelPool));
         sPool[1] = (IntelPool *) calloc(1, sizeof(IntelPool));
+        sPool[2] = (IntelPool *) calloc(1, sizeof(IntelPool));
     }
-    return sPool[0] != NULL && sPool[1] != NULL;
+    return sPool[0] != NULL && sPool[1] != NULL && sPool[2] != NULL;
 }
 
 void portIntelEnable(int on)  { intelEpochCheck(); sEnabled = on ? 1 : 0; }
@@ -176,8 +184,38 @@ void portIntelAt(int page, int floor, int live)
     intelEpochCheck();
     sAtPage = page - 1;
     sAtFloor = floor - 1;   /* -1: every floor (a page item) */
-    sAtLive = live ? 1 : 0;
+    sAtLive = live == 2 ? 2 : (live ? 1 : 0);
 }
+
+/* plan.clear(): drop the plan's pages (pool 2) */
+void portIntelPlanClear(void)
+{
+    intelEpochCheck();
+    if (sPool[2]) { sPool[2]->n = 0; sPool[2]->tn = 0; }
+}
+
+/* plan.view(on, page, floor, footer): plan mode on (the board up, at that page and floor) or off (the board put away) */
+void portIntelPlanView(int on, int page, int floor, const char *footer)
+{
+    intelEpochCheck();
+    if (on)
+    {
+        sPlanOn = 1;
+        sOpen = 1;
+        sBrief = 0;
+        if (page >= 1 && page <= IN_PAGES) sPage = page - 1;
+        if (floor >= 1 && floor <= IN_FLOORS) sFloor = floor - 1;
+        snprintf(sPlanFoot, sizeof(sPlanFoot), "%s", footer ? footer : "");
+    }
+    else if (sPlanOn)
+    {
+        sPlanOn = 0;
+        sOpen = 0;
+        portConLogf("ge: intel: plan mode off (the board is put away)\n");
+    }
+}
+
+int portIntelPlanOn(void) { return sPlanOn; }
 
 static IntelItem *intelNew(int kind, const char *text)
 {
@@ -261,7 +299,7 @@ void portIntelMarker(float x, float y, const char *kind, unsigned int rgba, int 
     it->a = c16(x); it->b = c16(y); it->c = (s16) (size < 2 ? 2 : size); it->shape = (u8) intelShape(kind); it->rgba = rgba;
 }
 
-int portIntelItemCount(int live) { return (sPool[0] && sPool[1]) ? sPool[live ? 1 : 0]->n : 0; }
+int portIntelItemCount(int live) { return (sPool[0] && sPool[1] && sPool[2]) ? sPool[live == 2 ? 2 : (live ? 1 : 0)]->n : 0; }
 
 /* ---- the view (this machine) --------------------------------------------------------------------------------------------------- */
 
@@ -324,8 +362,8 @@ int portIntelInput(int intel, int prev, int next, int up, int down)
     const u8 nav[4] = { (u8) (prev != 0), (u8) (next != 0), (u8) (up != 0), (u8) (down != 0) };
     int i, open;
 
-    if (!portIntelAvailable())
-    {
+    if (!portIntelAvailable() || sPlanOn)
+    {   /* (plan mode: the sim takes the page keys as the plan's tabs; the INTEL key does nothing until the plan is confirmed) */
         sPrevIntel = (u8) (intel != 0);
         memcpy(sPrevNav, nav, sizeof(nav));
         return 0;
@@ -765,7 +803,7 @@ static Gfx *drawChrome(Gfx *g)
 
             g = bfill(g, tx + 1, cur ? 8 : 12, tx + tw - 3, 30, cur ? 0xF2EBD0FFu : 0xB8B098FFu);
             snprintf(buf, sizeof(buf), "%d %s", i + 1, sPageTitle[i]);
-            g = stext(g, X(tx + 6), Y(cur ? 13 : 16), buf, cur ? 0x9A1010FFu : 0x404040FFu, sSc, 0);
+            g = stext(g, X(tx + (n > 6 ? 3 : 6)), Y(cur ? 13 : 16), buf, cur ? 0x9A1010FFu : 0x404040FFu, n > 6 ? sSc * 0.72f : sSc, 0);
         }
     }
     /* the floor list on the map page */
@@ -784,7 +822,8 @@ static Gfx *drawChrome(Gfx *g)
     }
     /* footer */
     g = bfill(g, 14, BH - 21, BW - 14, BH - 8, 0x000000A0u);
-    g = stext(g, X(20), Y(BH - 19), sBrief ? "BRIEFING  -  press INTEL (Tab / Back) to close and get to work. It's on that key all heist."
+    if (sPlanOn) g = stext(g, X(20), Y(BH - 19), sPlanFoot, 0xFFE060FFu, sSc * 0.9f, 0);
+    else g = stext(g, X(20), Y(BH - 19), sBrief ? "BRIEFING  -  press INTEL (Tab / Back) to close and get to work. It's on that key all heist."
                                            : "INTEL (Tab / Back): close     PAGE: wheel  , .  LB/RB     FLOOR: Up/Down  Q [  gadget buttons",
               sBrief ? 0xFFE060FFu : 0xC8D4E8FFu, sSc, 0);
     if (sTitle[0])
@@ -882,6 +921,7 @@ Gfx *portIntelRender(Gfx *gdl)
     g = drawChrome(g);
     g = drawPool(g, sPool[0], sPage, sFloor);
     g = drawPool(g, sPool[1], sPage, sFloor);
+    g = drawPool(g, sPool[2], sPage, sFloor);
     g = drawBonds(g);
     portTextScale(1.0f);
     gSPEndDisplayList(g++);
