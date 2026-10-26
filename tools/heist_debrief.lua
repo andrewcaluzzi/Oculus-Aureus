@@ -101,6 +101,7 @@ local function how_got(k)
   if (gstats().lifts or 0) > k.lifts then return "pickpocket" end
   for _, c in pairs(H.carriers) do
     if c.chr and (c.flags & k.flags) ~= 0 then
+      if H.traits and H.traits.bribed(c.chr) then return "bribe" end   -- (section 32)
       if D.searched[c.chr] then return "knock-out" end
       if D.robbed[c.chr] then return "intimidation" end
       if not spawn.alive(c.chr) then return "off a body" end
@@ -248,6 +249,7 @@ function H.debrief_end(win, msg, bonus, killed)
     { "Clean Hands", "No civilian hurt", win and R.civ_hurt == 0 and R.civ_killed == 0 },
     { "Sandman", "Five knock-outs, no kills", R.guards_ko + R.staff_ko >= 5 and R.guards_killed == 0 and R.civ_killed == 0 },
   }
+  if H.traits and H.traits.debrief then H.traits.debrief(R, med) end   -- (section 32: bribes, a veteran's skipped round)
   R.commendations = {}
   for _, m in ipairs(med) do if m[3] then R.commendations[#R.commendations + 1] = m[1] end end
   local line = "HEIST DEBRIEF " .. jenc(R)
@@ -271,11 +273,13 @@ function H.debrief_end(win, msg, bonus, killed)
     { "Route", #R.route > 0 and table.concat(R.route, " > ") or "-" },
   }
   card_rows(rows)
+  if H.traits and H.traits.rows then H.traits.rows(R, rows) end   -- (section 32)
   local medals = {}
   for _, m in ipairs(med) do medals[#medals + 1] = { m[1]:upper(), m[2], m[3] and true or false } end
   local dn = DIFF_NAME[dif] or "?"
   local note = string.format("Loot %s + quiet bonus %s - fines %s", money(R.loot), money(R.quiet_bonus), money(R.fines))
   if R.planning > 0 then note = note .. string.format(" - planning costs %s", money(R.planning)) end   -- (section 27)
+  if (R.bribe_cost or 0) > 0 then note = note .. string.format(" - bribes %s", money(R.bribe_cost)) end   -- (section 32)
   if R.crew > 1 and win then note = note .. string.format(".  %s a head", money(R.payout // R.crew)) end
   if debrief and debrief.set then
     debrief.set{

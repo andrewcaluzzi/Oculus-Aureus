@@ -1753,6 +1753,11 @@ static lua_State *portLuaState(void)
 
         portLuaAiRegister(sL);
     }
+    {   /* guard personalities: ai.trait*, added to the ai table (port_luavm_traits.c, port/src/port_traits.c; section 32) */
+        extern void portLuaTraitsRegister(lua_State *L);
+
+        portLuaTraitsRegister(sL);
+    }
     {   /* the heist's combat layer: combat.* (port_luavm_combat.c, port/src/port_combat.c; section 24) */
         extern void portLuaCombatRegister(lua_State *L);
 

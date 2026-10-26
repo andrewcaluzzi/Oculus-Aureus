@@ -684,6 +684,7 @@ function heist_intel(ctx)
     draw_plan_live()
     draw_map_live()
     draw_keys_live()
+    if H.traits and H.traits.intel then H.traits.intel() end   -- (section 32: the GUARD FILE dossier on PERSONNEL)
   end
 
   -- ---------------------------------------------------------------------------------------------------------------------------

@@ -11,6 +11,7 @@ local P1 = mode.env_flag("GE_HEIST_DET_P1")
 HEIST_SETTINGS = {
   test = true,
   randomise = mode.env_flag("GE_HEIST_TEST_RANDOM"),   -- (section 25: GE_HEIST_TEST_RANDOM=1 runs the scenario on a randomised bank)
+  personalities = mode.env_flag("GE_HEIST_TEST_TRAITS"),   -- (section 32: GE_HEIST_TEST_TRAITS=1 deals the guard personalities)
   crack_time = 14, jam_chance = 0, jam_every = 1000,   -- the jam is forced (HEIST.force_jam) at a fixed point
   vault_time = 16, klaxon_at = 5,
   wave_first = 3, wave_interval = 8,

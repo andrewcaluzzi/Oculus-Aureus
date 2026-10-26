@@ -38,7 +38,7 @@ extern const char *portRootPath(const char *name);
 extern FILE *portRootFopen(const char *name, const char *mode);
 
 #define DB_ROWS    22
-#define DB_MEDALS  15
+#define DB_MEDALS  18   /* 15, and 3 more with the guard personalities (section 32): six rows, a little tighter */
 #define DB_DL_GFX  (40 * 1024)
 #define DB_DL_SAFE 400
 #define DB_RECORDS "Data/Saves/heist_records.json"
@@ -660,7 +660,7 @@ static Gfx *drawPanel(Gfx *g)
     }
     for (i = 0; i < sDb.medals; i++)
     {
-        const s32 cx = 30 + (i % 3) * 196, cy = 328 + (i / 3) * 26;
+        const s32 cx = 30 + (i % 3) * 196, cy = 328 + (i / 3) * (sDb.medals > 15 ? 21 : 26);
         const DbMedal *m = &sDb.medal[i];
 
         if (cy > 438) break;

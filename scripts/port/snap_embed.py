@@ -44,6 +44,8 @@ SIM_PORT = {
     'port_interlock.c',
     # the heist's combat layer: cover, peeks, flanks (designs/bank-heist.md section 24)
     'port_combat.c',
+    # guard personalities: the deal, bribes, watchclock skips, what the crew has observed (designs/bank-heist.md section 32)
+    'port_traits.c',
 }
 # port/src files that are presentation or transport: never rewound.
 PRES_PORT = {
