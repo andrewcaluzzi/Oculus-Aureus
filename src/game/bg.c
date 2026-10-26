@@ -809,9 +809,10 @@ Gfx *sub_GAME_7F0B3C8C(Gfx *gdl)
         s32 n = g_BgNumberOfRoomsDrawn;
         s32 k;
         PropRecord *plr = getCurrentPlayerProp();
-        extern s32 portCctvPassActive(void);
-        extern coord3d *portCctvEye(void);
-        coord3d *refpos = portCctvPassActive() ? portCctvEye() : (plr != NULL ? &plr->pos : NULL);   /* a CCTV feed sorts from the camera */
+        /* (a CCTV feed sorts from Bond too: this order is the order the props' alpha pass draws in, and drawing a prop is sim: it must
+         * be the canonical one on every machine, see bgCctvListBuild. The feed's own rooms are only geometry; their glass may sort
+         * imperfectly against each other.) */
+        coord3d *refpos = plr != NULL ? &plr->pos : NULL;
 
         if (n > 128)
         {
@@ -1560,14 +1561,27 @@ static void bgCctvListBuild(s32 pl)
         return;
     }
     if (pl >= 0 && pl < 4) {
+        /* The feed's world draw = EXACTLY the canonical draw (the sim walk's list, in its order, with its props) plus the camera's rooms the
+         * sim walk did not reach, geometry only (bgRenderListMerge's rule). Drawing a prop is sim: a monitor's screen runs its tv command
+         * list (propobj.c process_monitor_animation_microcode: RANDSETCMDLIST draws the sim RNG and moves the screen's offset), a gun's
+         * muzzle flash draws the RNG (model.c), a model's matrices are read back. The other machine draws this Bond's pass from the
+         * canonical list, so this one must too, or it desyncs (designs/bank-heist.md 23c: the camera list alone skipped the security
+         * room's monitors, the RNG parted at tick 1245). Bond's own rooms land outside the camera's frustum or behind its walls. */
+        n = g_BgNumberOfRoomsDrawn;   /* the canonical (sim) walk ran last: the live list is its list */
+        if (n > 204) {
+            n = 204;
+        }
+        memcpy(s_RenderList[pl], dword_CODE_bss_8007FFA0, (size_t) n * sizeof(s_bound_info));
         memset(s_GeomOnlyPl[pl], 0, sizeof(s_GeomOnlyPl[pl]));
         for (i = 0; i < s_CctvN; i++) {
             s32 room = s_CctvList[i].roomid;
 
-            s_RenderList[pl][n++] = s_CctvList[i];
             ids[i] = room;
             if (room >= 0 && room < MAXROOMCOUNT && !g_BgRoomInfo[room].room_rendered) {   /* the sim walk's flags: it ran last */
-                s_GeomOnlyPl[pl][room] = 1;
+                if (n < 204) {
+                    s_RenderList[pl][n++] = s_CctvList[i];
+                    s_GeomOnlyPl[pl][room] = 1;
+                }
                 geom++;
             }
         }

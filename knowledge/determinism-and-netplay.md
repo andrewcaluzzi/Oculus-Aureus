@@ -69,6 +69,7 @@ a live log offline is the independent check; it is how the blood-animation clock
 | 13 | `objTick` portal/window toggles ran only in the local pass; they feed `PROPFLAG_ONSCREEN` | `propobj.c` | run in both passes |
 | 14 | A gun dropped by a dying guard floated in co-op: the US projectile owner rule gave physics to "the pass of the player who fired it", and no Bond's pass is a guard's | `propobj.c` `objTick` | the EU/JP rule (owner must be a real player) |
 | 15 | Photo objective vs render: it reads matrices only drawn ticks refresh, so a replay that draws different ticks differs | `objective_status.c` | replays draw the same ticks ([objectives-and-setup.md](objectives-and-setup.md)) |
+| 16 | The CCTV feed's world draw was the **camera walk's list only**, sorted from the camera: the watching machine skipped the security room's monitors, whose draw runs their tv command list (`RANDSETCMDLIST` draws the sim RNG) | `src/game/bg.c` `bgCctvListBuild` | the canonical list (order, props) plus the camera's extra rooms geometry only; a presentation pass may add geometry, never drop or reorder a prop draw |
 
 Upstream already had one of these classes fixed for high frame rates: guard aim accumulates per fire event with a
 fixed cadence (`GUARD_AIM_CADENCE`), not per sub-field delta ([guards-and-ai.md](guards-and-ai.md)).

@@ -437,7 +437,10 @@ void portCctvPassMatrices(void)
  * Bond) is posed from its current animation into fresh matrices (Bond-camera space, so the feed's projection places it), drawn with the
  * gun in its right hand, and its Model struct (render_pos, the loaded animation frames) put back byte for byte, so nothing the sim reads
  * changes (render_pos is only read for onscreen chrs anyway). Left behind: the model's LOD / BSP node choices (its rwdata), which only a
- * render reads and the sim's own next render of that chr recomputes. */
+ * render reads and the sim's own next render of that chr recomputes.
+ * Bonds too (PROP_TYPE_VIEWER with a body: co-op and netplay keep one per Bond, posed every tick): the watching Bond's own body is never
+ * onscreen in his own view (he sees through his eyes), so a camera that covers him shows him only through this draw; his partner is
+ * drawn here when Bond's own view does not have him. A solo Bond has no body (bondviewRemovePlayerBody), so he is not on the feed. */
 extern ModelRenderData D_8002CCBC;
 extern void subcalcmatrices(ModelRenderData *arg0, Model *arg1);
 extern void instcalcmatrices(ModelRenderData *arg0, Model *arg1);
@@ -448,10 +451,16 @@ extern void modelSetDistanceDisabled(s32 param_1);
 extern PropRecord *chrpropGetActiveTail(void);
 extern Gfx *bgScissorCurrentPlayerViewDefault(Gfx *gdl);
 static s32 g_PortCctvExtraChrs;   /* chrs the last feed pass drew this way (tests) */
+static s32 g_PortCctvBonds;       /* ... of them Bonds (their co-op bodies: the watching Bond himself, his partner) */
 
 int portCctvExtraChrs(void)
 {
     return g_PortCctvExtraChrs;
+}
+
+int portCctvExtraBonds(void)
+{
+    return g_PortCctvBonds;
 }
 
 #define CV_CHR_MAX   40
@@ -485,6 +494,7 @@ Gfx *portCctvDrawChrs(Gfx *gdl)
     {
         return gdl;
     }
+    g_PortCctvBonds = 0;
     gdl = bgScissorCurrentPlayerViewDefault(gdl);
     modelSetDistanceDisabled(1);   /* full detail: the LOD distance is Bond's, not the camera's */
     /* The model draw takes numbers from the SIM RNG (model.c: a gun's muzzle flash, its size and spin), and this draw happens only on the
@@ -572,9 +582,13 @@ static Gfx *cctvDrawChrsLoop(Gfx *gdl, s32 *pn, u8 *top)
         PropRecord *w;
         f32 dx, dy, dz;
 
-        if (prop->type != PROP_TYPE_CHR || (prop->flags & PROPFLAG_ONSCREEN) || prop->rooms[0] == 0xFF || !sRoomOn[prop->rooms[0]])
+        if ((prop->type != PROP_TYPE_CHR && prop->type != PROP_TYPE_VIEWER) || prop->rooms[0] == 0xFF || !sRoomOn[prop->rooms[0]])
         {
             continue;
+        }
+        if ((prop->flags & PROPFLAG_ONSCREEN) && !(prop->type == PROP_TYPE_VIEWER && getPlayerPointerIndex(prop) == sPassPl))
+        {
+            continue;   /* the world draw drew it (Bond's own body never is: he sees through his eyes) */
         }
         chr = prop->chr;
         if (chr == NULL || (model = chr->model) == NULL || model->obj == NULL || (chr->chrflags & CHRFLAG_HIDDEN) || chr->fadealpha <= 0)
@@ -637,6 +651,10 @@ static Gfx *cctvDrawChrsLoop(Gfx *gdl, s32 *pn, u8 *top)
         model->render_pos = saved;
         rwRestore(model, sRwChr, rwChr);
         n++;
+        if (prop->type == PROP_TYPE_VIEWER)
+        {
+            g_PortCctvBonds++;
+        }
     }
     *pn = n;
     return gdl;
