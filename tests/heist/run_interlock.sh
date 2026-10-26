@@ -6,7 +6,7 @@
 # Logs in ${LOGDIR:-/tmp}/heist_interlock_<run>.log.
 # usage: run_interlock.sh   -> the HEIST lines of each run; each run ends with "HEIST DONE <n> passed, <m> failed"
 cp /home/dev/project/tests/heist/heist_interlock.lua /home/dev/project/build_pc/Data/Scripts/modes/heist_interlock_test.lua
-for f in mode_heist.lua:heist.lua heist_lib.lua heist_bank_map.lua heist_ai.lua heist_interlock.lua heist_gadgets.lua heist_guide.lua heist_intel.lua; do
+for f in mode_heist.lua:heist.lua heist_lib.lua heist_bank_map.lua heist_ai.lua heist_interlock.lua heist_gadgets.lua heist_guide.lua heist_intel.lua heist_randomiser.lua heist_planning.lua; do
     src=${f%%:*}; dst=${f#*:}
     cp /home/dev/project/tools/$src /home/dev/project/build_pc/Data/Scripts/modes/$dst
 done
@@ -19,6 +19,7 @@ one() {
     log=$LOGDIR/heist_interlock_$run.log
     flags=""
     [ $run != basic ] && flags="GE_IL_$(echo $run | tr a-z A-Z)=1"
+    [ $run = delivery ] && flags="$flags GE_PLANNING=1"   # (the planning board's SALLY PORT entry on the delivery day)
     env $flags DISPLAY=:99 GE_MODE=heist_interlock_test GE_STAGE=levelgen GE_SKIPINTRO=1 GE_NOINISAVE=1 GE_FIXEDTICK=1 GE_TICKHZ=60 \
         GE_NOSLEEP=1 GE_CLOCKSCALE=${SCALE:-20} GE_FRAMES=2000000000 GE_SEED=${GE_SEED:-7} GE_SIMONLY_TEST=${SIMONLY:-2,59,60} \
         LP_NUM_THREADS=1 ./ProjectMidas > $log 2>&1 &
@@ -31,11 +32,11 @@ one() {
     done
     kill $pid 2>/dev/null; sleep 1; kill -9 $pid 2>/dev/null
 }
-for run in ${RUNS:-basic guards tailgate verify power win}; do
+for run in ${RUNS:-basic guards tailgate verify power win delivery}; do
     if [ "${PAR:-0}" = 1 ]; then one $run & else one $run; fi
 done
 wait
-for run in ${RUNS:-basic guards tailgate verify power win}; do
+for run in ${RUNS:-basic guards tailgate verify power win delivery}; do
     echo "HEIST RUN $run"
     grep -aE "HEIST|ge: lua: ge: heist: interlock|ge: lua: .*error" $LOGDIR/heist_interlock_$run.log
 done

@@ -11,7 +11,7 @@
 -- Every run samples every script tick (4 Hz) that no two doors of a group are open together (outside the power cut and the override), and checks the
 -- C side's own count (interlock.get(g).violations) at the end. Prints "HEIST PASS|FAIL ..." and "HEIST DONE n passed, m failed".
 local RUN = "basic"
-for _, r in ipairs({ "guards", "tailgate", "verify", "power", "win" }) do
+for _, r in ipairs({ "guards", "tailgate", "verify", "power", "win", "delivery" }) do
   if mode.env_flag("GE_IL_" .. r:upper()) then RUN = r end
 end
 local COVER = (RUN == "tailgate" or RUN == "verify")
@@ -22,6 +22,10 @@ HEIST_SETTINGS = {
   briefing = false,
   interlock = { car_first = (RUN == "power") and 20 or 100000, lock = (RUN == "verify") and 40 or 12 },   -- (verify: the lockdown outlasts the override)
 }
+if RUN == "delivery" then   -- (run_interlock.sh adds GE_PLANNING=1)
+  HEIST_SETTINGS.randomise = true
+  HEIST_SETTINGS.randomiser = { twist = "delivery" }
+end
 include("heist")
 mods.set("invincible", true)
 on("stage_start", function() mode.guards_wake(false) end)
@@ -362,13 +366,47 @@ local function win()
   check("the win via the staff entrance", won and HEIST.ended, tostring(ended.win))
 end
 
+-- ------------------------------------------------------------------------------------------------------------------------------------
+-- delivery: the randomiser's job of the day (the armoured-car delivery twist) with the planning board's SALLY PORT entry and the
+-- interlock (the integration pass, section 33): the entry is on offer today, Bond starts in the sally port, the delivery opens both
+-- rollers at once (the group is cleared while the car is in) and the group comes back, with the DOCK KEY, once they are shut
+local function delivery_plan()
+  local P = PLANNING
+  check("delivery: today's twist is the delivery", HEIST.rand and HEIST.rand.twist and HEIST.rand.twist.id == "delivery",
+        HEIST.rand and HEIST.rand.twist and HEIST.rand.twist.id or "no randomiser")
+  check("delivery: the planning board is up", P ~= nil and P.on)
+  if not P then return end
+  wait_for(20, function() return P.ready end)
+  local function press(mask, n) for _ = 1, n or 1 do plan.test_input(0, mask) end; wait(0.05) end
+  press(P.EV.RIGHT); press(P.EV.DOWN, 4); press(P.EV.SELECT)
+  check("delivery: the SALLY PORT entry is on offer today and chosen", P.entry == "sally", P.msg)
+  press(P.EV.START)
+end
+local function delivery_run()
+  local s = G("sally_port")
+  check("delivery: Bond starts in the sally port", bond.room(0) == LEVEL.rooms.sally_port.id, tostring(bond.room(0)))
+  local k0 = door.get(s.outer).keyflags
+  local both_open = wait_for(80, function() return open(s.outer) and open(s.inner) end)
+  check("delivery: both rollers open together (the car is in)", both_open and s.id == nil, string.format("at %.1f, group %s", HEIST.elapsed, tostring(s.id)))
+  local back = wait_for(140, function() return s.id ~= nil end)
+  check("delivery: the doors shut and the interlock is back", back and shut(s.outer) and shut(s.inner), string.format("at %.1f", HEIST.elapsed))
+  check("delivery: the outer roller wants the DOCK KEY again", door.get(s.outer).keyflags == k0, string.format("%x -> %x", k0, door.get(s.outer).keyflags))
+  local inr = door.get(s.inner)
+  door.open(s.outer)
+  wait(0.5)
+  door.open(s.inner)
+  wait(1.5)
+  check("delivery: one roller at a time again", open(s.outer) and not open(s.inner), string.format("inner %.2f", inr and door.get(s.inner).open or -1))
+end
+
 local finished = false
 local function body()
+  if RUN == "delivery" then delivery_plan() end
   local ready = wait_for(25, function() return HEIST.ready end)
   check("mode ready", ready, "phase=" .. tostring(HEIST.phase))
   wait(1.5)
   if RUN == "guards" then guards() elseif RUN == "tailgate" then tailgate() elseif RUN == "verify" then verify()
-  elseif RUN == "power" then powercut() elseif RUN == "win" then win() else basic() end
+  elseif RUN == "power" then powercut() elseif RUN == "win" then win() elseif RUN == "delivery" then delivery_run() else basic() end
   wait(0.5)
   local v = 0
   for _, g in ipairs(IL.list) do if g.id then v = v + interlock.get(g.id).violations end end

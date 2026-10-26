@@ -104,7 +104,8 @@ end
 local function find(list, id) for i, x in ipairs(list) do if x.id == id then return x, i end end end
 local function entry_open(e)
   if e.pad and not (LEVEL and LEVEL.pads and LEVEL.pads[e.pad]) then return false, "NOT ON THIS MAP" end
-  if e.job and not (S.plan_sally or (type(H.job) == "table" and H.job.sally)) then return false, "NOT ON TODAY'S JOB" end
+  -- (today's cash delivery is the randomiser's job of the day, the "delivery" twist: H.rand.twist; H.job was never set)
+  if e.job and not (S.plan_sally or (H.rand and H.rand.twist and H.rand.twist.id == "delivery")) then return false, "NOT ON TODAY'S JOB" end
   return true
 end
 
@@ -472,6 +473,12 @@ end
 
 on("stage_start", function(stage)
   if H.phase == "off" then H.plan = nil; return end
+  -- the ENTRY tab offers only the ways in this map has (their pads): the entries are the bank's, so the casino gets its front door
+  for i = #ENTRIES, 1, -1 do
+    local e = ENTRIES[i]
+    if e.pad and not (LEVEL and LEVEL.pads and LEVEL.pads[e.pad]) then table.remove(ENTRIES, i) end
+  end
+  if not find(ENTRIES, P.entry) then P.entry = ENTRIES[1].id end
   P.base = (S.intel ~= false) and 5 or 0
   P.budget = S.plan_budget or BUDGET[mission.difficulty()] or BUDGET[1]
   P.tab = P.base + 1
@@ -482,5 +489,7 @@ on("stage_start", function(stage)
     for _, w in ipairs({ "pp7sil", "pp7" }) do plan.strip(p, w) end
     bond.equip(p, H.hand)
   end
-  log("planning: budget %d (difficulty %d), %d tabs", P.budget, mission.difficulty(), P.base + 3)
+  local ids = {}
+  for _, e in ipairs(ENTRIES) do ids[#ids + 1] = e.id end
+  log("planning: budget %d (difficulty %d), %d tabs, entries %s", P.budget, mission.difficulty(), P.base + 3, table.concat(ids, ","))
 end)

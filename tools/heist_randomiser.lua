@@ -53,7 +53,7 @@ function heist_randomiser(ctx)
   local function opt(k, d) if O[k] == nil then return d end return O[k] end
   local function log(fmt, ...) print(string.format("ge: heist: randomiser: " .. fmt, ...)) end
   local J = copy(BASE)                           -- the dealt job (the mode, the board and the guide read this one)
-  local R = { job = J, cards = {}, order = {}, dead = {}, dead_list = {}, sealed = {}, vents_off = {}, dl = 0 }
+  local R = { job = J, cards = {}, order = {}, dead = {}, dead_list = {}, sealed = {}, vents_off = {}, dl = 0, dl_keys = {} }
 
   -- the settings the deal scales: from their values before the first deal (the script's S may outlive a stage)
   local B = S._rand_base
@@ -336,11 +336,32 @@ function heist_randomiser(ctx)
     for _, v in ipairs(R.vents_off) do if H.M and H.M.VENTS then H.M.VENTS[v] = nil end end   -- (the guide's vent prompt)
   end
 
+  -- an interlock group over the delivery's doors (section 29: the sally port) opens one of them at a time, but the delivery leaves the
+  -- port open: the group is cleared while the car is in (plain doors) and defined again once its doors are shut after the car has gone
+  local function interlocks(on)
+    local IL = HEIST_INTERLOCK
+    for _, g in ipairs(IL and IL.list or {}) do
+      local hit = false
+      for _, gn in ipairs(g.names or {}) do for _, n in ipairs(RJ.delivery.doors) do if gn == n then hit = true end end end
+      if hit then IL.enable(g.name, on) end
+    end
+  end
+  local function delivery_shut()
+    for _, n in ipairs(RJ.delivery.doors) do
+      local o = L.objects[n]
+      local d = o and door.get(o.index)
+      if d and d.open > 0 then return false end
+    end
+    return true
+  end
   local function delivery(open)
+    if open then interlocks(false) end
     for _, n in ipairs(RJ.delivery.doors) do
       local o = L.objects[n]
       if o then
-        if open then door.set_keyflags(o.index, 0); door.open(o.index) else door.close(o.index); door.set_keyflags(o.index, RJ.delivery.keyflags or 0) end
+        -- (the keys come back as they were: the interlock's DOCK KEY on the outer roller, section 29, not the layout's)
+        if open then R.dl_keys[n] = door.get(o.index).keyflags; door.set_keyflags(o.index, 0); door.open(o.index)
+        else door.close(o.index); door.set_keyflags(o.index, R.dl_keys[n] or RJ.delivery.keyflags or 0) end
       end
     end
   end
@@ -371,6 +392,9 @@ function heist_randomiser(ctx)
         R.dl = 2; delivery(false)
         log("the delivery has gone: %s shut", table.concat(Dl.doors, ", "))
         H.flash, H.flash_until = Dl.close_text, H.elapsed + 4
+      elseif R.dl == 2 and delivery_shut() then
+        R.dl = 3; interlocks(true)
+        log("the delivery's doors are shut: their interlock is back")
       end
     end
   end
