@@ -280,3 +280,4 @@ docs/devnotes/
 
 # level editor previews and its test temp files (tools/levelgen/preview.sh, tools/levelgen/test_editor_roundtrip.py)
 build_preview/
+build_job2/
