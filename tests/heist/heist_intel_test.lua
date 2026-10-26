@@ -96,7 +96,17 @@ local function body()
   local hallcams = {}
   for cam, area in pairs(HEIST.M.CAM_AREA) do if area == "hall" then hallcams[#hallcams + 1] = cam end end
   table.sort(hallcams)
+  -- (each hall camera up to 6 s, until someone is on the board: the cameras sweep and guards_post = 0 leaves only the carriers, so a
+  -- fixed 1 s per feed saw nobody when the sweeps were turned away; the content run is not on a fixed tick, integration pass 33)
+  local function known() for _ in pairs(I.seen) do return true end for _ in pairs(I.seen_role) do return true end return false end
+  -- (1 s per feed as before, so the hints below keep their timing; only when nobody is known yet, round the feeds again, up to 6 s each)
   for _, cam in ipairs(hallcams) do cctv.view(0, cam); wait(1.0) end
+  for _, cam in ipairs(hallcams) do
+    if known() then break end
+    cctv.view(0, cam)
+    local t = 0
+    repeat wait(0.25); t = t + 0.25 until t >= 6 or known()
+  end
   cctv.view_off(0)
   wait(0.5)
   local ng, nr, roles = 0, 0, {}
