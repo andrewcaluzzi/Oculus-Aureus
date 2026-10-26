@@ -920,6 +920,12 @@ static void conExecute(char *line)
 
         portArenaConsole(arg1, arg2);
     }
+    else if (conStrEqI(cmd, "crosshair"))
+    {
+        extern void portLuaXhairConsole(const char *a1, const char *a2);   /* port_luavm_crosshair.c (presentation only) */
+
+        portLuaXhairConsole(arg1, arg2);
+    }
     else if (conStrEqI(cmd, "diag") || conStrEqI(cmd, "ar"))
     {
         extern void portArConsole(const char *cmd, const char *a1, const char *a2);   /* port_arhud.c */
@@ -1921,6 +1927,11 @@ Gfx *portConRender(Gfx *gdl)
 
             gdl = portIntelRender(gdl);
         }
+    }
+    {   /* heist: the DEBRIEF panel, on every screen until dismissed (port_debrief.c) */
+        extern Gfx *portDebriefRender(Gfx *gdl);
+
+        gdl = portDebriefRender(gdl);
     }
 
     if (!conOpen)

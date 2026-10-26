@@ -16,7 +16,7 @@ cd /home/dev/project/build_pc/heist_cover_shots || exit 1
 for run in ${RUNS:-hall gun loot restricted staff ko cam camdown power interrupt generator doors}; do
     flag=GE_COVER_$(echo $run | tr a-z A-Z)=1
     echo "HEIST RUN $run"
-    env $flag DISPLAY=:99 GE_MODE=heist_cover GE_STAGE=levelgen GE_SKIPINTRO=1 GE_NOINISAVE=1 GE_FIXEDTICK=1 GE_TICKHZ=60 GE_SEED=7 \
+    env $flag DISPLAY=:99 GE_MODE=heist_cover GE_STAGE=levelgen GE_SKIPINTRO=1 GE_NOINISAVE=1 GE_FIXEDTICK=1 GE_TICKHZ=60 GE_SEED=${GE_SEED:-7} \
         GE_FULLHEIGHT=0 GE_EDGEINSET=1 GE_FRAMES=${GE_FRAMES:-4800} timeout 400 ../ProjectMidas > $LOGDIR/heist_cover_$run.log 2>&1
     grep -aE "HEIST|gfx: wrote|ge: lua: ge: heist: (ready|ALARM|cover|camera|the security|POWER|power|Bond [0-9] works|the breaker|the backup|guard)|ge: lua: .*error" $LOGDIR/heist_cover_$run.log
 done

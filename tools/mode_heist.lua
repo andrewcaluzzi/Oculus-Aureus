@@ -35,6 +35,8 @@ include("heist_intel")                         -- heist_intel(ctx): the INTEL bo
 include("heist_guide")                         -- heist_guide(ctx): the first-play objective line, key strip and prompts (section 23d)
 pcall(include, "heist_ar")                     -- the AR specs and diagnostics (section 20; presentation only, optional)
 local STAGE_LEVELGEN = 52                      -- LEVELID_LEE: the generated level's slot
+local JOB = heist_job()                        -- the job definition the layout names (tools/jobs/<job>.lua; designs/job2-casino.md 6)
+local JT = JOB.text
 
 local S = {
   -- people: the FULL force (007). Each difficulty takes its `force` share of these (difficulty below): Agent about 30 posted guards,
@@ -152,6 +154,7 @@ local S = {
   spawn_per_tick  = 24,      -- chrs placed per 0.25 s at the start (no hitch)
   test            = false,   -- test hooks on (HEIST.* below are always there; this only adds log lines)
   ar              = true,    -- the Q-Branch specs (tools/heist_ar.lua, section 20): suspicion "?" / "!", bubbles, key brackets, waypoints
+  debrief         = true,    -- the end-of-heist DEBRIEF (tools/heist_debrief.lua, section 26): rating, payout, stats, commendations, records
   -- difficulty (mission.difficulty(): 0 Agent .. 3 007). force: the share of the full force above (posted guards, raisers, vault
   -- guards, wave cap, squads, the response); acc: the guards' accuracy rating (0 = stock, 5 = 1.5x, 10 = 2x: the stock aim is scaled by
   -- 1 + acc / 10); wave: guards per wave. (AC delegated, Claude's call 2026-10-25, revisit: the player bot won 10/10 with the carriers
@@ -163,6 +166,7 @@ local S = {
     [3] = { force = 1.0,   acc = 10, hearing = 1.5,  wave = 4, civ_limit = 1 },   -- 007: the full force (100+ placed), 2x
   },
 }
+for k, v in pairs(JOB.settings or {}) do S[k] = v end   -- the job's own settings (the bank has none), under a test's
 if type(HEIST_SETTINGS) == "table" then
   for k, v in pairs(HEIST_SETTINGS) do S[k] = v end
 end
@@ -358,19 +362,19 @@ end
 local function objective(p)
   local ph = H.phase
   if ph == "casing" then
-    if bond.has_key(p, RED) then return "Crack the vault (" .. MAP.vault_hint .. ")" end
-    if bond.has_key(p, BLUE) then return "RED card: the branch manager" end
-    if bond.has_key(p, GREEN) then return "BLUE card: the security chief" end
-    return "GREEN card: head teller or lobby captain"
+    if bond.has_key(p, RED) then return JT.crack .. MAP.vault_hint .. ")" end
+    if bond.has_key(p, BLUE) then return JT.need_red end
+    if bond.has_key(p, GREEN) then return JT.need_blue end
+    return JT.need_green
   elseif ph == "cracking" then return string.format("CRACKING %d%%  stay close", math.floor(H.progress * 100))
   elseif ph == "jammed" then return "CRACKER JAMMED: get in the zone, restart it"
-  elseif ph == "open" or ph == "closing" then return "Grab the gold!"
+  elseif ph == "open" or ph == "closing" then return JT.grab
   elseif ph == "trapped" then
     if H.trapped[p] then return "TRAPPED: re-crack the vault door from inside" end
     return "Your partner is trapped in the vault"
   elseif ph == "recracking" then return string.format("RE-CRACKING %d%%", math.floor(H.progress * 100))
   end
-  return "Get out: the van or the loading dock"
+  return JT.get_out
 end
 
 local function refresh_hud()
@@ -383,7 +387,7 @@ local function refresh_hud()
       hud.set(1, "", p); hud.set(2, "", p); hud.set(3, "", p)
     else
       local gd = H.guide                                  -- the first-play guide (tools/heist_guide.lua): presentation only
-      local l1 = string.format("JANUS BANK %s  %d bars  %s  [%s]", money(H.loot), H.bars, status, cards_text(p))
+      local l1 = string.format("%s %s  %d bars  %s  [%s]", JT.hud_title, money(H.loot), H.bars, status, cards_text(p))
       hud.set(1, gd and gd.tag(l1) or l1, p)
       hud.set(2, gd and gd.objective(p) or objective(p), p)
       local pf = H.pflash[p]
@@ -416,7 +420,7 @@ local function go_hot(why)
   H.hot = true
   H.hot_at = H.elapsed
   log("ALARM (%s) at %.0f s: hot", why, H.elapsed)
-  flash(PW.out and "ALARM! (no siren: the power is out) Guards are on their way" or "ALARM! Guards are on their way - the hall is locked down", 6)
+  flash(PW.out and "ALARM! (no siren: the power is out) Guards are on their way" or JT.alarm_flash, 6)
   lockdown()
   if S.cover then cover.alert(true) end   -- the alarm ends every disguise
   if not alarm.active() then alarm.start() end   -- (does nothing while the power is out; the latch sounds it when it comes back)
@@ -496,6 +500,20 @@ end)
 
 local function area_by_name(n) for _, a in ipairs(AREAS) do if a.name == n then return a end end end
 
+-- the pads the card carriers took (queue_carriers runs first): the posts, raisers and staff placed after them skip those pads, so a
+-- carrier stands alone where the board cases him. Before (GE_SEED 5), a posted guard landed 110 units off the security chief (spawn_at's
+-- offset), and every pickpocket from behind the chief was seen by him
+local carrier_pads = {}
+-- (only a chr whose pad a carrier took moves, to the list's next pad: renumbering the whole list moved every post after it, and the
+-- layout-bound checks of seeds 12-14 moved with them)
+local function clear_of_carriers(list, i)
+  for k = 0, #list - 1 do
+    local p = list[(i - 1 + k) % #list + 1]
+    if not carrier_pads[p] then return p end
+  end
+  return list[(i - 1) % #list + 1]
+end
+
 local function queue_area_guards()
   local total_share = 0
   for _, a in ipairs(AREAS) do total_share = total_share + a.share end
@@ -506,8 +524,8 @@ local function queue_area_guards()
   for _, a in ipairs(AREAS) do
     local n = math.floor(posts * a.share / total_share + 0.5)
     for k = 1, n do
-      local pad = a.pads[(k - 1) % #a.pads + 1]
       queue[#queue + 1] = function()
+        local pad = clear_of_carriers(a.pads, k)
         local c = spawn_at(pad, guard_opts({ post = face_for(a, pad) or true }))
         if c then note_guard(c, "post", a.name) end
       end
@@ -515,8 +533,8 @@ local function queue_area_guards()
     local r = math.min(a.raisers, raiser_left)
     raiser_left = raiser_left - r
     for k = 1, r do
-      local pad = a.pads[(k * 3) % #a.pads + 1]
       queue[#queue + 1] = function()
+        local pad = clear_of_carriers(a.pads, (k * 3) % #a.pads + 1)
         local c = spawn_at(pad, guard_opts({ behaviour = "hold", alarm_pad = a.panel }))
         if c then note_guard(c, "raiser", a.name) end
       end
@@ -533,10 +551,10 @@ local function queue_civilians()
       for k = 1, place[3] do
         if made >= n then break end
         made = made + 1
-        local pad = place[2][(k - 1) % #place[2] + 1]
+        local list, i = place[2], (k - 1) % #place[2] + 1
         local area = place[1]
         queue[#queue + 1] = function()
-          local c = spawn_at(pad, { behaviour = "civilian", body = pick(S.civ_bodies) })
+          local c = spawn_at(clear_of_carriers(list, i), { behaviour = "civilian", body = pick(S.civ_bodies) })
           if c then H.civs[#H.civs + 1] = { chr = c, area = area }; H.placed.civ = H.placed.civ + 1 end
         end
       end
@@ -548,38 +566,33 @@ end
 local function give_card(c, flags, role, area, pad)
   local h = c and spawn.key(c, flags) or nil
   H.carriers[role] = { chr = c, key = h, flags = flags, area = area, pad = pad }
+  carrier_pads[pad] = true
   log("card %s (0x%x) on %s chr %s at pad %d (%s)", role, flags, role, tostring(c), pad, area)
 end
 
+-- the card ladder from the job (JOB.cards; the bank: GREEN the head teller or the lobby captain, chosen at random; BLUE the security
+-- chief in the offices; RED the branch manager in his own office behind BLUE; GOLD the vault captain inside the vault)
+local KEYS = { GREEN = GREEN, BLUE = BLUE, RED = RED, GOLD = GOLD, FLOORKEY = FLOORKEY }
+local function place_carrier(card, d)
+  local area = d.area == "@manager" and MAP.manager_area or d.area
+  local body = d.body_setting and S[d.body_setting] or d.body
+  local pad = pick(CARRIERS[d.pads])
+  local c
+  if d.kind == "civ" then
+    c = spawn_at(pad, { behaviour = "civilian", body = body })
+    if c then H.civs[#H.civs + 1] = { chr = c, area = area }; H.placed.civ = H.placed.civ + 1 end
+  else
+    c = spawn_at(pad, guard_opts({ post = true, body = body, health = d.health, armour = d.armour }))
+    if c then note_guard(c, "carrier", area) end
+  end
+  give_card(c, KEYS[card.key], d.role, area, pad)
+end
 local function queue_carriers()
   queue[#queue + 1] = function()
-    -- GREEN: the head teller (a civilian at the counter) or the lobby captain (a guard on the hall floor), chosen at random
-    if math.random(2) == 1 then
-      local pad = pick(CARRIERS.teller)
-      local c = spawn_at(pad, { behaviour = "civilian", body = "Civilian_1_Female" })
-      if c then H.civs[#H.civs + 1] = { chr = c, area = "hall" }; H.placed.civ = H.placed.civ + 1 end
-      give_card(c, GREEN, "head teller", "hall", pad)
-    else
-      local pad = pick(CARRIERS.captain)
-      local c = spawn_at(pad, guard_opts({ post = true, body = "St_Petersburg_Guard" }))
-      if c then note_guard(c, "carrier", "hall") end
-      give_card(c, GREEN, "lobby captain", "hall", pad)
+    carrier_pads = {}
+    for _, card in ipairs(JOB.cards) do
+      if card.either then place_carrier(card, card.either[math.random(#card.either)]) else place_carrier(card, card) end
     end
-    -- BLUE: the security chief, in the offices
-    local pad = pick(CARRIERS.chief)
-    local c = spawn_at(pad, guard_opts({ post = true, body = S.chief_body, health = 1.5 }))
-    if c then note_guard(c, "carrier", "offices") end
-    give_card(c, BLUE, "security chief", "offices", pad)
-    -- RED: the branch manager, in his own office (behind BLUE)
-    pad = pick(CARRIERS.manager)
-    c = spawn_at(pad, { behaviour = "civilian", body = S.manager_body })
-    if c then H.civs[#H.civs + 1] = { chr = c, area = MAP.manager_area }; H.placed.civ = H.placed.civ + 1 end
-    give_card(c, RED, "branch manager", MAP.manager_area, pad)
-    -- GOLD: the vault captain, inside the vault (the manager's safe needs it)
-    pad = pick(CARRIERS.vault_captain)
-    c = spawn_at(pad, guard_opts({ post = true, body = "Russian_Commandant", health = 2, armour = 1 }))
-    if c then note_guard(c, "carrier", "vault") end
-    give_card(c, GOLD, "vault captain", "vault", pad)
   end
 end
 
@@ -632,8 +645,8 @@ local function safe_tick()
     for i = 1, S.safe_bars do
       if place_loot(P.safe_loot[(i - 1) % #P.safe_loot + 1], "goldbar", { LOOT_OFFS[(i - 1) % #LOOT_OFFS + 1] }, "safe") then n = n + 1 end
     end
-    log("the manager's safe is open: %d bars", n)
-    flash("The manager's safe: gold!", 4)
+    log(JT.safe_log, n)
+    flash(JT.safe_open, 4)
   end
 end
 
@@ -709,7 +722,7 @@ local function vault_open_now()
   vault_doors(true)
   hud.countdown(S.vault_time)
   log("VAULT OPEN: %d s", S.vault_time)
-  flash("The vault is open! Grab the gold", 5)
+  flash(JT.vault_open, 5)
   local n = scaled(S.guards_vault, 0)
   for i = 1, n do
     local c = spawn_at(VAULT_PADS[(i * 5) % #VAULT_PADS + 1], guard_opts({ behaviour = "chase" }))
@@ -939,7 +952,7 @@ function H.camera_switch(p)
   for _, cam in ipairs(cctv.list()) do cctv.disable(cam) end
   H.cam_off_until = H.elapsed + S.cam_off_time
   local t = {}
-  for _, role in ipairs({ "head teller", "lobby captain", "security chief", "branch manager", "vault captain" }) do
+  for _, role in ipairs(JOB.console_roles) do
     local c = H.carriers[role]
     if c and c.chr and spawn.alive(c.chr) and c.key and select(2, spawn.key_alive(c.key)) then t[#t + 1] = role .. ": " .. (AREA_LABEL[c.area] or c.area) end
   end
@@ -1167,6 +1180,7 @@ local function finish(win, msg)
     cctv.view_off(p)
   end
   H.score = score
+  if H.debrief_end then local ok, e = pcall(H.debrief_end, win, msg, bonus, killed); if not ok then log("debrief failed: %s", tostring(e)) end end   -- (section 26)
   if win then mission.win(string.format("Heist complete: %s (best %s)", money(score), money(HEIST_BEST)))
   else mission.fail(msg) end
 end
@@ -1211,7 +1225,7 @@ mode.hold_fire(S.hold_fire)
 
 -- the map's tables from LEVEL (heist_bank_map(): it reads pad positions, so the stage must be up)
 local function load_map()
-  local M = heist_bank_map()
+  local M = heist_bank_map(JOB)
   DOORS, AREAS, AREA_LABEL, VAULT_ROOMS, VAULT_PADS, VAULT_CRATE_PADS = M.DOORS, M.AREAS, M.AREA_LABEL, M.VAULT_ROOMS, M.VAULT_PADS, M.VAULT_CRATE_PADS
   CIV_PLACES, P, CARRIERS, CAM_LABEL, CAM_AREA, GUARD_AREAS = M.CIV_PLACES, M.P, M.CARRIERS, M.CAM_LABEL, M.CAM_AREA, M.GUARD_AREAS
   intel_room, MAP = M.intel_room, M.MAP
@@ -1219,9 +1233,9 @@ local function load_map()
 end
 
 on("stage_start", function(stage)
-  if stage ~= STAGE_LEVELGEN or type(LEVEL) ~= "table" or type(LEVEL.objects) ~= "table" or LEVEL.objects.vault_door_a == nil then
-    hud.set(1, "HEIST MODE: run it on the Janus bank (GE_STAGE=levelgen, janus_bank.json on the slot)")
-    log("not the Janus bank (stage %d): nothing set up", stage)
+  if stage ~= STAGE_LEVELGEN or type(LEVEL) ~= "table" or type(LEVEL.objects) ~= "table" or LEVEL.objects[JOB.check_object] == nil then
+    hud.set(1, JT.not_here)
+    log("%s (stage %d): nothing set up", JT.not_here_log, stage)
     H.phase = "off"
     return
   end
@@ -1279,13 +1293,12 @@ on("stage_start", function(stage)
                                                                     weapon = pick({ "rcp90", "ar33" }), armour = 1.5, sunglasses = true }) end,
                               active = function() return H.hot and not H.ended and H.hot_at and H.elapsed - H.hot_at >= S.response_after
                                                          and hostiles_alive() < S.hostile_cap end }
-  flash(S.cover and "JANUS BANK. You're staff: gun holstered. Steal the gold." or
-        "JANUS BANK, ST PETERSBURG. Steal the gold. Hurt no staff.", 8)
+  flash(S.cover and JT.intro_cover or JT.intro_plain, 8)
   log("stage start: %s, %d Bond(s), difficulty %d", MAP.label, bond.count(), mission.difficulty())
   refresh_hud()
-  if S.intel ~= false then H.intel = heist_intel{ S = S, H = H, PW = PW, M = H.M, force = diff.force, flash_p = flash_p, money = money, security_up = security_up,
+  if S.intel ~= false then H.intel = heist_intel{ S = S, H = H, PW = PW, M = H.M, job = JOB, force = diff.force, flash_p = flash_p, money = money, security_up = security_up,
                          keys = { GREEN = GREEN, BLUE = BLUE, RED = RED, GOLD = GOLD, FLOORKEY = FLOORKEY, VAULT = VAULT } } end
-  if S.guide ~= false then H.guide = heist_guide{ S = S, H = H, PW = PW, M = H.M, keys = { GREEN = GREEN, BLUE = BLUE, RED = RED, GOLD = GOLD, FLOORKEY = FLOORKEY } } end
+  if S.guide ~= false then H.guide = heist_guide{ S = S, H = H, PW = PW, M = H.M, job = JOB, keys = { GREEN = GREEN, BLUE = BLUE, RED = RED, GOLD = GOLD, FLOORKEY = FLOORKEY } } end
 end)
 
 -- the script's sim state for the co-op / netplay state hash (mode.state): a script-state desync shows at once, and the dump names it
@@ -1340,5 +1353,7 @@ end)
 
 -- the crew's gadgets (designs/bank-heist.md section 21): their own handlers, after the heist's (their state rides in mode.state)
 include("heist_gadgets")
+-- the end-of-heist DEBRIEF (designs/bank-heist.md section 26): reads the run's events, scores it at finish() (presentation only)
+if S.debrief ~= false then include("heist_debrief") end
 -- the AR specs and diagnostics (tools/heist_ar.lua): after every handler above, so the map is loaded when its stage_start runs
 if heist_ar and heist_ar.attach then heist_ar.attach(H, S) end

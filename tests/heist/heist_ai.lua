@@ -13,15 +13,16 @@
 --   GE_AI_BACKUP=1   a backup call: a key-card carrier nearer the caller holds his post, a posted guard answers
 --   GE_AI_LURE=1     a coin 600 behind a guard draws him over; one at the edge of his hearing (860) only turns him
 --   GE_AI_CAMWARN=1  Bond at an unsearched body in a camera's view: the AR's red CAMERA warning; cameras off: none
+--   GE_AI_HOLDCARD=1 a missed check-in and a missed watchclock station next to a key-card carrier: someone else is sent, he holds his post
 -- GE_AI_SHOTS=1 adds screenshots (cctv.test_shot). Prints "HEIST PASS|FAIL ..." and "HEIST DONE".
 local RUN = "hear"
-for _, r in ipairs({ "slap", "door", "giveup", "camko", "camact", "camdown", "checkin", "patrol", "backup", "lure", "camwarn" }) do
+for _, r in ipairs({ "slap", "door", "giveup", "camko", "camact", "camdown", "checkin", "patrol", "backup", "lure", "camwarn", "holdcard" }) do
   if mode.env_flag("GE_AI_" .. r:upper()) then RUN = r end
 end
 local SHOTS = mode.env_flag("GE_AI_SHOTS")
 HEIST_SETTINGS = {
   test = true, station_late = (RUN == "backup" or RUN == "lure" or RUN == "camwarn") and 900 or 8, jam_chance = 0, jam_every = 1000, security_delay = 4, investigators = 0, generator_after = 0,
-  ai_tune = { search_time = (RUN == "giveup") and 14 or 30, look = 1.5, search_pads = 1, checkin = (RUN == "checkin") and 6 or 0 },
+  ai_tune = { search_time = (RUN == "giveup") and 14 or 30, look = 1.5, search_pads = 1, checkin = (RUN == "checkin" or RUN == "holdcard") and 6 or 0 },
 }
 include("heist")
 mods.set("invincible", true)
@@ -388,6 +389,63 @@ local function backup_path()
   check("the carrier can still call backup himself", ai.backup(b) >= 0 and barked(b, "backup") ~= nil)
 end
 
+-- a key-card carrier holds his post on a missed check-in and a missed watchclock station too (port_ai.c nearestFree holdCards; the
+-- watchclock's dispatcher is ai.nearest_free): a guard goes down in the emptied hall with a carrier standing right by his post and a
+-- posted guard further off; the check-in sends someone, never the carrier. Then a patrol guard's station is put at the carrier's feet and
+-- the patrol guard goes down: the round's dispatch skips the carrier too.
+local function holdcard_path()
+  for _, cam in ipairs(cctv.list()) do cctv.disable(cam) end   -- (nobody reports the bodies: a hot heist has no check-ins or rounds)
+  local a, x, y, z = hall_guard()
+  if not a then check("a test guard", false); return end
+  spawn.ko(a, 0)
+  wait(1.5)            -- (the thud is over before the others are there to hear it)
+  local b = guard_at(x + 150, y, z, x + 150, z + 500)
+  local c = guard_at(x - 450, y, z, x - 450, z + 500)
+  check("a downed guard, a card carrier 150 from his post and a posted guard 450 from it", b ~= nil and c ~= nil and ko.is(a))
+  if not (b and c) then return end
+  ai.guard(b, 3)       -- (kind 3: a key-card carrier, as mode_heist.lua registers them)
+  local bx, bz = spawn.where(b)
+  local nearest = 1e9
+  for _, g in ipairs(HEIST.guards) do
+    if g.chr ~= a and spawn.alive(g.chr) and not spawn.down(g.chr) then
+      local gx, gz = spawn.where(g.chr)
+      if gx then nearest = math.min(nearest, d2(gx, gz, x, z)) end
+    end
+  end
+  check("the carrier is the nearest guard to the post (the old rule would send him)", d2(bx, bz, x, z) < nearest and d2(bx, bz, x, z) < 450,
+        string.format("carrier %.0f, the nearest other %.0f", d2(bx, bz, x, z), nearest))
+  local b0 = #barks
+  local sent = wait_for(12, function() for k = b0 + 1, #barks do if barks[k].text:find("answering") then return barks[k] end end end)
+  check("a missed check-in: a colleague is sent", sent ~= nil, sent and string.format("chr %d: %s", sent.c, sent.text) or "none")
+  check("... not the card carrier", sent ~= nil and sent.c ~= b, sent and ("chr " .. sent.c .. ", carrier " .. b) or "none")
+  local bx2, bz2 = spawn.where(b)
+  check("... he holds his post", bx2 and d2(bx, bz, bx2, bz2) < 40 and info(b).sub ~= "go" and barked(b, "radio") == nil,
+        string.format("moved %.0f, %s %s", bx2 and d2(bx, bz, bx2, bz2) or -1, info(b).name, info(b).sub))
+  local n = ai.nearest_free(bx, y, bz, 0, a)
+  check("ai.nearest_free (the watchclock's dispatcher) never names a carrier, even on his own spot", n ~= nil and n ~= b, tostring(n))
+
+  -- the watchclock: a patrol guard's station at the carrier's feet, the patrol guard down
+  local tour
+  for _, t in ipairs(HEIST_AI.tours or {}) do
+    local tx, tz = spawn.where(t.chr)
+    if not tour and spawn.alive(t.chr) and not spawn.down(t.chr) and tx and d2(tx, tz, bx, bz) > 1200 then tour = t end
+  end
+  check("a patrol tour away from the hall", tour ~= nil)
+  if not tour then return end
+  tour.stations = { pad_near(bx, y, bz) }
+  tour.punched, tour.at, tour.missed = HEIST.elapsed, nil, false
+  spawn.ko(tour.chr, 0)
+  local b1 = #barks
+  local miss = wait_for(HEIST_SETTINGS.station_late + 4, function()
+    for k = b1 + 1, #barks do if barks[k].text:find("missed a station") then return barks[k] end end end)
+  check("a missed station: a colleague is sent to it", miss ~= nil and tour.missed, miss and string.format("chr %d: %s", miss.c, miss.text) or "none")
+  check("... not the carrier standing at it", miss ~= nil and miss.c ~= b, miss and ("chr " .. miss.c .. ", carrier " .. b) or "none")
+  wait(2)
+  local bx3, bz3 = spawn.where(b)
+  check("... he still holds his post", bx3 and d2(bx, bz, bx3, bz3) < 40 and info(b).sub ~= "go",
+        string.format("moved %.0f, %s %s", bx3 and d2(bx, bz, bx3, bz3) or -1, info(b).name, info(b).sub))
+end
+
 -- a coin is a lure: inside `lure` of his hearing range (900 x hearing x rooms) a guard walks over; further out he only turns and looks
 local function lure_path()
   local c, x, y, z = hall_guard()
@@ -451,7 +509,8 @@ local function body()
   elseif RUN == "giveup" then giveup_path() elseif RUN == "camko" then cam_body(false) elseif RUN == "camact" then camact_path()
   elseif RUN == "camdown" then cam_body(true)
   elseif RUN == "checkin" then checkin_path() elseif RUN == "patrol" then patrol_path()
-  elseif RUN == "backup" then backup_path() elseif RUN == "lure" then lure_path() elseif RUN == "camwarn" then camwarn_path() end
+  elseif RUN == "backup" then backup_path() elseif RUN == "lure" then lure_path() elseif RUN == "camwarn" then camwarn_path()
+  elseif RUN == "holdcard" then holdcard_path() end
   local c = ai.counts()
   print(string.format("HEIST   counts: barks %d searches %d giveups %d checkins %d backups %d cam acts %d cam bodies %d",
         c.barks, c.searches, c.giveups, c.checkins, c.backups, c.cam_acts, c.cam_bodies))

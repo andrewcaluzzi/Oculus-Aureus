@@ -152,14 +152,22 @@ local function body()
         #ev.body > b0 and string.format("guard=%d body=%d", ev.body[b0 + 1][1], ev.body[b0 + 1][2]) or "none")
   check("bodies.found counts it", bodies.found() >= 1)
   -- alerted, he comes at Bond: closing in 100 units can take more than the old fixed 2 s (he turns, draws, finds a path first)
-  local d1, tw = d0, 0
+  -- (the stock reaction to a seen death is a roll too: he runs at Bond, or runs over to the body first (GE_SEED 1: ACT_RUNPOS to the
+  -- corpse, then stands over it, about 90-105 from it). Either is the alert; a witness who stays put is the failure)
+  local vx, vz = spawn.where(victim)
+  local e0 = vx and dist2(wx0, wz0, vx, vz) or 0
+  local d1, e1, tw, acts = d0, e0, 0, {}
   while tw < 8 do
     wait(0.25); tw = tw + 0.25
-    local wx1, wz1 = spawn.where(witness)
-    if wx1 then d1 = math.min(d1, dist2(wx1, wz1, bx, bz)) end
+    local wx1, wz1, act = spawn.where(witness)
+    if wx1 then d1 = math.min(d1, dist2(wx1, wz1, bx, bz)); if vx then e1 = math.min(e1, dist2(wx1, wz1, vx, vz)) end end
+    if act and acts[#acts] ~= act then acts[#acts + 1] = act end
     if d1 < d0 - 100 then break end
   end
-  check("witness went on alert (ran at Bond)", d1 < d0 - 100, string.format("dist to Bond %.0f -> %.0f (%.2f s)", d0, d1, tw))
+  local ran = false
+  for _, a in ipairs(acts) do if a == 13 then ran = true end end   -- (ACT_RUNPOS: GE_SEED 3 stopped 104 from the body)
+  check("witness went on alert (ran at Bond, or ran to the body)", d1 < d0 - 100 or (ran and e0 - e1 > 50 and e1 < 150),
+        string.format("dist to Bond %.0f -> %.0f, to the body %.0f -> %.0f (%.2f s), acts %s", d0, d1, e0, e1, tw, table.concat(acts, ",")))
   spawn.remove(witness)
   aim = nil
 

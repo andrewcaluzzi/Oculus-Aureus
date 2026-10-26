@@ -7821,6 +7821,14 @@ void gunDrawSight(s32 *gdl) {
     f32 halfedxy[2];
 
 #ifndef TARGET_N64
+    {   /* CROSSHAIR STYLES (port_crosshair.c, modding/lua.md): 0 when no style, hide or draw hook is set */
+        extern int portXhairDraw(s32 *gdl);
+
+        if (portXhairDraw(gdl))
+        {
+            return;
+        }
+    }
     {
         extern s32 portAlwaysCrosshair(void); /* video.c: midas.ini [display] always_crosshair; weak 0 headless */
 
