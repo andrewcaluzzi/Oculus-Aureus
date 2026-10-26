@@ -202,6 +202,12 @@ void portSessionCmdExec(const PortNetCmd *c)
     case PORT_NETCMD_GIVE_KEY:
         giveKey(c->player, c->a, c->b);
         break;
+    case PORT_NETCMD_PLAN_POINT:
+        {   /* the heist planning board's mouse: a click, into the plan's sim input (port_planning.c) */
+            extern void portPlanningPointerPush(int p, int a, int b);
+            portPlanningPointerPush(c->player, c->a, c->b);
+        }
+        break;
     default:
         break;
     }

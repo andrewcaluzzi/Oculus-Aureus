@@ -4,12 +4,16 @@
 #   off     planning off (an automated run): no plan, the default kit, Bond on the street, the clock runs
 #   plan    GE_PLANNING=1: the hold, the budget, the scripted plan (lockpicks, 2 coins, the roof) and the quick job: the payout less the
 #           planning cost; two screenshots of the board -> $SHOTS/plan_loadout.png, plan_entry.png
+#           + the board's mouse (plan.test_mouse clicks: buy, sell, tabs, the wheel) and the tabs (3 while planning, the job's 5
+#           after); a third screenshot: the INTEL board after the confirm -> $SHOTS/intel_after.png
 #   keys    GE_PLANNING=1 with GE_JOYPORT_AUTO next_weapon presses: the board's page keys flip the plan's tabs (sim input)
+#   hold    GE_PLANNING=1 with the pad stick (GE_DRIVE=1), the mouse (GE_FAKEMOUSE) and the Move keys (GE_FAKEDIGMOVE) fed: Bond
+#           neither moves nor turns while the board is up; a mouse click on CONFIRM goes; then the same feeds move and turn him
 #   det     the scripted plan then 20 s of play, twice solo and twice in local co-op (the second view-switched): per-tick state hashes
 #           (GE_HASHLOG) identical over >= NEED ticks, and the scenario's notes identical
 #   offdet  planning off is today's start: the determinism heist (tests/heist/heist_determinism.lua) as is and with planning = false:
 #           hash-identical
-# usage: [RUNS="off plan keys det offdet"] run_planning.sh   -> "HEIST ..." lines; last line "HEIST PLANNING DONE <n> passed, <m> failed"
+# usage: [RUNS="off plan keys hold det offdet"] run_planning.sh   -> "HEIST ..." lines; last line "HEIST PLANNING DONE <n> passed, <m> failed"
 OUT=${OUT:-/tmp/heist_planning}
 SHOTS=${SHOTS:-$OUT/shots}
 mkdir -p $OUT $SHOTS
@@ -47,18 +51,19 @@ hcmp() {   # hcmp <a> <b> <need>: per-tick hashes identical
          echo "HEIST FAIL det $1 vs $2: $n ticks (need $3), first difference: ${first:-none}"; FAIL=$((FAIL + 1)); fi
 }
 
-for run in ${RUNS:-off plan keys det offdet}; do
+for run in ${RUNS:-off plan keys hold det offdet}; do
     echo "HEIST RUN $run"
     case $run in
     off)  game off 1500 GE_PLAN_OFF=1; tally off ;;
-    plan) game plan 6500 GE_PLANNING=1 GE_PLAN_SHOTS=1; tally plan
+    plan) game plan 7000 GE_PLANNING=1 GE_PLAN_SHOTS=1; tally plan
           i=0
-          for f in $(ls $OUT/shot_plan/shot_*.bmp 2>/dev/null | head -n 2); do
-              i=$((i + 1)); nm=plan_loadout; [ $i = 2 ] && nm=plan_entry
+          for f in $(ls $OUT/shot_plan/shot_*.bmp 2>/dev/null | head -n 3); do
+              i=$((i + 1)); nm=plan_loadout; [ $i = 2 ] && nm=plan_entry; [ $i = 3 ] && nm=intel_after
               python3 /home/dev/project/tests/bmp2png.py $f $SHOTS/$nm.png && echo "HEIST shot: $SHOTS/$nm.png"
           done
           rm -f $OUT/shot_plan/shot_*.bmp ;;
     keys) game keys 1500 GE_PLANNING=1 GE_PLAN_KEYS=1 GE_JOYPORT_AUTO=next_weapon:300,next_weapon:360; tally keys ;;
+    hold) game hold 2400 GE_PLANNING=1 GE_PLAN_HOLD=1 GE_DRIVE=1 GE_FAKEMOUSE=6,2,1,99999999 GE_FAKEDIGMOVE=1,1,1,99999999; tally hold ;;
     det)  for d in solo1 solo2 coop1 coop2; do
               x=""; case $d in coop1) x="GE_COOP=1" ;; coop2) x="GE_COOP=1 GE_COOP_VIEW=1" ;; esac
               game $d 3200 GE_PLANNING=1 GE_PLAN_DET=1 GE_HASHLOG=$OUT/$d.hash $x

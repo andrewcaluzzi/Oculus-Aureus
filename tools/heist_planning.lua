@@ -2,8 +2,9 @@
 -- tools/mode_heist.lua, before the gadgets (it sets the gadgets' loadout to nothing until the plan says otherwise); shipped as
 -- Data/Scripts/modes/heist_planning.lua.
 --
--- At the stage start the crew sits in the van with the planning board up: the INTEL board (port_intel.c's plan mode) with three
--- pages of its own after the five job pages (THE PLAN, SCHEMATICS, THE KEYS, PERSONNEL, NOTES):
+-- At the stage start the crew sits in the van with the planning board up: the INTEL board (port_intel.c's plan mode) showing ONLY
+-- its three pages of its own (the five job pages - THE PLAN, SCHEMATICS, THE KEYS, PERSONNEL, NOTES - are hidden until the confirm;
+-- after it the plan's tabs are gone and Tab / Back opens the job's five as ever):
 --   LOADOUT  buy the crew's kit from a budget (the budget grows with the difficulty: a bigger job pays for a bigger prep)
 --   ENTRY    the way in: the front door, the staff entrance (a forged badge), the roof (piton), a canal tunnel dig (costs time), the
 --            sally port (only when today's job has a cash delivery: HEIST.job.sally or S.plan_sally)
@@ -13,9 +14,12 @@
 -- Bond is put at the entry, the extras are armed, the clock starts. The spend comes off the payout (finish(): H.plan_cost; the debrief
 -- shows "planning costs $X").
 --
--- Keys (the crew's synchronized buttons, so the plan is sim state: port_planning.c): tabs = the INTEL board's page keys (mouse wheel,
--- , and ., the bumpers) or the stick / D-pad left and right; rows = the stick / D-pad up and down (W / S); FIRE (or A) buys / chooses;
--- USE (or B) sells; START or the CONFIRM row: go. On SCHEMATICS up / down change the floor.
+-- Keys (the crew's synchronized buttons, so the plan is sim state: port_planning.c): tabs = the INTEL board's page keys (, and ., the
+-- bumpers) or the stick / D-pad left and right; rows = the stick / D-pad up and down (W / S); FIRE (or A) buys / chooses; USE (or B)
+-- sells; START or the CONFIRM row: go. While the board is up Bond takes no input at all (no move, look, fire, use: the board has it).
+-- Mouse: a cursor; hover highlights a row or tab; left click buys / chooses (the CONFIRM row: go), right click sells / drops, a click
+-- on a tab switches, the wheel moves the row. A click is local UI, but what it does reaches the plan as a session command
+-- (PORT_NETCMD_PLAN_POINT -> plan.pointer), the same tick on both machines in netplay.
 --
 -- Co-op: one plan for the crew, made by Bond 1 (the host); the shared budget buys each item for every Bond; the partners' buttons are
 -- held until the plan is confirmed. Netplay-safe: the plan is Lua sim state (the arena: the rollback snapshot) and rides in mode.state
@@ -253,6 +257,10 @@ local function header(page, title, sub)
   intel.text(380, 57, string.format("SPENT %s   LEFT %s", money(cost()), money(left)), left >= 0 and 0x106010FF or RED, 0.8)
 end
 
+local function hit(page, row, y0, y1)   -- (the mouse's hit box for that row: port_intel.c hit-tests the cursor against it)
+  if plan.hit and not P.confirmed then plan.hit(page, row, 30, y0, 610, y1) end
+end
+
 local function row_box(y0, y1, cur, chosen, dim)
   intel.rect(30, y0, 610, y1, dim and 0xB8B098C0 or (cur and 0xFFF6C0FF or PAPER))
   if chosen then intel.rect(30, y0, 36, y1, 0x208020FF) end
@@ -262,8 +270,9 @@ local function row_box(y0, y1, cur, chosen, dim)
   end
 end
 
-local function confirm_row(page, y0, cur)
+local function confirm_row(page, y0, cur, row)
   plan.at(page)
+  hit(page, row, y0, y0 + 24)
   if P.confirmed then
     intel.rect(30, y0, 610, y0 + 24, 0x205020FF)
     intel.text(44, y0 + 6, string.format("CONFIRMED  -  THE PLAN IS ON  -  %s SPENT (OFF THE PAYOUT)", money(P.spent)), 0xF2EBD0FF, 0.9)
@@ -299,13 +308,14 @@ local function draw_loadout(page)
   for i, it in ipairs(ITEMS) do
     local y0 = 78 + (i - 1) * 25
     local n = P.have[it.id] or 0
+    hit(page, i, y0, y0 + 22)
     row_box(y0, y0 + 22, cur == i, n > 0)
     intel.text(44, y0 + 6, it.name .. (it.max > 1 and string.format("  x%d", n) or ""), n > 0 and 0x106010FF or INK, 0.85)
     intel.text(206, y0 + 7, it.desc, 0x404040FF, 0.68)
     intel.text(530, y0 + 6, money(it.price) .. (it.max > 1 and " EA" or ""), INK, 0.8)
     if n > 0 and it.max == 1 then intel.marker(596, y0 + 11, "check", 0x208020FF, 6) end
   end
-  confirm_row(page, 78 + #ITEMS * 25 + 2, cur == #ITEMS + 1)
+  confirm_row(page, 78 + #ITEMS * 25 + 2, cur == #ITEMS + 1, #ITEMS + 1)
   footer_msg(page, 386)
   summary(page, 404)
 end
@@ -316,6 +326,7 @@ local function draw_entry(page)
   for i, e in ipairs(ENTRIES) do
     local y0 = 78 + (i - 1) * 54
     local ok, why = entry_open(e)
+    hit(page, i, y0, y0 + 50)
     row_box(y0, y0 + 50, cur == i, P.entry == e.id, not ok)
     intel.text(44, y0 + 6, e.name, ok and INK or 0x606060FF, 1.0, 0, 1)
     intel.text(250, y0 + 8, e.price > 0 and money(e.price) or "FREE", INK, 0.85)
@@ -324,7 +335,7 @@ local function draw_entry(page)
     if P.entry == e.id then intel.text(520, y0 + 8, "CHOSEN", 0x208020FF, 0.9) end
     intel.text(44, y0 + 26, e.desc, 0x404040FF, 0.72, 550)
   end
-  confirm_row(page, 78 + #ENTRIES * 54 + 2, cur == #ENTRIES + 1)
+  confirm_row(page, 78 + #ENTRIES * 54 + 2, cur == #ENTRIES + 1, #ENTRIES + 1)
   footer_msg(page, 386)
   summary(page, 404)
 end
@@ -334,19 +345,20 @@ local function draw_crew(page)
   local cur = (tab_kind(P.tab) == "crew") and P.rows.crew or 0
   for i, x in ipairs(EXTRAS) do
     local y0 = 78 + (i - 1) * 60
+    hit(page, i, y0, y0 + 54)
     row_box(y0, y0 + 54, cur == i, P.extras[x.id])
     intel.text(44, y0 + 6, x.name, INK, 1.0, 0, 1)
     intel.text(330, y0 + 8, money(x.price), INK, 0.85)
     if P.extras[x.id] then intel.text(520, y0 + 8, "HIRED", 0x208020FF, 0.9) end
     intel.text(44, y0 + 28, x.desc, 0x404040FF, 0.72, 550)
   end
-  confirm_row(page, 78 + #EXTRAS * 60 + 2, cur == #EXTRAS + 1)
+  confirm_row(page, 78 + #EXTRAS * 60 + 2, cur == #EXTRAS + 1, #EXTRAS + 1)
   footer_msg(page, 386)
   summary(page, 404)
 end
 
 local function footer_text()
-  return string.format("PLAN  %s LEFT   TABS: , . WHEEL LB/RB   ROWS: W/S   FIRE: BUY   USE: SELL   GO: START / CONFIRM",
+  return string.format("%s LEFT  CLICK/FIRE: BUY  R-CLICK/USE: SELL  WHEEL W/S: ROWS  , . LB/RB: TABS  START: GO",
                        money(P.budget - cost()))
 end
 
@@ -354,6 +366,7 @@ local function build()
   local b = P.base
   if b == 0 then intel.enable(true); intel.title("JANUS BANK, ST PETERSBURG  -  THE PLAN") end
   intel.page(b + 1, "LOADOUT"); intel.page(b + 2, "ENTRY"); intel.page(b + 3, "CREW")
+  if plan.pages then plan.pages(b + 1, 3) end   -- (planning: only these three tabs; after the confirm only the job's pages)
   plan.clear()
   draw_loadout(b + 1)
   draw_entry(b + 2)
@@ -366,9 +379,11 @@ end
 -- the input (Bond 1's; the partners' are taken and dropped) and the tick
 
 local function step(ev)
-  local ntabs = P.base + 3
-  if ev & LEFT ~= 0 then P.tab = (P.tab - 2) % ntabs + 1; P.dirty = true end
-  if ev & RIGHT ~= 0 then P.tab = P.tab % ntabs + 1; P.dirty = true end
+  local t = P.tab - P.base                    -- (only the plan's three tabs while planning: the job's pages come after the confirm)
+  if t < 1 or t > 3 then t = 1 end
+  if ev & LEFT ~= 0 then t = (t - 2) % 3 + 1; P.dirty = true end
+  if ev & RIGHT ~= 0 then t = t % 3 + 1; P.dirty = true end
+  P.tab = P.base + t
   local kind = tab_kind(P.tab)
   local n = row_count(kind)
   if n > 0 then
@@ -394,6 +409,21 @@ local function step(ev)
   if ev & START ~= 0 then P.go = true end
 end
 
+-- a board click (plan.pointer: a session command, so sim input on every machine): a = page * 64 + row, b = 1 select, 2 back, 3 tab,
+-- 4 / 5 the wheel (a row up / down on the shown tab)
+local function point(a, b)
+  local page, row = a // 64, a % 64
+  if page < P.base + 1 or page > P.base + 3 then return end
+  if page ~= P.tab then P.tab = page; P.dirty = true end
+  if b == 4 then step(UP); return end
+  if b == 5 then step(DOWN); return end
+  local kind = tab_kind(P.tab)
+  if row >= 1 and row <= row_count(kind) then
+    if P.rows[kind] ~= row then P.rows[kind] = row; P.dirty = true end
+    if b == 1 then step(SELECT) elseif b == 2 then step(BACK) end
+  end
+end
+
 function P.tick(dt)
   if P.confirmed then
     if P.power_at and H.ready and H.elapsed >= P.power_at then
@@ -410,6 +440,11 @@ function P.tick(dt)
   H.phase = "planning"
   local ev = plan.input(0)                    -- (one Bond tick's presses at a time, in order)
   while ev ~= 0 do step(ev); ev = plan.input(0) end
+  if plan.pointer then                        -- (then Bond 1's mouse clicks, in order)
+    local a, b = plan.pointer(0)
+    while a do point(a, b); a, b = plan.pointer(0) end
+    for p = 1, bond.count() - 1 do while plan.pointer(p) do end end
+  end
   for p = 1, bond.count() - 1 do while plan.input(p) ~= 0 do end end
   if P.go then
     P.go = false

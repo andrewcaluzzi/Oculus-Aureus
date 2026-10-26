@@ -3,7 +3,9 @@
  *
  * Before the heist clock starts the crew sits in the van with the planning board up. What C does:
  *   - the HOLD: while the script holds the start (plan.hold(true)) every Bond's stick and buttons are taken in his own tick
- *     (bondview2.c, before MoveBond: his synchronized input) and never reach MoveBond, so nobody moves or fires;
+ *     (bondview2.c, before MoveBond: his synchronized input) and never reach MoveBond, so nobody moves or fires; and the controls are
+ *     not live (bondview2.c portMouseLookPermitted asks portPlanningHeld, as for a camera feed): no mouse look, no Move keys' steps,
+ *     no Look stick, no Port binds, and the pointer is let go so the board's mouse cursor can move;
  *   - the board's INPUT as sim state: the same tick turns his buttons into edge events (up / down / left / right / select / back /
  *     start) that the script takes with plan.input(p). Up / down: the stick, the D-pad, C-up / C-down. Left / right: the stick, the
  *     D-pad, C-left / C-right, and the Port's next / previous weapon or inventory (the mouse wheel, , and ., the bumpers: the INTEL
@@ -33,10 +35,18 @@ static u8 sEv[PL_MAX][PL_QUEUE];   /* events not yet taken by the script, in ord
                                     * script tick stay two) */
 static s32 sEvN[PL_MAX];
 static u32 sTicks[PL_MAX];      /* ticks held */
+/* the board's MOUSE (section 27, "the planfix"): a click is local UI (port_intel.c hit-tests the cursor), but what it does arrives here
+ * as a session command (port_netcmd.c PORT_NETCMD_PLAN_POINT: in netplay both machines apply it at the same agreed tick; solo and
+ * local co-op at once), so the plan only ever changes from sim state. a = page * 64 + row (0 = no row), b = PP_* */
+#define PL_PTRQ 16
+static s16 sPtr[PL_MAX][PL_PTRQ][2];
+static s32 sPtrN[PL_MAX];
 
 void portPlanningReset(void)
 {
     sHold = 0;
+    memset(sPtr, 0, sizeof(sPtr));
+    memset(sPtrN, 0, sizeof(sPtrN));
     memset(sPrevBtn, 0, sizeof(sPrevBtn));
     memset(sPrevX, 0, sizeof(sPrevX));
     memset(sPrevY, 0, sizeof(sPrevY));
@@ -53,10 +63,34 @@ static void push(int p, u32 ev)
 void portPlanningHold(int on)
 {
     sHold = on ? 1 : 0;
-    if (!sHold) { memset(sEv, 0, sizeof(sEv)); memset(sEvN, 0, sizeof(sEvN)); }
+    if (!sHold) { memset(sEv, 0, sizeof(sEv)); memset(sEvN, 0, sizeof(sEvN)); memset(sPtr, 0, sizeof(sPtr)); memset(sPtrN, 0, sizeof(sPtrN)); }
 }
 
 int portPlanningHeld(void) { return sHold && portModeActive(); }
+
+/* ticks Bond p has spent held at the board (input_pc.c GE_SKIPINTRO: the intro taps stop once the board has the controls) */
+int portPlanningBondTicks(int p) { return (p >= 0 && p < PL_MAX && sHold && portModeActive()) ? (int) sTicks[p] : 0; }
+
+/* port_netcmd.c portSessionCmdExec (PORT_NETCMD_PLAN_POINT): a board click for Bond p, sim side (the same tick on every machine) */
+void portPlanningPointerPush(int p, int a, int b)
+{
+    if (p < 0 || p >= PL_MAX || !sHold || sPtrN[p] >= PL_PTRQ) return;
+    sPtr[p][sPtrN[p]][0] = (s16) a;
+    sPtr[p][sPtrN[p]][1] = (s16) b;
+    sPtrN[p]++;
+}
+
+/* plan.pointer(p): Bond p's next board click, taken; 0 = none left */
+int portPlanningPointerTake(int p, int *a, int *b)
+{
+    if (p < 0 || p >= PL_MAX || sPtrN[p] <= 0) return 0;
+    *a = sPtr[p][0][0];
+    *b = sPtr[p][0][1];
+    memmove(&sPtr[p][0], &sPtr[p][1], sizeof(sPtr[p][0]) * (PL_PTRQ - 1));
+    sPtr[p][PL_PTRQ - 1][0] = sPtr[p][PL_PTRQ - 1][1] = 0;
+    sPtrN[p]--;
+    return 1;
+}
 
 /* bondview2.c, Bond p's tick, before MoveBond. 1 = held (nothing reaches MoveBond). */
 int portPlanningBondTick(int p, s8 *sx, s8 *sy, u16 *buttons)
@@ -166,6 +200,8 @@ unsigned portPlanningHash(void)
         for (k = 0; k < sEvN[p]; k++) h = h * 16777619u + sEv[p][k];
         h = h * 16777619u + (unsigned) sEvN[p];
         h = h * 16777619u + sTicks[p];
+        for (k = 0; k < sPtrN[p]; k++) h = h * 16777619u + ((unsigned) (u16) sPtr[p][k][0] << 8) + (unsigned) (u16) sPtr[p][k][1];
+        h = h * 16777619u + (unsigned) sPtrN[p];
     }
     return h;
 }

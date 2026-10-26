@@ -7594,6 +7594,22 @@ s32 portInputDigitalMove(s32 slot, s32 *dx, s32 *dy)
         s32 ky = 0;
 
         portVideoKbdDigitalMove(&kx, &ky);
+        { /* GE_FAKEDIGMOVE=dx,dy,from,until: the Move keys (W / A / S / D) held as dx, dy (-1 / 0 / 1) from sim tick `from` to `until`,
+           * so a headless run can exercise the gates on the keyboard's digital move (tests/heist/run_planning.sh). Diagnostic only. */
+            static int fdx, fdy, ffrom = -1, funtil;
+            extern u32 g_PortSimTickNo;
+            if (ffrom < 0)
+            {
+                const char *e = getenv("GE_FAKEDIGMOVE");
+                ffrom = 0;
+                if (e == NULL || sscanf(e, "%d,%d,%d,%d", &fdx, &fdy, &ffrom, &funtil) != 4) ffrom = 0;
+            }
+            if (ffrom > 0 && g_PortSimTickNo >= (u32) ffrom && g_PortSimTickNo <= (u32) funtil)
+            {
+                kx = fdx;
+                ky = fdy;
+            }
+        }
         x = (x != 0) ? x : kx;
         y = (y != 0) ? y : ky;
         { /* GE_INPUTREC / GE_INPUTPLAY (inputrec.c) */
@@ -7941,6 +7957,7 @@ void portInputPadMerge(s32 idx, OSContPad *pad)
              * cycle his weapons. */
             extern s32 portStageRunning(void);
             extern s32 portP1ControlsLive(void);
+            extern int portPlanningBondTicks(int p);
             extern u32 g_PortSimTickNo;
             static int sLive;   /* Bond was in the player's hands this stage: no more taps (a heist camera feed
                                  * takes the controls away, and a tap there cycled the cameras) */
@@ -7949,7 +7966,7 @@ void portInputPadMerge(s32 idx, OSContPad *pad)
             {
                 sLive = 0;
             }
-            else if (portP1ControlsLive())
+            else if (portP1ControlsLive() || portPlanningBondTicks(0) > 0)   /* (the heist's planning board has the controls) */
             {
                 sLive = 1;
             }

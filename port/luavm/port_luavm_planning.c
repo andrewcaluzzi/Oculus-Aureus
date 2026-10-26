@@ -13,6 +13,12 @@
  *   plan.count() -> n                   items on the plan layer (tests)
  *   plan.has(p, item) -> bool           tests: Bond p carries that item (a bond.give name) - reads only
  *   plan.strip(p, item) -> bool         take that item out of Bond p's inventory (sim: the stage's own start gun, at the stage start)
+ *   plan.pages(first, n)                the plan's own tabs: only they show while planning; after it only the pages before them
+ *   plan.tabs() -> first, n             the tabs the board shows now (tests)
+ *   plan.hit(page, row, x0, y0, x1, y1) a clickable row of a plan page (board units; cleared by plan.clear): the board's mouse
+ *   plan.pointer(p) -> a, b | nil       Bond p's next board click, taken (sim: a session command): a = page * 64 + row (0 = none),
+ *                                       b = 1 select (left), 2 back (right), 3 tab, 4 row up, 5 row down (the wheel)
+ *   plan.test_mouse(x, y [, button]) -> page, row   tests: the cursor to a board point; button 1 / 2 clicks, 4 / 5 wheel notches
  * The drawing is presentation only: built from the plan's sim state, never read back. */
 #include "lua.h"
 #include "lauxlib.h"
@@ -63,6 +69,51 @@ static int itemArg(lua_State *L, int idx, const char *fn)
     return id;
 }
 
+extern void portIntelPlanPages(int first, int n);
+extern void portIntelTabs(int *first, int *n);
+extern void portIntelPlanHit(int page, int row, float x0, float y0, float x1, float y1);
+extern void portIntelTestMouse(float x, float y, int button, int *page, int *row);
+extern int portPlanningPointerTake(int p, int *a, int *b);
+
+static int lPages(lua_State *L) { portIntelPlanPages((int) luaL_checkinteger(L, 1), (int) luaL_checkinteger(L, 2)); return 0; }
+
+static int lTabs(lua_State *L)
+{
+    int first = 0, n = 0;
+
+    portIntelTabs(&first, &n);
+    lua_pushinteger(L, first);
+    lua_pushinteger(L, n);
+    return 2;
+}
+
+static int lHit(lua_State *L)
+{
+    portIntelPlanHit((int) luaL_checkinteger(L, 1), (int) luaL_checkinteger(L, 2), (float) luaL_checknumber(L, 3),
+                     (float) luaL_checknumber(L, 4), (float) luaL_checknumber(L, 5), (float) luaL_checknumber(L, 6));
+    return 0;
+}
+
+static int lPointer(lua_State *L)
+{
+    int a = 0, b = 0;
+
+    if (!portPlanningPointerTake((int) luaL_checkinteger(L, 1), &a, &b)) return 0;
+    lua_pushinteger(L, a);
+    lua_pushinteger(L, b);
+    return 2;
+}
+
+static int lTestMouse(lua_State *L)
+{
+    int page = -1, row = -1;
+
+    portIntelTestMouse((float) luaL_checknumber(L, 1), (float) luaL_checknumber(L, 2), (int) luaL_optinteger(L, 3, 0), &page, &row);
+    lua_pushinteger(L, page);
+    lua_pushinteger(L, row);
+    return 2;
+}
+
 static int lStrip(lua_State *L) { lua_pushboolean(L, portPlanningStrip((int) luaL_checkinteger(L, 1), itemArg(L, 2, "plan.strip"))); return 1; }
 
 static int lHas(lua_State *L)
@@ -84,7 +135,8 @@ void portLuaPlanningRegister(lua_State *L)
 {
     static const luaL_Reg lib[] = {
         { "hold", lHold }, { "held", lHeld }, { "input", lInput }, { "test_input", lTestInput }, { "view", lView },
-        { "clear", lClear }, { "at", lAt }, { "count", lCount }, { "has", lHas }, { "strip", lStrip }, { NULL, NULL } };
+        { "clear", lClear }, { "at", lAt }, { "count", lCount }, { "has", lHas }, { "strip", lStrip },
+        { "pages", lPages }, { "tabs", lTabs }, { "hit", lHit }, { "pointer", lPointer }, { "test_mouse", lTestMouse }, { NULL, NULL } };
 
     luaL_newlib(L, lib);
     lua_setglobal(L, "plan");

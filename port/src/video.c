@@ -4414,6 +4414,25 @@ void videoGetPad(OSContPad *pad)
             sWheelUpNow = 0;
             sWheelDownNow = 0;
         }
+        {   /* PORT: heist planning board (port_intel.c): while it is up the mouse is its pointer - the buttons and the wheel click and
+             * scroll the board, never a bind (no fire, aim or weapon step); a button still down when it goes is held over */
+            extern int portIntelMouse(s32 mx, s32 my, s32 winw, s32 winh, u32 mbuttons, s32 wheelUp, s32 wheelDown);
+            extern void portInputMouseWindowPos(s32 *x, s32 *y, s32 *moved);
+            s32 pmx = 0, pmy = 0;
+
+            portInputMouseWindowPos(&pmx, &pmy, NULL);
+            if (portIntelMouse(pmx, pmy, (s32) videoRealWinW(), gfx_current_window_dimensions.height, mbuttons, sWheelUpNow, sWheelDownNow))
+            {
+                if (mbuttons != 0)
+                {
+                    sHeldOverMouse |= mbuttons;
+                    sHeldOverAny = 1;
+                }
+                mbuttons = 0;
+                sWheelUpNow = 0;
+                sWheelDownNow = 0;
+            }
+        }
         videoBindCaptureWheel();              /* watch rebinding: the wheel, when armed */
         if (s_BindCapArmed || portBindCooldownActive())
         {   /* the blackout covers the wheel too - the rest of a flick

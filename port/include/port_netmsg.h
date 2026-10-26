@@ -167,7 +167,9 @@ enum {
     PORT_NETCMD_SPAWN_GUARD = 1,   /* a = count 1..40, b = ring distance 100..5000; around the issuer's Bond */
     PORT_NETCMD_SPAWN_CLEAR,       /* a = b = 0 */
     PORT_NETCMD_GIVE_ITEM,         /* player = the Bond, a = ITEM_ id (game checks the table), b = ammo (-1 = the pickup amount, else 0..9999) */
-    PORT_NETCMD_GIVE_KEY           /* player = the Bond, a = key filter (-2 keycard, -1 any, else a prop model 0..1023), b = ordinal 1..64 */
+    PORT_NETCMD_GIVE_KEY,          /* player = the Bond, a = key filter (-2 keycard, -1 any, else a prop model 0..1023), b = ordinal 1..64 */
+    PORT_NETCMD_PLAN_POINT         /* the heist planning board's mouse (port_planning.c): player = the issuer, a = page * 64 + row 0..1023,
+                                    * b = the action 1..5 (select, back, tab, row up, row down) */
 };
 #define PORT_NETCMD_SIZE 24
 #define PORT_NETCMD_MAXITEM 255

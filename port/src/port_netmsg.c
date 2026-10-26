@@ -499,6 +499,8 @@ int portNetCmdValid(const PortNetCmd *c)
         return (c->player >= 0 && c->player <= 1 && c->a >= 0 && c->a <= PORT_NETCMD_MAXITEM && c->b >= -1 && c->b <= 9999) ? 0 : -1;
     case PORT_NETCMD_GIVE_KEY:
         return (c->player >= 0 && c->player <= 1 && c->a >= -2 && c->a <= 1023 && c->b >= 1 && c->b <= 64) ? 0 : -1;
+    case PORT_NETCMD_PLAN_POINT:
+        return (c->player == c->issuer && c->a >= 0 && c->a <= 1023 && c->b >= 1 && c->b <= 5) ? 0 : -1;
     default:
         return -1;
     }

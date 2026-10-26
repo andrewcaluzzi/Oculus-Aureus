@@ -6262,6 +6262,10 @@ static s32 portMouseLookPermitted(void)
         extern int portCctvViewing(int p);
         if (portCctvViewing(get_cur_playernum()) >= 0) return 0;
     }
+    {   /* PORT: heist planning (port_planning.c): while the plan holds the start the board has every control (sim state: both machines) */
+        extern int portPlanningHeld(void);
+        if (portPlanningHeld()) return 0;
+    }
     { /* No mouse, Port binds or pointer capture during demo playback: the
        * demo replays a recorded pad, and live mouse input would steer and
        * desync it. Recording is untouched. */

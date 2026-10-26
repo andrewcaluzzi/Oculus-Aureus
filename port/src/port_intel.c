@@ -23,6 +23,7 @@
 #include "game/textrelated.h"
 #include "game/dyn.h"
 #include "fr.h"
+#include "port_netmsg.h"   /* PORT_NETCMD_PLAN_POINT */
 
 extern void portConLogf(const char *fmt, ...);
 extern void *portAllocHigh(u32 size);
@@ -83,6 +84,20 @@ static s32 sOpen, sPage, sFloor = -1, sBrief, sHoldMode, sFrame;
  * and the footer is the script's. Pool 2 holds the plan's pages (plan.clear / plan.at): intel.clear never touches it. */
 static s32 sPlanOn;
 static char sPlanFoot[192];
+/* The plan's own tabs (plan.pages: first page, count): while plan mode is on ONLY they show (LOADOUT, ENTRY, CREW); once it is off
+ * the board's tabs are the pages before them (the job's five) and the plan's pages are gone. sPlanN = 0: every page, as before. */
+static s32 sPlanFirst, sPlanN;
+/* THE MOUSE (plan mode): hit boxes the script registers with the plan's rows (plan.hit), the cursor in board units, what it is over.
+ * All local presentation: a click becomes a session command (portSessionCmdRun PORT_NETCMD_PLAN_POINT) and changes the plan only
+ * through the sim (port_planning.c). */
+#define IN_HITS 48
+typedef struct { s16 x0, y0, x1, y1; u8 page, row; } IntelHit;
+static IntelHit sHit[IN_HITS];
+static s32 sHitN;
+static f32 sPtrX = -1000.0f, sPtrY = -1000.0f;
+static s32 sPtrSeen;               /* the cursor has a position on the board */
+static u32 sPrevMB;
+static s32 sHoverPage = -1, sHoverRow = -1;   /* 1-based page; row 0 = the page's tab */
 static u8 sPrevIntel, sPrevNav[4];
 static s32 sAutoN = -1;
 static s32 sAutoFrame[32];
@@ -120,9 +135,56 @@ static void intelEpochCheck(void)
         sPage = 0;
         sFloor = -1;
         sPlanOn = 0;
+        sPlanFirst = sPlanN = 0;
+        sHitN = 0;
+        sHoverPage = sHoverRow = -1;
         intelResetAll();
         if (sPool[2]) { sPool[2]->n = 0; sPool[2]->tn = 0; }
     }
+}
+
+/* the tabs the board shows now: pages [*lo, *lo + *n) (0-based) */
+static void intelTabRange(s32 *lo, s32 *n)
+{
+    *lo = 0;
+    *n = sPages;
+    if (sPlanN > 0 && sPlanFirst >= 0 && sPlanFirst + sPlanN <= sPages)
+    {
+        if (sPlanOn) { *lo = sPlanFirst; *n = sPlanN; }
+        else if (sPlanFirst > 0) { *n = sPlanFirst; }
+    }
+    if (*n < 1) { *lo = 0; *n = sPages > 0 ? sPages : 1; }
+}
+
+/* plan.pages(first, n): the plan's tabs (1-based first page) */
+void portIntelPlanPages(int first, int n)
+{
+    intelEpochCheck();
+    sPlanFirst = first - 1;
+    sPlanN = (first >= 1 && n > 0 && first - 1 + n <= IN_PAGES) ? n : 0;
+}
+
+/* plan.tabs() -> first (1-based), count: the tabs the board shows now (tests) */
+void portIntelTabs(int *first, int *n)
+{
+    s32 lo, k;
+
+    intelEpochCheck();
+    intelTabRange(&lo, &k);
+    *first = lo + 1;
+    *n = k;
+}
+
+/* plan.hit(page, row, x0, y0, x1, y1): a clickable row of the plan's page (board units); cleared with plan.clear */
+void portIntelPlanHit(int page, int row, float x0, float y0, float x1, float y1)
+{
+    IntelHit *h;
+
+    intelEpochCheck();
+    if (sHitN >= IN_HITS || page < 1 || page > IN_PAGES || row < 1 || row > 63) return;
+    h = &sHit[sHitN++];
+    h->page = (u8) page; h->row = (u8) row;
+    h->x0 = (s16) x0; h->y0 = (s16) y0; h->x1 = (s16) x1; h->y1 = (s16) y1;
 }
 
 static int intelPools(void)
@@ -192,6 +254,7 @@ void portIntelPlanClear(void)
 {
     intelEpochCheck();
     if (sPool[2]) { sPool[2]->n = 0; sPool[2]->tn = 0; }
+    sHitN = 0;
 }
 
 /* plan.view(on, page, floor, footer): plan mode on (the board up, at that page and floor) or off (the board put away) */
@@ -337,9 +400,10 @@ int portIntelHold(void) { return sHoldMode; }
 
 static void intelStepPage(int d)
 {
-    const int n = sPages > 0 ? sPages : 1;
+    s32 lo, n;
 
-    sPage = ((sPage + d) % n + n) % n;
+    intelTabRange(&lo, &n);
+    sPage = lo + (((sPage - lo + d) % n) + n) % n;
 }
 
 static void intelStepFloor(int d)
@@ -791,18 +855,22 @@ static Gfx *drawChrome(Gfx *g)
     for (x = 14; x < BW - 14; x += 20) g = bfill(g, x, 30, x + 1, BH - 22, 0x2A4C80A0u);
     for (x = 30; x < BH - 22; x += 20) g = bfill(g, 14, x, BW - 14, x + 1, 0x2A4C80A0u);
     g = bframe(g, 18, 34, BW - 18, BH - 26, 1, 0xD8E4F4C0u);
-    /* tabs: index cards along the top */
+    /* tabs: index cards along the top (only the ones in play: the plan's while planning, the job's after) */
     {
-        const s32 n = sPages > 0 ? sPages : 1;
-        const s32 tw = (BW - 40) / n;
+        s32 lo, n;
+        s32 tw;
 
-        for (i = 0; i < sPages; i++)
+        intelTabRange(&lo, &n);
+        tw = (BW - 40) / n;
+        for (i = lo; i < lo + n && i < sPages; i++)
         {
-            const s32 tx = 20 + i * tw;
+            const s32 tx = 20 + (i - lo) * tw;
             const int cur = (i == sPage);
+            const int hov = sPlanOn && sHoverPage == i + 1 && sHoverRow == 0;
 
-            g = bfill(g, tx + 1, cur ? 8 : 12, tx + tw - 3, 30, cur ? 0xF2EBD0FFu : 0xB8B098FFu);
-            snprintf(buf, sizeof(buf), "%d %s", i + 1, sPageTitle[i]);
+            g = bfill(g, tx + 1, cur ? 8 : 12, tx + tw - 3, 30, cur ? 0xF2EBD0FFu : (hov ? 0xE8DCA8FFu : 0xB8B098FFu));
+            if (hov) g = bframe(g, tx + 1, cur ? 8 : 12, tx + tw - 3, 30, 2, 0xFFC020FFu);
+            snprintf(buf, sizeof(buf), "%d %s", i - lo + 1, sPageTitle[i]);
             g = stext(g, X(tx + (n > 6 ? 3 : 6)), Y(cur ? 13 : 16), buf, cur ? 0x9A1010FFu : 0x404040FFu, n > 6 ? sSc * 0.72f : sSc, 0);
         }
     }
@@ -863,6 +931,131 @@ static Gfx *drawBonds(Gfx *g)
     return g;
 }
 
+/* ---- the mouse (plan mode) ----------------------------------------------------------------------------------------------------- */
+
+enum { PP_SELECT = 1, PP_BACK, PP_TAB, PP_UP, PP_DOWN };   /* PORT_NETCMD_PLAN_POINT's b */
+
+/* what the board point (x, y) is over: *page 1-based (-1 nothing), *row 0 = that page's tab, else a plan.hit row of the shown page */
+static void intelHitTest(f32 x, f32 y, s32 *page, s32 *row)
+{
+    s32 lo, n, i, tw;
+
+    *page = -1;
+    *row = -1;
+    intelTabRange(&lo, &n);
+    tw = (BW - 40) / n;
+    if (y >= 8.0f && y < 31.0f)
+    {
+        for (i = 0; i < n; i++)
+        {
+            const s32 tx = 20 + i * tw;
+
+            if (x >= (f32) (tx + 1) && x < (f32) (tx + tw - 3)) { *page = lo + i + 1; *row = 0; return; }
+        }
+        return;
+    }
+    for (i = 0; i < sHitN; i++)
+    {
+        const IntelHit *h = &sHit[i];
+
+        if (h->page != sPage + 1) continue;
+        if (x >= (f32) h->x0 && x < (f32) h->x1 && y >= (f32) h->y0 && y < (f32) h->y1) { *page = h->page; *row = h->row; return; }
+    }
+}
+
+/* a click: never applied here - a session command, so in netplay both machines apply it at the same tick (port_netcmd.c) */
+static void intelPlanClick(s32 page, s32 row, s32 act)
+{
+    extern int portSessionCmdRun(int kind, int player, int a, int b);
+    extern int portNetActive(void);
+    extern int portNetCmdSelf(void);
+    const int me = portNetActive() ? portNetCmdSelf() : portLocalPlayer();
+
+    if (page < 1 || page > IN_PAGES || row < 0 || row > 63) return;
+    portSessionCmdRun(PORT_NETCMD_PLAN_POINT, me < 0 ? 0 : me, page * 64 + row, act);
+}
+
+static void intelPointerAct(s32 left, s32 right, s32 wheelUp, s32 wheelDown)
+{
+    intelHitTest(sPtrX, sPtrY, &sHoverPage, &sHoverRow);
+    if (left && sHoverRow == 0) intelPlanClick(sHoverPage, 0, PP_TAB);
+    else if (left && sHoverRow > 0) intelPlanClick(sHoverPage, sHoverRow, PP_SELECT);
+    if (right && sHoverRow > 0) intelPlanClick(sHoverPage, sHoverRow, PP_BACK);
+    if (wheelUp) intelPlanClick(sPage + 1, 0, PP_UP);
+    if (wheelDown) intelPlanClick(sPage + 1, 0, PP_DOWN);
+}
+
+/**
+ * video.c, every poll after the wheel drain: the mouse (window px, the window's size, SDL's button mask, this poll's wheel notches).
+ * While the planning board is up (plan mode) the mouse is its pointer: returns 1 and the caller keeps the buttons and the wheel from
+ * every bind (a click must not also fire, aim or step a weapon). Otherwise 0, and nothing is touched.
+ */
+int portIntelMouse(s32 mx, s32 my, s32 winw, s32 winh, u32 mbuttons, s32 wheelUp, s32 wheelDown)
+{
+    static s32 lastx = -99999, lasty = -99999;
+    u32 edge;
+
+    if (!sPlanOn || !sOpen || !portIntelAvailable() || winw <= 0 || winh <= 0 || sSc <= 0.0f)
+    {
+        sPrevMB = mbuttons;
+        return 0;
+    }
+    if (mx != lastx || my != lasty || mbuttons != 0)
+    {   /* the console space spans the window (video.c portConsoleSpace); the board sits centred in it */
+        const f32 cx = (f32) mx * (f32) sW / (f32) winw, cy = (f32) my * (f32) sH / (f32) winh;
+
+        sPtrX = (cx - (f32) sOx) / sSc;
+        sPtrY = (cy - (f32) sOy) / sSc;
+        sPtrSeen = 1;
+        lastx = mx;
+        lasty = my;
+    }
+    edge = mbuttons & ~sPrevMB;
+    sPrevMB = mbuttons;
+    intelPointerAct((edge & 1u) != 0 /* SDL_BUTTON_LMASK */, (edge & 4u) != 0 /* SDL_BUTTON_RMASK */, wheelUp, wheelDown);
+    return 1;
+}
+
+/** plan.test_mouse(x, y [, button]): tests and screenshots: the cursor to board point (x, y), then 1 = a left click, 2 = a right
+ * click, 4 / 5 = a wheel notch up / down there, through the same hit test and session command as the real mouse. */
+void portIntelTestMouse(float x, float y, int button, int *page, int *row)
+{
+    intelEpochCheck();
+    sPtrX = x;
+    sPtrY = y;
+    sPtrSeen = 1;
+    if (sPlanOn) intelPointerAct(button == 1, button == 2, button == 4, button == 5);
+    else intelHitTest(sPtrX, sPtrY, &sHoverPage, &sHoverRow);
+    *page = sHoverPage;
+    *row = sHoverRow;
+}
+
+/* the hovered row's frame and the cursor (an arrow, tip at the point) */
+static Gfx *drawPointer(Gfx *g)
+{
+    s32 i, px, py;
+
+    if (!sPlanOn || !sPtrSeen) return g;
+    intelHitTest(sPtrX, sPtrY, &sHoverPage, &sHoverRow);
+    for (i = 0; i < sHitN && sHoverRow > 0; i++)
+    {
+        const IntelHit *h = &sHit[i];
+
+        if (h->page == sHoverPage && h->row == sHoverRow && h->page == sPage + 1)
+        {
+            g = bframe(g, h->x0 - 2, h->y0 - 2, h->x1 + 2, h->y1 + 2, 2, 0xFFC020FFu);
+        }
+    }
+    px = (s32) sPtrX;
+    py = (s32) sPtrY;
+    if (px < 0 || py < 0 || px > BW || py > BH) return g;
+    g = btri(g, px - 1, py - 2, px - 1, py + 19, px + 14, py + 14, 0x000000FFu);
+    g = btri(g, px + 1, py + 2, px + 1, py + 15, px + 10, py + 12, 0xFFFFFFFFu);
+    g = bline(g, px + 5, py + 12, px + 9, py + 20, 3, 0x000000FFu);
+    g = bline(g, px + 5, py + 12, px + 9, py + 19, 1, 0xFFFFFFFFu);
+    return g;
+}
+
 /** port_console.c portConRender, every frame in a mode: the board when it is open on this machine. */
 Gfx *portIntelRender(Gfx *gdl)
 {
@@ -891,6 +1084,12 @@ Gfx *portIntelRender(Gfx *gdl)
         return gdl;
     }
     if (sPage >= sPages) sPage = 0;
+    {   /* only the tabs in play (the plan's pages are gone once it is confirmed) */
+        s32 lo, n;
+
+        intelTabRange(&lo, &n);
+        if (sPage < lo || sPage >= lo + n) sPage = lo;
+    }
     if (sFloor < 0 && sFloors > 0)
     {   /* first look: the floor this Bond is on */
         const int me = portLocalPlayer();
@@ -923,6 +1122,7 @@ Gfx *portIntelRender(Gfx *gdl)
     g = drawPool(g, sPool[1], sPage, sFloor);
     g = drawPool(g, sPool[2], sPage, sFloor);
     g = drawBonds(g);
+    g = drawPointer(g);
     portTextScale(1.0f);
     gSPEndDisplayList(g++);
 
