@@ -46,6 +46,7 @@ objectives and with no position drift; `failure_point` says where it died or got
 | `GE_PLAYERBOT_EXIT=0` | do not exit the process after the result line |
 | `GE_PLAYERBOT_LOG` | 0 quiet, 1 status every 5 s (default), 2 + door / stuck details, 3 + a line per tick |
 | `GE_PLAYERBOT_NOLOOT` | do not detour for dropped guns, ammo and armour |
+| `GE_PLAYERBOT_HOLSTER=1` | a heist's banker cover: `holster 1` from the first tick, and never the stuck recovery's blind B press (a use press with nothing in reach is the heist's pickpocket) |
 | `GE_PLAYERBOT_AIMY` | aim height over a chr's origin (default 52, the head) |
 | `GE_PLAYERBOT_NOCOVER`, `GE_PLAYERBOT_NOKITE`, `GE_PLAYERBOT_RUSH` | A/B switches: no cover, no backing away, `rush 1` from the start |
 | `GE_PLAYERBOT_SPAREALL`, `GE_PLAYERBOT_GLASSTEST` | experiments (quiet: shoot only guards that noticed Bond; shoot raisers through closed doors) |
@@ -153,6 +154,7 @@ skipped once objective N is complete or not needed at this difficulty, `diff=A-B
 | `walk ticks stickY [stickX]` | raw stick |
 | `face X Y Z` / `look pitch` | turn |
 | `wait ticks` / `kill [radius]` / `peace 1|0` | wait / fight everything visible / stop shooting |
+| `holster 1|0` | keep the slappers in hand while not fighting (a heist's banker cover reads a drawn gun); a step that wants an item still gets it. `GE_PLAYERBOT_HOLSTER=1` sets it from the first tick. Holstered, the stuck recovery's blind B press is skipped (with nothing in reach it is the heist's pickpocket, and a guard who sees it blows the cover) |
 | `quiet 1|0` | stealth: silenced guns preferred; unaware guards facing away (beyond 250) are left alone; unaware guard key carriers are knocked out from behind (heist modes) |
 | `key FLAGS` | fetch a key with any of these flags: lying (walk over it), on a guard (knock out and search, or shoot), on heist staff (hold a gun on it until it hands it over) |
 | `rush 1|0` | keep walking the route while fighting (the stick and the C strafe buttons move, the look stays on the target) |
@@ -181,21 +183,24 @@ steps the mode script feeds it through the Lua `bot` library:
 | `bot.clear()` | drop the current and every later step (the situation changed) |
 | `bot.step()` | the running step's number and the number of steps (`s > n` = idle) |
 
-`tools/bot/heist_bot.lua` is the Bank Heist driver: `GE_MODE=heist_bot GE_STAGE=bunker2 GE_PLAYERBOT=1`. It includes the
-real heist unchanged and pushes, as the heist moves on: `quiet 1`, `key 0x2` (GREEN: the head teller is held at gunpoint
-until she drops it, the lobby captain is knocked out from behind if unaware, else shot and searched), `key 0x4` (BLUE),
-the security console (cameras off 90 s), `key 0x8` (RED), then the vault antechamber: face vault door A and press use
-(starts the cracker), hold the zone and fight, restart the cracker when it jams, loot the bars nearest first until the
-klaxon, out by the nearer exit. `GE_MODE=heist_bot_cells` (tools/bot/heist_bot_cells.lua) is the small job: the body armour
-in the west wing, the floor key, the deposit cell's cash, out by the loading dock. A mode's own `mission.win/fail` writes
-the RESULT line. From C, `portPlayerBotSetPlanner(fn)` does the same job without Lua. `sh tests/bot/heist.sh [mode]
-[first_seed] [count] [parallel]` plays seeds and prints each run's result and the heist's own verdict.
+`tools/bot/heist_bot.lua` is the Bank Heist driver, on the generated Janus bank (since 2026-10-26; designs/bank-heist.md
+23e): `GE_MODE=heist_bot GE_STAGE=levelgen GE_PLAYERBOT=1 GE_PLAYERBOT_HOLSTER=1`. It includes the real heist unchanged and
+pushes, as the heist moves on: `quiet 1`, `peace 1`, `holster 1` (the banker cover: no gun in hand, no shots), then each
+card - a guard carrier's pocket picked from behind (walk 85 units behind him, face him, B with nothing else in reach), the
+head teller and any fallback by `key FLAGS` (staff held at gunpoint until they hand it over; a guard knocked out from
+behind if unaware, else shot; then searched) - GREEN, BLUE, RED, the security console (cameras off 90 s), then the crack
+spot: face vault door A and press B (starts the cracker), hold the zone and fight (`peace 0` from the vault level on),
+restart it when it jams, loot the bars nearest first until 25 s before the time lock, out by the nearer exit. Once the
+cover is blown or the alarm is up it fights. A mode's own `mission.win/fail` writes the RESULT line. From C,
+`portPlayerBotSetPlanner(fn)` does the same job without Lua. `sh tests/heist/run_botheist.sh [seed ...]` plays seeds
+headless and prints a PASS / FAIL per checkpoint (ready inside green blue console red vault_level cracking vault_open gold
+out win) and the reach rate over the seeds. `tests/bot/heist.sh` (record + replay) is still the Bunker 2 harness.
 
-Easy tunings for measuring it (the heist's defaults untouched): `GE_HEIST_TUNE1..5` (fewer guards, stock accuracy) and
-`GE_HEIST_CIVOK=1` (no civilian limit), or `TUNE=n` / `CIVOK=1` for `tests/bot/heist.sh`; `NOSHOTS=1` drops each run's
-screenshots. Status: modding/bot-notes.md ("Round 3", re-measured in "Round 4") - the full loop wins 10/10 with carriers
-only, 9/10 with 20 posted guards, 1/10 with 30, 0/10 from 45 up. Status of the campaign (9 of 20 stages on Agent), the
-speedrun profiles and where the bot stands still: "Round 5".
+Easy tunings for measuring it (the heist's defaults untouched): `GE_HEIST_TUNE1` (carriers and staff only, no jams),
+`GE_HEIST_TUNE2` (30 posted at the full force, ~10 on Agent; one crack squad; no vault guards), `GE_HEIST_TUNE3` (no jams),
+`GE_HEIST_CIVOK=1` (no civilian limit), `GE_BOTHEIST_NOPICK=1` (no pickpocketing). The Bunker 2 results (modding/bot-notes.md
+"Round 3"/"Round 4": 10/10 with carriers only, 0/10 from 45 posted up) are history. Status of the campaign (9 of 20 stages on
+Agent), the speedrun profiles and where the bot stands still: "Round 5".
 
 ## Known limits
 

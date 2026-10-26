@@ -2438,7 +2438,11 @@ static s32 navTo(f32 x, f32 y, f32 z, f32 radius, StandTile *goalTile)
         B.backUntil = B.tick + 12;
         B.recoverUntil = B.tick + 55;
         B.stuckEvents++;
-        B.btn |= BTN_B;   /* a door or a switch in the way */
+        if (!B.holster && getenv("GE_PLAYERBOT_HOLSTER") == NULL)
+        {   /* (holstered, in a heist: a use press with nothing in reach is the pickpocket, and a guard who sees the hand
+             * blows the cover - the bot was caught by bystanders that way, 2026-10-26) */
+            B.btn |= BTN_B;   /* a door or a switch in the way */
+        }
         if (B.verbose >= 2)
         {
             portConLogf("ge: playerbot: stuck level %d: detour heading %+.0f deg at t=%.1fs room %d pos %.0f,%.0f (route %d/%d, "
@@ -4769,6 +4773,12 @@ static void robTick(ChrRecord *c)
     s32 los = d < 550.0f && botLine(bondTile(), p->prop->pos.x, p->prop->pos.z, c->prop->pos.x, c->prop->pos.z, c->prop->stan,
                                      CDTYPE_DOORS | CDTYPE_PATHBLOCKER);
 
+    if (!los && d < 550.0f && c->prop->stan != NULL && bondTile() != NULL && c->prop->stan->room == bondTile()->room)
+    {   /* the heist's aim test counts the same room as a line (port_heist.c civLineOfSight): the bank's tellers stand behind a
+         * raised counter the stan line cannot see over, and the bot walked into the counter for good (2026-10-26) */
+        los = 1;
+    }
+
     if (B.wantWeapon == ITEM_FIST)
     {
         B.wantWeapon = 0;
@@ -5420,6 +5430,7 @@ void portPlayerBotActions(u8 *down, s32 count)
         {
             down[PORTACT_PREV_WEAPON_INDEX] = 1;
         }
+
     }
 }
 

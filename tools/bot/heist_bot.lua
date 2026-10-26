@@ -156,8 +156,10 @@ local function pick_try(c)
   pick.tries = pick.tries + 1
   log("pickpocket %d on chr %d (facing %.0f): from %.0f, %.0f", pick.tries, c.chr, yaw, bx, bz)
   push("holster 1")
-  push(string.format("goto %.0f %.0f %.0f 25", bx, y, bz))
-  push(string.format("face %.0f %.0f %.0f", cx, y + 40, cz))
+  push(string.format("goto %.0f %.0f %.0f 40", bx, y, bz))
+  -- (face him level: looking down at his feet, the use press found something else in reach and the pickpocket never ran)
+  local _, by = bond.pos(0)
+  push(string.format("face %.0f %.0f %.0f", cx, by or (y + 150), cz))
   pick.at_back = true
   return true
 end
@@ -261,7 +263,7 @@ local function tick_plan()
   elseif state == "vault" then
     set_peace(false)   -- the vault level is restricted: no cover there; fight (silenced) what sees the bot
     if W.vault_level[bond.room(0)] then reach("vault_level") end
-    if ph == "cracking" or ph == "jammed" then reach("vault_level"); go("hold")
+    if ph == "cracking" then reach("vault_level"); go("hold")
     elseif ph == "open" then go("loot")
     elseif idle() then start_crack() end
   elseif state == "hold" then
@@ -299,9 +301,20 @@ local function tick_plan()
 end
 
 local last_status = 0
+local wd_step, wd_since = -1, 0   -- the watchdog: a step that runs 30 s (a goto onto a spot the tiles cannot reach) is dropped
 on("tick", function(dt)
   if bot.active() ~= 1 or H.ended then return end
   if not H.ready then return end
+  do
+    local s, n = bot.step()
+    if s ~= wd_step or s > n then wd_step, wd_since = s, H.elapsed
+    elseif H.elapsed - wd_since > (CFG.step_secs or 30) and state ~= "out" and state ~= "hold" then
+      log("watchdog: step %d of %d ran %.0f s - dropping the plan", s, n, H.elapsed - wd_since)
+      bot.clear()
+      pick.at_back = false
+      wd_step, wd_since = -1, H.elapsed
+    end
+  end
   if not W then setup_map(); reach("ready") end
   if W.hall and bond.room(0) == W.hall then reach("inside") end
   if H.bars > 0 then reach("gold") end
@@ -318,7 +331,7 @@ on("tick", function(dt)
           H.elapsed, state, H.phase, tostring(bond.room(0)), x or 0, z or 0, s, n, H.hot and "yes" or "no", H.blown or 0, bond.keys(0)))
   end
   if state == "out" then
-    reach("out")
+    if zone.contains(H.zones.exit_a, bond.id(0)) or zone.contains(H.zones.exit_b, bond.id(0)) then reach("out") end
     if H.phase == "trapped" and H.trapped[0] then bot.clear(); go("trapped"); return end
     if idle() then push("goto pad " .. exit_pad() .. " 60"); push("exit") end
     return
@@ -326,6 +339,9 @@ on("tick", function(dt)
   tick_plan()
 end)
 
+on("use", function(p, kind, idx, objtype)
+  if p == 0 and not H.ended then log("use press: kind %s idx %s objtype %s at %.0f s", tostring(kind), tostring(idx), tostring(objtype), H.elapsed) end
+end)
 on("civilian_robbed", function(c, p) log("civilian %d robbed by Bond %d", c, p) end)
 on("chr_knocked_out", function(c, p) log("chr %d knocked out by %d", c, p) end)
 on("chr_searched", function(c, p) log("chr %d searched by %d", c, p) end)

@@ -3,7 +3,7 @@
 # human, no warps. Inside the build container with Xvfb on :99 and build_pc built (the compiled bank: v3).
 #   sh tests/heist/run_botheist.sh [seed ...]          (default: seed 7)
 # Env: PAR (runs at once, default 1), MAXSECS (mission seconds before the bot gives up, default 900), DIFF (default 0), EXTRA (more
-# KEY=VALUE env, e.g. "GE_HEIST_TUNE1=1"), LOGDIR (default /tmp/botheist).
+# KEY=VALUE env, e.g. "GE_HEIST_TUNE1=1"), LOGDIR (default /tmp/botheist), SHOTS=1 (keep the bot's BMP every 30 s, in LOGDIR/shots_s<seed>).
 # Fast-forward like tests/bot/level.sh: GE_FIXEDTICK=1 GE_NOSLEEP=1 GE_CLOCKSCALE=20 and GE_SIMONLY_TEST (draw 1 tick in 60). GE_FRAMES
 # is set out of reach: with GE_NOSLEEP it counts retrace pumps, not ticks, and the heist suites ran out of frames that way; the run ends
 # on the mission's own end or the bot's MAXSECS (the bot exits the process after its RESULT line).
@@ -26,10 +26,14 @@ STAGES="ready inside green blue console red vault_level cracking vault_open gold
 one() {
     s=$1
     log=$LOGDIR/botheist_s$s.log
-    ( cd "$B" && env DISPLAY=:99 GE_MODE=heist_bot GE_STAGE=levelgen GE_DIFF=${DIFF:-0} GE_SKIPINTRO=1 GE_NOINISAVE=1 GE_TICKHZ=60 \
+    shots=$LOGDIR/shots_s$s     # the bot saves a BMP every 30 s into the working directory (~2.7 MB each)
+    mkdir -p "$shots"
+    rm -f "$shots"/*.bmp
+    ( cd "$shots" && env DISPLAY=:99 GE_MODE=heist_bot GE_STAGE=levelgen GE_DIFF=${DIFF:-0} GE_SKIPINTRO=1 GE_NOINISAVE=1 GE_TICKHZ=60 \
         GE_SEED=$s GE_FIXEDTICK=1 GE_NOSLEEP=1 GE_CLOCKSCALE=20 GE_FRAMES=2000000000 GE_SIMONLY_TEST=2,59,60 GE_FULLHEIGHT=0 GE_EDGEINSET=1 \
         GE_PLAYERBOT=1 GE_PLAYERBOT_HOLSTER=1 GE_PLAYERBOT_LOG=${LOG:-1} GE_PLAYERBOT_MAXSECS=${MAXSECS:-900} GE_INTEL_NOBRIEF=1 $EXTRA \
-        timeout ${TIMEOUT:-1500} ./ProjectMidas ) > "$log" 2>&1
+        timeout ${TIMEOUT:-1500} "$B/ProjectMidas" ) > "$log" 2>&1
+    [ "${SHOTS:-0}" = 1 ] || rm -f "$shots"/*.bmp   # SHOTS=1 keeps them
 }
 
 n=0
