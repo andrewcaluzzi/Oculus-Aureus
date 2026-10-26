@@ -1978,12 +1978,46 @@ s32 stanTestLineUnobstructed(StandTile **pTile, f32 p_x, f32 p_z, f32 dest_x, f3
 
                 if (numvertices0 > 0)
                 {
+#ifndef TARGET_N64
+                    /* PORT perf (designs/bank-heist.md 28): doSegmentsIntersect's first test is "the edge's two ends are not strictly on
+                     * one side of the move line": getRotationalDirectionBetween(move, end - p) for each end. A vertex's side is the
+                     * same for both edges it ends, so it is worked out once per vertex (the same float operations on the same values:
+                     * -(p - v) == (v - p) exactly), and an edge whose two ends are on one side is not tested again. An edge that
+                     * passes goes to doSegmentsIntersect as before. A hit can move dest_x / dest_z (the height gate below), so the
+                     * sides are not used again for the rest of that polygon. Same results, same order. */
+                    s8 side[32];
+                    s32 sideOk = 0;
+
+                    if (numvertices0 <= 32)
+                    {
+                        f32 mdx = dest_x - p_x;
+                        f32 mdz = dest_z - p_z;
+
+                        for (i = 0; i < numvertices0; i++)
+                        {
+                            side[i] = (s8) getRotationalDirectionBetween(mdx, mdz, polygon->points[i].f[0] - p_x, polygon->points[i].f[1] - p_z);
+                        }
+                        sideOk = 1;
+                    }
+#endif
                     for (i = 0; i < numvertices0; i++)
                     {
+#ifndef TARGET_N64
+                        next = (i + 1 == numvertices0) ? 0 : i + 1;   /* PORT perf: (i + 1) % numvertices0 without the divide */
+
+                        if (sideOk && side[i] * side[next] >= 1)
+                        {
+                            continue;   /* doSegmentsIntersect returns 0 for this edge */
+                        }
+#else
                         next = (i + 1) % numvertices0;
+#endif
 
                         if (doSegmentsIntersect(p_x, p_z, dest_x, dest_z, polygon->points[i].f[0], polygon->points[i].f[1], polygon->points[next].f[0], polygon->points[next].f[1]) != 0)
                         {
+#ifndef TARGET_N64
+                            sideOk = 0;   /* (dest_x / dest_z may move below) */
+#endif
                             sp134.f[0] = polygon->points[i].f[0];
                             sp134.f[1] = polygon->points[i].f[1];
                             sp12C.f[0] = polygon->points[next].f[0];
@@ -2335,12 +2369,41 @@ s32 stanTestVolume(StandTile **arg0, f32 arg1, f32 arg2, f32 arg3, s32 cdtypes, 
                 chraiGetCollisionBounds(prop, &polygon, &numvertices0, &sp94, &sp90);
                 if ((numvertices0 > 0) && ((sp108 == 0) || ((sp90 <= arg5) && (arg6 <= sp94))))
                 {
+#ifndef TARGET_N64
+                    /* PORT perf (designs/bank-heist.md 28): an edge counts only if the point (arg1, arg2) is nearer than arg3 to its line
+                     * and nearer than arg3 to an end or projects onto it, so only if the point is within about arg3 of the edge
+                     * itself. A point farther than arg3 + m outside the polygon's bounding box is farther than that from every edge
+                     * (m is 1 unit plus 1e-4 of the coordinates, hundreds of times the float error of those distances), so no edge
+                     * of this prop can count, and the prop is skipped: the loop below sets nothing unless an edge counts. */
+                    f32 bx0 = polygon->points[0].f[0], bx1 = bx0, bz0 = polygon->points[0].f[1], bz1 = bz0, bm, br;
+
+                    for (i = 1; i < numvertices0; i++)
+                    {
+                        f32 vx = polygon->points[i].f[0], vz = polygon->points[i].f[1];
+
+                        if (vx < bx0) bx0 = vx;
+                        if (vx > bx1) bx1 = vx;
+                        if (vz < bz0) bz0 = vz;
+                        if (vz > bz1) bz1 = vz;
+                    }
+                    bm = (arg1 < 0.0f ? -arg1 : arg1) + (arg2 < 0.0f ? -arg2 : arg2) + (bx0 < 0.0f ? -bx0 : bx0) + (bx1 < 0.0f ? -bx1 : bx1)
+                         + (bz0 < 0.0f ? -bz0 : bz0) + (bz1 < 0.0f ? -bz1 : bz1);
+                    br = arg3 + 1.0f + bm * 1e-4f;
+                    if (arg1 < bx0 - br || arg1 > bx1 + br || arg2 < bz0 - br || arg2 > bz1 + br)
+                    {
+                        continue;
+                    }
+#endif
                     var_f24 = -1.0f;
 
                     i=0;
                     while(1)
                     {
+#ifndef TARGET_N64
+                        next = (i + 1 == numvertices0) ? 0 : i + 1;   /* PORT perf: (i + 1) % numvertices0 without the divide */
+#else
                         next = (i + 1) % numvertices0;
+#endif
 
                         var_f20 = stanGetSignedPointLineDistance(polygon->points[i].f[0], polygon->points[i].f[1], polygon->points[next].f[0], polygon->points[next].f[1], arg1, arg2);
 
