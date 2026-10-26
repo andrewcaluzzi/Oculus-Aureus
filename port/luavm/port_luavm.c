@@ -1778,6 +1778,11 @@ static lua_State *portLuaState(void)
 
         portLuaXhairRegister(sL);
     }
+    {   /* GE_PROFILE_SIM only: simprof.* (port_luavm_simprof.c) */
+        extern void portLuaSimProfRegister(lua_State *L);
+
+        portLuaSimProfRegister(sL);
+    }
     lua_pushcfunction(sL, portLuaOn);
     lua_setglobal(sL, "on");
     lua_pushcfunction(sL, portLuaInclude);

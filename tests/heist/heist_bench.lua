@@ -19,12 +19,15 @@ local function alive()
   for _, g in ipairs(HEIST.guards) do if spawn.alive(g.chr) and not spawn.down(g.chr) then n = n + 1 end end
   return n
 end
+local function tag(name) if simprof then simprof.phase(name) end end   -- GE_PROFILE_SIM (designs/bank-heist.md 28)
 local function phase(label, secs)
+  tag(label)
   bench.begin()
   bench.tag(1)
   bench.sweep(24, 0)
   wait(secs)
   bench.sweep_off()
+  tag("-")
   bench.finish(string.format("%s (difficulty %d, %s)", label, mission.difficulty(), tostring(HEIST.map)),
                string.format("guards alive %d (placed %d), civilians %d, chr slots free %d, hot %s, phase %s", alive(), #HEIST.guards, #HEIST.civs,
                              spawn.free(), tostring(HEIST.hot), HEIST.phase))
@@ -33,6 +36,7 @@ local function phase(label, secs)
 end
 
 local function body()
+  tag("setup")
   while not HEIST.ready do wait(0.25) end
   wait(2)
   bench.run_start()
@@ -51,6 +55,7 @@ local function body()
   phase("vault", 15)
   bond.warp(0, best)
   alarm.start()
+  tag("ramp")
   wait(30)                                          -- the waves come in (first after wave_first, then every wave_interval)
   phase("hot", 30)
   print("HEIST BENCH DONE")
