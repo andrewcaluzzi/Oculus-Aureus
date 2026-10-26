@@ -128,3 +128,12 @@ Each bot heist run wrote a BMP every 30 s (about 20 MB a run). A 100-run ladder 
 - `tests/bmp_sheet.py`, `bmp_stat.py`: contact sheets and comparisons of screenshots.
 - The Bunker 2 probe mode (`GE_MODE=probe GE_STAGE=bunker2`, `tools/mode_probe.lua`) logs every door, key, camera,
   monitor, safe and pad with its room.
+- **Testing a web page headless on Windows (the level editor).** Edge's own binary can run headless, and it opens no window:
+  `msedge.exe --headless=new --disable-gpu --user-data-dir=<scratch> --window-size=1400,900 --virtual-time-budget=8000`, then
+  `--screenshot=<png> <url>` for a picture or `--dump-dom <url>` to read back what a script wrote into the page (see
+  `tools/levelgen/editor/selftest.js`). Pass a scratch profile so it never touches your own Edge. Three things to know:
+  - The headless window is at least about 500 px wide. Ask for 390 and the page still lays out at 504 and is then cropped, so take
+    phone-width shots at 504 (`--force-device-scale-factor=2` makes them sharp).
+  - The parser can yield between two big inline scripts. A `setTimeout(0)` set in the first one can then fire before the second
+    one has run, so wait for the `load` event first.
+  - `Blob.text()` did not resolve before the DOM dump.
