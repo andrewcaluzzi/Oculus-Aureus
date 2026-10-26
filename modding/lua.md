@@ -86,6 +86,7 @@ Registers a handler (at most 16 per event; an unknown event name raises).
 | `noise` | `(x, y, z, radius, kind, src)`: a noise the guards may hear (`kind`: `slap` `step` `run` `door` `shot` `thud` `glass` `coin` `alarm`; `src` a chr, `-2 - p` for Bond p, -1 the world). See "Guard hearing and awareness" |
 | `guard_bark` | `(chr, kind, text)`: a guard says something (`kind`: `huh` `hey` `investigate` `lost` `found_body` `radio` `backup` `surrender`) |
 | `test_key` | `(name)`: a test hotkey, `"next"` (PageDown), `"back"` (PageUp), `"next+"`, `"back+"` (with Shift), or the console `arena <name>`. Never from the keyboard in co-op or netplay. |
+| `draw_crosshair` | `(x, y, ctx)`: every frame the sight could show (not in netplay). Presentation only: draw with `ctx`, change nothing else. See "Crosshair styles" |
 
 Chr ids are chrnums. Globals: `CHR_BOND = -2` (player 0; `bond.id(p)` gives the id of other Bonds) and `CHR_NONE = -1`. `damage`, `chr_spawned`, `item_pickup` and `objective_changed` also fire on an ordinary solo stage, not only in a mode. The heist events (`alarm`, `cctv_spotted`, `use`, `gadget_used`) fire wherever the game does the thing, but a script only runs in a mode.
 
@@ -404,6 +405,80 @@ kind `"hey"`, `"radio"`, `"huh"`), `ar.outline(chr, rgba | nil)` (bracket corner
 calling `ar.on`, nothing is drawn; another stream's script should guard calls with `if ar then`. The heist's wiring is
 `tools/heist_ar.lua`.
 
+### Crosshair styles: `crosshair.*`
+
+Presentation only (`port/src/port_crosshair.c`, `port/luavm/port_luavm_crosshair.c`). A style replaces the game's sight sprite with a
+shape drawn in code; with no style, no hide and no draw hook the game's own sight draws exactly as before. Works on any solo stage, in a
+mode or not.
+
+There are two layers. A **script's** style (`crosshair.style`) lasts until the next stage start. The **player's** style (`crosshair.use`,
+the console, `GE_CROSSHAIR`) lasts for the session. The script's style wins while it is set.
+
+| Call | Notes |
+| --- | --- |
+| `crosshair.style(opts)` | The script's style. `opts` is a table (below) or the name of a pack style. `nil` drops it. Raises on an unknown shape, colour or weapon. |
+| `crosshair.use(name)` | The player's style, by pack name. `"off"` or `"classic"` returns to the game's sight. Returns false for an unknown name. |
+| `crosshair.list()`, `crosshair.shapes()` | The pack's style names; the shape names. |
+| `crosshair.hide([bool])`, `crosshair.hidden()` | No sight at all: no style, no hook, not the game's sight either (`true` when called with no argument). Dropped at the next stage start. |
+| `crosshair.reset()` | Drops the script's style and the hide. |
+| `crosshair.current()` | `shape, who`: the shape drawn now (`"classic"` when no style is set) and whose style it is (`"script"`, `"player"` or nil). |
+| `crosshair.spread()` | The dynamic gap last drawn, in HUD pixels. |
+| `crosshair.draws()`, `crosshair.test_hit([head])` | Test helpers: frames a custom sight has drawn; a hit marker now. |
+
+Style fields (all optional). Units are **HUD pixels**: the game's 240-line frame, so 1 is 3 window pixels at 720p, before the HUD Scale
+setting. Fractions are fine; edges are drawn at sub-pixel precision.
+
+| Field | Default | Notes |
+| --- | --- | --- |
+| `shape` | `"cross"` | `"classic"` (the game's sprite), `"none"`, `"dot"`, `"cross"` (or `"plus"`), `"t"`, `"x"`, `"circle"` (or `"ring"`), `"chevron"`, `"brackets"` |
+| `size` | 4 | arm length; the circle's radius; the dot's diameter |
+| `gap` | 2 | space between the aim point and the arms |
+| `thickness` | 0.75 | line width |
+| `color` | `0xFFFFFFE6` | `0xRRGGBBAA`, a name (`white red green blue cyan yellow orange gold magenta black`) or `{r, g, b [, a]}` (0..255) |
+| `dot`, `dot_size` | false, 1 | a centre dot as well; `dot = 0.8` sets its size |
+| `outline`, `outline_color`, `outline_thickness` | false, `0x000000A0`, 0.4 | a dark rim under every part; `outline = <colour>` picks its colour |
+| `dynamic` | false | the gap opens with the gun's real spread, movement and firing. A number sets `spread_scale` |
+| `spread_scale`, `move_bloom`, `fire_kick` | 1, 3, 1.5 | x the weapon's spread (its `inaccuracy`, with the first-shot bonus while you are not firing); pixels at full run speed; pixels per shot, fading over 0.25 s |
+| `hit_marker`, `hit_color`, `headshot_color`, `hit_time`, `hit_size` | false, white, red, 0.25, 3 | a short X when one of your shots hits someone, red for a headshot (it reads the mission-stats hit counters) |
+| `always` | true | also while not aiming. The game shows its own sight only in aim mode |
+| `draw` | | `function(x, y, ctx)`: called every frame after the shape (as `draw_crosshair` below) |
+| `weapons` | | `{ <weapon> = { ...fields } }`: per-weapon overrides on top of the rest (names as `weapon.items()`, e.g. `sniperrifle`, `shotgun`, `kf7`) |
+
+`dynamic` with a `circle` draws the real spread: `gunfire.c` places each shot within half of the weapon's scaled `Inaccuracy` of the aim
+point, and that is the ring's extra radius. The game itself has no movement spread, so `move_bloom` and `fire_kick` are cosmetic.
+
+**The draw hook.** `on("draw_crosshair", function(x, y, ctx) ... end)` runs every frame the sight could show (not during a damage flash
+or a cutscene, not in the menus, not after death), after the style. `x, y` is the aim point in HUD pixels from the top left. Draw with:
+
+- `ctx.line(x0, y0, x1, y1 [, thickness [, color]])`, `ctx.rect(x0, y0, x1, y1 [, color])`
+- `ctx.circle(x, y, r [, thickness [, color]])` (thickness 0 fills it), `ctx.dot(x, y [, size [, color]])`
+- `ctx:line(...)` works too. At most 256 calls a frame.
+
+The info fields are `ctx.spread` (HUD px), `ctx.since_hit` (seconds since your last hit; nil before one), `ctx.headshot`, `ctx.aiming`,
+`ctx.weapon` (the `ITEM_*` id), `ctx.player`, `ctx.w`, `ctx.h`. To draw only your own shape, set `crosshair.style{ shape = "none" }`.
+With no style set, the hook draws over the game's sight.
+
+Rules for draw code: it runs on the frame, not the tick, so its call count depends on the frame rate. Never change game state, never call
+`math.random`, and keep it short (the usual instruction budget applies). An erroring hook is disabled and logged once. Hooks do not run
+during netplay: each machine draws a different number of frames, and Lua state must stay identical on both.
+
+```lua
+-- Data/Scripts/my_crosshair.lua: runs at every solo mission start
+crosshair.style{ shape = "cross", size = 3, gap = 1.5, color = "green", outline = true, dynamic = true, hit_marker = true,
+  weapons = { sniperrifle = { shape = "dot", size = 1.2, dynamic = false } } }
+on("draw_crosshair", function(x, y, ctx)
+  if ctx.since_hit and ctx.since_hit < 0.15 then ctx.circle(x, y, 7, 0.5, "red") end
+end)
+```
+
+**The pack.** `Data/Scripts/mods/crosshair_pack.lua` (from `tools/crosshair_pack.lua`) returns an array of styles, each a style table with
+a `name`: `dot`, `cross`, `tactical` (per-weapon: a dot on the sniper rifle, the spread circle on the shotguns), `circle`, `chevron`,
+`brackets`, and `rangefinder` (drawn with the draw API). Pick one in the console with `crosshair <name>` (`crosshair` alone lists them;
+`crosshair off`, `crosshair hide`, `crosshair show`, `crosshair reload` after an edit), with `GE_CROSSHAIR=<name>` at start-up, or from a
+script with `crosshair.use(name)`. Loading the pack runs Lua, so pick before netplay starts; the choice then stays for the session, also in
+multiplayer. The pack's `draw` functions, like every hook, are skipped in netplay. Tests: `tests/crosshair/run.sh` (the API and the shots;
+`proof`: the state hashes with and without a style are identical).
+
 ### Weapons, modifiers, music, menus
 
 - `weapon.set(item, field, value)`, `weapon.get(item, field)`, `weapon.reset()`, `weapon.items()`, `weapon.fields()`. Items are lowercase `ITEM_*` names (`ak47`, `wppk`, `goldengun`, `throwknife`, ...) plus `pp7 pp7sil dd44 klobb kf7 zmg ar33 rcp90`. Fields: integers `magsize firerate singlerate penetration sound ammotype`; numbers `damage inaccuracy zoom crosshairspeed aimlockspeed sway recoilback recoilup boltrecoil loudnessmin loudnessmax noiseshot impact`. Edits last until the next stage start.
@@ -419,6 +494,7 @@ The stage-touching tables (`bond`, `spawn`, `zone`, `hud`, `mission`, `hostages`
 
 1. If it needs game types, add a plain-C helper to `port/src/port_lua.c` (or `port_arenamode.c`) and declare it in `port/include/port_lua.h`.
 2. In `port/luavm/port_luavm.c` (or `port_luavm_arena.c`) write a `static int portLuaXxx(lua_State *L)`, validate arguments with `luaL_check*`, and register it in a `luaL_Reg` table.
-3. Gate anything that changes the simulation on `portLuaGameAllowed()` and never call Lua from a render path.
+3. Gate anything that changes the simulation on `portLuaGameAllowed()` and never call Lua from a render path. (The one exception is
+   `draw_crosshair`: solo and co-op only, never in netplay, and its handlers may only draw.)
 
 Lua is its own static library (`ge_lua`) because the game's headers shadow libc; that is why the glue is split in two halves.

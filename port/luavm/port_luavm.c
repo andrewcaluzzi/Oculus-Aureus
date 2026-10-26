@@ -481,6 +481,7 @@ static const luaL_Reg sWeaponLib[] = {
 
 #define LUA_EV_TICK       100         /* not on the C bus: driven by portLuaTick */
 #define LUA_EV_TESTKEY    101         /* likewise: queued by portLuaTestKey, delivered on the next game tick */
+#define LUA_EV_XHAIR      102         /* likewise: draw_crosshair, called by the sight's draw (port_luavm_crosshair.c) */
 #define LUA_TICK_PERIOD   15          /* clock ticks (60 = 1 s): the tick event fires every 0.25 s */
 #define LUA_MAX_HANDLERS  16          /* per event */
 #define LUA_HANDLERS_KEY  "midas_handlers"
@@ -515,6 +516,7 @@ static const struct { const char *name; int type; int nargs; } sEvents[] = {
     { "guard_bark", PORT_EV_GUARD_BARK, 3 },     /* guard chr, kind ("huh" "hey" "investigate" "lost" ...), text */
     { "tick", LUA_EV_TICK, 1 },                  /* seconds since the last tick event */
     { "test_key", LUA_EV_TESTKEY, 1 },           /* name of a test hotkey: "next" "back" "next+" "back+" (PageDown, PageUp, with Shift = +) */
+    { "draw_crosshair", LUA_EV_XHAIR, 3 },       /* x, y, ctx: every frame the sight could show (presentation; port_luavm_crosshair.c) */
 };
 #define LUA_EV_N ((int) (sizeof(sEvents) / sizeof(sEvents[0])))
 
@@ -683,7 +685,7 @@ static int portLuaOn(lua_State *L)
     if (k == LUA_EV_N)
     {
         return luaL_error(L, "unknown event '%s' (chr_died zone_enter zone_leave stage_start bond_died "
-                             "hostage_follow hostage_wait damage chr_spawned item_pickup objective_changed alarm cctv_spotted cctv_view use gadget_used body_found civilian_killed civilian_surrendered civilian_robbed cover_blown cover_report tick test_key)", name);
+                             "hostage_follow hostage_wait damage chr_spawned item_pickup objective_changed alarm cctv_spotted cctv_view use gadget_used body_found civilian_killed civilian_surrendered civilian_robbed cover_blown cover_report tick test_key draw_crosshair)", name);
     }
     type = sEvents[k].type;
     lua_getfield(L, LUA_REGISTRYINDEX, LUA_HANDLERS_KEY);
@@ -708,6 +710,12 @@ static int portLuaOn(lua_State *L)
     else if (type == LUA_EV_TESTKEY)
     {
         sTestKeyOn = 1;
+    }
+    else if (type == LUA_EV_XHAIR)
+    {
+        extern void portLuaXhairHooked(void);   /* port_luavm_crosshair.c */
+
+        portLuaXhairHooked();
     }
     else if (!sHooked[type])
     {
@@ -1760,6 +1768,11 @@ static lua_State *portLuaState(void)
 
         portLuaArRegister(sL);
     }
+    {   /* crosshair styles: crosshair.* (port_luavm_crosshair.c) */
+        extern void portLuaXhairRegister(lua_State *L);
+
+        portLuaXhairRegister(sL);
+    }
     lua_pushcfunction(sL, portLuaOn);
     lua_setglobal(sL, "on");
     lua_pushcfunction(sL, portLuaInclude);
@@ -1774,6 +1787,10 @@ static lua_State *portLuaState(void)
     portConLogf("ge: lua: %s ready\n", LUA_RELEASE);
     return sL;
 }
+
+/* crosshair styles (port_luavm_crosshair.c): the state (created on request) and the budgeted, logged call */
+lua_State *portLuaVmState(int create) { return create ? portLuaState() : sL; }
+int portLuaVmCall(lua_State *L, int nargs, int nres) { return portLuaCall(L, nargs, nres); }
 
 /* ---- scripts and console ----------------------------------------------- */
 
@@ -1963,6 +1980,11 @@ void portLuaStageStart(void)
     portLuaMenuStageClear();   /* items from the last stage's scripts go; boot items stay */
     portLuaListenersClear();   /* nothing from the last stage's scripts may dangle */
     portLuaRandReseed();       /* math.random: the session seed in co-op (same draws on both machines), the clock in solo */
+    {   /* crosshair styles: a script's style goes, the player's stays (port_luavm_crosshair.c) */
+        extern void portLuaXhairStageReset(void);
+
+        portLuaXhairStageReset();
+    }
     if (!portLuaGameAllowed())
     {
         portLuaGameWeaponReset();   /* a demo must see stock weapons */
