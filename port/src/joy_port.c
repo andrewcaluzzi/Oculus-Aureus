@@ -715,6 +715,17 @@ void portJoyPortPollCommit(void)
                 }
             }
         }
+        { /* the heist DEBRIEF panel (port_debrief.c): while it is up it takes every action; use / INTEL / menu keys dismiss it */
+            extern int portDebriefInput(int down);
+            s32 d = intel;
+
+            for (pad = 0; pad < PORT_PADS; pad++) {
+                d |= sPending[pad][PORTACT_USE] | sPending[pad][PORTACT_MENU_ACCEPT] | sPending[pad][PORTACT_MENU_BACK];
+            }
+            if (portDebriefInput(d)) {
+                memset(sPending, 0, sizeof(sPending));
+            }
+        }
     }
     { /* GE_INPUTREC / GE_INPUTPLAY (inputrec.c): pad 0's actions down this poll */
         extern void portInputRecActions(u8 *down, s32 count);

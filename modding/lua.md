@@ -391,6 +391,17 @@ The heist's crew planning board (designs/bank-heist.md section 19). The C side (
 
 `midas.ini [input] intel_hold=1` shows the board only while the key is held. `GE_INTEL_AUTO="<frame>:open|close|page<n>|floor<n>,..."` drives the view in a headless run (the determinism proof in `tests/heist/run_intel.sh`).
 
+### The DEBRIEF panel: `debrief.*`
+
+The heist's end-of-job report (designs/bank-heist.md section 26; `port/src/port_debrief.c`, `port/luavm/port_luavm_debrief.c`, content from `tools/heist_debrief.lua`). Presentation only: a full-screen panel in the INTEL board's style, this machine's, up until its player dismisses it (use, INTEL, A, Start); it takes the input while it is up (not in automated runs).
+
+| Call | What it does |
+|---|---|
+| `debrief.set{ kicker, rating, rating_rgba, flavour, payout, payout_note, title, rows = {{label, value [, rgba]}}, medals = {{name, desc, earned}} }` | Replace the panel's content (up to 22 rows, 15 medals). |
+| `debrief.record{ difficulty, win, payout, time, rating, result }` | Count the run in `Data/Saves/heist_records.json` (next to the exe, a fixed name), save it, put NEW BEST / BEST TIME and the best line on the panel, log `HEIST RECORD {json}`. The file's contents never come back to the script. Call after `set`. |
+| `debrief.show([on])`, `debrief.log(text)` | Open (close) the panel on this machine; one log line up to 2000 characters (`print` stops at 511). |
+| `debrief.is_open()`, `debrief.record_info(difficulty)`, `debrief.records_path()` | Tests only: the view; `new_best, runs, wins, best_payout, saved`; the file's path. |
+
 ### The AR overlay and diagnostics: `ar.*`, `diag.*`
 
 Presentation only (`port/src/port_arhud.c`, `port/luavm/port_luavm_ar.c`; designs/bank-heist.md section 20 has the full table). World

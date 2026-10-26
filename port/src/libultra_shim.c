@@ -1428,6 +1428,10 @@ void osContGetReadData(OSContPad *data)
             extern void portJoyPortPollCommit(void);
             portJoyPortPollCommit();
         }
+        { /* the heist DEBRIEF panel (port_debrief.c): the pads read neutral while it is up */
+            extern void portDebriefPadFilter(OSContPad *data, int n);
+            portDebriefPadFilter(data, MAXCONTROLLERS);
+        }
 
         { /* N64 octagonal stick gate: 85 cardinals, 65/axis diagonals -
            * every source (keyboard, controller, harness) funnels through

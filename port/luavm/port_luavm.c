@@ -1760,6 +1760,11 @@ static lua_State *portLuaState(void)
 
         portLuaArRegister(sL);
     }
+    {   /* the heist DEBRIEF panel and its records file: debrief.* (port_luavm_debrief.c) */
+        extern void portLuaDebriefRegister(lua_State *L);
+
+        portLuaDebriefRegister(sL);
+    }
     lua_pushcfunction(sL, portLuaOn);
     lua_setglobal(sL, "on");
     lua_pushcfunction(sL, portLuaInclude);
