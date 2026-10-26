@@ -304,7 +304,7 @@ function heist_randomiser(ctx)
   end
   function R.where(flag)
     local c = R.cards[flag]
-    if c.decoy then return "one of the two, the plan doesn't say which: " .. c.where .. " / " .. c.decoy.where end
+    if c.decoy then return "one of two, the plan doesn't say which: " .. c.short .. " / " .. c.decoy.short end
     return c.where
   end
   function R.how(flag)
@@ -360,7 +360,7 @@ function heist_randomiser(ctx)
     local t = {}
     local g = R.cards[GREEN]
     if g.decoy then
-      t[1] = { "GREEN: " .. g.roles_shown[1]:upper() .. " / " .. g.roles_shown[2]:upper(), "One of the two has it: " .. g.short .. " or " .. g.decoy.short .. ".",
+      t[1] = { "GREEN: ONE OF TWO", "The " .. g.roles_shown[1] .. " or the " .. g.roles_shown[2] .. " has it.",
                R.how(GREEN), "Civilians: hurt them and it counts. Watch the feeds to find who." }
     else
       t[1] = { "GREEN: " .. g.role:upper(), g.where .. ".", g.how .. ".", "" }

@@ -9,6 +9,9 @@
 --   GE_HEIST_TEST_QUIET=1    the quiet win: crack, grab, leave the vault before the time lock; the empty vault seals with no alarm, and
 --                            the exit pays the quiet bonus
 --   GE_HEIST_TEST_COUNT=1    (with GE_DIFF=3) the full force on 007: 100+ guards placed
+--   GE_HEIST_TEST_RANDOM=1   (with any run; tests/heist/run_random.sh) the randomiser on (section 25): the carriers come from the mode's
+--                            truth, plus the deal's checks (the board, the guide, dummies, sealed routes). GE_HEIST_TEST_OFFICER=1 forces
+--                            RED onto the duty officer; GE_HEIST_RANDOM_SHOTS=1 shoots THE KEYS and PERSONNEL
 -- Prints "HEIST PASS|FAIL <name> ..." and "HEIST DONE n passed, m failed" (the mission then ends with the mode's own win / fail).
 local TRAPPED = mode.env_flag("GE_HEIST_TEST_TRAPPED")
 local FAILRUN = mode.env_flag("GE_HEIST_TEST_FAIL")
@@ -19,6 +22,7 @@ local RANDOM = mode.env_flag("GE_HEIST_TEST_RANDOM")
 HEIST_SETTINGS = {
   test = true,
   randomise = RANDOM,
+  randomiser = mode.env_flag("GE_HEIST_TEST_OFFICER") and { red = "duty officer" } or nil,   -- (force the one RED role seeds 1-10 never dealt)
   cover = false,   -- the stock sight, as before section 16: this test warps an armed Bond through restricted rooms (tests/heist/heist_cover.lua has the cover)
   crack_time = 12, jam_chance = 0, jam_every = 1000,     -- the jam is forced through HEIST.force_jam()
   vault_time = (TRAPPED or QUIET) and 14 or 45, klaxon_at = 5, recrack_time = 8,
