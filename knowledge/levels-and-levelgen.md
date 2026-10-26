@@ -63,6 +63,12 @@ GoldenEye has unused stage ids. The fork compiles generated levels into them (al
 
 Still free: `LIP`, `RIT`, `WAX`, `PAM`, `ELD` (`bondconstants.h`).
 
+The levelgen slot holds one layout per **build**, not per checkout. The CMake cache variable `GE_LEVELGEN_DIR` (default
+`port/levelgen`) names the generated directory a build dir compiles and ships with `levelgen_layout.lua`. The casino job
+(`designs/job2-casino.md`) lives in `port/levelgen_casino` and is built in `build_job2`. A build dir can be seeded with another dir's
+objects (copy `CMakeFiles/ge.dir/**/*.o` and `asset_obj/*` except the levelgen ones, then touch them newer than `flags.make`): only
+the slot's three asset objects and the link run then.
+
 What wiring a slot needs (learned on Flatland):
 
 - **Fetch stan and setup by symbol, not by file name** (`bg.c load_bg_file`, `prop.c proplvreset2`). Adding entries to

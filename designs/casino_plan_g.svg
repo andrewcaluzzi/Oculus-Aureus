@@ -1,0 +1,472 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1488" height="1420" font-family="sans-serif">
+<rect width="100%" height="100%" fill="rgb(28, 30, 36)"/>
+<text x="8" y="22" fill="#e6e6e6" font-size="16">Plan: casino.json  LEVEL G (Y 0) (x east, z north, 1 px = 8.33333 units)</text>
+<rect x="325.2" y="648.0" width="48.0" height="283.2" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="814.8" y="648.0" width="48.0" height="283.2" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="325.2" y="595.2" width="537.6" height="48.0" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="867.6" y="595.2" width="254.4" height="48.0" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="867.6" y="648.0" width="134.4" height="283.2" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="1006.8" y="648.0" width="115.2" height="115.2" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="1006.8" y="768.0" width="115.2" height="163.2" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="378.0" y="456.0" width="432.0" height="43.2" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="378.0" y="312.0" width="211.2" height="139.2" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="594.0" y="312.0" width="216.0" height="139.2" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="378.0" y="216.0" width="432.0" height="91.2" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="354.0" y="403.2" width="648.0" height="48.0" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="522.0" y="312.0" width="144.0" height="86.4" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="474.0" y="168.0" width="240.0" height="139.2" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="718.8" y="168.0" width="144.0" height="139.2" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="670.8" y="312.0" width="192.0" height="86.4" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="867.6" y="312.0" width="72.0" height="86.4" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="301.2" y="403.2" width="48.0" height="48.0" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="306.0" y="350.4" width="211.2" height="48.0" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="306.0" y="216.0" width="163.2" height="129.6" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="306.0" y="144.0" width="163.2" height="67.2" fill="none" stroke="rgb(70,72,82)"/>
+<rect x="16.2" y="1210.2" width="1155.6" height="183.6" fill="rgb(40, 40, 48)" />
+<rect x="18.0" y="1212.0" width="1152.0" height="180.0" fill="rgb(236, 230, 214)" />
+<rect x="18.0" y="1212.0" width="1152.0" height="180.0" fill="rgb(120, 140, 170)" fill-opacity="0.35"/>
+<rect x="1125.0" y="46.2" width="46.8" height="1162.8" fill="rgb(40, 40, 48)" />
+<rect x="1126.8" y="48.0" width="43.2" height="1159.2" fill="rgb(236, 230, 214)" />
+<rect x="1126.8" y="48.0" width="43.2" height="1159.2" fill="rgb(120, 140, 170)" fill-opacity="0.35"/>
+<rect x="304.2" y="46.2" width="819.6" height="166.8" fill="rgb(40, 40, 48)" />
+<rect x="306.0" y="48.0" width="816.0" height="163.2" fill="rgb(236, 230, 214)" />
+<rect x="306.0" y="48.0" width="816.0" height="163.2" fill="rgb(120, 140, 170)" fill-opacity="0.35"/>
+<rect x="496.2" y="1109.4" width="195.6" height="99.6" fill="rgb(40, 40, 48)" />
+<rect x="498.0" y="1111.2" width="192.0" height="96.0" fill="rgb(236, 230, 214)" />
+<rect x="376.2" y="934.2" width="435.6" height="174.0" fill="rgb(40, 40, 48)" />
+<rect x="378.0" y="936.0" width="432.0" height="170.4" fill="rgb(236, 230, 214)" />
+<rect x="481.2" y="972.0" width="9.6" height="72.0" fill="rgb(95, 80, 70)" />
+<rect x="697.2" y="972.0" width="9.6" height="72.0" fill="rgb(95, 80, 70)" />
+<rect x="376.2" y="646.2" width="435.6" height="286.8" fill="rgb(40, 40, 48)" />
+<rect x="378.0" y="648.0" width="432.0" height="283.2" fill="rgb(236, 230, 214)" />
+<rect x="447.6" y="837.6" width="52.8" height="28.8" fill="rgb(95, 80, 70)" />
+<rect x="567.6" y="837.6" width="52.8" height="28.8" fill="rgb(95, 80, 70)" />
+<rect x="687.6" y="837.6" width="52.8" height="28.8" fill="rgb(95, 80, 70)" />
+<rect x="447.6" y="717.6" width="52.8" height="28.8" fill="rgb(95, 80, 70)" />
+<rect x="687.6" y="717.6" width="52.8" height="28.8" fill="rgb(95, 80, 70)" />
+<rect x="579.6" y="774.0" width="28.8" height="24.0" fill="rgb(95, 80, 70)" />
+<rect x="813.0" y="934.2" width="190.8" height="174.0" fill="rgb(40, 40, 48)" />
+<rect x="814.8" y="936.0" width="187.2" height="170.4" fill="rgb(236, 230, 214)" />
+<rect x="942.0" y="960.0" width="12.0" height="120.0" fill="rgb(95, 80, 70)" />
+<rect x="184.2" y="934.2" width="190.8" height="174.0" fill="rgb(40, 40, 48)" />
+<rect x="186.0" y="936.0" width="187.2" height="170.4" fill="rgb(232, 196, 190)" />
+<rect x="346.8" y="948.0" width="9.6" height="144.0" fill="rgb(95, 80, 70)" />
+<rect x="64.2" y="1006.2" width="118.8" height="102.0" fill="rgb(40, 40, 48)" />
+<rect x="66.0" y="1008.0" width="115.2" height="98.4" fill="rgb(232, 196, 190)" />
+<rect x="184.2" y="862.2" width="138.0" height="70.8" fill="rgb(40, 40, 48)" />
+<rect x="186.0" y="864.0" width="134.4" height="67.2" fill="rgb(232, 196, 190)" />
+<rect x="323.4" y="646.2" width="51.6" height="286.8" fill="rgb(40, 40, 48)" />
+<rect x="325.2" y="648.0" width="48.0" height="283.2" fill="rgb(214, 228, 200)" />
+<rect x="184.2" y="766.2" width="138.0" height="94.8" fill="rgb(40, 40, 48)" />
+<rect x="186.0" y="768.0" width="134.4" height="91.2" fill="rgb(214, 228, 200)" />
+<rect x="184.2" y="646.2" width="138.0" height="118.8" fill="rgb(40, 40, 48)" />
+<rect x="186.0" y="648.0" width="134.4" height="115.2" fill="rgb(214, 228, 200)" />
+<rect x="64.2" y="766.2" width="118.8" height="166.8" fill="rgb(40, 40, 48)" />
+<rect x="66.0" y="768.0" width="115.2" height="163.2" fill="rgb(214, 228, 200)" />
+<rect x="64.2" y="593.4" width="466.8" height="51.6" fill="rgb(40, 40, 48)" />
+<rect x="66.0" y="595.2" width="463.2" height="48.0" fill="rgb(214, 228, 200)" />
+<rect x="532.2" y="593.4" width="123.6" height="51.6" fill="rgb(40, 40, 48)" />
+<rect x="534.0" y="595.2" width="120.0" height="48.0" fill="rgb(236, 230, 214)" />
+<rect x="532.2" y="502.2" width="123.6" height="90.0" fill="rgb(40, 40, 48)" />
+<rect x="534.0" y="504.0" width="120.0" height="86.4" fill="rgb(205, 200, 175)" />
+<line x1="534.0" y1="586.1" x2="654.0" y2="586.1" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="534.0" y1="581.8" x2="654.0" y2="581.8" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="534.0" y1="577.4" x2="654.0" y2="577.4" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="534.0" y1="573.1" x2="654.0" y2="573.1" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="534.0" y1="568.8" x2="654.0" y2="568.8" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="534.0" y1="564.5" x2="654.0" y2="564.5" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="534.0" y1="560.2" x2="654.0" y2="560.2" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="534.0" y1="555.8" x2="654.0" y2="555.8" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="534.0" y1="551.5" x2="654.0" y2="551.5" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="534.0" y1="547.2" x2="654.0" y2="547.2" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="534.0" y1="542.9" x2="654.0" y2="542.9" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="534.0" y1="538.6" x2="654.0" y2="538.6" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="534.0" y1="534.2" x2="654.0" y2="534.2" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="534.0" y1="529.9" x2="654.0" y2="529.9" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="534.0" y1="525.6" x2="654.0" y2="525.6" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="534.0" y1="521.3" x2="654.0" y2="521.3" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="534.0" y1="517.0" x2="654.0" y2="517.0" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="534.0" y1="512.6" x2="654.0" y2="512.6" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="534.0" y1="508.3" x2="654.0" y2="508.3" stroke="rgb(150,140,110)" stroke-width="1"/>
+<rect x="184.2" y="454.2" width="190.8" height="138.0" fill="rgb(40, 40, 48)" />
+<rect x="186.0" y="456.0" width="187.2" height="134.4" fill="rgb(214, 228, 200)" />
+<rect x="234.0" y="540.0" width="72.0" height="12.0" fill="rgb(95, 80, 70)" />
+<rect x="657.0" y="593.4" width="466.8" height="51.6" fill="rgb(40, 40, 48)" />
+<rect x="658.8" y="595.2" width="463.2" height="48.0" fill="rgb(214, 228, 200)" />
+<rect x="709.8" y="454.2" width="102.0" height="138.0" fill="rgb(40, 40, 48)" />
+<rect x="711.6" y="456.0" width="98.4" height="134.4" fill="rgb(214, 228, 200)" />
+<rect x="657.0" y="454.2" width="51.6" height="138.0" fill="rgb(40, 40, 48)" />
+<rect x="658.8" y="456.0" width="48.0" height="134.4" fill="rgb(205, 200, 175)" />
+<line x1="658.8" y1="583.7" x2="706.8" y2="583.7" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="658.8" y1="577.0" x2="706.8" y2="577.0" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="658.8" y1="570.2" x2="706.8" y2="570.2" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="658.8" y1="563.5" x2="706.8" y2="563.5" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="658.8" y1="556.8" x2="706.8" y2="556.8" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="658.8" y1="550.1" x2="706.8" y2="550.1" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="658.8" y1="543.4" x2="706.8" y2="543.4" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="658.8" y1="536.6" x2="706.8" y2="536.6" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="658.8" y1="529.9" x2="706.8" y2="529.9" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="658.8" y1="523.2" x2="706.8" y2="523.2" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="658.8" y1="516.5" x2="706.8" y2="516.5" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="658.8" y1="509.8" x2="706.8" y2="509.8" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="658.8" y1="503.0" x2="706.8" y2="503.0" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="658.8" y1="496.3" x2="706.8" y2="496.3" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="658.8" y1="489.6" x2="706.8" y2="489.6" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="658.8" y1="482.9" x2="706.8" y2="482.9" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="658.8" y1="476.2" x2="706.8" y2="476.2" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="658.8" y1="469.4" x2="706.8" y2="469.4" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="658.8" y1="462.7" x2="706.8" y2="462.7" stroke="rgb(150,140,110)" stroke-width="1"/>
+<rect x="813.0" y="646.2" width="51.6" height="286.8" fill="rgb(40, 40, 48)" />
+<rect x="814.8" y="648.0" width="48.0" height="283.2" fill="rgb(232, 196, 190)" />
+<rect x="865.8" y="814.2" width="138.0" height="118.8" fill="rgb(40, 40, 48)" />
+<rect x="867.6" y="816.0" width="134.4" height="115.2" fill="rgb(232, 196, 190)" />
+<rect x="865.8" y="742.2" width="138.0" height="70.8" fill="rgb(40, 40, 48)" />
+<rect x="867.6" y="744.0" width="134.4" height="67.2" fill="rgb(232, 196, 190)" />
+<rect x="865.8" y="646.2" width="138.0" height="94.8" fill="rgb(40, 40, 48)" />
+<rect x="867.6" y="648.0" width="134.4" height="91.2" fill="rgb(232, 196, 190)" />
+<rect x="1005.0" y="646.2" width="118.8" height="286.8" fill="rgb(40, 40, 48)" />
+<rect x="1006.8" y="648.0" width="115.2" height="283.2" fill="rgb(214, 228, 200)" />
+<rect x="865.8" y="497.4" width="61.2" height="94.8" fill="rgb(40, 40, 48)" />
+<rect x="867.6" y="499.2" width="57.6" height="91.2" fill="rgb(205, 200, 175)" />
+<line x1="867.6" y1="582.8" x2="925.2" y2="582.8" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="867.6" y1="575.2" x2="925.2" y2="575.2" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="867.6" y1="567.6" x2="925.2" y2="567.6" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="867.6" y1="560.0" x2="925.2" y2="560.0" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="867.6" y1="552.4" x2="925.2" y2="552.4" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="867.6" y1="544.8" x2="925.2" y2="544.8" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="867.6" y1="537.2" x2="925.2" y2="537.2" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="867.6" y1="529.6" x2="925.2" y2="529.6" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="867.6" y1="522.0" x2="925.2" y2="522.0" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="867.6" y1="514.4" x2="925.2" y2="514.4" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="867.6" y1="506.8" x2="925.2" y2="506.8" stroke="rgb(150,140,110)" stroke-width="1"/>
+<rect x="865.8" y="444.6" width="123.6" height="51.6" fill="rgb(40, 40, 48)" />
+<rect x="867.6" y="446.4" width="120.0" height="48.0" fill="rgb(232, 196, 190)" />
+<rect x="928.2" y="497.4" width="61.2" height="94.8" fill="rgb(40, 40, 48)" />
+<rect x="930.0" y="499.2" width="57.6" height="91.2" fill="rgb(205, 200, 175)" />
+<line x1="930.0" y1="582.8" x2="987.6" y2="582.8" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="930.0" y1="575.2" x2="987.6" y2="575.2" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="930.0" y1="567.6" x2="987.6" y2="567.6" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="930.0" y1="560.0" x2="987.6" y2="560.0" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="930.0" y1="552.4" x2="987.6" y2="552.4" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="930.0" y1="544.8" x2="987.6" y2="544.8" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="930.0" y1="537.2" x2="987.6" y2="537.2" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="930.0" y1="529.6" x2="987.6" y2="529.6" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="930.0" y1="522.0" x2="987.6" y2="522.0" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="930.0" y1="514.4" x2="987.6" y2="514.4" stroke="rgb(150,140,110)" stroke-width="1"/>
+<line x1="930.0" y1="506.8" x2="987.6" y2="506.8" stroke="rgb(150,140,110)" stroke-width="1"/>
+<rect x="1130.4" y="1206.0" width="36.0" height="7.2" fill="rgb(250, 250, 250)" />
+<rect x="1120.8" y="114.0" width="7.2" height="36.0" fill="rgb(250, 250, 250)" />
+<rect x="577.2" y="1206.0" width="33.6" height="7.2" fill="rgb(120, 120, 120)" />
+<rect x="535.2" y="1105.2" width="21.6" height="7.2" fill="rgb(120, 120, 120)" />
+<rect x="631.2" y="1105.2" width="21.6" height="7.2" fill="rgb(120, 120, 120)" />
+<rect x="438.0" y="930.0" width="48.0" height="7.2" fill="rgb(250, 250, 250)" />
+<rect x="570.0" y="930.0" width="48.0" height="7.2" fill="rgb(250, 250, 250)" />
+<rect x="702.0" y="930.0" width="48.0" height="7.2" fill="rgb(250, 250, 250)" />
+<rect x="808.8" y="1002.0" width="7.2" height="36.0" fill="rgb(250, 250, 250)" />
+<rect x="180.0" y="1047.6" width="7.2" height="16.8" fill="rgb(30, 160, 60)" />
+<rect x="242.4" y="930.0" width="21.6" height="7.2" fill="rgb(30, 160, 60)" />
+<rect x="372.0" y="698.4" width="7.2" height="19.2" fill="rgb(120, 120, 120)" />
+<rect x="319.2" y="886.8" width="7.2" height="21.6" fill="rgb(30, 160, 60)" />
+<rect x="319.2" y="804.0" width="7.2" height="19.2" fill="rgb(120, 120, 120)" />
+<rect x="319.2" y="698.4" width="7.2" height="19.2" fill="rgb(120, 120, 120)" />
+<rect x="180.0" y="830.4" width="7.2" height="19.2" fill="rgb(30, 160, 60)" />
+<rect x="338.4" y="642.0" width="21.6" height="7.2" fill="rgb(120, 120, 120)" />
+<rect x="548.4" y="642.0" width="91.2" height="7.2" fill="rgb(250, 250, 250)" />
+<rect x="528.0" y="609.6" width="7.2" height="19.2" fill="rgb(120, 120, 120)" />
+<rect x="548.4" y="589.2" width="91.2" height="7.2" fill="rgb(250, 250, 250)" />
+<rect x="270.0" y="589.2" width="24.0" height="7.2" fill="rgb(120, 120, 120)" />
+<rect x="652.8" y="609.6" width="7.2" height="19.2" fill="rgb(120, 120, 120)" />
+<rect x="751.2" y="589.2" width="19.2" height="7.2" fill="rgb(120, 120, 120)" />
+<rect x="668.4" y="589.2" width="28.8" height="7.2" fill="rgb(215, 40, 40)" />
+<rect x="808.8" y="696.0" width="7.2" height="24.0" fill="rgb(40, 90, 220)" />
+<rect x="828.0" y="642.0" width="21.6" height="7.2" fill="rgb(40, 90, 220)" />
+<rect x="861.6" y="865.2" width="7.2" height="21.6" fill="rgb(120, 120, 120)" />
+<rect x="861.6" y="770.4" width="7.2" height="19.2" fill="rgb(40, 90, 220)" />
+<rect x="861.6" y="686.4" width="7.2" height="19.2" fill="rgb(120, 120, 120)" />
+<rect x="1120.8" y="798.0" width="7.2" height="36.0" fill="rgb(120, 120, 120)" />
+<circle cx="1124.4" cy="807.0" r="5" fill="rgb(255,140,0)"/>
+<rect x="1050.0" y="642.0" width="24.0" height="7.2" fill="rgb(120, 120, 120)" />
+<rect x="548.4" y="498.0" width="91.2" height="7.2" fill="rgb(250, 250, 250)" />
+<rect x="668.4" y="450.0" width="28.8" height="7.2" fill="rgb(250, 250, 250)" />
+<rect x="883.2" y="589.2" width="26.4" height="7.2" fill="rgb(40, 90, 220)" />
+<rect x="945.6" y="589.2" width="26.4" height="7.2" fill="rgb(250, 250, 250)" />
+<rect x="883.2" y="493.2" width="26.4" height="7.2" fill="rgb(250, 250, 250)" />
+<rect x="945.6" y="493.2" width="26.4" height="7.2" fill="rgb(250, 250, 250)" />
+<rect x="372.7" y="1026.0" width="5.8" height="36.0" fill="rgb(60, 220, 240)" />
+<rect x="372.7" y="966.0" width="5.8" height="36.0" fill="rgb(60, 220, 240)" />
+<rect x="372.7" y="854.4" width="5.8" height="43.2" fill="rgb(60, 220, 240)" />
+<rect x="372.7" y="752.4" width="5.8" height="43.2" fill="rgb(60, 220, 240)" />
+<rect x="372.7" y="662.4" width="5.8" height="43.2" fill="rgb(60, 220, 240)" />
+<rect x="809.5" y="854.4" width="5.8" height="43.2" fill="rgb(60, 220, 240)" />
+<rect x="809.5" y="752.4" width="5.8" height="43.2" fill="rgb(60, 220, 240)" />
+<rect x="809.5" y="662.4" width="5.8" height="43.2" fill="rgb(60, 220, 240)" />
+<rect x="450.0" y="642.7" width="48.0" height="5.8" fill="rgb(60, 220, 240)" />
+<rect x="690.0" y="642.7" width="48.0" height="5.8" fill="rgb(60, 220, 240)" />
+<rect x="310.8" y="450.7" width="28.8" height="5.8" fill="rgb(60, 220, 240)" />
+<rect x="399.0" y="1311.0" width="6" height="6" fill="rgb(150,120,90)"/>
+<rect x="483.0" y="1221.0" width="6" height="6" fill="rgb(150,120,90)"/>
+<rect x="699.0" y="1221.0" width="6" height="6" fill="rgb(150,120,90)"/>
+<clipPath id="clip_cam_place"><rect x="18.0" y="1212.0" width="1152.0" height="180.0"/></clipPath>
+<path d="M834.0 1213.4 L648.6 1474.1 A319.9 319.9 0 0 1 573.3 1028.0 Z" fill="rgb(255, 120, 0)" fill-opacity="0.22" clip-path="url(#clip_cam_place)"/>
+<circle cx="834.0" cy="1213.4" r="5" fill="rgb(255, 120, 0)"><title>cam_place</title></circle>
+<circle cx="558.0" cy="1260.0" r="1.6" fill="rgb(90, 90, 100)"><title>start_1</title></circle>
+<circle cx="576.0" cy="1266.0" r="1.6" fill="rgb(90, 90, 100)"><title>start_2</title></circle>
+<circle cx="540.0" cy="1266.0" r="1.6" fill="rgb(90, 90, 100)"><title>start_3</title></circle>
+<circle cx="402.0" cy="1272.0" r="1.6" fill="rgb(90, 90, 100)"><title>limo</title></circle>
+<circle cx="954.0" cy="1284.0" r="1.6" fill="rgb(90, 90, 100)"><title>place_e</title></circle>
+<circle cx="138.0" cy="1296.0" r="1.6" fill="rgb(90, 90, 100)"><title>place_w</title></circle>
+<circle cx="294.0" cy="1248.0" r="1.6" fill="rgb(90, 90, 100)"><title>patrol_perim_1</title></circle>
+<circle cx="594.0" cy="1320.0" r="1.6" fill="rgb(90, 90, 100)"><title>fountain_n</title></circle>
+<rect x="1155.0" y="933.0" width="6" height="6" fill="rgb(150,120,90)"/>
+<clipPath id="clip_cam_alley"><rect x="1126.8" y="48.0" width="43.2" height="1159.2"/></clipPath>
+<path d="M1128.2 888.0 L1072.0 788.0 A114.8 114.8 0 0 1 1228.3 831.7 Z" fill="rgb(255, 120, 0)" fill-opacity="0.22" clip-path="url(#clip_cam_alley)"/>
+<circle cx="1128.2" cy="888.0" r="5" fill="rgb(255, 120, 0)"><title>cam_alley</title></circle>
+<circle cx="1148.4" cy="1176.0" r="1.6" fill="rgb(90, 90, 100)"><title>alley_s</title></circle>
+<circle cx="1148.4" cy="816.0" r="1.6" fill="rgb(90, 90, 100)"><title>alley_dock</title></circle>
+<circle cx="1148.4" cy="72.0" r="1.6" fill="rgb(90, 90, 100)"><title>alley_n</title></circle>
+<circle cx="1148.4" cy="696.0" r="1.6" fill="rgb(90, 90, 100)"><title>patrol_perim_2</title></circle>
+<circle cx="1148.4" cy="132.0" r="1.6" fill="rgb(90, 90, 100)"><title>alley_garden</title></circle>
+<rect x="351.0" y="69.0" width="6" height="6" fill="rgb(150,120,90)"/>
+<rect x="903.0" y="69.0" width="6" height="6" fill="rgb(150,120,90)"/>
+<circle cx="714.0" cy="132.0" r="1.6" fill="rgb(90, 90, 100)"><title>garden_mid</title></circle>
+<circle cx="594.0" cy="192.0" r="1.6" fill="rgb(90, 90, 100)"><title>grapple_terrace_low</title></circle>
+<circle cx="378.0" cy="120.0" r="1.6" fill="rgb(90, 90, 100)"><title>patrol_perim_3</title></circle>
+<clipPath id="clip_cam_atrium"><rect x="498.0" y="1111.2" width="192.0" height="96.0"/></clipPath>
+<path d="M666.0 1205.8 L543.1 1232.1 A125.7 125.7 0 0 1 639.6 1082.8 Z" fill="rgb(255, 120, 0)" fill-opacity="0.22" clip-path="url(#clip_cam_atrium)"/>
+<circle cx="666.0" cy="1205.8" r="5" fill="rgb(255, 120, 0)"><title>cam_atrium</title></circle>
+<rect x="525.0" y="1179.0" width="6" height="6" fill="rgb(150,120,90)"/>
+<rect x="651.0" y="1179.0" width="6" height="6" fill="rgb(150,120,90)"/>
+<circle cx="594.0" cy="1159.2" r="1.6" fill="rgb(90, 90, 100)"><title>atrium_mid</title></circle>
+<circle cx="522.0" cy="1140.0" r="1.6" fill="rgb(90, 90, 100)"><title>atrium_w</title></circle>
+<circle cx="654.0" cy="1176.0" r="1.6" fill="rgb(90, 90, 100)"><title>cafe_1</title></circle>
+<clipPath id="clip_cam_renaissance"><rect x="378.0" y="936.0" width="432.0" height="170.4"/></clipPath>
+<path d="M414.0 1105.0 L484.2 870.8 A244.5 244.5 0 0 1 648.2 1175.2 Z" fill="rgb(255, 120, 0)" fill-opacity="0.22" clip-path="url(#clip_cam_renaissance)"/>
+<circle cx="414.0" cy="1105.0" r="5" fill="rgb(255, 120, 0)"><title>cam_renaissance</title></circle>
+<clipPath id="clip_cam_cage_window"><rect x="378.0" y="936.0" width="432.0" height="170.4"/></clipPath>
+<path d="M414.0 937.4 L458.8 1013.3 A88.1 88.1 0 0 1 338.1 982.2 Z" fill="rgb(255, 120, 0)" fill-opacity="0.22" clip-path="url(#clip_cam_cage_window)"/>
+<circle cx="414.0" cy="937.4" r="5" fill="rgb(255, 120, 0)"><title>cam_cage_window</title></circle>
+<rect x="477.0" y="1029.0" width="6" height="6" fill="rgb(150,120,90)"/>
+<rect x="477.0" y="981.0" width="6" height="6" fill="rgb(150,120,90)"/>
+<rect x="705.0" y="1029.0" width="6" height="6" fill="rgb(150,120,90)"/>
+<rect x="705.0" y="981.0" width="6" height="6" fill="rgb(150,120,90)"/>
+<circle cx="546.0" cy="1086.0" r="1.6" fill="rgb(90, 90, 100)"><title>floor_entry_w</title></circle>
+<circle cx="642.0" cy="1086.0" r="1.6" fill="rgb(90, 90, 100)"><title>floor_entry_e</title></circle>
+<circle cx="450.0" cy="1008.0" r="1.6" fill="rgb(90, 90, 100)"><title>slots_1</title></circle>
+<circle cx="738.0" cy="1008.0" r="1.6" fill="rgb(90, 90, 100)"><title>slots_2</title></circle>
+<circle cx="522.0" cy="1008.0" r="1.6" fill="rgb(90, 90, 100)"><title>slots_3</title></circle>
+<circle cx="666.0" cy="1008.0" r="1.6" fill="rgb(90, 90, 100)"><title>slots_4</title></circle>
+<circle cx="594.0" cy="1008.0" r="1.6" fill="rgb(90, 90, 100)"><title>ren_mid</title></circle>
+<circle cx="414.0" cy="1080.0" r="1.6" fill="rgb(90, 90, 100)"><title>ren_post_w</title></circle>
+<circle cx="774.0" cy="1080.0" r="1.6" fill="rgb(90, 90, 100)"><title>ren_post_e</title></circle>
+<circle cx="402.0" cy="984.0" r="1.6" fill="rgb(90, 90, 100)"><title>cage_queue</title></circle>
+<circle cx="594.0" cy="1080.0" r="1.6" fill="rgb(90, 90, 100)"><title>patrol_floor_1</title></circle>
+<circle cx="438.0" cy="954.0" r="1.6" fill="rgb(90, 90, 100)"><title>patrol_floor_6</title></circle>
+<clipPath id="clip_cam_floor_s"><rect x="378.0" y="648.0" width="432.0" height="283.2"/></clipPath>
+<path d="M774.0 929.8 L522.8 980.2 A256.2 256.2 0 0 1 723.5 678.6 Z" fill="rgb(255, 120, 0)" fill-opacity="0.22" clip-path="url(#clip_cam_floor_s)"/>
+<circle cx="774.0" cy="929.8" r="5" fill="rgb(255, 120, 0)"><title>cam_floor_s</title></circle>
+<clipPath id="clip_cam_floor_n"><rect x="378.0" y="648.0" width="432.0" height="283.2"/></clipPath>
+<path d="M414.0 649.4 L537.8 647.9 A123.8 123.8 0 0 1 415.5 773.3 Z" fill="rgb(255, 120, 0)" fill-opacity="0.22" clip-path="url(#clip_cam_floor_n)"/>
+<circle cx="414.0" cy="649.4" r="5" fill="rgb(255, 120, 0)"><title>cam_floor_n</title></circle>
+<clipPath id="clip_cam_pit"><rect x="378.0" y="648.0" width="432.0" height="283.2"/></clipPath>
+<path d="M808.6 792.0 L659.1 1001.7 A257.6 257.6 0 0 1 598.8 642.5 Z" fill="rgb(255, 120, 0)" fill-opacity="0.22" clip-path="url(#clip_cam_pit)"/>
+<circle cx="808.6" cy="792.0" r="5" fill="rgb(255, 120, 0)"><title>cam_pit</title></circle>
+<rect x="770.0" y="645.4" width="8" height="8" fill="rgb(255, 30, 30)"><title>alarm_floor</title></rect>
+<rect x="385.6" y="927.8" width="4" height="4" fill="rgb(40, 210, 230)"/>
+<rect x="400.0" y="927.8" width="4" height="4" fill="rgb(40, 210, 230)"/>
+<rect x="414.4" y="927.8" width="4" height="4" fill="rgb(40, 210, 230)"/>
+<rect x="385.6" y="927.8" width="4" height="4" fill="rgb(40, 210, 230)"/>
+<rect x="400.0" y="927.8" width="4" height="4" fill="rgb(40, 210, 230)"/>
+<rect x="414.4" y="927.8" width="4" height="4" fill="rgb(40, 210, 230)"/>
+<circle cx="474.0" cy="828.0" r="1.6" fill="rgb(90, 90, 100)"><title>croupier_1</title></circle>
+<circle cx="594.0" cy="828.0" r="1.6" fill="rgb(90, 90, 100)"><title>croupier_2</title></circle>
+<circle cx="714.0" cy="828.0" r="1.6" fill="rgb(90, 90, 100)"><title>croupier_3</title></circle>
+<circle cx="474.0" cy="708.0" r="1.6" fill="rgb(90, 90, 100)"><title>croupier_4</title></circle>
+<circle cx="714.0" cy="708.0" r="1.6" fill="rgb(90, 90, 100)"><title>croupier_5</title></circle>
+<circle cx="438.0" cy="876.0" r="1.6" fill="rgb(90, 90, 100)"><title>player_1</title></circle>
+<circle cx="510.0" cy="876.0" r="1.6" fill="rgb(90, 90, 100)"><title>player_2</title></circle>
+<circle cx="630.0" cy="876.0" r="1.6" fill="rgb(90, 90, 100)"><title>player_3</title></circle>
+<circle cx="750.0" cy="876.0" r="1.6" fill="rgb(90, 90, 100)"><title>player_4</title></circle>
+<circle cx="438.0" cy="756.0" r="1.6" fill="rgb(90, 90, 100)"><title>player_5</title></circle>
+<circle cx="678.0" cy="756.0" r="1.6" fill="rgb(90, 90, 100)"><title>player_6</title></circle>
+<circle cx="558.0" cy="684.0" r="1.6" fill="rgb(90, 90, 100)"><title>player_7</title></circle>
+<circle cx="750.0" cy="684.0" r="1.6" fill="rgb(90, 90, 100)"><title>player_8</title></circle>
+<circle cx="594.0" cy="810.0" r="1.6" fill="rgb(90, 90, 100)"><title>pit_mid</title></circle>
+<circle cx="594.0" cy="756.0" r="1.6" fill="rgb(90, 90, 100)"><title>pit_n</title></circle>
+<circle cx="408.0" cy="900.0" r="1.6" fill="rgb(90, 90, 100)"><title>floor_post_sw</title></circle>
+<circle cx="780.0" cy="900.0" r="1.6" fill="rgb(90, 90, 100)"><title>floor_post_se</title></circle>
+<circle cx="408.0" cy="672.0" r="1.6" fill="rgb(90, 90, 100)"><title>floor_post_nw</title></circle>
+<circle cx="780.0" cy="672.0" r="1.6" fill="rgb(90, 90, 100)"><title>floor_post_ne</title></circle>
+<circle cx="402.0" cy="904.8" r="1.6" fill="rgb(90, 90, 100)"><title>pit_screens</title></circle>
+<circle cx="534.0" cy="792.0" r="1.6" fill="rgb(90, 90, 100)"><title>patrol_floor_2</title></circle>
+<circle cx="654.0" cy="678.0" r="1.6" fill="rgb(90, 90, 100)"><title>patrol_floor_3</title></circle>
+<circle cx="774.0" cy="792.0" r="1.6" fill="rgb(90, 90, 100)"><title>patrol_floor_4</title></circle>
+<circle cx="414.0" cy="792.0" r="1.6" fill="rgb(90, 90, 100)"><title>patrol_floor_5</title></circle>
+<circle cx="396.0" cy="774.0" r="1.6" fill="rgb(90, 90, 100)"><title>grapple_catwalk_low</title></circle>
+<clipPath id="clip_cam_bar"><rect x="814.8" y="936.0" width="187.2" height="170.4"/></clipPath>
+<path d="M816.2 984.0 L970.4 967.1 A155.1 155.1 0 0 1 833.2 1138.1 Z" fill="rgb(255, 120, 0)" fill-opacity="0.22" clip-path="url(#clip_cam_bar)"/>
+<circle cx="816.2" cy="984.0" r="5" fill="rgb(255, 120, 0)"><title>cam_bar</title></circle>
+<rect x="855.0" y="1053.0" width="6" height="6" fill="rgb(150,120,90)"/>
+<circle cx="906.0" cy="1056.0" r="1.6" fill="rgb(90, 90, 100)"><title>bar_1</title></circle>
+<circle cx="882.0" cy="972.0" r="1.6" fill="rgb(90, 90, 100)"><title>bar_2</title></circle>
+<circle cx="978.0" cy="1020.0" r="1.6" fill="rgb(90, 90, 100)"><title>barman</title></circle>
+<clipPath id="clip_cam_cage"><rect x="186.0" y="936.0" width="187.2" height="170.4"/></clipPath>
+<path d="M282.0 1105.0 L170.0 1042.3 A128.3 128.3 0 0 1 344.6 993.0 Z" fill="rgb(255, 120, 0)" fill-opacity="0.22" clip-path="url(#clip_cam_cage)"/>
+<circle cx="282.0" cy="1105.0" r="5" fill="rgb(255, 120, 0)"><title>cam_cage</title></circle>
+<clipPath id="clip_cam_cage_n"><rect x="186.0" y="936.0" width="187.2" height="170.4"/></clipPath>
+<path d="M222.0 937.4 L413.7 936.2 A191.7 191.7 0 0 1 223.3 1129.2 Z" fill="rgb(255, 120, 0)" fill-opacity="0.22" clip-path="url(#clip_cam_cage_n)"/>
+<circle cx="222.0" cy="937.4" r="5" fill="rgb(255, 120, 0)"><title>cam_cage_n</title></circle>
+<rect x="183.4" y="956.0" width="8" height="8" fill="rgb(255, 30, 30)"><title>alarm_cage</title></rect>
+<circle cx="330.0" cy="1044.0" r="1.6" fill="rgb(90, 90, 100)"><title>cashier_1</title></circle>
+<circle cx="330.0" cy="984.0" r="1.6" fill="rgb(90, 90, 100)"><title>cashier_2</title></circle>
+<circle cx="258.0" cy="1020.0" r="1.6" fill="rgb(90, 90, 100)"><title>cage_mid</title></circle>
+<circle cx="210.0" cy="960.0" r="1.6" fill="rgb(90, 90, 100)"><title>cage_back</title></circle>
+<circle cx="258.0" cy="1080.0" r="1.6" fill="rgb(90, 90, 100)"><title>cage_post</title></circle>
+<circle cx="234.0" cy="1056.0" r="3" fill="rgb(240, 200, 40)"><title>cage_cash</title></circle>
+<circle cx="270.0" cy="1056.0" r="3" fill="rgb(240, 200, 40)"><title>cage_cash</title></circle>
+<circle cx="102.0" cy="1080.0" r="3" fill="rgb(240, 200, 40)"><title>chip_bank_cash</title></circle>
+<circle cx="150.0" cy="1080.0" r="3" fill="rgb(240, 200, 40)"><title>chip_bank_cash</title></circle>
+<circle cx="126.0" cy="1032.0" r="3" fill="rgb(240, 200, 40)"><title>chip_bank_cash</title></circle>
+<clipPath id="clip_cam_mantrap"><rect x="186.0" y="864.0" width="134.4" height="67.2"/></clipPath>
+<path d="M187.4 897.6 L258.1 818.8 A105.9 105.9 0 0 1 266.3 968.2 Z" fill="rgb(255, 120, 0)" fill-opacity="0.22" clip-path="url(#clip_cam_mantrap)"/>
+<circle cx="187.4" cy="897.6" r="5" fill="rgb(255, 120, 0)"><title>cam_mantrap</title></circle>
+<circle cx="253.2" cy="894.0" r="1.6" fill="rgb(90, 90, 100)"><title>mantrap_post</title></circle>
+<clipPath id="clip_cam_staff"><rect x="325.2" y="648.0" width="48.0" height="283.2"/></clipPath>
+<path d="M349.2 929.8 L223.5 804.1 A177.8 177.8 0 0 1 474.9 804.1 Z" fill="rgb(255, 120, 0)" fill-opacity="0.22" clip-path="url(#clip_cam_staff)"/>
+<circle cx="349.2" cy="929.8" r="5" fill="rgb(255, 120, 0)"><title>cam_staff</title></circle>
+<rect x="322.6" y="788.0" width="8" height="8" fill="rgb(255, 30, 30)"><title>alarm_staff</title></rect>
+<circle cx="349.2" cy="918.0" r="1.6" fill="rgb(90, 90, 100)"><title>staff_s</title></circle>
+<circle cx="349.2" cy="792.0" r="1.6" fill="rgb(90, 90, 100)"><title>staff_mid</title></circle>
+<circle cx="349.2" cy="666.0" r="1.6" fill="rgb(90, 90, 100)"><title>staff_n</title></circle>
+<rect x="250.2" y="813.0" width="6" height="6" fill="rgb(150,120,90)"/>
+<circle cx="282.0" cy="840.0" r="1.6" fill="rgb(90, 90, 100)"><title>lounge_1</title></circle>
+<circle cx="210.0" cy="786.0" r="1.6" fill="rgb(90, 90, 100)"><title>lounge_2</title></circle>
+<circle cx="198.0" cy="846.0" r="1.6" fill="rgb(90, 90, 100)"><title>vent_count_a</title></circle>
+<rect x="189.0" y="747.0" width="6" height="6" fill="rgb(150,120,90)"/>
+<rect x="189.0" y="725.4" width="6" height="6" fill="rgb(150,120,90)"/>
+<rect x="189.0" y="703.8" width="6" height="6" fill="rgb(150,120,90)"/>
+<rect x="189.0" y="682.2" width="6" height="6" fill="rgb(150,120,90)"/>
+<circle cx="294.0" cy="666.0" r="4" fill="rgb(140, 90, 40)"><title>key</title></circle>
+<circle cx="282.0" cy="744.0" r="1.6" fill="rgb(90, 90, 100)"><title>lockers_1</title></circle>
+<circle cx="222.0" cy="666.0" r="1.6" fill="rgb(90, 90, 100)"><title>lockers_2</title></circle>
+<clipPath id="clip_cam_pit_office"><rect x="66.0" y="768.0" width="115.2" height="163.2"/></clipPath>
+<path d="M84.0 769.4 L210.1 810.5 A132.6 132.6 0 0 1 42.9 895.6 Z" fill="rgb(255, 120, 0)" fill-opacity="0.22" clip-path="url(#clip_cam_pit_office)"/>
+<circle cx="84.0" cy="769.4" r="5" fill="rgb(255, 120, 0)"><title>cam_pit_office</title></circle>
+<rect x="75.0" y="849.0" width="6" height="6" fill="rgb(150,120,90)"/>
+<rect x="99.0" y="922.2" width="6" height="6" fill="rgb(150,120,90)"/>
+<circle cx="150.0" cy="900.0" r="1.6" fill="rgb(90, 90, 100)"><title>pit_office_1</title></circle>
+<circle cx="102.0" cy="804.0" r="1.6" fill="rgb(90, 90, 100)"><title>pit_office_2</title></circle>
+<circle cx="126.0" cy="852.0" r="1.6" fill="rgb(90, 90, 100)"><title>pit_office_mid</title></circle>
+<clipPath id="clip_cam_north_w"><rect x="66.0" y="595.2" width="463.2" height="48.0"/></clipPath>
+<path d="M67.4 619.2 L264.4 422.2 A278.6 278.6 0 0 1 264.4 816.2 Z" fill="rgb(255, 120, 0)" fill-opacity="0.22" clip-path="url(#clip_cam_north_w)"/>
+<circle cx="67.4" cy="619.2" r="5" fill="rgb(255, 120, 0)"><title>cam_north_w</title></circle>
+<circle cx="90.0" cy="619.2" r="1.6" fill="rgb(90, 90, 100)"><title>nw_w</title></circle>
+<circle cx="306.0" cy="619.2" r="1.6" fill="rgb(90, 90, 100)"><title>nw_mid</title></circle>
+<circle cx="498.0" cy="619.2" r="1.6" fill="rgb(90, 90, 100)"><title>nw_e</title></circle>
+<circle cx="594.0" cy="619.2" r="1.6" fill="rgb(90, 90, 100)"><title>stair_foot_mid</title></circle>
+<circle cx="594.0" cy="578.4" r="1.6" fill="rgb(90, 90, 100)"><title>grand_bot</title></circle>
+<circle cx="594.0" cy="516.0" r="1.6" fill="rgb(90, 90, 100)"><title>grand_top</title></circle>
+<circle cx="210.0" cy="576.0" r="1.6" fill="rgb(90, 90, 100)"><title>kitchen_1</title></circle>
+<circle cx="354.0" cy="516.0" r="1.6" fill="rgb(90, 90, 100)"><title>kitchen_2</title></circle>
+<circle cx="325.2" cy="470.4" r="1.6" fill="rgb(90, 90, 100)"><title>grapple_goodslift_high</title></circle>
+<clipPath id="clip_cam_north_e"><rect x="658.8" y="595.2" width="463.2" height="48.0"/></clipPath>
+<path d="M1120.6 619.2 L881.2 858.6 A338.6 338.6 0 0 1 881.2 379.8 Z" fill="rgb(255, 120, 0)" fill-opacity="0.22" clip-path="url(#clip_cam_north_e)"/>
+<circle cx="1120.6" cy="619.2" r="5" fill="rgb(255, 120, 0)"><title>cam_north_e</title></circle>
+<circle cx="678.0" cy="619.2" r="1.6" fill="rgb(90, 90, 100)"><title>ne_w</title></circle>
+<circle cx="822.0" cy="619.2" r="1.6" fill="rgb(90, 90, 100)"><title>ne_mid</title></circle>
+<circle cx="1098.0" cy="619.2" r="1.6" fill="rgb(90, 90, 100)"><title>ne_e</title></circle>
+<circle cx="896.4" cy="619.2" r="1.6" fill="rgb(90, 90, 100)"><title>ne_core</title></circle>
+<rect x="757.8" y="519.0" width="6" height="6" fill="rgb(150,120,90)"/>
+<circle cx="762.0" cy="564.0" r="1.6" fill="rgb(90, 90, 100)"><title>canteen_1</title></circle>
+<circle cx="786.0" cy="480.0" r="1.6" fill="rgb(90, 90, 100)"><title>canteen_2</title></circle>
+<circle cx="682.8" cy="578.4" r="1.6" fill="rgb(90, 90, 100)"><title>stair_top</title></circle>
+<circle cx="682.8" cy="468.0" r="1.6" fill="rgb(90, 90, 100)"><title>stair_bot</title></circle>
+<clipPath id="clip_cam_security"><rect x="814.8" y="648.0" width="48.0" height="283.2"/></clipPath>
+<path d="M838.8 649.4 L967.9 778.5 A182.6 182.6 0 0 1 709.7 778.5 Z" fill="rgb(255, 120, 0)" fill-opacity="0.22" clip-path="url(#clip_cam_security)"/>
+<circle cx="838.8" cy="649.4" r="5" fill="rgb(255, 120, 0)"><title>cam_security</title></circle>
+<circle cx="838.8" cy="918.0" r="1.6" fill="rgb(90, 90, 100)"><title>sec_s</title></circle>
+<circle cx="838.8" cy="792.0" r="1.6" fill="rgb(90, 90, 100)"><title>sec_mid</title></circle>
+<circle cx="838.8" cy="666.0" r="1.6" fill="rgb(90, 90, 100)"><title>sec_n</title></circle>
+<rect x="931.8" y="873.0" width="6" height="6" fill="rgb(150,120,90)"/>
+<rect x="996.6" y="872.0" width="8" height="8" fill="rgb(255, 30, 30)"><title>alarm_security</title></rect>
+<circle cx="894.0" cy="900.0" r="1.6" fill="rgb(90, 90, 100)"><title>guard_1</title></circle>
+<circle cx="978.0" cy="900.0" r="1.6" fill="rgb(90, 90, 100)"><title>guard_2</title></circle>
+<circle cx="934.8" cy="834.0" r="1.6" fill="rgb(90, 90, 100)"><title>guard_3</title></circle>
+<rect x="987.0" y="789.0" width="6" height="6" fill="rgb(150,120,90)"/>
+<rect x="987.0" y="759.0" width="6" height="6" fill="rgb(150,120,90)"/>
+<circle cx="934.8" cy="780.0" r="1.6" fill="rgb(90, 90, 100)"><title>armory_1</title></circle>
+<rect x="993.0" y="723.0" width="6" height="6" fill="rgb(150,120,90)"/>
+<rect x="993.0" y="701.4" width="6" height="6" fill="rgb(150,120,90)"/>
+<rect x="993.0" y="679.8" width="6" height="6" fill="rgb(150,120,90)"/>
+<circle cx="894.0" cy="720.0" r="1.6" fill="rgb(90, 90, 100)"><title>barracks_1</title></circle>
+<circle cx="978.0" cy="720.0" r="1.6" fill="rgb(90, 90, 100)"><title>barracks_2</title></circle>
+<circle cx="934.8" cy="666.0" r="1.6" fill="rgb(90, 90, 100)"><title>barracks_3</title></circle>
+<clipPath id="clip_cam_dock"><rect x="1006.8" y="648.0" width="115.2" height="283.2"/></clipPath>
+<path d="M1098.0 929.8 L956.6 856.3 A159.3 159.3 0 0 1 1171.4 788.4 Z" fill="rgb(255, 120, 0)" fill-opacity="0.22" clip-path="url(#clip_cam_dock)"/>
+<circle cx="1098.0" cy="929.8" r="5" fill="rgb(255, 120, 0)"><title>cam_dock</title></circle>
+<rect x="1004.2" y="872.0" width="8" height="8" fill="rgb(255, 30, 30)"><title>alarm_dock</title></rect>
+<rect x="1017.0" y="765.0" width="6" height="6" fill="rgb(150,120,90)"/>
+<rect x="1017.0" y="735.0" width="6" height="6" fill="rgb(150,120,90)"/>
+<rect x="1047.0" y="861.0" width="6" height="6" fill="rgb(150,120,90)"/>
+<circle cx="1062.0" cy="816.0" r="1.6" fill="rgb(90, 90, 100)"><title>dock_mid</title></circle>
+<circle cx="1104.0" cy="816.0" r="1.6" fill="rgb(90, 90, 100)"><title>dock_exit</title></circle>
+<circle cx="1026.0" cy="672.0" r="1.6" fill="rgb(90, 90, 100)"><title>dock_1</title></circle>
+<circle cx="1104.0" cy="900.0" r="1.6" fill="rgb(90, 90, 100)"><title>dock_2</title></circle>
+<circle cx="1026.0" cy="900.0" r="1.6" fill="rgb(90, 90, 100)"><title>dock_3</title></circle>
+<circle cx="582.0" cy="1278.0" r="6" fill="white" stroke="black" stroke-width="3"><title>start</title></circle>
+<text x="22.0" y="1225.0" font-size="11" fill="rgb(20, 20, 25)">place</text>
+<text x="1130.8" y="61.0" font-size="11" fill="rgb(20, 20, 25)">alley</text>
+<text x="310.0" y="61.0" font-size="11" fill="rgb(20, 20, 25)">garden</text>
+<text x="502.0" y="1124.2" font-size="11" fill="rgb(20, 20, 25)">atrium</text>
+<text x="382.0" y="949.0" font-size="11" fill="rgb(20, 20, 25)">salle_renaissance</text>
+<text x="382.0" y="661.0" font-size="11" fill="rgb(20, 20, 25)">salle_europe</text>
+<text x="818.8" y="949.0" font-size="11" fill="rgb(20, 20, 25)">bar</text>
+<text x="190.0" y="949.0" font-size="11" fill="rgb(20, 20, 25)">cage</text>
+<text x="70.0" y="1021.0" font-size="11" fill="rgb(20, 20, 25)">chip_bank</text>
+<text x="190.0" y="877.0" font-size="11" fill="rgb(20, 20, 25)">cage_mantrap</text>
+<text x="329.2" y="661.0" font-size="11" fill="rgb(20, 20, 25)">staff_corr</text>
+<text x="190.0" y="781.0" font-size="11" fill="rgb(20, 20, 25)">staff_lounge</text>
+<text x="190.0" y="661.0" font-size="11" fill="rgb(20, 20, 25)">lockers</text>
+<text x="70.0" y="781.0" font-size="11" fill="rgb(20, 20, 25)">pit_office</text>
+<text x="70.0" y="608.2" font-size="11" fill="rgb(20, 20, 25)">north_corr_w</text>
+<text x="538.0" y="608.2" font-size="11" fill="rgb(20, 20, 25)">stair_foot</text>
+<text x="538.0" y="517.0" font-size="11" fill="rgb(20, 20, 25)">grand_stair (0 TO 480)</text>
+<text x="190.0" y="469.0" font-size="11" fill="rgb(20, 20, 25)">kitchen</text>
+<text x="662.8" y="608.2" font-size="11" fill="rgb(20, 20, 25)">north_corr_e</text>
+<text x="715.6" y="469.0" font-size="11" fill="rgb(20, 20, 25)">staff_canteen</text>
+<text x="662.8" y="469.0" font-size="11" fill="rgb(20, 20, 25)">red_stairs (0 TO -420)</text>
+<text x="818.8" y="661.0" font-size="11" fill="rgb(20, 20, 25)">security_corr</text>
+<text x="871.6" y="829.0" font-size="11" fill="rgb(20, 20, 25)">guard_room</text>
+<text x="871.6" y="757.0" font-size="11" fill="rgb(20, 20, 25)">armory</text>
+<text x="871.6" y="661.0" font-size="11" fill="rgb(20, 20, 25)">barracks</text>
+<text x="1010.8" y="661.0" font-size="11" fill="rgb(20, 20, 25)">dock</text>
+<text x="871.6" y="512.2" font-size="11" fill="rgb(20, 20, 25)">core_e_0a (0 TO 240)</text>
+<text x="871.6" y="459.4" font-size="11" fill="rgb(20, 20, 25)">core_e_0l Y240</text>
+<text x="934.0" y="512.2" font-size="11" fill="rgb(20, 20, 25)">core_e_0b (480 TO 240)</text>
+<text x="1200" y="64" fill="#e6e6e6" font-size="16">Legend</text>
+<rect x="1200" y="76" width="14" height="10" fill="rgb(236, 230, 214)"/><text x="1222" y="86" fill="#e6e6e6" font-size="11">floor (tint: zone if tagged)</text>
+<rect x="1200" y="92" width="14" height="10" fill="rgb(236, 230, 214)"/><text x="1222" y="102" fill="#e6e6e6" font-size="11">zone public</text>
+<rect x="1200" y="108" width="14" height="10" fill="rgb(214, 228, 200)"/><text x="1222" y="118" fill="#e6e6e6" font-size="11">zone staff</text>
+<rect x="1200" y="124" width="14" height="10" fill="rgb(232, 196, 190)"/><text x="1222" y="134" fill="#e6e6e6" font-size="11">zone restricted</text>
+<rect x="1200" y="140" width="14" height="10" fill="rgb(205, 200, 175)"/><text x="1222" y="150" fill="#e6e6e6" font-size="11">stairs / ramp (lines)</text>
+<rect x="1200" y="156" width="14" height="10" fill="rgb(120, 140, 170)"/><text x="1222" y="166" fill="#e6e6e6" font-size="11">open top (street)</text>
+<rect x="1200" y="172" width="14" height="10" fill="rgb(95, 80, 70)"/><text x="1222" y="182" fill="#e6e6e6" font-size="11">block (counter, pillar, shelf)</text>
+<rect x="1200" y="188" width="14" height="10" fill="rgb(250, 250, 250)"/><text x="1222" y="198" fill="#e6e6e6" font-size="11">open doorway</text>
+<rect x="1200" y="204" width="14" height="10" fill="rgb(60, 220, 240)"/><text x="1222" y="214" fill="#e6e6e6" font-size="11">opening (balcony, window)</text>
+<rect x="1200" y="220" width="14" height="10" fill="rgb(120, 120, 120)"/><text x="1222" y="230" fill="#e6e6e6" font-size="11">door, unlocked</text>
+<rect x="1200" y="236" width="14" height="10" fill="rgb(150, 70, 200)"/><text x="1222" y="246" fill="#e6e6e6" font-size="11">door: vault (cracker)</text>
+<rect x="1200" y="252" width="14" height="10" fill="rgb(220, 170, 20)"/><text x="1222" y="262" fill="#e6e6e6" font-size="11">door: gold</text>
+<rect x="1200" y="268" width="14" height="10" fill="rgb(215, 40, 40)"/><text x="1222" y="278" fill="#e6e6e6" font-size="11">door: red</text>
+<rect x="1200" y="284" width="14" height="10" fill="rgb(40, 90, 220)"/><text x="1222" y="294" fill="#e6e6e6" font-size="11">door: blue</text>
+<rect x="1200" y="300" width="14" height="10" fill="rgb(30, 160, 60)"/><text x="1222" y="310" fill="#e6e6e6" font-size="11">door: green</text>
+<rect x="1200" y="316" width="14" height="10" fill="rgb(140, 90, 40)"/><text x="1222" y="326" fill="#e6e6e6" font-size="11">door: floor key</text>
+<rect x="1200" y="332" width="14" height="10" fill="rgb(255, 140, 0)"/><text x="1222" y="342" fill="#e6e6e6" font-size="11">padlock</text>
+<rect x="1200" y="348" width="14" height="10" fill="rgb(255, 120, 0)"/><text x="1222" y="358" fill="#e6e6e6" font-size="11">camera + view</text>
+<rect x="1200" y="364" width="14" height="10" fill="rgb(255, 30, 30)"/><text x="1222" y="374" fill="#e6e6e6" font-size="11">alarm box</text>
+<rect x="1200" y="380" width="14" height="10" fill="rgb(40, 210, 230)"/><text x="1222" y="390" fill="#e6e6e6" font-size="11">monitor</text>
+<rect x="1200" y="396" width="14" height="10" fill="rgb(220, 170, 20)"/><text x="1222" y="406" fill="#e6e6e6" font-size="11">safe</text>
+<rect x="1200" y="412" width="14" height="10" fill="rgb(150, 120, 90)"/><text x="1222" y="422" fill="#e6e6e6" font-size="11">prop</text>
+<rect x="1200" y="428" width="14" height="10" fill="rgb(240, 200, 40)"/><text x="1222" y="438" fill="#e6e6e6" font-size="11">loot pad</text>
+<rect x="1200" y="444" width="14" height="10" fill="rgb(90, 90, 100)"/><text x="1222" y="454" fill="#e6e6e6" font-size="11">named pad</text>
+<rect x="1200" y="460" width="14" height="10" fill="rgb(255, 255, 255)"/><text x="1222" y="470" fill="#e6e6e6" font-size="11">start / double door dot</text>
+<rect x="1200" y="476" width="14" height="10" fill="rgb(70, 72, 82)"/><text x="1222" y="486" fill="#e6e6e6" font-size="11">other levels (outline)</text>
+</svg>

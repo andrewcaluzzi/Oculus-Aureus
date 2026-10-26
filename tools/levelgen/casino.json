@@ -1,0 +1,6427 @@
+{
+ "name": "levelgen",
+ "comment": "Le Grand Casino Janus (designs/job2-casino.md): the heist's second job, written by tools/levelgen/build_casino.py (edit that, not this file). A Monte-Carlo-style casino on three levels: the place, the atrium, the Salle Renaissance (slots), the Salle Europe (tables, the pit, one-way glass), the cage and its mantrap, back of house, security; the eye-in-the-sky catwalks, the surveillance room, the executive suite and the Salons Prives with their sea terrace above; the house vault, the count rooms, the goods lift and the plant below. x east, z north.",
+ "defaults": {
+  "height": 360,
+  "cell": 300,
+  "door_width": 180,
+  "door_height": 240,
+  "max_wall": 200,
+  "floor_mat": "white_tiles",
+  "wall_mat": "plaster",
+  "ceiling_mat": "office_ceiling",
+  "chr_light": 13,
+  "frame_width": 14,
+  "frame_depth": 6,
+  "light": {
+   "ambient": 0.46,
+   "intensity": 0.7,
+   "radius": 420,
+   "lamp_spacing": 520,
+   "tint": [
+    255,
+    244,
+    228
+   ]
+  }
+ },
+ "materials": {
+  "white_marble": {
+   "tex": 308,
+   "texels_per_unit": 0.108,
+   "from": "Archives wall: pale grey-white marble, vertical streaks"
+  },
+  "pink_marble": {
+   "tex": 179,
+   "texels_per_unit": 0.115,
+   "from": "Archives wall: pale pink marble panels"
+  },
+  "pink_granite": {
+   "tex": 2376,
+   "texels_per_unit": 0.879,
+   "from": "Archives wall: small pink granite blocks"
+  },
+  "wood_panel": {
+   "tex": 1530,
+   "texels_per_unit": 0.268,
+   "from": "Train wall: brown wood panelling"
+  },
+  "wood_lattice": {
+   "tex": 1135,
+   "texels_per_unit": 0.26,
+   "from": "Archives ceiling: dark wood lattice with copper strips (coffered)"
+  },
+  "light_wood": {
+   "tex": 1204,
+   "texels_per_unit": 0.21,
+   "from": "Train ceiling: light wood planks"
+  },
+  "stone_flags": {
+   "tex": 405,
+   "texels_per_unit": 0.174,
+   "from": "Egypt floor: large beige stone flags"
+  },
+  "red_carpet": {
+   "tex": 760,
+   "texels_per_unit": 0.31,
+   "from": "Train / Depot floor: red speckled carpet"
+  },
+  "planks": {
+   "tex": 1136,
+   "texels_per_unit": 0.21,
+   "from": "Archives floor: brown planks"
+  },
+  "brown_tiles": {
+   "tex": 1137,
+   "texels_per_unit": 0.8,
+   "from": "Archives floor: brown square tiles"
+  },
+  "white_tiles": {
+   "tex": 901,
+   "texels_per_unit": 0.75,
+   "from": "Bunker 2 floor"
+  },
+  "lobby_tiles": {
+   "tex": 632,
+   "texels_per_unit": 1.18,
+   "from": "Archives floor: small beige tiles"
+  },
+  "beige_panels": {
+   "tex": 315,
+   "texels_per_unit": 0.33,
+   "from": "Bunker 2 wall"
+  },
+  "grey_panels": {
+   "tex": 296,
+   "texels_per_unit": 0.42,
+   "from": "Bunker 2 wall: light grey vertical panels"
+  },
+  "office_ceiling": {
+   "tex": 257,
+   "texels_per_unit": 0.6,
+   "from": "Bunker 2 ceiling: suspended tiles"
+  },
+  "plaster": {
+   "tex": 2374,
+   "texels_per_unit": 0.27,
+   "from": "Archives wall: plain grey"
+  },
+  "metal_slats": {
+   "tex": 299,
+   "texels_per_unit": 1.16,
+   "from": "Archives wall: grey metal slats (shelving)"
+  },
+  "stone_blocks": {
+   "tex": 1469,
+   "texels_per_unit": 0.414,
+   "from": "Archives wall: grey stone blocks"
+  },
+  "stone_pillar": {
+   "tex": 1368,
+   "texels_per_unit": 0.26,
+   "from": "Archives wall: stone pillars with copper bands"
+  },
+  "green_stone": {
+   "tex": 1474,
+   "texels_per_unit": 0.306,
+   "from": "Archives wall: green stone bands"
+  },
+  "brick": {
+   "tex": 195,
+   "texels_per_unit": 0.461,
+   "from": "Archives wall: red brick"
+  },
+  "asphalt": {
+   "tex": 20,
+   "texels_per_unit": 0.475,
+   "from": "Archives floor: grey speckled"
+  },
+  "concrete": {
+   "tex": 311,
+   "texels_per_unit": 0.16,
+   "from": "Facility floor: grey speckled concrete"
+  },
+  "concrete_wall": {
+   "tex": 284,
+   "texels_per_unit": 0.177,
+   "from": "Train wall: stained grey concrete blocks"
+  },
+  "concrete_lines": {
+   "tex": 283,
+   "texels_per_unit": 0.29,
+   "from": "Facility wall: grey concrete with lines"
+  },
+  "black_corrugated": {
+   "tex": 1376,
+   "texels_per_unit": 0.2,
+   "from": "Depot wall: black corrugated metal"
+  },
+  "green_corrugated": {
+   "tex": 1426,
+   "texels_per_unit": 0.15,
+   "from": "Train / Depot wall: green rusty corrugated metal"
+  },
+  "rusty_roof": {
+   "tex": 1081,
+   "texels_per_unit": 0.39,
+   "from": "Depot ceiling: rusty corrugated"
+  },
+  "dark_grid": {
+   "tex": 258,
+   "texels_per_unit": 0.39,
+   "from": "Facility ceiling"
+  },
+  "steel_bulkhead": {
+   "tex": 477,
+   "texels_per_unit": 0.531,
+   "from": "Frigate wall: steel bulkhead with ribs"
+  },
+  "steel_panels": {
+   "tex": 478,
+   "texels_per_unit": 0.52,
+   "from": "Frigate wall: grey steel panels"
+  },
+  "steel_pipes": {
+   "tex": 476,
+   "texels_per_unit": 0.53,
+   "from": "Frigate wall: steel panels with black pipes"
+  },
+  "steel_floor": {
+   "tex": 1138,
+   "texels_per_unit": 0.78,
+   "from": "Frigate floor: steel stud plate"
+  },
+  "grating": {
+   "tex": 235,
+   "texels_per_unit": 0.305,
+   "from": "Archives floor: metal grating"
+  },
+  "riveted_metal": {
+   "tex": 727,
+   "texels_per_unit": 0.78,
+   "from": "Frigate ceiling: riveted metal"
+  },
+  "pipe_grid": {
+   "tex": 491,
+   "texels_per_unit": 0.347,
+   "from": "Frigate ceiling: open metal grid with pipes above"
+  },
+  "diamond_plate": {
+   "tex": 400,
+   "texels_per_unit": 0.363,
+   "from": "Depot wall: rusty diamond plate"
+  },
+  "dark_tiles": {
+   "tex": 440,
+   "texels_per_unit": 0.95,
+   "from": "Bunker 2 wall: small dark grey tiles"
+  },
+  "arc_blocks": {
+   "tex": 665,
+   "texels_per_unit": 0.578,
+   "from": "Bunker 2 wall: grey blocks with an arc relief"
+  },
+  "sandstone": {
+   "tex": 404,
+   "texels_per_unit": 0.27,
+   "from": "Egypt wall: sandstone"
+  }
+ },
+ "rooms": [
+  {
+   "name": "place",
+   "rect": [
+    -4800,
+    -2800,
+    4800,
+    -1300
+   ],
+   "floor": 0,
+   "height": 2000,
+   "area": "street",
+   "zone": "public",
+   "open_top": true,
+   "floor_mat": "stone_flags",
+   "wall_mat": "stone_blocks",
+   "chr_light": 9,
+   "light": {
+    "ambient": 0.28,
+    "intensity": 1.0,
+    "radius": 420,
+    "tint": [
+     255,
+     205,
+     150
+    ],
+    "lamp_height": 520,
+    "lamps": [
+     [
+      -4200,
+      -1450
+     ],
+     [
+      -3000,
+      -1450
+     ],
+     [
+      -1800,
+      -1450
+     ],
+     [
+      -600,
+      -1450
+     ],
+     [
+      600,
+      -1450
+     ],
+     [
+      1800,
+      -1450
+     ],
+     [
+      3000,
+      -1450
+     ],
+     [
+      4200,
+      -1450
+     ]
+    ]
+   },
+   "pads": [
+    {
+     "name": "start_1",
+     "at": [
+      -300,
+      -1700
+     ],
+     "face": [
+      0,
+      -1300
+     ]
+    },
+    {
+     "name": "start_2",
+     "at": [
+      -150,
+      -1750
+     ],
+     "face": [
+      0,
+      -1300
+     ]
+    },
+    {
+     "name": "start_3",
+     "at": [
+      -450,
+      -1750
+     ],
+     "face": [
+      0,
+      -1300
+     ]
+    },
+    {
+     "name": "limo",
+     "at": [
+      -1600,
+      -1800
+     ],
+     "face": [
+      -1600,
+      -2100
+     ]
+    },
+    {
+     "name": "place_e",
+     "at": [
+      3000,
+      -1900
+     ],
+     "face": [
+      0,
+      -1900
+     ]
+    },
+    {
+     "name": "place_w",
+     "at": [
+      -3800,
+      -2000
+     ],
+     "face": [
+      0,
+      -1900
+     ]
+    },
+    {
+     "name": "patrol_perim_1",
+     "at": [
+      -2500,
+      -1600
+     ],
+     "face": [
+      2500,
+      -1600
+     ]
+    },
+    {
+     "name": "fountain_n",
+     "at": [
+      0,
+      -2200
+     ],
+     "face": [
+      0,
+      -1300
+     ]
+    }
+   ],
+   "objects": [
+    {
+     "type": "prop",
+     "name": "limo_car",
+     "model": 279,
+     "at": [
+      -1600,
+      -2150
+     ],
+     "face": [
+      -1100,
+      -2150
+     ],
+     "flags": "0x101"
+    },
+    {
+     "type": "prop",
+     "name": "place_plant_1",
+     "model": 316,
+     "at": [
+      -900,
+      -1400
+     ],
+     "face": [
+      -900,
+      -2800
+     ],
+     "flags": "0x101"
+    },
+    {
+     "type": "prop",
+     "name": "place_plant_2",
+     "model": 316,
+     "at": [
+      900,
+      -1400
+     ],
+     "face": [
+      900,
+      -2800
+     ],
+     "flags": "0x101"
+    },
+    {
+     "type": "camera",
+     "name": "cam_place",
+     "wall": "z1",
+     "along": 2000,
+     "y": 900,
+     "watch": "start_1",
+     "sweep": [
+      30,
+      -30
+     ]
+    }
+   ]
+  },
+  {
+   "name": "alley",
+   "rect": [
+    4440,
+    -1260,
+    4800,
+    8400
+   ],
+   "floor": 0,
+   "height": 1600,
+   "area": "street",
+   "zone": "public",
+   "open_top": true,
+   "floor_mat": "asphalt",
+   "wall_mat": "brick",
+   "chr_light": 8,
+   "light": {
+    "ambient": 0.22,
+    "intensity": 1.0,
+    "radius": 360,
+    "tint": [
+     255,
+     205,
+     150
+    ],
+    "lamp_height": 480,
+    "lamps": [
+     [
+      4620,
+      -600
+     ],
+     [
+      4620,
+      1200
+     ],
+     [
+      4620,
+      3000
+     ],
+     [
+      4620,
+      4800
+     ],
+     [
+      4620,
+      6600
+     ]
+    ]
+   },
+   "pads": [
+    {
+     "name": "alley_s",
+     "at": [
+      4620,
+      -1000
+     ],
+     "face": [
+      4620,
+      4000
+     ]
+    },
+    {
+     "name": "alley_dock",
+     "at": [
+      4620,
+      2000
+     ],
+     "face": [
+      4400,
+      2000
+     ]
+    },
+    {
+     "name": "alley_n",
+     "at": [
+      4620,
+      8200
+     ],
+     "face": [
+      4620,
+      0
+     ]
+    },
+    {
+     "name": "patrol_perim_2",
+     "at": [
+      4620,
+      3000
+     ],
+     "face": [
+      4620,
+      8000
+     ]
+    },
+    {
+     "name": "alley_garden",
+     "at": [
+      4620,
+      7700
+     ],
+     "face": [
+      4400,
+      7700
+     ]
+    }
+   ],
+   "objects": [
+    {
+     "type": "prop",
+     "name": "alley_bins",
+     "model": 114,
+     "at": [
+      4700,
+      1000
+     ],
+     "face": [
+      4400,
+      1000
+     ],
+     "flags": "0x101"
+    },
+    {
+     "type": "camera",
+     "name": "cam_alley",
+     "wall": "x0",
+     "along": 1400,
+     "y": 500,
+     "watch": "alley_dock",
+     "sweep": [
+      25,
+      -25
+     ]
+    }
+   ]
+  },
+  {
+   "name": "garden",
+   "rect": [
+    -2400,
+    7040,
+    4400,
+    8400
+   ],
+   "floor": 0,
+   "height": 1600,
+   "area": "street",
+   "zone": "public",
+   "open_top": true,
+   "floor_mat": "stone_flags",
+   "wall_mat": "stone_blocks",
+   "chr_light": 8,
+   "light": {
+    "ambient": 0.22,
+    "intensity": 1.0,
+    "radius": 380,
+    "tint": [
+     255,
+     205,
+     150
+    ],
+    "lamp_height": 420,
+    "lamps": [
+     [
+      -2000,
+      7700
+     ],
+     [
+      -700,
+      7700
+     ],
+     [
+      600,
+      7700
+     ],
+     [
+      1900,
+      7700
+     ],
+     [
+      3200,
+      7700
+     ]
+    ]
+   },
+   "pads": [
+    {
+     "name": "garden_mid",
+     "at": [
+      1000,
+      7700
+     ],
+     "face": [
+      1000,
+      7040
+     ]
+    },
+    {
+     "name": "grapple_terrace_low",
+     "at": [
+      0,
+      7200
+     ],
+     "face": [
+      0,
+      7040
+     ]
+    },
+    {
+     "name": "patrol_perim_3",
+     "at": [
+      -1800,
+      7800
+     ],
+     "face": [
+      4000,
+      7800
+     ]
+    }
+   ],
+   "objects": [
+    {
+     "type": "prop",
+     "name": "garden_palm_1",
+     "model": 317,
+     "at": [
+      -2000,
+      8200
+     ],
+     "face": [
+      0,
+      8200
+     ],
+     "flags": "0x101"
+    },
+    {
+     "type": "prop",
+     "name": "garden_palm_2",
+     "model": 317,
+     "at": [
+      2600,
+      8200
+     ],
+     "face": [
+      0,
+      8200
+     ],
+     "flags": "0x101"
+    }
+   ]
+  },
+  {
+   "name": "atrium",
+   "rect": [
+    -800,
+    -1260,
+    800,
+    -460
+   ],
+   "floor": 0,
+   "height": 700,
+   "area": "floor",
+   "zone": "public",
+   "floor_mat": "stone_flags",
+   "wall_mat": "white_marble",
+   "ceiling_mat": "wood_lattice",
+   "chr_light": 14,
+   "light": {
+    "ambient": 0.52,
+    "intensity": 0.8,
+    "radius": 420,
+    "tint": [
+     255,
+     240,
+     215
+    ]
+   },
+   "pads": [
+    {
+     "name": "atrium_mid",
+     "at": [
+      0,
+      -860
+     ],
+     "face": [
+      0,
+      -460
+     ]
+    },
+    {
+     "name": "atrium_w",
+     "at": [
+      -600,
+      -700
+     ],
+     "face": [
+      0,
+      -700
+     ]
+    },
+    {
+     "name": "cafe_1",
+     "at": [
+      500,
+      -1000
+     ],
+     "face": [
+      0,
+      -1000
+     ]
+    }
+   ],
+   "objects": [
+    {
+     "type": "camera",
+     "name": "cam_atrium",
+     "wall": "z0",
+     "along": 600,
+     "y": 500,
+     "watch": "atrium_mid",
+     "sweep": [
+      25,
+      -25
+     ]
+    },
+    {
+     "type": "prop",
+     "name": "cafe_table_1",
+     "model": 85,
+     "at": [
+      -550,
+      -1050
+     ],
+     "face": [
+      0,
+      -1050
+     ],
+     "flags": "0x101"
+    },
+    {
+     "type": "prop",
+     "name": "cafe_table_2",
+     "model": 85,
+     "at": [
+      500,
+      -1050
+     ],
+     "face": [
+      0,
+      -1050
+     ],
+     "flags": "0x101"
+    }
+   ]
+  },
+  {
+   "name": "salle_renaissance",
+   "rect": [
+    -1800,
+    -420,
+    1800,
+    1000
+   ],
+   "floor": 0,
+   "height": 520,
+   "area": "floor",
+   "zone": "public",
+   "floor_mat": "red_carpet",
+   "wall_mat": "pink_marble",
+   "ceiling_mat": "wood_lattice",
+   "light": {
+    "ambient": 0.5,
+    "intensity": 0.75,
+    "radius": 460,
+    "tint": [
+     255,
+     240,
+     215
+    ]
+   },
+   "blocks": [
+    {
+     "name": "slot_row_1",
+     "rect": [
+      -940,
+      100,
+      -860,
+      700
+     ],
+     "height": 150,
+     "mat": "steel_panels",
+     "top_mat": "steel_panels"
+    },
+    {
+     "name": "slot_row_2",
+     "rect": [
+      860,
+      100,
+      940,
+      700
+     ],
+     "height": 150,
+     "mat": "steel_panels",
+     "top_mat": "steel_panels"
+    }
+   ],
+   "pads": [
+    {
+     "name": "floor_entry_w",
+     "at": [
+      -400,
+      -250
+     ],
+     "face": [
+      -400,
+      1000
+     ]
+    },
+    {
+     "name": "floor_entry_e",
+     "at": [
+      400,
+      -250
+     ],
+     "face": [
+      400,
+      1000
+     ]
+    },
+    {
+     "name": "slots_1",
+     "at": [
+      -1200,
+      400
+     ],
+     "face": [
+      -900,
+      400
+     ]
+    },
+    {
+     "name": "slots_2",
+     "at": [
+      1200,
+      400
+     ],
+     "face": [
+      900,
+      400
+     ]
+    },
+    {
+     "name": "slots_3",
+     "at": [
+      -600,
+      400
+     ],
+     "face": [
+      -900,
+      400
+     ]
+    },
+    {
+     "name": "slots_4",
+     "at": [
+      600,
+      400
+     ],
+     "face": [
+      900,
+      400
+     ]
+    },
+    {
+     "name": "ren_mid",
+     "at": [
+      0,
+      400
+     ],
+     "face": [
+      0,
+      1000
+     ]
+    },
+    {
+     "name": "ren_post_w",
+     "at": [
+      -1500,
+      -200
+     ],
+     "face": [
+      0,
+      400
+     ]
+    },
+    {
+     "name": "ren_post_e",
+     "at": [
+      1500,
+      -200
+     ],
+     "face": [
+      0,
+      400
+     ]
+    },
+    {
+     "name": "cage_queue",
+     "at": [
+      -1600,
+      600
+     ],
+     "face": [
+      -1800,
+      600
+     ]
+    },
+    {
+     "name": "patrol_floor_1",
+     "at": [
+      0,
+      -200
+     ],
+     "face": [
+      0,
+      1000
+     ]
+    },
+    {
+     "name": "patrol_floor_6",
+     "at": [
+      -1300,
+      850
+     ],
+     "face": [
+      0,
+      850
+     ]
+    }
+   ],
+   "objects": [
+    {
+     "type": "camera",
+     "name": "cam_renaissance",
+     "wall": "z0",
+     "along": -1500,
+     "y": 420,
+     "watch": "ren_mid",
+     "sweep": [
+      30,
+      -30
+     ]
+    },
+    {
+     "type": "camera",
+     "name": "cam_cage_window",
+     "wall": "z1",
+     "along": -1500,
+     "y": 420,
+     "watch": "cage_queue",
+     "sweep": [
+      15,
+      -15
+     ]
+    },
+    {
+     "type": "prop",
+     "name": "slot_1",
+     "model": 31,
+     "at": [
+      -950,
+      200
+     ],
+     "face": [
+      -650,
+      200
+     ],
+     "flags": "0x101"
+    },
+    {
+     "type": "prop",
+     "name": "slot_2",
+     "model": 29,
+     "at": [
+      -950,
+      600
+     ],
+     "face": [
+      -650,
+      600
+     ],
+     "flags": "0x101"
+    },
+    {
+     "type": "prop",
+     "name": "slot_3",
+     "model": 31,
+     "at": [
+      950,
+      200
+     ],
+     "face": [
+      650,
+      200
+     ],
+     "flags": "0x101"
+    },
+    {
+     "type": "prop",
+     "name": "slot_4",
+     "model": 29,
+     "at": [
+      950,
+      600
+     ],
+     "face": [
+      650,
+      600
+     ],
+     "flags": "0x101"
+    }
+   ]
+  },
+  {
+   "name": "salle_europe",
+   "rect": [
+    -1800,
+    1040,
+    1800,
+    3400
+   ],
+   "floor": 0,
+   "height": 1100,
+   "area": "floor",
+   "zone": "public",
+   "floor_mat": "red_carpet",
+   "wall_mat": "pink_marble",
+   "ceiling_mat": "wood_lattice",
+   "chr_light": 14,
+   "light": {
+    "ambient": 0.5,
+    "intensity": 0.8,
+    "radius": 700,
+    "tint": [
+     255,
+     240,
+     215
+    ],
+    "lamp_spacing": 800,
+    "lamp_height": 700
+   },
+   "blocks": [
+    {
+     "name": "table_1",
+     "rect": [
+      -1220,
+      1580,
+      -780,
+      1820
+     ],
+     "height": 80,
+     "mat": "wood_panel",
+     "top_mat": "red_carpet"
+    },
+    {
+     "name": "table_2",
+     "rect": [
+      -220,
+      1580,
+      220,
+      1820
+     ],
+     "height": 80,
+     "mat": "wood_panel",
+     "top_mat": "red_carpet"
+    },
+    {
+     "name": "table_3",
+     "rect": [
+      780,
+      1580,
+      1220,
+      1820
+     ],
+     "height": 80,
+     "mat": "wood_panel",
+     "top_mat": "red_carpet"
+    },
+    {
+     "name": "table_4",
+     "rect": [
+      -1220,
+      2580,
+      -780,
+      2820
+     ],
+     "height": 80,
+     "mat": "wood_panel",
+     "top_mat": "red_carpet"
+    },
+    {
+     "name": "table_5",
+     "rect": [
+      780,
+      2580,
+      1220,
+      2820
+     ],
+     "height": 80,
+     "mat": "wood_panel",
+     "top_mat": "red_carpet"
+    },
+    {
+     "name": "pit_podium",
+     "rect": [
+      -120,
+      2150,
+      120,
+      2350
+     ],
+     "height": 110,
+     "mat": "wood_panel",
+     "top_mat": "white_marble"
+    }
+   ],
+   "pads": [
+    {
+     "name": "croupier_1",
+     "at": [
+      -1000,
+      1900
+     ],
+     "face": [
+      -1000,
+      1700
+     ]
+    },
+    {
+     "name": "croupier_2",
+     "at": [
+      0,
+      1900
+     ],
+     "face": [
+      0,
+      1700
+     ]
+    },
+    {
+     "name": "croupier_3",
+     "at": [
+      1000,
+      1900
+     ],
+     "face": [
+      1000,
+      1700
+     ]
+    },
+    {
+     "name": "croupier_4",
+     "at": [
+      -1000,
+      2900
+     ],
+     "face": [
+      -1000,
+      2700
+     ]
+    },
+    {
+     "name": "croupier_5",
+     "at": [
+      1000,
+      2900
+     ],
+     "face": [
+      1000,
+      2700
+     ]
+    },
+    {
+     "name": "player_1",
+     "at": [
+      -1300,
+      1500
+     ],
+     "face": [
+      -1000,
+      1700
+     ]
+    },
+    {
+     "name": "player_2",
+     "at": [
+      -700,
+      1500
+     ],
+     "face": [
+      -1000,
+      1700
+     ]
+    },
+    {
+     "name": "player_3",
+     "at": [
+      300,
+      1500
+     ],
+     "face": [
+      0,
+      1700
+     ]
+    },
+    {
+     "name": "player_4",
+     "at": [
+      1300,
+      1500
+     ],
+     "face": [
+      1000,
+      1700
+     ]
+    },
+    {
+     "name": "player_5",
+     "at": [
+      -1300,
+      2500
+     ],
+     "face": [
+      -1000,
+      2700
+     ]
+    },
+    {
+     "name": "player_6",
+     "at": [
+      700,
+      2500
+     ],
+     "face": [
+      1000,
+      2700
+     ]
+    },
+    {
+     "name": "player_7",
+     "at": [
+      -300,
+      3100
+     ],
+     "face": [
+      0,
+      2200
+     ]
+    },
+    {
+     "name": "player_8",
+     "at": [
+      1300,
+      3100
+     ],
+     "face": [
+      1000,
+      2700
+     ]
+    },
+    {
+     "name": "pit_mid",
+     "at": [
+      0,
+      2050
+     ],
+     "face": [
+      0,
+      1040
+     ]
+    },
+    {
+     "name": "pit_n",
+     "at": [
+      0,
+      2500
+     ],
+     "face": [
+      0,
+      3400
+     ]
+    },
+    {
+     "name": "floor_post_sw",
+     "at": [
+      -1550,
+      1300
+     ],
+     "face": [
+      0,
+      2200
+     ]
+    },
+    {
+     "name": "floor_post_se",
+     "at": [
+      1550,
+      1300
+     ],
+     "face": [
+      0,
+      2200
+     ]
+    },
+    {
+     "name": "floor_post_nw",
+     "at": [
+      -1550,
+      3200
+     ],
+     "face": [
+      0,
+      2200
+     ]
+    },
+    {
+     "name": "floor_post_ne",
+     "at": [
+      1550,
+      3200
+     ],
+     "face": [
+      0,
+      2200
+     ]
+    },
+    {
+     "name": "pit_screens",
+     "at": [
+      -1600,
+      1260
+     ],
+     "face": [
+      -1600,
+      1040
+     ]
+    },
+    {
+     "name": "patrol_floor_2",
+     "at": [
+      -500,
+      2200
+     ],
+     "face": [
+      500,
+      2200
+     ]
+    },
+    {
+     "name": "patrol_floor_3",
+     "at": [
+      500,
+      3150
+     ],
+     "face": [
+      500,
+      2200
+     ]
+    },
+    {
+     "name": "patrol_floor_4",
+     "at": [
+      1500,
+      2200
+     ],
+     "face": [
+      0,
+      2200
+     ]
+    },
+    {
+     "name": "patrol_floor_5",
+     "at": [
+      -1500,
+      2200
+     ],
+     "face": [
+      0,
+      2200
+     ]
+    },
+    {
+     "name": "grapple_catwalk_low",
+     "at": [
+      -1650,
+      2350
+     ],
+     "face": [
+      -1800,
+      2350
+     ]
+    }
+   ],
+   "objects": [
+    {
+     "type": "camera",
+     "name": "cam_floor_s",
+     "wall": "z0",
+     "along": 1500,
+     "y": 900,
+     "watch": "pit_mid",
+     "sweep": [
+      35,
+      -35
+     ]
+    },
+    {
+     "type": "camera",
+     "name": "cam_floor_n",
+     "wall": "z1",
+     "along": -1500,
+     "y": 900,
+     "watch": "croupier_4",
+     "sweep": [
+      30,
+      -30
+     ]
+    },
+    {
+     "type": "camera",
+     "name": "cam_pit",
+     "wall": "x1",
+     "along": 2200,
+     "y": 900,
+     "watch": "croupier_2",
+     "sweep": [
+      30,
+      -30
+     ]
+    },
+    {
+     "type": "alarm",
+     "name": "alarm_floor",
+     "wall": "z1",
+     "along": 1500,
+     "y": 140
+    },
+    {
+     "type": "monitor",
+     "name": "pit_screen_1",
+     "wall": "z0",
+     "along": -1720,
+     "y": 150,
+     "width": 100,
+     "height": 72,
+     "image": 15
+    },
+    {
+     "type": "monitor",
+     "name": "pit_screen_2",
+     "wall": "z0",
+     "along": -1600,
+     "y": 150,
+     "width": 100,
+     "height": 72,
+     "image": 11
+    },
+    {
+     "type": "monitor",
+     "name": "pit_screen_3",
+     "wall": "z0",
+     "along": -1480,
+     "y": 150,
+     "width": 100,
+     "height": 72,
+     "image": 3
+    },
+    {
+     "type": "monitor",
+     "name": "pit_screen_4",
+     "wall": "z0",
+     "along": -1720,
+     "y": 232,
+     "width": 100,
+     "height": 72,
+     "image": 16
+    },
+    {
+     "type": "monitor",
+     "name": "pit_screen_5",
+     "wall": "z0",
+     "along": -1600,
+     "y": 232,
+     "width": 100,
+     "height": 72,
+     "image": 9
+    },
+    {
+     "type": "monitor",
+     "name": "pit_screen_6",
+     "wall": "z0",
+     "along": -1480,
+     "y": 232,
+     "width": 100,
+     "height": 72,
+     "image": 4
+    }
+   ]
+  },
+  {
+   "name": "bar",
+   "rect": [
+    1840,
+    -420,
+    3400,
+    1000
+   ],
+   "floor": 0,
+   "height": 420,
+   "area": "floor",
+   "zone": "public",
+   "floor_mat": "planks",
+   "wall_mat": "wood_panel",
+   "ceiling_mat": "wood_lattice",
+   "chr_light": 12,
+   "light": {
+    "ambient": 0.42,
+    "intensity": 0.7,
+    "radius": 380,
+    "tint": [
+     255,
+     225,
+     190
+    ]
+   },
+   "blocks": [
+    {
+     "name": "bar_counter",
+     "rect": [
+      2900,
+      -200,
+      3000,
+      800
+     ],
+     "height": 110,
+     "mat": "wood_panel",
+     "top_mat": "white_marble"
+    }
+   ],
+   "pads": [
+    {
+     "name": "bar_1",
+     "at": [
+      2600,
+      0
+     ],
+     "face": [
+      3000,
+      0
+     ]
+    },
+    {
+     "name": "bar_2",
+     "at": [
+      2400,
+      700
+     ],
+     "face": [
+      1840,
+      300
+     ]
+    },
+    {
+     "name": "barman",
+     "at": [
+      3200,
+      300
+     ],
+     "face": [
+      2900,
+      300
+     ]
+    }
+   ],
+   "objects": [
+    {
+     "type": "camera",
+     "name": "cam_bar",
+     "wall": "x0",
+     "along": 600,
+     "y": 320,
+     "watch": "bar_1",
+     "sweep": [
+      20,
+      -20
+     ]
+    },
+    {
+     "type": "prop",
+     "name": "bar_table",
+     "model": 85,
+     "at": [
+      2200,
+      0
+     ],
+     "face": [
+      2200,
+      1000
+     ],
+     "flags": "0x101"
+    }
+   ]
+  },
+  {
+   "name": "cage",
+   "rect": [
+    -3400,
+    -420,
+    -1840,
+    1000
+   ],
+   "floor": 0,
+   "height": 360,
+   "area": "cage",
+   "zone": "restricted",
+   "floor_mat": "white_tiles",
+   "wall_mat": "steel_panels",
+   "ceiling_mat": "office_ceiling",
+   "chr_light": 13,
+   "light": {
+    "ambient": 0.5,
+    "intensity": 0.75,
+    "radius": 400,
+    "tint": [
+     225,
+     236,
+     255
+    ]
+   },
+   "blocks": [
+    {
+     "name": "cage_counter",
+     "rect": [
+      -2060,
+      -300,
+      -1980,
+      900
+     ],
+     "height": 105,
+     "mat": "steel_panels",
+     "top_mat": "steel_panels"
+    }
+   ],
+   "pads": [
+    {
+     "name": "cashier_1",
+     "at": [
+      -2200,
+      100
+     ],
+     "face": [
+      -1840,
+      100
+     ]
+    },
+    {
+     "name": "cashier_2",
+     "at": [
+      -2200,
+      600
+     ],
+     "face": [
+      -1840,
+      600
+     ]
+    },
+    {
+     "name": "cage_mid",
+     "at": [
+      -2800,
+      300
+     ],
+     "face": [
+      -1840,
+      300
+     ]
+    },
+    {
+     "name": "cage_back",
+     "at": [
+      -3200,
+      800
+     ],
+     "face": [
+      -1840,
+      300
+     ]
+    },
+    {
+     "name": "cage_post",
+     "at": [
+      -2800,
+      -200
+     ],
+     "face": [
+      -2800,
+      1000
+     ]
+    }
+   ],
+   "objects": [
+    {
+     "type": "camera",
+     "name": "cam_cage",
+     "wall": "z0",
+     "along": -2600,
+     "y": 300,
+     "watch": "cage_mid",
+     "sweep": [
+      25,
+      -25
+     ]
+    },
+    {
+     "type": "camera",
+     "name": "cam_cage_n",
+     "wall": "z1",
+     "along": -3100,
+     "y": 300,
+     "watch": "cashier_1",
+     "sweep": [
+      20,
+      -20
+     ]
+    },
+    {
+     "type": "alarm",
+     "name": "alarm_cage",
+     "wall": "x0",
+     "along": 800,
+     "y": 140
+    }
+   ],
+   "loot": [
+    {
+     "name": "cage_cash",
+     "at": [
+      [
+       -3000,
+       0
+      ],
+      [
+       -2700,
+       0
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "name": "chip_bank",
+   "rect": [
+    -4400,
+    -420,
+    -3440,
+    400
+   ],
+   "floor": 0,
+   "height": 300,
+   "area": "cage",
+   "zone": "restricted",
+   "floor_mat": "steel_floor",
+   "wall_mat": "dark_tiles",
+   "ceiling_mat": "riveted_metal",
+   "loot": [
+    {
+     "name": "chip_bank_cash",
+     "at": [
+      [
+       -4100,
+       -200
+      ],
+      [
+       -3700,
+       -200
+      ],
+      [
+       -3900,
+       200
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "name": "cage_mantrap",
+   "rect": [
+    -3400,
+    1040,
+    -2280,
+    1600
+   ],
+   "floor": 0,
+   "height": 360,
+   "area": "cage",
+   "zone": "restricted",
+   "floor_mat": "white_tiles",
+   "wall_mat": "grey_panels",
+   "ceiling_mat": "office_ceiling",
+   "pads": [
+    {
+     "name": "mantrap_post",
+     "at": [
+      -2840,
+      1350
+     ],
+     "face": [
+      -2280,
+      1350
+     ]
+    }
+   ],
+   "objects": [
+    {
+     "type": "camera",
+     "name": "cam_mantrap",
+     "wall": "x0",
+     "along": 1320,
+     "y": 280,
+     "watch": "mantrap_post",
+     "sweep": [
+      15,
+      -15
+     ]
+    }
+   ]
+  },
+  {
+   "name": "staff_corr",
+   "rect": [
+    -2240,
+    1040,
+    -1840,
+    3400
+   ],
+   "floor": 0,
+   "height": 360,
+   "area": "corridor",
+   "zone": "staff",
+   "floor_mat": "white_tiles",
+   "wall_mat": "plaster",
+   "ceiling_mat": "office_ceiling",
+   "pads": [
+    {
+     "name": "staff_s",
+     "at": [
+      -2040,
+      1150
+     ],
+     "face": [
+      -2040,
+      3400
+     ]
+    },
+    {
+     "name": "staff_mid",
+     "at": [
+      -2040,
+      2200
+     ],
+     "face": [
+      -2040,
+      3400
+     ]
+    },
+    {
+     "name": "staff_n",
+     "at": [
+      -2040,
+      3250
+     ],
+     "face": [
+      -2040,
+      1040
+     ]
+    }
+   ],
+   "objects": [
+    {
+     "type": "camera",
+     "name": "cam_staff",
+     "wall": "z0",
+     "along": -2040,
+     "y": 300,
+     "watch": "staff_mid",
+     "sweep": [
+      10,
+      -10
+     ]
+    },
+    {
+     "type": "alarm",
+     "name": "alarm_staff",
+     "wall": "x0",
+     "along": 2200,
+     "y": 140
+    }
+   ]
+  },
+  {
+   "name": "staff_lounge",
+   "rect": [
+    -3400,
+    1640,
+    -2280,
+    2400
+   ],
+   "floor": 0,
+   "height": 360,
+   "area": "corridor",
+   "zone": "staff",
+   "floor_mat": "red_carpet",
+   "wall_mat": "beige_panels",
+   "ceiling_mat": "office_ceiling",
+   "pads": [
+    {
+     "name": "lounge_1",
+     "at": [
+      -2600,
+      1800
+     ],
+     "face": [
+      -3400,
+      2000
+     ]
+    },
+    {
+     "name": "lounge_2",
+     "at": [
+      -3200,
+      2250
+     ],
+     "face": [
+      -2280,
+      2000
+     ]
+    },
+    {
+     "name": "vent_count_a",
+     "at": [
+      -3300,
+      1750
+     ],
+     "face": [
+      -3400,
+      1750
+     ]
+    }
+   ],
+   "objects": [
+    {
+     "type": "prop",
+     "name": "lounge_table",
+     "model": 85,
+     "at": [
+      -2840,
+      2000
+     ],
+     "face": [
+      -2840,
+      1640
+     ],
+     "flags": "0x101"
+    }
+   ]
+  },
+  {
+   "name": "lockers",
+   "rect": [
+    -3400,
+    2440,
+    -2280,
+    3400
+   ],
+   "floor": 0,
+   "height": 360,
+   "area": "corridor",
+   "zone": "staff",
+   "floor_mat": "white_tiles",
+   "wall_mat": "grey_panels",
+   "ceiling_mat": "office_ceiling",
+   "pads": [
+    {
+     "name": "lockers_1",
+     "at": [
+      -2600,
+      2600
+     ],
+     "face": [
+      -3400,
+      2600
+     ]
+    },
+    {
+     "name": "lockers_2",
+     "at": [
+      -3100,
+      3250
+     ],
+     "face": [
+      -2280,
+      2900
+     ]
+    }
+   ],
+   "objects": [
+    {
+     "type": "prop",
+     "name": "locker_1",
+     "model": 97,
+     "at": [
+      -3350,
+      2550
+     ],
+     "face": [
+      -2280,
+      2550
+     ],
+     "flags": "0x101"
+    },
+    {
+     "type": "prop",
+     "name": "locker_2",
+     "model": 96,
+     "at": [
+      -3350,
+      2730
+     ],
+     "face": [
+      -2280,
+      2730
+     ],
+     "flags": "0x101"
+    },
+    {
+     "type": "prop",
+     "name": "locker_3",
+     "model": 97,
+     "at": [
+      -3350,
+      2910
+     ],
+     "face": [
+      -2280,
+      2910
+     ],
+     "flags": "0x101"
+    },
+    {
+     "type": "prop",
+     "name": "locker_4",
+     "model": 96,
+     "at": [
+      -3350,
+      3090
+     ],
+     "face": [
+      -2280,
+      3090
+     ],
+     "flags": "0x101"
+    },
+    {
+     "type": "key",
+     "name": "count_key",
+     "at": [
+      -2500,
+      3250
+     ],
+     "keyflags": "0x1",
+     "model": "key"
+    }
+   ]
+  },
+  {
+   "name": "pit_office",
+   "rect": [
+    -4400,
+    1040,
+    -3440,
+    2400
+   ],
+   "floor": 0,
+   "height": 360,
+   "area": "offices",
+   "zone": "staff",
+   "floor_mat": "red_carpet",
+   "wall_mat": "wood_panel",
+   "ceiling_mat": "office_ceiling",
+   "light": {
+    "ambient": 0.44,
+    "intensity": 0.7,
+    "radius": 380,
+    "tint": [
+     255,
+     236,
+     210
+    ]
+   },
+   "pads": [
+    {
+     "name": "pit_office_1",
+     "at": [
+      -3700,
+      1300
+     ],
+     "face": [
+      -4400,
+      1300
+     ]
+    },
+    {
+     "name": "pit_office_2",
+     "at": [
+      -4100,
+      2100
+     ],
+     "face": [
+      -3440,
+      1700
+     ]
+    },
+    {
+     "name": "pit_office_mid",
+     "at": [
+      -3900,
+      1700
+     ],
+     "face": [
+      -3440,
+      1700
+     ]
+    }
+   ],
+   "objects": [
+    {
+     "type": "camera",
+     "name": "cam_pit_office",
+     "wall": "z1",
+     "along": -4250,
+     "y": 280,
+     "watch": "pit_office_mid",
+     "sweep": [
+      20,
+      -20
+     ]
+    },
+    {
+     "type": "prop",
+     "name": "pit_desk",
+     "model": 38,
+     "at": [
+      -4300,
+      1700
+     ],
+     "face": [
+      -3440,
+      1700
+     ],
+     "flags": "0x101"
+    },
+    {
+     "type": "prop",
+     "name": "pit_cabinet",
+     "model": 43,
+     "at": [
+      -4100,
+      1090
+     ],
+     "face": [
+      -4100,
+      2400
+     ],
+     "flags": "0x101"
+    }
+   ]
+  },
+  {
+   "name": "north_corr_w",
+   "rect": [
+    -4400,
+    3440,
+    -540,
+    3840
+   ],
+   "floor": 0,
+   "height": 360,
+   "area": "corridor",
+   "zone": "staff",
+   "floor_mat": "white_tiles",
+   "wall_mat": "plaster",
+   "ceiling_mat": "office_ceiling",
+   "pads": [
+    {
+     "name": "nw_w",
+     "at": [
+      -4200,
+      3640
+     ],
+     "face": [
+      -540,
+      3640
+     ]
+    },
+    {
+     "name": "nw_mid",
+     "at": [
+      -2400,
+      3640
+     ],
+     "face": [
+      -540,
+      3640
+     ]
+    },
+    {
+     "name": "nw_e",
+     "at": [
+      -800,
+      3640
+     ],
+     "face": [
+      -4400,
+      3640
+     ]
+    }
+   ],
+   "objects": [
+    {
+     "type": "camera",
+     "name": "cam_north_w",
+     "wall": "x0",
+     "along": 3640,
+     "y": 280,
+     "watch": "nw_mid",
+     "sweep": [
+      8,
+      -8
+     ]
+    }
+   ]
+  },
+  {
+   "name": "stair_foot",
+   "rect": [
+    -500,
+    3440,
+    500,
+    3840
+   ],
+   "floor": 0,
+   "height": 360,
+   "area": "salons",
+   "zone": "public",
+   "floor_mat": "stone_flags",
+   "wall_mat": "white_marble",
+   "ceiling_mat": "wood_lattice",
+   "pads": [
+    {
+     "name": "stair_foot_mid",
+     "at": [
+      0,
+      3640
+     ],
+     "face": [
+      0,
+      4600
+     ]
+    }
+   ]
+  },
+  {
+   "name": "grand_stair",
+   "rect": [
+    -500,
+    3880,
+    500,
+    4600
+   ],
+   "floor": 0,
+   "height": 440,
+   "area": "salons",
+   "zone": "public",
+   "ramp": {
+    "axis": "z",
+    "to": 480,
+    "stairs": 20,
+    "riser_mat": "pink_marble"
+   },
+   "floor_mat": "red_carpet",
+   "wall_mat": "white_marble",
+   "ceiling_mat": "wood_lattice",
+   "chr_light": 13,
+   "light": {
+    "ambient": 0.48,
+    "intensity": 0.75,
+    "radius": 420,
+    "tint": [
+     255,
+     240,
+     215
+    ]
+   },
+   "pads": [
+    {
+     "name": "grand_bot",
+     "at": [
+      0,
+      3980
+     ],
+     "face": [
+      0,
+      4600
+     ]
+    },
+    {
+     "name": "grand_top",
+     "at": [
+      0,
+      4500
+     ],
+     "face": [
+      0,
+      3880
+     ]
+    }
+   ]
+  },
+  {
+   "name": "kitchen",
+   "rect": [
+    -3400,
+    3880,
+    -1840,
+    5000
+   ],
+   "floor": 0,
+   "height": 360,
+   "area": "corridor",
+   "zone": "staff",
+   "floor_mat": "white_tiles",
+   "wall_mat": "dark_tiles",
+   "ceiling_mat": "office_ceiling",
+   "blocks": [
+    {
+     "name": "kitchen_counter",
+     "rect": [
+      -3000,
+      4200,
+      -2400,
+      4300
+     ],
+     "height": 96,
+     "mat": "steel_panels",
+     "top_mat": "steel_panels"
+    }
+   ],
+   "pads": [
+    {
+     "name": "kitchen_1",
+     "at": [
+      -3200,
+      4000
+     ],
+     "face": [
+      -1840,
+      4000
+     ]
+    },
+    {
+     "name": "kitchen_2",
+     "at": [
+      -2000,
+      4500
+     ],
+     "face": [
+      -3400,
+      4500
+     ]
+    },
+    {
+     "name": "grapple_goodslift_high",
+     "at": [
+      -2240,
+      4880
+     ],
+     "face": [
+      -2240,
+      5000
+     ]
+    }
+   ]
+  },
+  {
+   "name": "north_corr_e",
+   "rect": [
+    540,
+    3440,
+    4400,
+    3840
+   ],
+   "floor": 0,
+   "height": 360,
+   "area": "corridor",
+   "zone": "staff",
+   "floor_mat": "white_tiles",
+   "wall_mat": "plaster",
+   "ceiling_mat": "office_ceiling",
+   "pads": [
+    {
+     "name": "ne_w",
+     "at": [
+      700,
+      3640
+     ],
+     "face": [
+      4400,
+      3640
+     ]
+    },
+    {
+     "name": "ne_mid",
+     "at": [
+      1900,
+      3640
+     ],
+     "face": [
+      4400,
+      3640
+     ]
+    },
+    {
+     "name": "ne_e",
+     "at": [
+      4200,
+      3640
+     ],
+     "face": [
+      540,
+      3640
+     ]
+    },
+    {
+     "name": "ne_core",
+     "at": [
+      2520,
+      3640
+     ],
+     "face": [
+      2520,
+      3840
+     ]
+    }
+   ],
+   "objects": [
+    {
+     "type": "camera",
+     "name": "cam_north_e",
+     "wall": "x1",
+     "along": 3640,
+     "y": 280,
+     "watch": "ne_mid",
+     "sweep": [
+      8,
+      -8
+     ]
+    }
+   ]
+  },
+  {
+   "name": "staff_canteen",
+   "rect": [
+    980,
+    3880,
+    1800,
+    5000
+   ],
+   "floor": 0,
+   "height": 360,
+   "area": "corridor",
+   "zone": "staff",
+   "floor_mat": "white_tiles",
+   "wall_mat": "beige_panels",
+   "ceiling_mat": "office_ceiling",
+   "pads": [
+    {
+     "name": "canteen_1",
+     "at": [
+      1400,
+      4100
+     ],
+     "face": [
+      1400,
+      5000
+     ]
+    },
+    {
+     "name": "canteen_2",
+     "at": [
+      1600,
+      4800
+     ],
+     "face": [
+      980,
+      4400
+     ]
+    }
+   ],
+   "objects": [
+    {
+     "type": "prop",
+     "name": "canteen_table",
+     "model": 85,
+     "at": [
+      1390,
+      4450
+     ],
+     "face": [
+      1390,
+      3880
+     ],
+     "flags": "0x101"
+    }
+   ]
+  },
+  {
+   "name": "red_stairs",
+   "rect": [
+    540,
+    3880,
+    940,
+    5000
+   ],
+   "floor": 0,
+   "height": 360,
+   "area": "vault_ante",
+   "zone": "restricted",
+   "ramp": {
+    "axis": "z",
+    "to": -420,
+    "stairs": 20,
+    "riser_mat": "stone_blocks"
+   },
+   "floor_mat": "stone_flags",
+   "wall_mat": "stone_blocks",
+   "ceiling_mat": "dark_grid",
+   "chr_light": 12,
+   "light": {
+    "ambient": 0.4,
+    "intensity": 0.8,
+    "radius": 360,
+    "tint": [
+     255,
+     244,
+     228
+    ]
+   },
+   "pads": [
+    {
+     "name": "stair_top",
+     "at": [
+      740,
+      3980
+     ],
+     "face": [
+      740,
+      5000
+     ]
+    },
+    {
+     "name": "stair_bot",
+     "at": [
+      740,
+      4900
+     ],
+     "face": [
+      740,
+      3880
+     ]
+    }
+   ]
+  },
+  {
+   "name": "security_corr",
+   "rect": [
+    1840,
+    1040,
+    2240,
+    3400
+   ],
+   "floor": 0,
+   "height": 360,
+   "area": "security",
+   "zone": "restricted",
+   "floor_mat": "white_tiles",
+   "wall_mat": "grey_panels",
+   "ceiling_mat": "office_ceiling",
+   "pads": [
+    {
+     "name": "sec_s",
+     "at": [
+      2040,
+      1150
+     ],
+     "face": [
+      2040,
+      3400
+     ]
+    },
+    {
+     "name": "sec_mid",
+     "at": [
+      2040,
+      2200
+     ],
+     "face": [
+      2040,
+      3400
+     ]
+    },
+    {
+     "name": "sec_n",
+     "at": [
+      2040,
+      3250
+     ],
+     "face": [
+      2040,
+      1040
+     ]
+    }
+   ],
+   "objects": [
+    {
+     "type": "camera",
+     "name": "cam_security",
+     "wall": "z1",
+     "along": 2040,
+     "y": 300,
+     "watch": "sec_mid",
+     "sweep": [
+      10,
+      -10
+     ]
+    }
+   ]
+  },
+  {
+   "name": "guard_room",
+   "rect": [
+    2280,
+    1040,
+    3400,
+    2000
+   ],
+   "floor": 0,
+   "height": 360,
+   "area": "security",
+   "zone": "restricted",
+   "floor_mat": "white_tiles",
+   "wall_mat": "grey_panels",
+   "ceiling_mat": "office_ceiling",
+   "pads": [
+    {
+     "name": "guard_1",
+     "at": [
+      2500,
+      1300
+     ],
+     "face": [
+      3400,
+      1500
+     ]
+    },
+    {
+     "name": "guard_2",
+     "at": [
+      3200,
+      1300
+     ],
+     "face": [
+      2280,
+      1500
+     ]
+    },
+    {
+     "name": "guard_3",
+     "at": [
+      2840,
+      1850
+     ],
+     "face": [
+      2840,
+      1040
+     ]
+    }
+   ],
+   "objects": [
+    {
+     "type": "prop",
+     "name": "guard_table",
+     "model": 85,
+     "at": [
+      2840,
+      1500
+     ],
+     "face": [
+      2840,
+      2000
+     ],
+     "flags": "0x101"
+    },
+    {
+     "type": "alarm",
+     "name": "alarm_security",
+     "wall": "x1",
+     "along": 1500,
+     "y": 140
+    }
+   ]
+  },
+  {
+   "name": "armory",
+   "rect": [
+    2280,
+    2040,
+    3400,
+    2600
+   ],
+   "floor": 0,
+   "height": 360,
+   "area": "security",
+   "zone": "restricted",
+   "floor_mat": "steel_floor",
+   "wall_mat": "diamond_plate",
+   "ceiling_mat": "riveted_metal",
+   "chr_light": 12,
+   "pads": [
+    {
+     "name": "armory_1",
+     "at": [
+      2840,
+      2300
+     ],
+     "face": [
+      3400,
+      2300
+     ]
+    }
+   ],
+   "objects": [
+    {
+     "type": "prop",
+     "name": "ammo_1",
+     "model": 5,
+     "at": [
+      3300,
+      2200
+     ],
+     "face": [
+      2280,
+      2200
+     ],
+     "flags": "0x101"
+    },
+    {
+     "type": "prop",
+     "name": "ammo_2",
+     "model": 7,
+     "at": [
+      3300,
+      2450
+     ],
+     "face": [
+      2280,
+      2450
+     ],
+     "flags": "0x101"
+    }
+   ]
+  },
+  {
+   "name": "barracks",
+   "rect": [
+    2280,
+    2640,
+    3400,
+    3400
+   ],
+   "floor": 0,
+   "height": 360,
+   "area": "security",
+   "zone": "restricted",
+   "floor_mat": "white_tiles",
+   "wall_mat": "grey_panels",
+   "ceiling_mat": "office_ceiling",
+   "pads": [
+    {
+     "name": "barracks_1",
+     "at": [
+      2500,
+      2800
+     ],
+     "face": [
+      3400,
+      3000
+     ]
+    },
+    {
+     "name": "barracks_2",
+     "at": [
+      3200,
+      2800
+     ],
+     "face": [
+      2280,
+      3000
+     ]
+    },
+    {
+     "name": "barracks_3",
+     "at": [
+      2840,
+      3250
+     ],
+     "face": [
+      2840,
+      2640
+     ]
+    }
+   ],
+   "objects": [
+    {
+     "type": "prop",
+     "name": "bunk_locker_1",
+     "model": 96,
+     "at": [
+      3350,
+      2750
+     ],
+     "face": [
+      2280,
+      2750
+     ],
+     "flags": "0x101"
+    },
+    {
+     "type": "prop",
+     "name": "bunk_locker_2",
+     "model": 96,
+     "at": [
+      3350,
+      2930
+     ],
+     "face": [
+      2280,
+      2930
+     ],
+     "flags": "0x101"
+    },
+    {
+     "type": "prop",
+     "name": "bunk_locker_3",
+     "model": 96,
+     "at": [
+      3350,
+      3110
+     ],
+     "face": [
+      2280,
+      3110
+     ],
+     "flags": "0x101"
+    }
+   ]
+  },
+  {
+   "name": "dock",
+   "rect": [
+    3440,
+    1040,
+    4400,
+    3400
+   ],
+   "floor": 0,
+   "height": 440,
+   "area": "dock",
+   "zone": "staff",
+   "floor_mat": "concrete",
+   "wall_mat": "black_corrugated",
+   "ceiling_mat": "rusty_roof",
+   "chr_light": 11,
+   "light": {
+    "ambient": 0.34,
+    "intensity": 0.85,
+    "radius": 440,
+    "tint": [
+     255,
+     244,
+     228
+    ]
+   },
+   "pads": [
+    {
+     "name": "dock_mid",
+     "at": [
+      3900,
+      2000
+     ],
+     "face": [
+      4400,
+      2000
+     ]
+    },
+    {
+     "name": "dock_exit",
+     "at": [
+      4250,
+      2000
+     ],
+     "face": [
+      4400,
+      2000
+     ]
+    },
+    {
+     "name": "dock_1",
+     "at": [
+      3600,
+      3200
+     ],
+     "face": [
+      4400,
+      1400
+     ]
+    },
+    {
+     "name": "dock_2",
+     "at": [
+      4250,
+      1300
+     ],
+     "face": [
+      3440,
+      2800
+     ]
+    },
+    {
+     "name": "dock_3",
+     "at": [
+      3600,
+      1300
+     ],
+     "face": [
+      4400,
+      3200
+     ]
+    }
+   ],
+   "objects": [
+    {
+     "type": "camera",
+     "name": "cam_dock",
+     "wall": "z0",
+     "along": 4200,
+     "y": 380,
+     "watch": "dock_mid",
+     "sweep": [
+      30,
+      -30
+     ]
+    },
+    {
+     "type": "alarm",
+     "name": "alarm_dock",
+     "wall": "x0",
+     "along": 1500,
+     "y": 140
+    },
+    {
+     "type": "prop",
+     "name": "dock_crate_1",
+     "model": 79,
+     "at": [
+      3550,
+      2400
+     ],
+     "face": [
+      4400,
+      2400
+     ],
+     "flags": "0x101"
+    },
+    {
+     "type": "prop",
+     "name": "dock_crate_2",
+     "model": 80,
+     "at": [
+      3550,
+      2650
+     ],
+     "face": [
+      4400,
+      2650
+     ],
+     "flags": "0x101"
+    },
+    {
+     "type": "prop",
+     "name": "cash_van",
+     "model": 279,
+     "at": [
+      3800,
+      1600
+     ],
+     "face": [
+      3800,
+      3400
+     ],
+     "flags": "0x101"
+    }
+   ]
+  },
+  {
+   "name": "catwalk_w",
+   "rect": [
+    -2240,
+    1040,
+    -1840,
+    3400
+   ],
+   "floor": 480,
+   "height": 400,
+   "area": "catwalk",
+   "zone": "restricted",
+   "floor_mat": "grating",
+   "wall_mat": "steel_pipes",
+   "ceiling_mat": "pipe_grid",
+   "chr_light": 10,
+   "light": {
+    "ambient": 0.24,
+    "intensity": 0.8,
+    "radius": 300,
+    "tint": [
+     225,
+     236,
+     255
+    ],
+    "lamp_spacing": 700
+   },
+   "pads": [
+    {
+     "name": "cw_s",
+     "at": [
+      -2040,
+      1150
+     ],
+     "face": [
+      -2040,
+      3400
+     ]
+    },
+    {
+     "name": "patrol_catwalk_1",
+     "at": [
+      -2040,
+      1700
+     ],
+     "face": [
+      -2040,
+      3400
+     ]
+    },
+    {
+     "name": "grapple_catwalk_high",
+     "at": [
+      -2040,
+      2350
+     ],
+     "face": [
+      -1840,
+      2350
+     ]
+    },
+    {
+     "name": "patrol_catwalk_2",
+     "at": [
+      -2040,
+      3250
+     ],
+     "face": [
+      2040,
+      3640
+     ]
+    }
+   ]
+  },
+  {
+   "name": "catwalk_e",
+   "rect": [
+    1840,
+    1040,
+    2240,
+    3400
+   ],
+   "floor": 480,
+   "height": 400,
+   "area": "catwalk",
+   "zone": "restricted",
+   "floor_mat": "grating",
+   "wall_mat": "steel_pipes",
+   "ceiling_mat": "pipe_grid",
+   "chr_light": 10,
+   "light": {
+    "ambient": 0.24,
+    "intensity": 0.8,
+    "radius": 300,
+    "tint": [
+     225,
+     236,
+     255
+    ],
+    "lamp_spacing": 700
+   },
+   "pads": [
+    {
+     "name": "ce_s",
+     "at": [
+      2040,
+      1150
+     ],
+     "face": [
+      2040,
+      3400
+     ]
+    },
+    {
+     "name": "patrol_catwalk_4",
+     "at": [
+      2040,
+      1700
+     ],
+     "face": [
+      2040,
+      3400
+     ]
+    },
+    {
+     "name": "ce_mid",
+     "at": [
+      2040,
+      2600
+     ],
+     "face": [
+      2040,
+      1040
+     ]
+    }
+   ]
+  },
+  {
+   "name": "catwalk_n",
+   "rect": [
+    -2240,
+    3440,
+    2240,
+    3840
+   ],
+   "floor": 480,
+   "height": 400,
+   "area": "catwalk",
+   "zone": "restricted",
+   "floor_mat": "grating",
+   "wall_mat": "steel_pipes",
+   "ceiling_mat": "pipe_grid",
+   "chr_light": 10,
+   "light": {
+    "ambient": 0.24,
+    "intensity": 0.8,
+    "radius": 300,
+    "tint": [
+     225,
+     236,
+     255
+    ],
+    "lamp_spacing": 700
+   },
+   "pads": [
+    {
+     "name": "cn_w",
+     "at": [
+      -1800,
+      3640
+     ],
+     "face": [
+      2240,
+      3640
+     ]
+    },
+    {
+     "name": "patrol_catwalk_3",
+     "at": [
+      0,
+      3640
+     ],
+     "face": [
+      2240,
+      3640
+     ]
+    },
+    {
+     "name": "cn_e",
+     "at": [
+      1800,
+      3640
+     ],
+     "face": [
+      -2240,
+      3640
+     ]
+    }
+   ],
+   "objects": [
+    {
+     "type": "camera",
+     "name": "cam_catwalk",
+     "wall": "x0",
+     "along": 3640,
+     "y": 340,
+     "watch": "patrol_catwalk_3",
+     "sweep": [
+      6,
+      -6
+     ]
+    }
+   ]
+  },
+  {
+   "name": "surv_corr",
+   "rect": [
+    2280,
+    3440,
+    4400,
+    3840
+   ],
+   "floor": 480,
+   "height": 360,
+   "area": "security",
+   "zone": "restricted",
+   "floor_mat": "white_tiles",
+   "wall_mat": "grey_panels",
+   "ceiling_mat": "office_ceiling",
+   "pads": [
+    {
+     "name": "surv_corr_w",
+     "at": [
+      2450,
+      3640
+     ],
+     "face": [
+      4400,
+      3640
+     ]
+    },
+    {
+     "name": "surv_corr_mid",
+     "at": [
+      3040,
+      3640
+     ],
+     "face": [
+      3040,
+      3840
+     ]
+    },
+    {
+     "name": "surv_corr_e",
+     "at": [
+      4200,
+      3640
+     ],
+     "face": [
+      2280,
+      3640
+     ]
+    }
+   ]
+  },
+  {
+   "name": "surveillance",
+   "rect": [
+    2280,
+    1040,
+    3400,
+    3400
+   ],
+   "floor": 480,
+   "height": 360,
+   "area": "security",
+   "zone": "restricted",
+   "floor_mat": "white_tiles",
+   "wall_mat": "grey_panels",
+   "ceiling_mat": "office_ceiling",
+   "chr_light": 11,
+   "light": {
+    "ambient": 0.36,
+    "intensity": 0.7,
+    "radius": 380,
+    "tint": [
+     225,
+     236,
+     255
+    ]
+   },
+   "blocks": [
+    {
+     "name": "monitor_desk",
+     "rect": [
+      2600,
+      1900,
+      3100,
+      2000
+     ],
+     "height": 90,
+     "mat": "steel_panels",
+     "top_mat": "steel_panels"
+    }
+   ],
+   "pads": [
+    {
+     "name": "console",
+     "at": [
+      3200,
+      2900
+     ],
+     "face": [
+      3400,
+      2900
+     ]
+    },
+    {
+     "name": "surv_mid",
+     "at": [
+      2840,
+      2400
+     ],
+     "face": [
+      2840,
+      3400
+     ]
+    },
+    {
+     "name": "surv_1",
+     "at": [
+      2500,
+      1700
+     ],
+     "face": [
+      2840,
+      1900
+     ]
+    },
+    {
+     "name": "surv_2",
+     "at": [
+      3100,
+      1700
+     ],
+     "face": [
+      2840,
+      1900
+     ]
+    },
+    {
+     "name": "surv_3",
+     "at": [
+      2500,
+      3100
+     ],
+     "face": [
+      3400,
+      3100
+     ]
+    }
+   ],
+   "objects": [
+    {
+     "type": "camera",
+     "name": "cam_surveillance",
+     "wall": "z0",
+     "along": 2500,
+     "y": 280,
+     "watch": "surv_mid",
+     "sweep": [
+      20,
+      -20
+     ]
+    },
+    {
+     "type": "alarm",
+     "name": "alarm_surv",
+     "wall": "z1",
+     "along": 2500,
+     "y": 140
+    },
+    {
+     "type": "prop",
+     "name": "console_desk",
+     "model": 25,
+     "at": [
+      3320,
+      2900
+     ],
+     "face": [
+      3000,
+      2900
+     ],
+     "flags": "0x101"
+    },
+    {
+     "type": "monitor",
+     "name": "surv_screen_1",
+     "wall": "x1",
+     "along": 1300,
+     "y": 170,
+     "width": 100,
+     "height": 72,
+     "image": 11
+    },
+    {
+     "type": "monitor",
+     "name": "surv_screen_2",
+     "wall": "x1",
+     "along": 1420,
+     "y": 170,
+     "width": 100,
+     "height": 72,
+     "image": 15
+    },
+    {
+     "type": "monitor",
+     "name": "surv_screen_3",
+     "wall": "x1",
+     "along": 1540,
+     "y": 170,
+     "width": 100,
+     "height": 72,
+     "image": 9
+    },
+    {
+     "type": "monitor",
+     "name": "surv_screen_4",
+     "wall": "x1",
+     "along": 1660,
+     "y": 170,
+     "width": 100,
+     "height": 72,
+     "image": 3
+    },
+    {
+     "type": "monitor",
+     "name": "surv_screen_5",
+     "wall": "x1",
+     "along": 1780,
+     "y": 170,
+     "width": 100,
+     "height": 72,
+     "image": 16
+    },
+    {
+     "type": "monitor",
+     "name": "surv_screen_6",
+     "wall": "x1",
+     "along": 1900,
+     "y": 170,
+     "width": 100,
+     "height": 72,
+     "image": 4
+    },
+    {
+     "type": "monitor",
+     "name": "surv_screen_7",
+     "wall": "x1",
+     "along": 1300,
+     "y": 250,
+     "width": 100,
+     "height": 72,
+     "image": 10
+    },
+    {
+     "type": "monitor",
+     "name": "surv_screen_8",
+     "wall": "x1",
+     "along": 1420,
+     "y": 250,
+     "width": 100,
+     "height": 72,
+     "image": 15
+    },
+    {
+     "type": "monitor",
+     "name": "surv_screen_9",
+     "wall": "x1",
+     "along": 1540,
+     "y": 250,
+     "width": 100,
+     "height": 72,
+     "image": 11
+    },
+    {
+     "type": "monitor",
+     "name": "surv_screen_10",
+     "wall": "x1",
+     "along": 1660,
+     "y": 250,
+     "width": 100,
+     "height": 72,
+     "image": 9
+    },
+    {
+     "type": "monitor",
+     "name": "surv_screen_11",
+     "wall": "x1",
+     "along": 1780,
+     "y": 250,
+     "width": 100,
+     "height": 72,
+     "image": 3
+    },
+    {
+     "type": "monitor",
+     "name": "surv_screen_12",
+     "wall": "x1",
+     "along": 1900,
+     "y": 250,
+     "width": 100,
+     "height": 72,
+     "image": 16
+    }
+   ]
+  },
+  {
+   "name": "exec_corr",
+   "rect": [
+    3440,
+    2440,
+    4400,
+    3400
+   ],
+   "floor": 480,
+   "height": 360,
+   "area": "executive",
+   "zone": "staff",
+   "floor_mat": "red_carpet",
+   "wall_mat": "wood_panel",
+   "ceiling_mat": "wood_lattice",
+   "pads": [
+    {
+     "name": "exec_mid",
+     "at": [
+      3920,
+      2900
+     ],
+     "face": [
+      3920,
+      3400
+     ]
+    },
+    {
+     "name": "secretary_1",
+     "at": [
+      4200,
+      2600
+     ],
+     "face": [
+      3440,
+      2900
+     ]
+    }
+   ],
+   "objects": [
+    {
+     "type": "camera",
+     "name": "cam_exec",
+     "wall": "z0",
+     "along": 3700,
+     "y": 300,
+     "watch": "exec_mid",
+     "sweep": [
+      20,
+      -20
+     ]
+    },
+    {
+     "type": "prop",
+     "name": "secretary_desk",
+     "model": 38,
+     "at": [
+      4300,
+      3100
+     ],
+     "face": [
+      3440,
+      3100
+     ],
+     "flags": "0x101"
+    }
+   ]
+  },
+  {
+   "name": "director",
+   "rect": [
+    3440,
+    1040,
+    4400,
+    2400
+   ],
+   "floor": 480,
+   "height": 360,
+   "area": "executive",
+   "zone": "staff",
+   "floor_mat": "red_carpet",
+   "wall_mat": "wood_panel",
+   "ceiling_mat": "wood_lattice",
+   "light": {
+    "ambient": 0.42,
+    "intensity": 0.7,
+    "radius": 380,
+    "tint": [
+     255,
+     236,
+     205
+    ]
+   },
+   "pads": [
+    {
+     "name": "director_desk",
+     "at": [
+      3920,
+      1400
+     ],
+     "face": [
+      3920,
+      2400
+     ]
+    },
+    {
+     "name": "director_1",
+     "at": [
+      3700,
+      2100
+     ],
+     "face": [
+      4400,
+      1400
+     ]
+    }
+   ],
+   "objects": [
+    {
+     "type": "prop",
+     "name": "director_desk_prop",
+     "model": 38,
+     "at": [
+      3920,
+      1200
+     ],
+     "face": [
+      3920,
+      2400
+     ],
+     "flags": "0x101"
+    },
+    {
+     "type": "prop",
+     "name": "director_plant",
+     "model": 317,
+     "at": [
+      4300,
+      2300
+     ],
+     "face": [
+      3440,
+      2300
+     ],
+     "flags": "0x101"
+    }
+   ]
+  },
+  {
+   "name": "salons_lobby",
+   "rect": [
+    -1800,
+    4640,
+    1800,
+    5000
+   ],
+   "floor": 480,
+   "height": 400,
+   "area": "salons",
+   "zone": "staff",
+   "floor_mat": "stone_flags",
+   "wall_mat": "white_marble",
+   "ceiling_mat": "wood_lattice",
+   "pads": [
+    {
+     "name": "lobby_mid",
+     "at": [
+      0,
+      4820
+     ],
+     "face": [
+      0,
+      4640
+     ]
+    },
+    {
+     "name": "lobby_w",
+     "at": [
+      -1500,
+      4820
+     ],
+     "face": [
+      1800,
+      4820
+     ]
+    },
+    {
+     "name": "lobby_e",
+     "at": [
+      1500,
+      4820
+     ],
+     "face": [
+      -1800,
+      4820
+     ]
+    }
+   ],
+   "objects": [
+    {
+     "type": "camera",
+     "name": "cam_salons",
+     "wall": "x0",
+     "along": 4820,
+     "y": 320,
+     "watch": "lobby_mid",
+     "sweep": [
+      10,
+      -10
+     ]
+    },
+    {
+     "type": "alarm",
+     "name": "alarm_salons",
+     "wall": "z1",
+     "along": 0,
+     "y": 140
+    }
+   ]
+  },
+  {
+   "name": "salon_prive",
+   "rect": [
+    -1800,
+    5040,
+    -40,
+    6200
+   ],
+   "floor": 480,
+   "height": 420,
+   "area": "salons",
+   "zone": "staff",
+   "floor_mat": "red_carpet",
+   "wall_mat": "wood_panel",
+   "ceiling_mat": "wood_lattice",
+   "chr_light": 12,
+   "light": {
+    "ambient": 0.42,
+    "intensity": 0.7,
+    "radius": 400,
+    "tint": [
+     255,
+     240,
+     215
+    ]
+   },
+   "blocks": [
+    {
+     "name": "prive_table",
+     "rect": [
+      -1100,
+      5500,
+      -700,
+      5750
+     ],
+     "height": 80,
+     "mat": "wood_panel",
+     "top_mat": "red_carpet"
+    }
+   ],
+   "pads": [
+    {
+     "name": "prive_1",
+     "at": [
+      -1400,
+      5300
+     ],
+     "face": [
+      -900,
+      5620
+     ]
+    },
+    {
+     "name": "prive_2",
+     "at": [
+      -400,
+      5300
+     ],
+     "face": [
+      -900,
+      5620
+     ]
+    },
+    {
+     "name": "prive_safe_front",
+     "at": [
+      -1500,
+      5980
+     ],
+     "face": [
+      -1500,
+      6200
+     ]
+    },
+    {
+     "name": "vent_salon_b",
+     "at": [
+      -300,
+      6100
+     ],
+     "face": [
+      -900,
+      5600
+     ]
+    }
+   ],
+   "objects": [
+    {
+     "type": "safe",
+     "name": "house_safe",
+     "at": [
+      -1500,
+      6110
+     ],
+     "face": [
+      -1500,
+      5700
+     ],
+     "keyflags": "0x10",
+     "guard_access": "never"
+    },
+    {
+     "type": "camera",
+     "name": "cam_prive",
+     "wall": "z0",
+     "along": -300,
+     "y": 340,
+     "watch": "prive_1",
+     "sweep": [
+      20,
+      -20
+     ]
+    }
+   ],
+   "loot": [
+    {
+     "name": "house_safe_loot",
+     "at": [
+      [
+       -1500,
+       5900
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "name": "salle_blanche",
+   "rect": [
+    0,
+    5040,
+    1800,
+    6200
+   ],
+   "floor": 480,
+   "height": 420,
+   "area": "salons",
+   "zone": "public",
+   "floor_mat": "red_carpet",
+   "wall_mat": "white_marble",
+   "ceiling_mat": "wood_lattice",
+   "chr_light": 13,
+   "light": {
+    "ambient": 0.48,
+    "intensity": 0.75,
+    "radius": 420,
+    "tint": [
+     255,
+     240,
+     215
+    ]
+   },
+   "blocks": [
+    {
+     "name": "blanche_table",
+     "rect": [
+      700,
+      5500,
+      1100,
+      5750
+     ],
+     "height": 80,
+     "mat": "wood_panel",
+     "top_mat": "red_carpet"
+    }
+   ],
+   "pads": [
+    {
+     "name": "whale_1",
+     "at": [
+      600,
+      5400
+     ],
+     "face": [
+      900,
+      5620
+     ]
+    },
+    {
+     "name": "whale_2",
+     "at": [
+      1300,
+      5400
+     ],
+     "face": [
+      900,
+      5620
+     ]
+    },
+    {
+     "name": "whale_3",
+     "at": [
+      900,
+      5950
+     ],
+     "face": [
+      900,
+      5620
+     ]
+    },
+    {
+     "name": "blanche_post",
+     "at": [
+      200,
+      5200
+     ],
+     "face": [
+      900,
+      5620
+     ]
+    }
+   ],
+   "objects": [
+    {
+     "type": "camera",
+     "name": "cam_blanche",
+     "wall": "x1",
+     "along": 5300,
+     "y": 340,
+     "watch": "whale_1",
+     "sweep": [
+      25,
+      -25
+     ]
+    }
+   ]
+  },
+  {
+   "name": "terrace",
+   "rect": [
+    -1800,
+    6240,
+    1800,
+    7000
+   ],
+   "floor": 480,
+   "height": 900,
+   "area": "salons",
+   "zone": "public",
+   "open_top": true,
+   "floor_mat": "stone_flags",
+   "wall_mat": "stone_blocks",
+   "chr_light": 9,
+   "light": {
+    "ambient": 0.24,
+    "intensity": 1.0,
+    "radius": 380,
+    "tint": [
+     255,
+     205,
+     150
+    ],
+    "lamp_height": 380,
+    "lamps": [
+     [
+      -1200,
+      6600
+     ],
+     [
+      0,
+      6600
+     ],
+     [
+      1200,
+      6600
+     ]
+    ]
+   },
+   "pads": [
+    {
+     "name": "terrace_mid",
+     "at": [
+      0,
+      6500
+     ],
+     "face": [
+      0,
+      7000
+     ]
+    },
+    {
+     "name": "grapple_terrace_high",
+     "at": [
+      0,
+      6900
+     ],
+     "face": [
+      0,
+      6240
+     ]
+    },
+    {
+     "name": "vent_salon_a",
+     "at": [
+      -300,
+      6350
+     ],
+     "face": [
+      -300,
+      6240
+     ]
+    }
+   ]
+  },
+  {
+   "name": "vault_corr",
+   "rect": [
+    -2000,
+    5040,
+    3400,
+    5440
+   ],
+   "floor": -420,
+   "height": 360,
+   "area": "vault_ante",
+   "zone": "restricted",
+   "floor_mat": "steel_floor",
+   "wall_mat": "steel_bulkhead",
+   "ceiling_mat": "riveted_metal",
+   "chr_light": 12,
+   "light": {
+    "ambient": 0.4,
+    "intensity": 0.75,
+    "radius": 400,
+    "tint": [
+     225,
+     236,
+     255
+    ]
+   },
+   "pads": [
+    {
+     "name": "vc_w",
+     "at": [
+      -1800,
+      5240
+     ],
+     "face": [
+      3400,
+      5240
+     ]
+    },
+    {
+     "name": "vc_mid",
+     "at": [
+      0,
+      5240
+     ],
+     "face": [
+      3400,
+      5240
+     ]
+    },
+    {
+     "name": "vc_e",
+     "at": [
+      3200,
+      5240
+     ],
+     "face": [
+      -2000,
+      5240
+     ]
+    },
+    {
+     "name": "patrol_vault_1",
+     "at": [
+      740,
+      5240
+     ],
+     "face": [
+      -2000,
+      5240
+     ]
+    },
+    {
+     "name": "patrol_vault_2",
+     "at": [
+      -1000,
+      5240
+     ],
+     "face": [
+      -2000,
+      5240
+     ]
+    },
+    {
+     "name": "patrol_vault_3",
+     "at": [
+      -1800,
+      5240
+     ],
+     "face": [
+      3400,
+      5240
+     ]
+    },
+    {
+     "name": "patrol_vault_4",
+     "at": [
+      2200,
+      5240
+     ],
+     "face": [
+      3400,
+      5240
+     ]
+    }
+   ],
+   "objects": [
+    {
+     "type": "camera",
+     "name": "cam_vault_corr",
+     "wall": "x1",
+     "along": 5240,
+     "y": 300,
+     "watch": "vc_mid",
+     "sweep": [
+      6,
+      -6
+     ]
+    }
+   ]
+  },
+  {
+   "name": "vault_ante",
+   "rect": [
+    -600,
+    5480,
+    600,
+    6200
+   ],
+   "floor": -420,
+   "height": 360,
+   "area": "vault_ante",
+   "zone": "restricted",
+   "floor_mat": "steel_floor",
+   "wall_mat": "steel_bulkhead",
+   "ceiling_mat": "riveted_metal",
+   "chr_light": 12,
+   "light": {
+    "ambient": 0.42,
+    "intensity": 0.75,
+    "radius": 420,
+    "tint": [
+     225,
+     236,
+     255
+    ]
+   },
+   "pads": [
+    {
+     "name": "crack_point",
+     "at": [
+      0,
+      6050
+     ],
+     "face": [
+      0,
+      6200
+     ]
+    },
+    {
+     "name": "ante_1",
+     "at": [
+      -450,
+      5600
+     ],
+     "face": [
+      0,
+      6200
+     ]
+    },
+    {
+     "name": "ante_2",
+     "at": [
+      450,
+      5600
+     ],
+     "face": [
+      0,
+      6200
+     ]
+    },
+    {
+     "name": "ante_3",
+     "at": [
+      -450,
+      6050
+     ],
+     "face": [
+      600,
+      5800
+     ]
+    },
+    {
+     "name": "ante_4",
+     "at": [
+      450,
+      6050
+     ],
+     "face": [
+      -600,
+      5800
+     ]
+    }
+   ],
+   "objects": [
+    {
+     "type": "camera",
+     "name": "cam_ante",
+     "wall": "z0",
+     "along": 450,
+     "y": 300,
+     "watch": "crack_point",
+     "sweep": [
+      25,
+      -25
+     ]
+    },
+    {
+     "type": "alarm",
+     "name": "alarm_vault",
+     "wall": "x0",
+     "along": 5800,
+     "y": 140
+    }
+   ]
+  },
+  {
+   "name": "house_vault",
+   "rect": [
+    -1000,
+    6240,
+    1000,
+    7400
+   ],
+   "floor": -420,
+   "height": 400,
+   "area": "vault",
+   "zone": "restricted",
+   "floor_mat": "steel_floor",
+   "wall_mat": "steel_panels",
+   "ceiling_mat": "riveted_metal",
+   "chr_light": 12,
+   "light": {
+    "ambient": 0.45,
+    "intensity": 0.7,
+    "radius": 440,
+    "tint": [
+     225,
+     236,
+     255
+    ]
+   },
+   "pads": [
+    {
+     "name": "vault_in_a",
+     "at": [
+      0,
+      6360
+     ],
+     "face": [
+      0,
+      7400
+     ]
+    },
+    {
+     "name": "vault_in_b",
+     "at": [
+      880,
+      6820
+     ],
+     "face": [
+      -1000,
+      6820
+     ]
+    },
+    {
+     "name": "vault_manager",
+     "at": [
+      0,
+      7280
+     ],
+     "face": [
+      0,
+      6240
+     ]
+    },
+    {
+     "name": "vault_g1",
+     "at": [
+      -850,
+      6400
+     ],
+     "face": [
+      1000,
+      7300
+     ]
+    },
+    {
+     "name": "vault_g2",
+     "at": [
+      -850,
+      7280
+     ],
+     "face": [
+      1000,
+      6400
+     ]
+    },
+    {
+     "name": "vault_g3",
+     "at": [
+      850,
+      7300
+     ],
+     "face": [
+      -1000,
+      6400
+     ]
+    },
+    {
+     "name": "vent_vault_b",
+     "at": [
+      -880,
+      6820
+     ],
+     "face": [
+      1000,
+      6820
+     ]
+    }
+   ],
+   "objects": [
+    {
+     "type": "prop",
+     "name": "vault_crate_1",
+     "model": 51,
+     "at": [
+      -930,
+      6600
+     ],
+     "face": [
+      1000,
+      6600
+     ],
+     "flags": "0x101"
+    },
+    {
+     "type": "prop",
+     "name": "vault_crate_2",
+     "model": 52,
+     "at": [
+      -930,
+      7050
+     ],
+     "face": [
+      1000,
+      7050
+     ],
+     "flags": "0x101"
+    },
+    {
+     "type": "prop",
+     "name": "vault_crate_3",
+     "model": 79,
+     "at": [
+      -500,
+      7340
+     ],
+     "face": [
+      -500,
+      6240
+     ],
+     "flags": "0x101"
+    },
+    {
+     "type": "prop",
+     "name": "vault_crate_4",
+     "model": 80,
+     "at": [
+      500,
+      7340
+     ],
+     "face": [
+      500,
+      6240
+     ],
+     "flags": "0x101"
+    }
+   ],
+   "loot": [
+    {
+     "name": "house_reserve",
+     "at": [
+      [
+       -450,
+       6550
+      ],
+      [
+       0,
+       6550
+      ],
+      [
+       450,
+       6550
+      ],
+      [
+       -450,
+       6820
+      ],
+      [
+       450,
+       6820
+      ],
+      [
+       -450,
+       7090
+      ],
+      [
+       0,
+       7090
+      ],
+      [
+       450,
+       7090
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "name": "hard_count",
+   "rect": [
+    1040,
+    6240,
+    2240,
+    7400
+   ],
+   "floor": -420,
+   "height": 360,
+   "area": "vault_ante",
+   "zone": "restricted",
+   "floor_mat": "white_tiles",
+   "wall_mat": "steel_panels",
+   "ceiling_mat": "office_ceiling",
+   "chr_light": 12,
+   "blocks": [
+    {
+     "name": "chip_sorter",
+     "rect": [
+      1400,
+      6900,
+      1900,
+      7000
+     ],
+     "height": 100,
+     "mat": "steel_panels",
+     "top_mat": "steel_panels"
+    }
+   ],
+   "pads": [
+    {
+     "name": "hard_1",
+     "at": [
+      1200,
+      6400
+     ],
+     "face": [
+      2240,
+      6820
+     ]
+    },
+    {
+     "name": "hard_2",
+     "at": [
+      2080,
+      7250
+     ],
+     "face": [
+      1040,
+      6820
+     ]
+    },
+    {
+     "name": "hard_mid",
+     "at": [
+      1640,
+      6600
+     ],
+     "face": [
+      1040,
+      6820
+     ]
+    }
+   ],
+   "objects": [
+    {
+     "type": "camera",
+     "name": "cam_hard_count",
+     "wall": "x1",
+     "along": 6500,
+     "y": 300,
+     "watch": "hard_mid",
+     "sweep": [
+      25,
+      -25
+     ]
+    }
+   ]
+  },
+  {
+   "name": "soft_count",
+   "rect": [
+    640,
+    5480,
+    2240,
+    6200
+   ],
+   "floor": -420,
+   "height": 360,
+   "area": "vault_ante",
+   "zone": "restricted",
+   "floor_mat": "white_tiles",
+   "wall_mat": "steel_panels",
+   "ceiling_mat": "office_ceiling",
+   "chr_light": 12,
+   "blocks": [
+    {
+     "name": "count_table",
+     "rect": [
+      1100,
+      5750,
+      1800,
+      5900
+     ],
+     "height": 90,
+     "mat": "steel_panels",
+     "top_mat": "steel_panels"
+    }
+   ],
+   "pads": [
+    {
+     "name": "count_1",
+     "at": [
+      800,
+      5600
+     ],
+     "face": [
+      2240,
+      6000
+     ]
+    },
+    {
+     "name": "count_2",
+     "at": [
+      2100,
+      6100
+     ],
+     "face": [
+      640,
+      5600
+     ]
+    },
+    {
+     "name": "vent_count_b",
+     "at": [
+      2100,
+      5560
+     ],
+     "face": [
+      2240,
+      5560
+     ]
+    }
+   ],
+   "objects": [
+    {
+     "type": "camera",
+     "name": "cam_soft_count",
+     "wall": "x0",
+     "along": 5650,
+     "y": 300,
+     "watch": "count_1",
+     "sweep": [
+      25,
+      -25
+     ]
+    },
+    {
+     "type": "alarm",
+     "name": "alarm_count",
+     "wall": "z0",
+     "along": 1000,
+     "y": 140
+    },
+    {
+     "type": "prop",
+     "name": "count_console",
+     "model": 29,
+     "at": [
+      690,
+      5900
+     ],
+     "face": [
+      2240,
+      5900
+     ],
+     "flags": "0x101"
+    }
+   ]
+  },
+  {
+   "name": "drop_cage",
+   "rect": [
+    2280,
+    5480,
+    2880,
+    6200
+   ],
+   "floor": -420,
+   "height": 300,
+   "area": "vault_ante",
+   "zone": "restricted",
+   "floor_mat": "steel_floor",
+   "wall_mat": "dark_tiles",
+   "ceiling_mat": "riveted_metal",
+   "loot": [
+    {
+     "name": "drop_cash",
+     "at": [
+      [
+       2580,
+       5650
+      ],
+      [
+       2580,
+       6050
+      ],
+      [
+       2750,
+       5850
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "name": "goods_lift",
+   "rect": [
+    -2440,
+    5040,
+    -2040,
+    5440
+   ],
+   "floor": -420,
+   "height": 820,
+   "area": "vault_ante",
+   "zone": "restricted",
+   "floor_mat": "concrete",
+   "wall_mat": "concrete_wall",
+   "ceiling_mat": "dark_grid",
+   "chr_light": 11,
+   "light": {
+    "ambient": 0.22,
+    "intensity": 0.8,
+    "radius": 300,
+    "tint": [
+     255,
+     244,
+     228
+    ]
+   },
+   "pads": [
+    {
+     "name": "grapple_goodslift_low",
+     "at": [
+      -2240,
+      5300
+     ],
+     "face": [
+      -2240,
+      5040
+     ]
+    },
+    {
+     "name": "shaft_mid",
+     "at": [
+      -2240,
+      5200
+     ],
+     "face": [
+      -2240,
+      5440
+     ]
+    }
+   ]
+  },
+  {
+   "name": "plant_corr",
+   "rect": [
+    -2400,
+    5480,
+    -640,
+    5880
+   ],
+   "floor": -420,
+   "height": 360,
+   "area": "plantroom",
+   "zone": "restricted",
+   "floor_mat": "concrete",
+   "wall_mat": "steel_pipes",
+   "ceiling_mat": "pipe_grid",
+   "chr_light": 10,
+   "light": {
+    "ambient": 0.3,
+    "intensity": 0.85,
+    "radius": 380,
+    "tint": [
+     255,
+     225,
+     190
+    ]
+   },
+   "pads": [
+    {
+     "name": "plant_mid",
+     "at": [
+      -1500,
+      5680
+     ],
+     "face": [
+      -640,
+      5680
+     ]
+    },
+    {
+     "name": "power_way",
+     "at": [
+      -1700,
+      5680
+     ],
+     "face": [
+      -1700,
+      5880
+     ]
+    }
+   ],
+   "objects": [
+    {
+     "type": "camera",
+     "name": "cam_plant",
+     "wall": "x1",
+     "along": 5680,
+     "y": 300,
+     "watch": "plant_mid",
+     "sweep": [
+      6,
+      -6
+     ]
+    }
+   ]
+  },
+  {
+   "name": "power",
+   "rect": [
+    -2400,
+    5920,
+    -1040,
+    7000
+   ],
+   "floor": -420,
+   "height": 400,
+   "area": "plantroom",
+   "zone": "restricted",
+   "floor_mat": "concrete",
+   "wall_mat": "steel_pipes",
+   "ceiling_mat": "pipe_grid",
+   "chr_light": 10,
+   "light": {
+    "ambient": 0.28,
+    "intensity": 0.95,
+    "radius": 480,
+    "tint": [
+     255,
+     220,
+     180
+    ],
+    "lamp_height": 360
+   },
+   "blocks": [
+    {
+     "name": "dynamo_1",
+     "rect": [
+      -2200,
+      6400,
+      -1800,
+      6700
+     ],
+     "height": 300,
+     "mat": "diamond_plate",
+     "top_mat": "steel_panels"
+    }
+   ],
+   "pads": [
+    {
+     "name": "power_1",
+     "at": [
+      -1300,
+      6100
+     ],
+     "face": [
+      -2400,
+      6400
+     ]
+    },
+    {
+     "name": "breaker_front",
+     "at": [
+      -2230,
+      6150
+     ],
+     "face": [
+      -2400,
+      6150
+     ]
+    },
+    {
+     "name": "power_mid",
+     "at": [
+      -1700,
+      6250
+     ],
+     "face": [
+      -2400,
+      6250
+     ]
+    },
+    {
+     "name": "vent_vault_a",
+     "at": [
+      -1150,
+      6820
+     ],
+     "face": [
+      -1040,
+      6820
+     ]
+    }
+   ],
+   "objects": [
+    {
+     "type": "alarm",
+     "name": "alarm_plant",
+     "wall": "z0",
+     "along": -1400,
+     "y": 140
+    },
+    {
+     "type": "prop",
+     "name": "breaker",
+     "model": 30,
+     "at": [
+      -2330,
+      6150
+     ],
+     "face": [
+      -1040,
+      6150
+     ],
+     "flags": "0x101"
+    },
+    {
+     "type": "prop",
+     "name": "power_console",
+     "model": 31,
+     "at": [
+      -1300,
+      6950
+     ],
+     "face": [
+      -1300,
+      5920
+     ],
+     "flags": "0x101"
+    }
+   ]
+  },
+  {
+   "name": "generator",
+   "rect": [
+    -2400,
+    7040,
+    -1040,
+    7600
+   ],
+   "floor": -420,
+   "height": 400,
+   "area": "plantroom",
+   "zone": "restricted",
+   "floor_mat": "concrete",
+   "wall_mat": "steel_pipes",
+   "ceiling_mat": "pipe_grid",
+   "chr_light": 10,
+   "pads": [
+    {
+     "name": "generator_front",
+     "at": [
+      -1700,
+      7350
+     ],
+     "face": [
+      -1700,
+      7600
+     ]
+    }
+   ],
+   "objects": [
+    {
+     "type": "prop",
+     "name": "generator",
+     "model": 48,
+     "at": [
+      -1700,
+      7500
+     ],
+     "face": [
+      -1700,
+      7040
+     ],
+     "flags": "0x101"
+    }
+   ]
+  }
+ ],
+ "stairwells": [
+  {
+   "name": "core_e",
+   "rect": [
+    2280,
+    3880,
+    3280,
+    5080
+   ],
+   "axis": "z",
+   "levels": [
+    0,
+    480
+   ],
+   "landing": 400,
+   "height": 330,
+   "stairs": 12,
+   "door_width": 220,
+   "floor_mat": "stone_flags",
+   "wall_mat": "grey_panels",
+   "ceiling_mat": "dark_grid",
+   "riser_mat": "stone_blocks",
+   "area": "security",
+   "zone": "restricted",
+   "chr_light": 12,
+   "light": {
+    "ambient": 0.4,
+    "intensity": 0.8,
+    "radius": 360,
+    "tint": [
+     255,
+     244,
+     228
+    ]
+   }
+  }
+ ],
+ "doors": [
+  {
+   "rooms": [
+    "place",
+    "alley"
+   ],
+   "at": 4620,
+   "width": 300,
+   "height": 320
+  },
+  {
+   "rooms": [
+    "alley",
+    "garden"
+   ],
+   "at": 7700,
+   "width": 300,
+   "height": 320
+  },
+  {
+   "rooms": [
+    "place",
+    "atrium"
+   ],
+   "at": 0,
+   "width": 280,
+   "height": 300,
+   "frame": "stone_blocks",
+   "object": {
+    "name": "casino_doors",
+    "type": "slide",
+    "double": true,
+    "model": "door",
+    "see_through": true,
+    "guard_access": "any"
+   }
+  },
+  {
+   "rooms": [
+    "atrium",
+    "salle_renaissance"
+   ],
+   "at": -400,
+   "width": 180,
+   "height": 280,
+   "name": "atrium-renaissance-0",
+   "frame": "stone_blocks",
+   "object": {
+    "name": "grille_w",
+    "type": "shutter",
+    "open": true,
+    "autoclose": 268435455,
+    "guard_access": "any"
+   }
+  },
+  {
+   "rooms": [
+    "atrium",
+    "salle_renaissance"
+   ],
+   "at": 400,
+   "width": 180,
+   "height": 280,
+   "name": "atrium-renaissance-1",
+   "frame": "stone_blocks",
+   "object": {
+    "name": "grille_e",
+    "type": "shutter",
+    "open": true,
+    "autoclose": 268435455,
+    "guard_access": "any"
+   }
+  },
+  {
+   "rooms": [
+    "salle_renaissance",
+    "salle_europe"
+   ],
+   "at": -1100,
+   "width": 400,
+   "height": 380,
+   "name": "arch_1",
+   "frame": "stone_blocks"
+  },
+  {
+   "rooms": [
+    "salle_renaissance",
+    "salle_europe"
+   ],
+   "at": 0,
+   "width": 400,
+   "height": 380,
+   "name": "arch_2",
+   "frame": "stone_blocks"
+  },
+  {
+   "rooms": [
+    "salle_renaissance",
+    "salle_europe"
+   ],
+   "at": 1100,
+   "width": 400,
+   "height": 380,
+   "name": "arch_3",
+   "frame": "stone_blocks"
+  },
+  {
+   "rooms": [
+    "salle_renaissance",
+    "bar"
+   ],
+   "at": 300,
+   "width": 300,
+   "height": 300,
+   "frame": "wood_panel"
+  },
+  {
+   "rooms": [
+    "cage",
+    "chip_bank"
+   ],
+   "at": 0,
+   "width": 140,
+   "height": 220,
+   "object": {
+    "name": "chip_bank_door",
+    "type": "slide",
+    "model": "cell",
+    "keyflags": "0x2",
+    "guard_access": "never"
+   }
+  },
+  {
+   "rooms": [
+    "cage_mantrap",
+    "cage"
+   ],
+   "at": -2840,
+   "width": 180,
+   "frame": "steel_panels",
+   "object": {
+    "name": "cage_inner",
+    "type": "slide",
+    "keyflags": "0x2",
+    "guard_access": "role:floor,cage,corridor,offices,security,catwalk,dock,executive,salons,vault_ante,plantroom,squad,wave,response"
+   }
+  },
+  {
+   "rooms": [
+    "salle_europe",
+    "staff_corr"
+   ],
+   "at": 2900,
+   "width": 160,
+   "frame": "wood_panel",
+   "object": {
+    "name": "staff_door",
+    "type": "slide",
+    "see_through": true,
+    "guard_access": "any"
+   }
+  },
+  {
+   "rooms": [
+    "staff_corr",
+    "cage_mantrap"
+   ],
+   "at": 1320,
+   "width": 180,
+   "frame": "steel_panels",
+   "object": {
+    "name": "cage_outer",
+    "type": "slide",
+    "keyflags": "0x2",
+    "guard_access": "role:floor,cage,corridor,offices,security,catwalk,dock,executive,salons,vault_ante,plantroom,squad,wave,response"
+   }
+  },
+  {
+   "rooms": [
+    "staff_corr",
+    "staff_lounge"
+   ],
+   "at": 2020,
+   "width": 160,
+   "frame": "wood_panel",
+   "object": {
+    "name": "lounge_door",
+    "type": "slide",
+    "see_through": true,
+    "guard_access": "any"
+   }
+  },
+  {
+   "rooms": [
+    "staff_corr",
+    "lockers"
+   ],
+   "at": 2900,
+   "width": 160,
+   "frame": "wood_panel",
+   "object": {
+    "name": "lockers_door",
+    "type": "slide",
+    "see_through": true,
+    "guard_access": "any"
+   }
+  },
+  {
+   "rooms": [
+    "staff_lounge",
+    "pit_office"
+   ],
+   "at": 1800,
+   "width": 160,
+   "frame": "wood_panel",
+   "object": {
+    "name": "pit_office_door",
+    "type": "slide",
+    "keyflags": "0x2",
+    "guard_access": "role:floor,cage,corridor,offices,security,catwalk,dock,executive,salons,vault_ante,plantroom,squad,wave,response"
+   }
+  },
+  {
+   "rooms": [
+    "staff_corr",
+    "north_corr_w"
+   ],
+   "at": -2040,
+   "width": 180,
+   "frame": "wood_panel",
+   "object": {
+    "name": "staff_north",
+    "type": "slide",
+    "see_through": true,
+    "guard_access": "any"
+   }
+  },
+  {
+   "rooms": [
+    "salle_europe",
+    "stair_foot"
+   ],
+   "at": 0,
+   "width": 760,
+   "height": 320,
+   "frame": "stone_blocks"
+  },
+  {
+   "rooms": [
+    "north_corr_w",
+    "stair_foot"
+   ],
+   "at": 3640,
+   "width": 160,
+   "frame": "wood_panel",
+   "object": {
+    "name": "salons_staff_w",
+    "type": "slide",
+    "see_through": true,
+    "guard_access": "any"
+   }
+  },
+  {
+   "rooms": [
+    "stair_foot",
+    "grand_stair"
+   ],
+   "at": 0,
+   "width": 760,
+   "height": 320
+  },
+  {
+   "rooms": [
+    "north_corr_w",
+    "kitchen"
+   ],
+   "at": -2600,
+   "width": 200,
+   "frame": "wood_panel",
+   "object": {
+    "name": "kitchen_door",
+    "type": "slide",
+    "see_through": true,
+    "guard_access": "any"
+   }
+  },
+  {
+   "rooms": [
+    "stair_foot",
+    "north_corr_e"
+   ],
+   "at": 3640,
+   "width": 160,
+   "frame": "wood_panel",
+   "object": {
+    "name": "salons_staff_e",
+    "type": "slide",
+    "see_through": true,
+    "guard_access": "any"
+   }
+  },
+  {
+   "rooms": [
+    "north_corr_e",
+    "staff_canteen"
+   ],
+   "at": 1390,
+   "width": 160,
+   "frame": "wood_panel",
+   "object": {
+    "name": "canteen_door",
+    "type": "slide",
+    "see_through": true,
+    "guard_access": "any"
+   }
+  },
+  {
+   "rooms": [
+    "north_corr_e",
+    "red_stairs"
+   ],
+   "at": 740,
+   "width": 240,
+   "height": 260,
+   "frame": "steel_panels",
+   "object": {
+    "name": "vault_stairs_door",
+    "type": "slide",
+    "double": true,
+    "model": "vault",
+    "keyflags": "0x8",
+    "guard_access": "role:vault_ante,plantroom,vault,squad,response"
+   }
+  },
+  {
+   "rooms": [
+    "salle_europe",
+    "security_corr"
+   ],
+   "at": 2900,
+   "width": 200,
+   "frame": "wood_panel",
+   "object": {
+    "name": "security_door",
+    "type": "slide",
+    "double": true,
+    "keyflags": "0x4",
+    "guard_access": "role:security,catwalk,offices,executive,wave,response"
+   }
+  },
+  {
+   "rooms": [
+    "security_corr",
+    "north_corr_e"
+   ],
+   "at": 2040,
+   "width": 180,
+   "frame": "wood_panel",
+   "object": {
+    "name": "security_back",
+    "type": "slide",
+    "keyflags": "0x4",
+    "guard_access": "role:security,catwalk,offices,executive,wave,response"
+   }
+  },
+  {
+   "rooms": [
+    "security_corr",
+    "guard_room"
+   ],
+   "at": 1500,
+   "width": 180,
+   "frame": "wood_panel",
+   "object": {
+    "name": "guard_room_door",
+    "type": "slide",
+    "see_through": true,
+    "guard_access": "any"
+   }
+  },
+  {
+   "rooms": [
+    "security_corr",
+    "armory"
+   ],
+   "at": 2300,
+   "width": 160,
+   "frame": "steel_panels",
+   "object": {
+    "name": "armory_door",
+    "type": "slide",
+    "keyflags": "0x4",
+    "guard_access": "role:security,catwalk,offices,executive,wave,response"
+   }
+  },
+  {
+   "rooms": [
+    "security_corr",
+    "barracks"
+   ],
+   "at": 3000,
+   "width": 160,
+   "frame": "wood_panel",
+   "object": {
+    "name": "barracks_door",
+    "type": "slide",
+    "see_through": true,
+    "guard_access": "role:barracks,squad,wave,response"
+   }
+  },
+  {
+   "rooms": [
+    "alley",
+    "dock"
+   ],
+   "at": 2000,
+   "width": 300,
+   "height": 300,
+   "object": {
+    "name": "dock_shutter",
+    "type": "shutter",
+    "padlock": true,
+    "guard_access": "never"
+   }
+  },
+  {
+   "rooms": [
+    "north_corr_e",
+    "dock"
+   ],
+   "at": 3900,
+   "width": 200,
+   "frame": "steel_panels",
+   "object": {
+    "name": "dock_door",
+    "type": "slide",
+    "see_through": true,
+    "guard_access": "any"
+   }
+  },
+  {
+   "rooms": [
+    "catwalk_w",
+    "catwalk_n"
+   ],
+   "at": -2040,
+   "width": 180,
+   "frame": "steel_panels"
+  },
+  {
+   "rooms": [
+    "catwalk_e",
+    "catwalk_n"
+   ],
+   "at": 2040,
+   "width": 180,
+   "frame": "steel_panels"
+  },
+  {
+   "rooms": [
+    "catwalk_n",
+    "surv_corr"
+   ],
+   "at": 3640,
+   "width": 180,
+   "frame": "steel_panels",
+   "object": {
+    "name": "catwalk_gate",
+    "type": "slide",
+    "see_through": true,
+    "guard_access": "any"
+   }
+  },
+  {
+   "rooms": [
+    "surv_corr",
+    "surveillance"
+   ],
+   "at": 2840,
+   "width": 200,
+   "frame": "wood_panel",
+   "object": {
+    "name": "surveillance_door",
+    "type": "slide",
+    "keyflags": "0x4",
+    "guard_access": "role:security,catwalk,offices,executive,wave,response"
+   }
+  },
+  {
+   "rooms": [
+    "catwalk_e",
+    "surveillance"
+   ],
+   "at": 2600,
+   "width": 160,
+   "frame": "steel_panels",
+   "object": {
+    "name": "surv_catwalk_door",
+    "type": "slide",
+    "see_through": true,
+    "guard_access": "any"
+   }
+  },
+  {
+   "rooms": [
+    "surv_corr",
+    "exec_corr"
+   ],
+   "at": 3920,
+   "width": 200,
+   "frame": "wood_panel",
+   "object": {
+    "name": "exec_door",
+    "type": "slide",
+    "keyflags": "0x4",
+    "guard_access": "role:security,catwalk,offices,executive,wave,response"
+   }
+  },
+  {
+   "rooms": [
+    "exec_corr",
+    "director"
+   ],
+   "at": 3920,
+   "width": 160,
+   "frame": "wood_panel",
+   "object": {
+    "name": "director_door",
+    "type": "slide",
+    "keyflags": "0x4",
+    "guard_access": "role:security,catwalk,offices,executive,wave,response"
+   }
+  },
+  {
+   "rooms": [
+    "grand_stair",
+    "salons_lobby"
+   ],
+   "at": 0,
+   "width": 760,
+   "height": 320,
+   "frame": "wood_panel"
+  },
+  {
+   "rooms": [
+    "salons_lobby",
+    "salon_prive"
+   ],
+   "at": -900,
+   "width": 200,
+   "frame": "wood_panel",
+   "object": {
+    "name": "prive_door",
+    "type": "slide",
+    "see_through": true,
+    "guard_access": "any"
+   }
+  },
+  {
+   "rooms": [
+    "salons_lobby",
+    "salle_blanche"
+   ],
+   "at": 900,
+   "width": 200,
+   "frame": "wood_panel"
+  },
+  {
+   "rooms": [
+    "salle_blanche",
+    "terrace"
+   ],
+   "at": 900,
+   "width": 260,
+   "height": 280,
+   "frame": "stone_blocks"
+  },
+  {
+   "rooms": [
+    "red_stairs",
+    "vault_corr"
+   ],
+   "at": 740,
+   "width": 240,
+   "height": 260
+  },
+  {
+   "rooms": [
+    "vault_corr",
+    "vault_ante"
+   ],
+   "at": 0,
+   "width": 240,
+   "height": 260,
+   "frame": "steel_panels"
+  },
+  {
+   "rooms": [
+    "vault_ante",
+    "house_vault"
+   ],
+   "at": 0,
+   "width": 240,
+   "height": 270,
+   "frame": {
+    "mat": "steel_panels",
+    "width": 24,
+    "depth": 10
+   },
+   "object": {
+    "name": "house_vault_door",
+    "type": "slide",
+    "double": true,
+    "model": "vault",
+    "keyflags": "0x40000000",
+    "autoclose": 268435455,
+    "guard_access": "never"
+   }
+  },
+  {
+   "rooms": [
+    "house_vault",
+    "hard_count"
+   ],
+   "at": 6820,
+   "width": 220,
+   "height": 270,
+   "frame": {
+    "mat": "steel_panels",
+    "width": 24,
+    "depth": 10
+   },
+   "object": {
+    "name": "count_vault_door",
+    "type": "slide",
+    "double": true,
+    "model": "vault",
+    "keyflags": "0x40000000",
+    "autoclose": 268435455,
+    "guard_access": "never"
+   }
+  },
+  {
+   "rooms": [
+    "vault_corr",
+    "soft_count"
+   ],
+   "at": 1440,
+   "width": 180,
+   "frame": "steel_panels",
+   "object": {
+    "name": "soft_count_door",
+    "type": "slide",
+    "see_through": true,
+    "guard_access": "any"
+   }
+  },
+  {
+   "rooms": [
+    "soft_count",
+    "hard_count"
+   ],
+   "at": 1640,
+   "width": 180,
+   "frame": "steel_panels"
+  },
+  {
+   "rooms": [
+    "soft_count",
+    "drop_cage"
+   ],
+   "at": 5840,
+   "width": 140,
+   "height": 220,
+   "object": {
+    "name": "drop_cage_door",
+    "type": "slide",
+    "model": "cell",
+    "keyflags": "0x1",
+    "guard_access": "never"
+   }
+  },
+  {
+   "rooms": [
+    "goods_lift",
+    "vault_corr"
+   ],
+   "at": 5240,
+   "width": 180,
+   "height": 240,
+   "frame": "steel_panels",
+   "object": {
+    "name": "lift_gate",
+    "type": "slide",
+    "model": "cell",
+    "guard_access": "never"
+   }
+  },
+  {
+   "rooms": [
+    "vault_corr",
+    "plant_corr"
+   ],
+   "at": -1500,
+   "width": 200,
+   "height": 260,
+   "frame": "steel_panels",
+   "object": {
+    "name": "plant_gate",
+    "type": "slide",
+    "keyflags": "0x8",
+    "guard_access": "role:vault_ante,plantroom,vault,squad,response"
+   }
+  },
+  {
+   "rooms": [
+    "plant_corr",
+    "power"
+   ],
+   "at": -1700,
+   "width": 240,
+   "height": 280,
+   "frame": "steel_panels",
+   "object": {
+    "name": "power_door",
+    "type": "slide",
+    "guard_access": "any"
+   }
+  },
+  {
+   "rooms": [
+    "power",
+    "generator"
+   ],
+   "at": -1700,
+   "width": 200,
+   "height": 260,
+   "frame": "steel_panels",
+   "object": {
+    "name": "generator_door",
+    "type": "slide",
+    "see_through": true,
+    "guard_access": "any"
+   }
+  },
+  {
+   "rooms": [
+    "north_corr_e",
+    "core_e_0a"
+   ],
+   "at": 2520,
+   "width": 220,
+   "object": {
+    "name": "core_door",
+    "type": "slide",
+    "keyflags": "0x4",
+    "guard_access": "role:security,catwalk,offices,executive,wave,response"
+   }
+  },
+  {
+   "rooms": [
+    "surv_corr",
+    "core_e_0b"
+   ],
+   "at": 3040,
+   "width": 220
+  }
+ ],
+ "openings": [
+  {
+   "rooms": [
+    "cage",
+    "salle_renaissance"
+   ],
+   "at": 100,
+   "width": 300,
+   "y": [
+    110,
+    250
+   ],
+   "name": "cage_window_100",
+   "frame": "steel_panels"
+  },
+  {
+   "rooms": [
+    "cage",
+    "salle_renaissance"
+   ],
+   "at": 600,
+   "width": 300,
+   "y": [
+    110,
+    250
+   ],
+   "name": "cage_window_600",
+   "frame": "steel_panels"
+  },
+  {
+   "rooms": [
+    "catwalk_w",
+    "salle_europe"
+   ],
+   "at": 1500,
+   "width": 360,
+   "y": [
+    580,
+    780
+   ],
+   "name": "mirror_w_1500",
+   "frame": "steel_panels"
+  },
+  {
+   "rooms": [
+    "catwalk_w",
+    "salle_europe"
+   ],
+   "at": 2350,
+   "width": 360,
+   "y": [
+    580,
+    780
+   ],
+   "name": "mirror_w_2350",
+   "frame": "steel_panels"
+  },
+  {
+   "rooms": [
+    "catwalk_w",
+    "salle_europe"
+   ],
+   "at": 3100,
+   "width": 360,
+   "y": [
+    580,
+    780
+   ],
+   "name": "mirror_w_3100",
+   "frame": "steel_panels"
+  },
+  {
+   "rooms": [
+    "catwalk_e",
+    "salle_europe"
+   ],
+   "at": 1500,
+   "width": 360,
+   "y": [
+    580,
+    780
+   ],
+   "name": "mirror_e_1500",
+   "frame": "steel_panels"
+  },
+  {
+   "rooms": [
+    "catwalk_e",
+    "salle_europe"
+   ],
+   "at": 2350,
+   "width": 360,
+   "y": [
+    580,
+    780
+   ],
+   "name": "mirror_e_2350",
+   "frame": "steel_panels"
+  },
+  {
+   "rooms": [
+    "catwalk_e",
+    "salle_europe"
+   ],
+   "at": 3100,
+   "width": 360,
+   "y": [
+    580,
+    780
+   ],
+   "name": "mirror_e_3100",
+   "frame": "steel_panels"
+  },
+  {
+   "rooms": [
+    "catwalk_n",
+    "salle_europe"
+   ],
+   "at": -1000,
+   "width": 400,
+   "y": [
+    580,
+    780
+   ],
+   "name": "mirror_n_-1000",
+   "frame": "steel_panels"
+  },
+  {
+   "rooms": [
+    "catwalk_n",
+    "salle_europe"
+   ],
+   "at": 1000,
+   "width": 400,
+   "y": [
+    580,
+    780
+   ],
+   "name": "mirror_n_1000",
+   "frame": "steel_panels"
+  },
+  {
+   "rooms": [
+    "kitchen",
+    "goods_lift"
+   ],
+   "at": -2240,
+   "width": 240,
+   "y": [
+    20,
+    250
+   ],
+   "name": "lift_landing",
+   "frame": "steel_panels"
+  }
+ ],
+ "start": {
+  "room": "place",
+  "at": [
+   -100,
+   -1850
+  ],
+  "face": [
+   0,
+   -1300
+  ]
+ },
+ "script": {
+  "heist": {
+   "job": "casino",
+   "areas": [
+    {
+     "name": "floor",
+     "rooms": [
+      "atrium",
+      "salle_renaissance",
+      "salle_europe",
+      "bar",
+      "stair_foot"
+     ],
+     "posts": [
+      "floor_post_sw",
+      "floor_post_se",
+      "floor_post_nw",
+      "floor_post_ne",
+      "pit_mid",
+      "pit_n",
+      "floor_entry_w",
+      "floor_entry_e",
+      "ren_post_w",
+      "ren_post_e",
+      "ren_mid",
+      "atrium_mid",
+      "bar_2"
+     ],
+     "panel": "alarm_floor",
+     "share": 22,
+     "raisers": 3
+    },
+    {
+     "name": "cage",
+     "rooms": [
+      "cage",
+      "cage_mantrap"
+     ],
+     "posts": [
+      "cage_post",
+      "cage_mid",
+      "mantrap_post"
+     ],
+     "panel": "alarm_cage",
+     "share": 7,
+     "raisers": 1
+    },
+    {
+     "name": "corridor",
+     "rooms": [
+      "staff_corr",
+      "staff_lounge",
+      "lockers",
+      "north_corr_w",
+      "north_corr_e",
+      "kitchen",
+      "staff_canteen"
+     ],
+     "posts": [
+      "staff_s",
+      "staff_mid",
+      "staff_n",
+      "nw_mid",
+      "ne_mid",
+      "ne_e",
+      "kitchen_1"
+     ],
+     "panel": "alarm_staff",
+     "share": 10,
+     "raisers": 1
+    },
+    {
+     "name": "offices",
+     "rooms": [
+      "pit_office"
+     ],
+     "posts": [
+      "pit_office_mid"
+     ],
+     "panel": "alarm_staff",
+     "share": 2,
+     "raisers": 0
+    },
+    {
+     "name": "security",
+     "rooms": [
+      "security_corr",
+      "guard_room",
+      "armory",
+      "surveillance",
+      "surv_corr"
+     ],
+     "posts": [
+      "sec_mid",
+      "guard_1",
+      "guard_2",
+      "surv_mid",
+      "surv_1",
+      "surv_corr_mid"
+     ],
+     "panel": "alarm_security",
+     "share": 10,
+     "raisers": 1
+    },
+    {
+     "name": "catwalk",
+     "rooms": [
+      "catwalk_w",
+      "catwalk_n",
+      "catwalk_e"
+     ],
+     "posts": [
+      "patrol_catwalk_1",
+      "patrol_catwalk_3",
+      "ce_mid"
+     ],
+     "panel": "alarm_surv",
+     "share": 5,
+     "raisers": 1
+    },
+    {
+     "name": "dock",
+     "rooms": [
+      "dock",
+      "alley"
+     ],
+     "posts": [
+      "dock_mid",
+      "dock_1",
+      "dock_2",
+      "alley_s",
+      "alley_dock"
+     ],
+     "panel": "alarm_dock",
+     "share": 8,
+     "raisers": 2
+    },
+    {
+     "name": "executive",
+     "rooms": [
+      "exec_corr",
+      "director"
+     ],
+     "posts": [
+      "exec_mid",
+      "director_1"
+     ],
+     "panel": null,
+     "share": 2,
+     "raisers": 0
+    },
+    {
+     "name": "salons",
+     "rooms": [
+      "salons_lobby",
+      "salon_prive",
+      "salle_blanche",
+      "grand_stair"
+     ],
+     "posts": [
+      "lobby_mid",
+      "blanche_post",
+      "prive_2"
+     ],
+     "panel": "alarm_salons",
+     "share": 8,
+     "raisers": 1
+    },
+    {
+     "name": "vault_ante",
+     "rooms": [
+      "vault_corr",
+      "vault_ante",
+      "red_stairs",
+      "soft_count",
+      "hard_count"
+     ],
+     "posts": [
+      "ante_1",
+      "ante_2",
+      "ante_3",
+      "ante_4",
+      "stair_top",
+      "stair_bot",
+      "vc_mid",
+      "vc_e",
+      "hard_mid"
+     ],
+     "panel": "alarm_vault",
+     "share": 14,
+     "raisers": 2
+    },
+    {
+     "name": "plantroom",
+     "rooms": [
+      "plant_corr"
+     ],
+     "posts": [
+      "plant_mid"
+     ],
+     "panel": "alarm_plant",
+     "share": 2,
+     "raisers": 0
+    }
+   ],
+   "cams": [
+    [
+     "cam_place",
+     "PLACE DU CASINO",
+     "dock"
+    ],
+    [
+     "cam_atrium",
+     "ATRIUM",
+     "floor"
+    ],
+    [
+     "cam_renaissance",
+     "SALLE RENAISSANCE",
+     "floor"
+    ],
+    [
+     "cam_cage_window",
+     "CAGE WINDOWS",
+     "floor"
+    ],
+    [
+     "cam_floor_s",
+     "SALLE EUROPE S",
+     "floor"
+    ],
+    [
+     "cam_floor_n",
+     "SALLE EUROPE N",
+     "floor"
+    ],
+    [
+     "cam_pit",
+     "THE PIT",
+     "floor"
+    ],
+    [
+     "cam_bar",
+     "BAR AMERICAIN",
+     "floor"
+    ],
+    [
+     "cam_cage",
+     "CAGE",
+     "cage"
+    ],
+    [
+     "cam_cage_n",
+     "CAGE BACK",
+     "cage"
+    ],
+    [
+     "cam_mantrap",
+     "CAGE MANTRAP",
+     "cage"
+    ],
+    [
+     "cam_staff",
+     "STAFF CORRIDOR",
+     "corridor"
+    ],
+    [
+     "cam_north_w",
+     "NORTH CORRIDOR W",
+     "corridor"
+    ],
+    [
+     "cam_north_e",
+     "NORTH CORRIDOR E",
+     "corridor"
+    ],
+    [
+     "cam_pit_office",
+     "PIT OFFICE",
+     "offices"
+    ],
+    [
+     "cam_security",
+     "SECURITY",
+     "security"
+    ],
+    [
+     "cam_surveillance",
+     "EYE IN THE SKY",
+     "security"
+    ],
+    [
+     "cam_catwalk",
+     "CATWALK",
+     "catwalk"
+    ],
+    [
+     "cam_dock",
+     "DOCK",
+     "dock"
+    ],
+    [
+     "cam_alley",
+     "ALLEY",
+     "dock"
+    ],
+    [
+     "cam_exec",
+     "EXECUTIVE SUITE",
+     "executive"
+    ],
+    [
+     "cam_salons",
+     "SALONS PRIVES",
+     "salons"
+    ],
+    [
+     "cam_prive",
+     "SALON PRIVE",
+     "salons"
+    ],
+    [
+     "cam_blanche",
+     "SALLE BLANCHE",
+     "salons"
+    ],
+    [
+     "cam_vault_corr",
+     "VAULT CORRIDOR",
+     "vault_ante"
+    ],
+    [
+     "cam_ante",
+     "VAULT DOOR",
+     "vault_ante"
+    ],
+    [
+     "cam_soft_count",
+     "SOFT COUNT",
+     "vault_ante"
+    ],
+    [
+     "cam_hard_count",
+     "HARD COUNT",
+     "vault_ante"
+    ],
+    [
+     "cam_plant",
+     "PLANT",
+     "plantroom"
+    ]
+   ],
+   "guard_areas": [
+    "floor",
+    "cage",
+    "security",
+    "catwalk",
+    "corridor",
+    "dock",
+    "salons",
+    "vault_ante",
+    "executive",
+    "offices"
+   ],
+   "patrols": {
+    "floor": [
+     "patrol_floor_1",
+     "patrol_floor_2",
+     "patrol_floor_3",
+     "patrol_floor_4",
+     "patrol_floor_5",
+     "patrol_floor_6"
+    ],
+    "catwalk": [
+     "patrol_catwalk_1",
+     "patrol_catwalk_2",
+     "patrol_catwalk_3",
+     "patrol_catwalk_4"
+    ],
+    "vault": [
+     "patrol_vault_1",
+     "patrol_vault_2",
+     "patrol_vault_3",
+     "patrol_vault_4"
+    ],
+    "perim": [
+     "patrol_perim_1",
+     "patrol_perim_2",
+     "patrol_perim_3"
+    ]
+   },
+   "stations": [
+    "patrol_floor_2",
+    "patrol_catwalk_2",
+    "patrol_vault_3",
+    "patrol_perim_2"
+   ],
+   "vents": [
+    "count",
+    "salon",
+    "vault"
+   ],
+   "grapples": [
+    "catwalk",
+    "terrace",
+    "goodslift"
+   ],
+   "map_label": "Le Grand Casino Janus",
+   "no_cams": "(lockers, chip bank: no cams)"
+  }
+ }
+}

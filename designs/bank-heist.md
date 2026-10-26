@@ -1040,3 +1040,17 @@ specs off it still shows, because it is the mode's own HUD lines. `S.guide = fal
 - **Screenshots** (AC's machine): `polish-before-*.jpg` and `polish-after-*.jpg` in the overnight `img` folder. Before, line 2 said only
   "GREEN card: head teller or lobby captain", with no hint of how to get it or what Tab does.
 
+
+## 27. Job 2: the casino, and the job table (stream `job2`, 2026-10-26)
+
+The heist is no longer tied to the bank. A **job definition** (`tools/jobs/<job>.lua`, shipped as `job_<job>.lua`) holds everything the
+mode, the map reader, the INTEL board and the first-play guide used to hard-code: the layout's names (doors, pads, rooms, areas,
+cameras, civilian places, carriers), the card ladder (who carries which card, the body, health and post), and the job's HUD, guide and
+board words. The layout picks its job with `LEVEL.script.heist.job` (default `bank`). The bank's values moved verbatim into
+`tools/jobs/bank.lua`, so the bank behaves exactly as before.
+
+The second job is **Le Grand Casino Janus**, a Monte-Carlo-style casino: the atrium, the Salle Renaissance and the Salle Europe;
+the cage and its mantrap; the eye-in-the-sky catwalks behind one-way glass and the surveillance room; the Salons Privés with the
+high-roller safe; and the house vault and count rooms below. The research, design and routes are in
+[`job2-casino.md`](job2-casino.md). It is built by `tools/levelgen/build_casino.py` and played from its own build dir
+(`-DGE_LEVELGEN_DIR=port/levelgen_casino`: the slot holds one layout per build). The test is `tests/heist/run_job2.sh`.
