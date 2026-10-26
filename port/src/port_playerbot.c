@@ -98,6 +98,7 @@ extern u8             list_of_tilesizes[];
 
 #define MAXPATH 4096
 #define PORTACT_NEXT_INV_INDEX 8   /* joy_port.c PORTACT_NEXT_INV ("next_inventory"; input_pc.c PM_PORT_NEXT_INV) */
+#define PORTACT_PREV_WEAPON_INDEX 5   /* joy_port.c PORTACT_PREV_WEAPON ("prev_weapon") */
 
 /* ---- state ------------------------------------------------------------------------------------------------------- */
 
@@ -241,6 +242,7 @@ typedef struct {
                                 * the heist A/B gave 2-3x the head hits of +15..38 for the same shots) */
     f32 lastTX, lastTY, lastTZ;
     s32 quiet;                 /* the `quiet` step: stealth until the alarm sounds */
+    s32 holster;               /* the `holster` step: the slappers in hand while not fighting (a heist's banker cover) */
     /* the key detour's carrier handling: knock-out from behind, search, rob */
     ChrRecord *koChr;
     s32 koPhase, koSince, koSlapTick, searchTick;
@@ -250,6 +252,7 @@ typedef struct {
     s32 wantWeapon;
     s32 keepWant;
     s32 actNextInv;            /* this tick: press the port action PORTACT_NEXT_INV */
+    s32 actPrevWeapon;         /* this tick: press the port action PORTACT_PREV_WEAPON (holstering: back to the slappers) */
     s32 lastCycleTick;
 
     /* output for this tick */
@@ -557,6 +560,7 @@ static void outClear(void)
     B.yaw = 0.0f;
     B.pitch = 0.0f;
     B.actNextInv = 0;
+    B.actPrevWeapon = 0;
     B.lookDoor = NULL;
 }
 
@@ -662,16 +666,31 @@ static void weaponTick(void)
     /* a fight always gets the best gun, whatever gadget a step wants */
     s32 want = (B.wantWeapon > 0 && (B.target == NULL || B.peace)) ? B.wantWeapon : bestGun();
 
+    if (B.holster && B.wantWeapon <= 0 && (B.target == NULL || B.peace))
+    {
+        want = ITEM_FIST;   /* holstered (the heist's cover reads a drawn gun) */
+    }
+
     if (want < 0 || !bondinvItemAvailable(want) || cur == want)
     {
         return;
     }
     if (B.tick - B.lastCycleTick >= 24)
     {
+        if (B.verbose >= 3)
+        {
+            portConLogf("ge: playerbot: weapon %d -> %d (want %d, holster %d, peace %d, target %d)\n", cur, want, B.wantWeapon,
+                        B.holster, B.peace, B.target != NULL);
+        }
         if (want >= ITEM_BOMBCASE)
         {   /* A only cycles guns; gadgets come round with the port's "next inventory item" action (a key / pad bind,
              * recorded like any input) */
             B.actNextInv = 1;
+        }
+        else if (want == ITEM_FIST && B.holster)
+        {   /* holstering: the port's "previous weapon" action steps back to the slappers (A from the PP7 did not get
+             * there in the heist: tried 2026-10-26) */
+            B.actPrevWeapon = 1;
         }
         else
         {
@@ -4081,6 +4100,9 @@ static s32 stepRun(PblStep *s)
         case PBL_QUIET:
             B.quiet = s->a;
             return 1;
+        case PBL_HOLSTER:
+            B.holster = s->a;
+            return 1;
         case PBL_RUSH:
             B.rush = s->a;
             return 1;
@@ -4431,6 +4453,7 @@ static void stageBegin(void)
     B.step = 0;
     B.peace = 0;
     B.quiet = 0;
+    B.holster = getenv("GE_PLAYERBOT_HOLSTER") != NULL;   /* (from the first tick: a heist's cover; the mode script's steps come later) */
     B.rush = getenv("GE_PLAYERBOT_RUSH") != NULL;
     B.moveOnly = 0;
     B.nAvoid = 0;
@@ -5392,6 +5415,10 @@ void portPlayerBotActions(u8 *down, s32 count)
         if (B.actNextInv && count > PORTACT_NEXT_INV_INDEX)
         {
             down[PORTACT_NEXT_INV_INDEX] = 1;
+        }
+        if (B.actPrevWeapon && count > PORTACT_PREV_WEAPON_INDEX)
+        {
+            down[PORTACT_PREV_WEAPON_INDEX] = 1;
         }
     }
 }
