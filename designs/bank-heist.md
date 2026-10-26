@@ -1277,3 +1277,84 @@ folder): the quiet run's GHOST panel.
   Windows (no hidden-window option); AC should check that a press after dismissing reaches the stock screen as usual.
 - Next: per-crew-member lines in co-op (who did what), a "case file" page on the INTEL board listing the best runs, more commendations
   from the AI layer (never searched for, a coin that pulled a guard off a camera's view).
+
+## 29. Door interlocks: the staff mantrap and the sally port (stream `interlocks`, 2026-10-26)
+
+Bank v3's staff entrance and sally port were "just two doors in a row" (section 22). They are real interlocks now, the way the research
+(`bank-v3-research.md` sections 3.1 and 6) describes them: only one door of a group may stand open, a mantrap holds its occupant for a
+check, staff badge through, and a sally port's outer door must shut before the inner one opens, with a camera watching.
+
+### 29a. How to play it
+
+- **The staff entrance** (the alley, by the loading dock) is a mantrap of three doors: the outer door from the alley (GREEN reader), the
+  inner door to the east corridor, and the dock door. One opens at a time. Press USE on a second door while one is open: it says **WAIT**
+  and you are queued. It opens by itself when the open door has shut (4 s) and the 3 s **VERIFYING** check is over.
+- **VERIFYING.** If you are inside during the check, the GREEN card or a disguise (a staffer's clothes or a guard's uniform) clears you.
+  Otherwise, when someone is watching, you are flagged. Watching means the STAFF ENTRANCE camera is live (power on, not switched off, not
+  on a tape loop) and someone in the security room is up. Flagged: **LOCKDOWN** for 12 s (the doors stay shut), and the security room
+  raises the alarm security_delay seconds later, as for a camera spot. With nobody watching you go through.
+- **Tailgating.** Follow a staffer or a guard through his own cycle: get in behind him before the outer door shuts. His badge covers you,
+  but the camera catches a tailgater 35% of the time (`S.interlock.tailgate_spot`). Risky but legit. The perimeter patrol uses this door.
+- **The sally port** (the armoured-car bay between the alley and the garage). The outer roller wants the **DOCK KEY**, which a dock guard
+  (the "dock foreman") carries: pickpocket him, or knock him out and search him. No guard opens the roller. The armoured car comes every
+  4 minutes (the first after 2.5 min). The outer roller goes up for 8 s and comes down behind the car, then the inner one opens. Slip in
+  with it: the tailgating rule applies (the SALLY PORT camera).
+- **Power cut.** The mantrap fails **safe**. It is an exit route, and life-safety egress rules make its maglocks release when the power
+  goes, so every door opens by hand, GREEN or not (AR: **RELEASED**). The sally port fails **secure**: motorised rollers with no power do
+  not move at all (**NO POWER**). When the power comes back the readers relock and the doors close themselves.
+- **The override cylinder.** Lockpicks in hand, hold FIRE at an interlocked door that will not open (WAIT, VERIFYING, LOCKDOWN, NO POWER).
+  After 18 s (slow) the mechanical override turns, and that door opens, ignoring its group for 6 s. A guard who sees the work sees an
+  act. On a keyed door the gadgets' lockpicks pick its own lock first, as before.
+- **Feedback.** With the AR specs (Shift+F3) each interlocked door shows a word: INTERLOCK (ready), WAIT / WAIT (QUEUED), VERIFYING,
+  LOCKDOWN, CYCLE (open), RELEASED, NO POWER, OVERRIDE. HUD line 3 explains each refusal. The first time you come near one, the first-play
+  guide gives a one-line how-to; inside, during a check or a lockdown, it says what is happening. The INTEL board's NOTES page has an
+  INTERLOCKS card, and THE KEYS names the DOCK KEY.
+
+### 29b. How it works
+
+- **C, `port/src/port_interlock.c`** (any mode; Lua `interlock.*` in `port/luavm/port_luavm_interlock.c`). A group is 2 to 4 doors (a
+  double door counts as one). Every open order goes through `doorActivate` (one hook in `src/game/propobj.c`), which asks
+  `portInterlockGate` first. So the rule binds a Bond's use press, a guard's door finder (`chraction.c`), AI-list door commands and a
+  script's `door.open` alike. A refused open is queued (first come), and the group opens it itself once every door is shut, the hold is
+  over and there is no lockdown. Each door closes itself `close` seconds after it opened. After the last door shuts, every door is held
+  for `hold` seconds: the verification window.
+- **Guards.** `portHeistChrMayOpenDoor` (port_heist.c) asks the role rule first, then `portInterlockChrGate`: 0 = wait (his request is
+  queued, so the door opens for him), 2 = go. An interlocked door carries the stock "AI cannot operate" bit while it is in a group, as a
+  ruled door does, so a waiting guard stands at the shut door instead of walking through it.
+- **Lua, `tools/heist_interlock.lua`**, included by the mode after the gadgets. `S.interlock = false` turns it off; a table tunes it
+  (`hold close lock tailgate_spot pick_time pick_reach override_time car car_first car_every dock_key hint_reach`). It reads the groups
+  from the layout (`LEVEL.script.interlocks`, written by `build_janus_bank_v3.py`'s `INTERLOCKS`) and runs the procedures: the check at
+  the start of each hold, tailgating (the cycle's opener is a chr, or the armoured car), the dock key, the car's cycle, the readers of a
+  fail-safe group on a power cut, and the override.
+- **Any map** can declare interlocks in its layout's `script.interlocks`: `{name, label, kind = "mantrap" | "sally", doors = {outer,
+  inner, ...}, hold, close, fail = "safe" | "secure", badge, outer_key, car, verify = {room, camera}}`.
+- **For other streams (the randomiser):** `HEIST_INTERLOCK.enable(name, on)` defines or clears a group (cleared: plain doors, e.g. a job
+  of the day that leaves the sally port open), `HEIST_INTERLOCK.car_now()`, `HEIST_INTERLOCK.info(name)`, `.list` and `.by_name`.
+- **Sim state.** The C groups are in `portInterlockHash` (the state hash) and in the rollback snapshot (`snap_embed.py` SIM_PORT). The
+  Lua side rides in `mode.state` (`HEIST.state_text` is wrapped) and in the Lua arena. Its randomness is `math.random`, the session
+  generator, as the mode's jams use. The AR words, the guide prompt and the board's card are presentation and only read.
+
+### 29c. Tests
+
+`tests/heist/run_interlock.sh` (`RUNS`, `PAR=1`; fast-forwarded like the seed sweep, and the game is killed on `HEIST DONE`). Seed 7.
+Every run also checks that no two doors of a group were ever open at once: the script samples at 4 Hz, and the C side counts every sim
+tick.
+
+| Run | Checks | What |
+| --- | --- | --- |
+| basic | 21 / 21 | the badge reader; the inner door refused (WAIT (QUEUED)) while the outer is open, and a script's `door.open` too; the timer; VERIFYING; the queued door opens itself 3.25 s later; the sally port both ways |
+| guards | 10 / 10 | four guards cross back and forth for 150 s: each crossed 2 to 6 times, 16 cycles, 13 queued opens, no violation, no deadlock |
+| tailgate | 19 / 19 | behind a staffer: counted as a tailgate and cleared (spot 0); again with spot 1: caught, LOCKDOWN, the security room called |
+| verify | 16 / 16 | alone, undisguised, unbadged: flagged, lockdown, report; the override cylinder opens the inner door in a lockdown (18.2 s); a guard's uniform passes |
+| power | 18 / 18 | the dock foreman's key; the armoured car's cycle (outer, then inner); the cut: the mantrap RELEASED (no key, both doors open), the sally port NO POWER; back on: relocked and shut |
+| win | 16 / 16 | the solo win via the staff entrance: GREEN, in through the mantrap, the vault, out through the mantrap's dock door to exit B |
+
+### 29d. Limits and next
+
+- There is no visible armoured car. Its cycle is the rollers moving, plus a HUD line for Bonds in the alley, the dock or the garage.
+- Off screen, guards hop from pad to pad (stock), so an off-screen guard can pass a shut interlocked door without cycling it. On screen
+  they cycle it properly.
+- The check runs once, when the hold starts. Nobody can walk in during the hold, because every door is shut then.
+- A door held open (a body in the doorway) keeps the group busy. That is right for a real mantrap, but nothing raises a "door held"
+  alarm yet.
+- Next: a "door held open" alarm, and the randomiser's job of the day choosing which interlocks run.

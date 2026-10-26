@@ -173,7 +173,12 @@ local function setup_map()
 end
 
 local function all_flags(list, flags)
-  for _, d in ipairs(list) do local g = door.get(d); if not g or g.keyflags ~= flags then return false end end
+  for _, d in ipairs(list) do
+    local g = door.get(d)
+    -- (section 29: the interlocks re-key the sally port's outer roller from BLUE to the DOCK KEY: that door is checked there)
+    local rk = HEIST_INTERLOCK and HEIST_INTERLOCK.rekeyed and HEIST_INTERLOCK.rekeyed[d]
+    if not g or (g.keyflags ~= flags and not (rk and g.keyflags == rk)) then return false end
+  end
   return #list > 0
 end
 

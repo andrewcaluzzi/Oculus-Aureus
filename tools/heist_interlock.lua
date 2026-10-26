@@ -28,7 +28,7 @@ local H = HEIST
 local S = H.S
 local DOCKKEY = 0x20
 local IL = { list = {}, by_name = {}, stats = { flags = 0, passes = 0, tailgates = 0, overrides = 0, cars = 0, released = 0 },
-             players = {}, power_out = false, dock_key = nil, foreman = nil, first = {} }
+             players = {}, power_out = false, dock_key = nil, foreman = nil, first = {}, rekeyed = {} }
 HEIST_INTERLOCK = IL
 
 local T = { hold = 3, close = 4, lock = 12, tailgate_spot = 0.35, pick_time = 18, pick_reach = 150, override_time = 6,
@@ -280,7 +280,7 @@ on("use", function(p, kind, idx, objtype)
 end)
 
 on("stage_start", function(stage)
-  IL.list, IL.by_name, IL.power_out, IL.dock_key, IL.foreman, IL.first = {}, {}, false, nil, nil, {}
+  IL.list, IL.by_name, IL.power_out, IL.dock_key, IL.foreman, IL.first, IL.rekeyed = {}, {}, false, nil, nil, {}, {}
   for p = 0, 3 do IL.players[p] = {} end
   if H.phase == "off" or S.interlock == false then return end
   load_groups()
@@ -288,6 +288,7 @@ on("stage_start", function(stage)
     define(g)
     if g.kind == "sally" and g.outer_key then
       door.set_keyflags(g.outer, g.outer_key)
+      IL.rekeyed[g.outer] = g.outer_key                                -- (its layout tier, BLUE, no longer opens it)
       if S.guard_doors then door.guard_access(g.outer, "never") end   -- only the car's cycle, the dock key or a lockpick
     end
     if g.car then g.carstate = { step = 0, next_at = T.car_first } end
