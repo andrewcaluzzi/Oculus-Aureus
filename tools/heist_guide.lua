@@ -44,6 +44,12 @@ function heist_guide(ctx)
       return "in", "Next: walk in the bank's front door, gun holstered",
              S.cover and "Holstered you pass as staff. A drawn gun makes guards look" or "Get inside the bank"
     end
+    local RD = H.rand                                 -- section 25: today's carriers (tools/heist_randomiser.lua)
+    if RD then
+      for _, s in ipairs({ { K.GREEN, "green" }, { K.BLUE, "blue" }, { K.RED, "red" } }) do
+        if not bond.has_key(p, s[1]) then return s[2], fit(RD.guide_line(s[1], carrier_room)), RD.guide_how(s[1]) end
+      end
+    end
     if not bond.has_key(p, K.GREEN) then
       return "green", "Next: GREEN card - head teller or lobby captain (hall)",
              "Teller: aim a gun at her. Captain: slap him twice, USE to search"

@@ -32,6 +32,7 @@ include("heist_bank_map")                      -- heist_bank_map(): the mode's t
 include("heist_ai")                            -- HEIST_AI: the guards' hearing, awareness and barks (section 18)
 include("heist_intel")                         -- heist_intel(ctx): the INTEL board's content and the hints (section 19)
 include("heist_guide")                         -- heist_guide(ctx): the first-play objective line, key strip and prompts (section 23d)
+include("heist_randomiser")                    -- heist_randomiser(ctx): every run a different bank (section 25; S.randomise)
 pcall(include, "heist_ar")                     -- the AR specs and diagnostics (section 20; presentation only, optional)
 local STAGE_LEVELGEN = 52                      -- LEVELID_LEE: the generated level's slot
 
@@ -150,6 +151,11 @@ local S = {
   spawn_per_tick  = 24,      -- chrs placed per 0.25 s at the start (no hitch)
   test            = false,   -- test hooks on (HEIST.* below are always there; this only adds log lines)
   ar              = true,    -- the Q-Branch specs (tools/heist_ar.lua, section 20): suspicion "?" / "!", bubbles, key brackets, waypoints
+  -- the randomiser (tools/heist_randomiser.lua, section 25): who carries which card, dummy cameras, the time lock, the roster, sealed
+  -- routes, the job of the day; from the sim RNG (same seed, same bank). false = the fixed bank. A script that sets HEIST_SETTINGS
+  -- without this key (the tests) gets the fixed bank. randomiser = { ... } tunes it (the keys are listed in that file).
+  randomise       = true,
+  randomiser      = nil,
   -- difficulty (mission.difficulty(): 0 Agent .. 3 007). force: the share of the full force above (posted guards, raisers, vault
   -- guards, wave cap, squads, the response); acc: the guards' accuracy rating (0 = stock, 5 = 1.5x, 10 = 2x: the stock aim is scaled by
   -- 1 + acc / 10); wave: guards per wave. (AC delegated, Claude's call 2026-10-25, revisit: the player bot won 10/10 with the carriers
@@ -163,6 +169,7 @@ local S = {
 }
 if type(HEIST_SETTINGS) == "table" then
   for k, v in pairs(HEIST_SETTINGS) do S[k] = v end
+  if HEIST_SETTINGS.randomise == nil then S.randomise = false end   -- (section 25: the tests opt in)
 end
 local DIFF = S.difficulty
 
@@ -356,6 +363,7 @@ local function objective(p)
   local ph = H.phase
   if ph == "casing" then
     if bond.has_key(p, RED) then return "Crack the vault (" .. MAP.vault_hint .. ")" end
+    if H.rand then return H.rand.objective(function(f) return bond.has_key(p, f) end) end   -- (section 25: today's carriers)
     if bond.has_key(p, BLUE) then return "RED card: the branch manager" end
     if bond.has_key(p, GREEN) then return "BLUE card: the security chief" end
     return "GREEN card: head teller or lobby captain"
@@ -549,6 +557,10 @@ local function give_card(c, flags, role, area, pad)
 end
 
 local function queue_carriers()
+  if H.rand then   -- section 25: today's carriers (tools/heist_randomiser.lua), with the mode's own spawn helpers
+    queue[#queue + 1] = function() H.rand.carriers({ spawn_at = spawn_at, guard_opts = guard_opts, note_guard = note_guard, give_card = give_card }) end
+    return
+  end
   queue[#queue + 1] = function()
     -- GREEN: the head teller (a civilian at the counter) or the lobby captain (a guard on the hall floor), chosen at random
     if math.random(2) == 1 then
@@ -899,9 +911,10 @@ function H.intel_lines(p)
   t[#t + 1] = "VAULT: " .. vault_text()
   for _, cr in ipairs(CARD_ROLES) do
     local c, role
-    for r, cc in pairs(H.carriers) do if cc.flags == cr[1] and cc.chr then c, role = cc, r end end
+    for r, cc in pairs(H.carriers) do if cc.flags == cr[1] and (cc.chr or cc.floor) then c, role = cc, r end end
     local where
     if not c then where = "-"
+    elseif c.floor then where = spawn.key_alive(c.key) and ((AREA_LABEL[c.area] or c.area) .. " (on the desk)") or "taken"   -- (section 25)
     elseif not (c.key and select(2, spawn.key_alive(c.key))) then where = "card not on him"
     elseif not spawn.alive(c.chr) or spawn.down(c.chr) then where = "down"
     else
@@ -936,7 +949,7 @@ function H.camera_switch(p)
   for _, cam in ipairs(cctv.list()) do cctv.disable(cam) end
   H.cam_off_until = H.elapsed + S.cam_off_time
   local t = {}
-  for _, role in ipairs({ "head teller", "lobby captain", "security chief", "branch manager", "vault captain" }) do
+  for _, role in ipairs(H.rand and H.rand.role_order or { "head teller", "lobby captain", "security chief", "branch manager", "vault captain" }) do
     local c = H.carriers[role]
     if c and c.chr and spawn.alive(c.chr) and c.key and select(2, spawn.key_alive(c.key)) then t[#t + 1] = role .. ": " .. (AREA_LABEL[c.area] or c.area) end
   end
@@ -955,7 +968,7 @@ local function near_xz(p, xz)
 end
 
 local function set_cams(on)
-  for _, cam in ipairs(cctv.list()) do if on then cctv.enable(cam) else cctv.disable(cam) end end
+  for _, cam in ipairs(cctv.list()) do if not on then cctv.disable(cam) elseif not (H.rand and H.rand.dead[cam]) then cctv.enable(cam) end end
 end
 
 function H.cut_power(why)
@@ -1225,9 +1238,11 @@ on("stage_start", function(stage)
   load_map()
   H.map = MAP.name
   diff = DIFF[mission.difficulty()] or DIFF[1]
+  H.rand = heist_randomiser{ S = S, H = H, M = H.M }   -- section 25: today's bank (nil when S.randomise is off)
   H.civ_limit = S.civ_limit or diff.civ_limit
   spawn.keep_bodies(true)
   setup_doors()
+  if H.rand then H.rand.doors() end
   -- the cover (section 16): every room classed by its layout area; cameras report to the security room instead of the alarm
   cover.on(S.cover and true or false)
   if S.cover then
@@ -1279,7 +1294,7 @@ on("stage_start", function(stage)
         "JANUS BANK, ST PETERSBURG. Steal the gold. Hurt no staff.", 8)
   log("stage start: %s, %d Bond(s), difficulty %d", MAP.label, bond.count(), mission.difficulty())
   refresh_hud()
-  if S.intel ~= false then H.intel = heist_intel{ S = S, H = H, PW = PW, M = H.M, force = diff.force, flash_p = flash_p, money = money, security_up = security_up,
+  if S.intel ~= false then H.intel = heist_intel{ S = S, H = H, PW = PW, M = H.M, force = diff.force, flash_p = flash_p, money = money, security_up = security_up, rand = H.rand,
                          keys = { GREEN = GREEN, BLUE = BLUE, RED = RED, GOLD = GOLD, FLOORKEY = FLOORKEY, VAULT = VAULT } } end
   if S.guide ~= false then H.guide = heist_guide{ S = S, H = H, PW = PW, M = H.M, keys = { GREEN = GREEN, BLUE = BLUE, RED = RED, GOLD = GOLD, FLOORKEY = FLOORKEY } } end
 end)
@@ -1297,6 +1312,7 @@ local function state_text()
       tostring(cover.alert()), H.blown, H.reports, H.report and string.format("%.2f", H.report.at) or "-", tostring(PW.out), PW.step,
       tostring(PW.task), tostring(PW.by), PW.prog, tostring(PW.cut_at), tostring(PW.saved.cabinet + PW.saved.breaker + PW.saved.generator),
       tostring(PW.gen_off), #PW.invest, tostring(PW.invest_at), PW.repair, #PW.pending)
+    .. (H.rand and H.rand.state() or "")   -- (section 25: today's deal)
 end
 H.state_text = state_text
 
@@ -1312,12 +1328,13 @@ on("tick", function(dt)
     if not ok then log("setup step failed: %s", tostring(err)) end
   end
   if H.intel then H.intel.tick(dt) end   -- the INTEL board's content and the hints (presentation; tools/heist_intel.lua)
+  if H.rand then H.rand.tick(dt) end     -- section 25: the job of the day's timed events
   if not H.ready then return end
   if H.hot and S.siren_latch and not alarm.active() then alarm.start() end
   if H.cam_off_until and H.elapsed >= H.cam_off_until then
     H.cam_off_until = nil
     if not PW.out then
-      for _, cam in ipairs(cctv.list()) do cctv.enable(cam) end
+      for _, cam in ipairs(cctv.list()) do if not (H.rand and H.rand.dead[cam]) then cctv.enable(cam) end end   -- (a dummy stays dead)
       flash("The cameras are back on", 3)
     end
   end
