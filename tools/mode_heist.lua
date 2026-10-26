@@ -497,11 +497,14 @@ local function area_by_name(n) for _, a in ipairs(AREAS) do if a.name == n then 
 -- carrier stands alone where the board cases him. Before (GE_SEED 5), a posted guard landed 110 units off the security chief (spawn_at's
 -- offset), and every pickpocket from behind the chief was seen by him
 local carrier_pads = {}
-local function clear_of_carriers(list, i)   -- the i-th pad of the list without the carriers' (so the posts still get a pad each)
-  local free = {}
-  for _, p in ipairs(list) do if not carrier_pads[p] then free[#free + 1] = p end end
-  if #free == 0 then return list[(i - 1) % #list + 1] end
-  return free[(i - 1) % #free + 1]
+-- (only a chr whose pad a carrier took moves, to the list's next pad: renumbering the whole list moved every post after it, and the
+-- layout-bound checks of seeds 12-14 moved with them)
+local function clear_of_carriers(list, i)
+  for k = 0, #list - 1 do
+    local p = list[(i - 1 + k) % #list + 1]
+    if not carrier_pads[p] then return p end
+  end
+  return list[(i - 1) % #list + 1]
 end
 
 local function queue_area_guards()
