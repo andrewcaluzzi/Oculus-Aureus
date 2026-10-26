@@ -1583,24 +1583,27 @@ AC likes the idea "even just for single player": before the clock starts, the cr
 
 ### 27a. What a player sees, and the keys
 
-The heist opens on the **planning board**. It is the INTEL board (section 19) with three tabs of its own after the five job pages:
-`1 THE PLAN`, `2 SCHEMATICS`, `3 THE KEYS`, `4 PERSONNEL`, `5 NOTES`, then **`6 LOADOUT`**, **`7 ENTRY`** and **`8 CREW`**. It opens on
-LOADOUT. Until you confirm:
+The heist opens on the **planning board**: the INTEL board (section 19) showing **only its three planning tabs**, `1 LOADOUT`,
+`2 ENTRY` and `3 CREW`. It opens on LOADOUT. The five job pages (THE PLAN, SCHEMATICS, THE KEYS, PERSONNEL, NOTES) are hidden while you
+plan. After CONFIRM the planning tabs are gone for the rest of the run, and Tab / Back opens the normal INTEL board with its five pages.
+Until you confirm:
 - the heist clock does not run;
-- nobody in the crew moves;
+- **Bond takes no input at all**: no walking (stick or W/A/S/D), no looking (mouse or right stick), no fire, no use. The board has
+  every control (AC's playtest: "I was walking backwards and forwards while selecting stuff");
 - the bank stands placed but idle: the heist's own systems (camera reports, the AI layer, the cover's reports, waves) have not started.
 
-| Do | Keyboard / mouse | Pad |
-| --- | --- | --- |
-| Change tab | the INTEL board's page keys: mouse wheel, `,` `.`; or A / D (stick left / right) | LB / RB, stick or D-pad left / right |
-| Move along the rows | W / S (stick up / down) | stick or D-pad up / down, C-up / C-down |
-| Buy (or choose an entry, hire an extra) | FIRE (left mouse) | fire (Z / RT) or A |
-| Sell (or drop an extra) | USE (E) | B / use |
-| Confirm and go | the red **CONFIRM** row at the bottom of each plan tab, or START | START |
-| Floors on SCHEMATICS | W / S | stick up / down |
+| Do | Mouse | Keyboard | Pad |
+| --- | --- | --- | --- |
+| Point | the cursor (an arrow); the row or tab under it gets an amber frame | | |
+| Change tab | click the tab | `,` `.` or A / D | LB / RB, stick or D-pad left / right |
+| Move along the rows | the wheel | W / S | stick or D-pad up / down, C-up / C-down |
+| Buy (or choose an entry, hire an extra) | left click the row | FIRE | fire (Z / RT) or A |
+| Sell (or drop an extra) | right click the row | USE (E) | B / use |
+| Confirm and go | left click the red **CONFIRM** row | the CONFIRM row, or START | START |
 
-The header shows the budget, what you spent and what is left. The footer repeats what is left, with the keys. The line under the rows
-says what just happened ("Bought LOCKPICKS", "Over budget: SLEEP GAS costs $45,000, $20,000 left").
+The header shows the budget, what you spent and what is left. The footer repeats what is left, with the mouse and the keys
+("CLICK/FIRE: BUY  R-CLICK/USE: SELL  WHEEL W/S: ROWS  , . LB/RB: TABS  START: GO"). The line under the rows says what just happened
+("Bought LOCKPICKS", "Over budget: SLEEP GAS costs $45,000, $20,000 left").
 
 **The budget** grows with the difficulty (a bigger job pays for a bigger prep): Agent $300,000, Secret Agent $350,000, 00 Agent
 $400,000, 007 $450,000. `S.plan_budget` overrides it. **Everything you spend comes off the payout**: the mode's score is loot + quiet
@@ -1656,6 +1659,13 @@ vault's cracker), the slappers, the pickpocket and the vents, which are free.
     and previous weapon and inventory and the use key come from `joy_port.c` through the CCTV view's own `portJoyPortCctvTake`;
   - it zeroes his input, so nobody moves or fires;
   - the events queue in order. The script ticks at 4 Hz, so two presses between script ticks stay two.
+
+  Zeroing the stick and buttons was not enough: the PC port reads the Move keys' steps (`portInputDigitalMove`), the Look stick and the
+  mouse look inside `MoveBond`, past that hook. So the hold also makes the controls **not live**: `portMouseLookPermitted` in
+  `bondview2.c` (the one predicate behind mouse look, the Move keys' steps, the Look stick, the Port binds and the pointer grab) returns
+  0 while `portPlanningHeld()`, exactly as for a Bond watching a camera feed. `portPlanningHeld` is sim state, so the mask is the same on
+  both machines in netplay and reads no local device. The pointer is let go, so the board's cursor can move. `GE_SKIPINTRO`'s intro A
+  taps stop once the board has the controls (`portPlanningBondTicks`), or they would buy row 1.
 - **The clock.** The mode's tick calls `H.plan.tick(dt)` after the spawn queue and the INTEL content. While planning it:
   - takes the clock's `dt` back (`H.elapsed` stays at 0);
   - keeps `H.ready` false (the heist's systems, the gadgets, the debrief and the AR layer all wait on it);
@@ -1673,9 +1683,19 @@ vault's cracker), the slappers, the pickpocket and the vents, which are free.
   - a **plan mode** (`plan.view(on, page, floor, footer)`). The board is up on every machine, and its page and floor are the plan's
     sim state. The INTEL key does nothing. The page keys are let through to the sim (they are the tabs). The footer is the script's.
 
-  The plan's pages are rebuilt from the plan's state whenever it changes, and once more at the confirm (a green CONFIRMED stamp). So
-  tabs 6-8 stay on the INTEL board all heist as a record of the plan. With `S.intel = false` the board has only the three plan tabs and
-  is switched off again at the confirm.
+  The plan's pages are rebuilt from the plan's state whenever it changes. `plan.pages(first, 3)` tells the board which pages are the
+  plan's: in plan mode only those tabs are drawn and the tab keys cycle only them; once plan mode is off only the pages before them
+  (the job's five) are drawn, and a view left on a plan page snaps back to page 1. With `S.intel = false` the board has only the three
+  plan tabs and is switched off again at the confirm.
+- **The mouse** (plan mode only). `video.c` hands `portIntelMouse` the pointer, the buttons and the wheel every poll. While the
+  planning board is up it keeps the buttons and the wheel from every bind (a click must not also fire, aim or step a weapon; a button
+  still down when the board goes is held over until released). The cursor and the hover are this machine's alone (presentation). A
+  click is hit-tested against the tab cards and the rows' boxes (`plan.hit(page, row, x0, y0, x1, y1)`, registered as the rows are
+  drawn) and becomes a **session command** (`PORT_NETCMD_PLAN_POINT`, `port_netcmd.c`; a = page x 64 + row, b = select / back / tab /
+  row up / row down). In netplay both machines apply it at the same agreed tick; solo and local co-op apply it at once. It lands in
+  `port_planning.c`'s pointer queue (sim state: hashed, snapshotted), and the script takes it with `plan.pointer(0)`: the tab and row
+  are set, then the same select / back step the keys use. So the plan still changes only from sim input. Only Bond 1's clicks count,
+  as only his keys do.
 - **Sim state.**
   - The plan (tab, rows, floor, what is bought, the entry, the extras, the spend, the timer) is Lua state (the arena: the rollback
     snapshot). It rides in the heist's hashed text: `H.state_text` is wrapped and adds ` PL[...]`.
@@ -1702,7 +1722,11 @@ vault's cracker), the slappers, the pickpocket and the vents, which are free.
 - `plan.view(on, page, floor, footer)`, `plan.clear()`, `plan.at(page)`, `plan.count()`;
 - `plan.has(p, item)`: tests only. It reads the inventory; `bond.equip` would add the item;
 - `plan.strip(p, item)`: takes an item out of Bond p's inventory (sim). At the stage start the plan strips the stage's own start
-  gun (the PP7), so the guns are bought too.
+  gun (the PP7), so the guns are bought too;
+- `plan.pages(first, n)`: the plan's tabs; `plan.tabs() -> first, n`: the tabs shown now (tests);
+- `plan.hit(page, row, x0, y0, x1, y1)`: a row's mouse box; `plan.pointer(p) -> a, b | nil`: Bond p's next click (sim);
+- `plan.test_mouse(x, y [, button])  -> page, row`: tests. It moves the cursor to a board point; button 1 / 2 is a left / right click,
+  4 / 5 a wheel notch, through the real hit test and session command, as Bond 1.
 
 ### 27c. Tests
 
@@ -1735,6 +1759,46 @@ All 118 checks passed. Screenshots (AC's machine): `E:\midas-temp\planning\shots
 - **Entry pads** are bank v3's names; on a layout without one the entry is greyed out ("NOT ON THIS MAP").
 - **The dig's 4:00** is clock only (the debrief's time, the Speedrun medal); nothing else in the mode keeps a deadline.
 - **Not run on Windows by eye.** The planning board was checked in headless screenshots only.
+
+### 27e. The planfix (AC's playtest, 2026-10-26, branch `planfix`)
+
+AC: "can we disable controlling the player and ONLY show the loadout screens when players start? ... I was walking backwards and
+forwards while selecting stuff, it was weird. and consider mouse controls too". What changed (27a and 27b above describe the result):
+- **No input reaches Bond while the board is up** (the controls-live predicate, 27b "The hold").
+- **Only LOADOUT / ENTRY / CREW while planning**; the job's five pages only after the confirm.
+- **Mouse controls** on the planning board (27b "The mouse"); the footer lists mouse and keys.
+- The INTEL board itself (after the confirm) has no mouse: it does not block play, so a click there still fires the gun. Its tabs stay
+  on the wheel and `,` `.`.
+- No schematic inset on ENTRY: the entry descriptions name the place, and the SCHEMATICS page is one Tab away after the confirm.
+
+Hooks added: `bondview2.c` (one predicate term), `video.c` (one block after the wheel drain), `input_pc.c` (the intro-tap stop, the
+`GE_FAKEDIGMOVE` test feed), `port_netmsg.h` / `port_netmsg.c` / `port_netcmd.c` (the command kind, its range check, its apply).
+
+**Tests** (`tests/heist/run_planning.sh`; two new things):
+- `hold`: the pad stick (`GE_DRIVE=1`), the mouse (`GE_FAKEMOUSE`) and the Move keys (`GE_FAKEDIGMOVE=dx,dy,from,until`, new: the
+  keyboard's W/A/S/D as the sim reads them) are all fed while the board is up. Bond moves 0.00 units, and his yaw and pitch do not
+  change. A mouse click on CONFIRM then starts the job, and the same feeds move him 2226 units and turn him 207 degrees (so the feeds
+  are real).
+- `plan` gains the mouse: hover buys nothing; a left click buys the PP7; two clicks buy two coins, and the row follows the cursor;
+  right clicks sell back to $0; a click on the ENTRY tab switches; a wheel notch moves the row. The tabs are 3 while planning and the
+  job's 5 after the confirm. A third screenshot shows the INTEL board after the confirm.
+
+Results on `planfix` (2026-10-26):
+
+| Check | Result |
+| --- | --- |
+| run_planning | off 7, plan 34, keys 4, hold 7, det 29 / 29 / 30 / 30 + 4 (2445 ticks hash-identical, solo and co-op view-switched, with the mouse clicks in the plan), offdet 4358 ticks identical. All pass |
+| run_debrief | 42 passed |
+| winpath | win 59, trapped 17, fail 5, quiet 11, count 2 |
+| firstplay | 6 passed |
+| intel | content 24 + 1 fail, det passes. The failing check is `feeds: the hall cameras put someone on the board`. It **fails the same way on the base 9fb0126** (rebuilt with this branch's files reverted), so it is not the planfix |
+| dam1 | identical (453 lines) |
+
+Screenshots: `planfix-plan_loadout.jpg` (the planning board, the cursor hovering TAPE LOOPS, only three tabs) and
+`planfix-intel_after.jpg` (the INTEL board after the confirm: the job's five tabs) in the overnight `img` folder.
+
+Not done: netplay was not run (the click's session command is the same path as `give`; the two-machine run is the integration
+pass's); not checked by eye on Windows (the cursor is drawn by the board; if the OS pointer also shows over it, hide one).
 
 ## 28. Sim performance (stream `heistperf`, 2026-10-26)
 
