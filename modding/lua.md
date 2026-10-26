@@ -86,6 +86,7 @@ Registers a handler (at most 16 per event; an unknown event name raises).
 | `noise` | `(x, y, z, radius, kind, src)`: a noise the guards may hear (`kind`: `slap` `step` `run` `door` `shot` `thud` `glass` `coin` `alarm`; `src` a chr, `-2 - p` for Bond p, -1 the world). See "Guard hearing and awareness" |
 | `guard_bark` | `(chr, kind, text)`: a guard says something (`kind`: `huh` `hey` `investigate` `lost` `found_body` `radio` `backup` `surrender`) |
 | `test_key` | `(name)`: a test hotkey, `"next"` (PageDown), `"back"` (PageUp), `"next+"`, `"back+"` (with Shift), or the console `arena <name>`. Never from the keyboard in co-op or netplay. |
+| `draw_crosshair` | `(x, y, ctx)`: every frame the sight could show (not in netplay). Presentation only: draw with `ctx`, change nothing else. See "Crosshair styles" |
 
 Chr ids are chrnums. Globals: `CHR_BOND = -2` (player 0; `bond.id(p)` gives the id of other Bonds) and `CHR_NONE = -1`. `damage`, `chr_spawned`, `item_pickup` and `objective_changed` also fire on an ordinary solo stage, not only in a mode. The heist events (`alarm`, `cctv_spotted`, `use`, `gadget_used`) fire wherever the game does the thing, but a script only runs in a mode.
 
@@ -360,7 +361,7 @@ The trigger counts, the lines, the disguises and the item list are in the co-op 
 
 Job 6 of designs/bank-heist.md: `tools/mode_heist.lua`, shipped as `Data/Scripts/modes/heist.lua`. Run it on Bunker 2: `GE_MODE=heist GE_STAGE=bunker2 GE_SKIPINTRO=1` (Windows: `Play Heist.bat`). The Janus front bank in St Petersburg: about 105 guards on post on Agent (more on harder difficulties), alarm raisers at their area's panel, bank staff, four card carriers (GREEN: the head teller or the lobby captain, chosen at random; BLUE: the security chief; RED: the branch manager; GOLD: the vault captain), Bunker 2's doors re-keyed as tiers, the stock cameras, a cracker with jams and a time-locked vault, gold bars and cash, two exits. Every count, timer and chance is in the settings table `S` at the top; a preset or test sets `HEIST_SETTINGS` before `include("heist")`. The table `HEIST` is its test window (phase, loot, carriers, zones, `HEIST.force_jam()`, `HEIST.camera_switch(p)`, `HEIST.watch(p [, cam])`, `HEIST.intel_lines(p)`). The banking hall (room 6) is the control room: the use action (the Port use bind, not B, which is also reload) at one of its screens (the monitor wall at its west side, the two desk screens) puts that Bond on the camera feeds, and while he is in room 6 or on a feed the HUD panel shows the intel (cameras up, alarm, the vault, where a working camera last saw each card carrier, guard counts in the areas a working camera covers, "?" elsewhere). The security console (BLUE card) still switches every camera off for 90 s. Tests: `tests/heist/run_winpath.sh` (win path, trapped-in-the-vault path, civilian-limit fail path), `tests/heist/run_cctv.sh` (the feeds and the intel); screenshots: `tests/heist/run_shots.sh`. The flow and the map are written up at the top of the script and in designs/bank-heist.md section 9.
 
-> **Stale (checked 2026-10-26).** The paragraph above describes the first, Bunker 2 version. The heist now runs only on the generated Janus bank (v3): `GE_MODE=heist GE_STAGE=levelgen GE_SKIPINTRO=1` (`Play Heist (overnight).bat`); on any other stage it sets nothing up. The control room is the bank's hall (found by name, not room 6). The screenshot script is `tests/heist/run_bank_shots.sh` (there is no `run_shots.sh`). The later layers are in designs/bank-heist.md sections 16-23 (cover, intel board, AR, gadgets, bank v3, the first-play guide). The co-op bot `tools/bot/heist_bot.lua` still targets Bunker 2 (`GE_STAGE=bunker2`) and has not been moved to the bank.
+> **Stale (checked 2026-10-26).** The paragraph above describes the first, Bunker 2 version. The heist now runs only on the generated Janus bank (v3): `GE_MODE=heist GE_STAGE=levelgen GE_SKIPINTRO=1` (`Play Heist (overnight).bat`); on any other stage it sets nothing up. The control room is the bank's hall (found by name, not room 6). The screenshot script is `tests/heist/run_bank_shots.sh` (there is no `run_shots.sh`). The later layers are in designs/bank-heist.md sections 16-23 (cover, intel board, AR, gadgets, bank v3, the first-play guide). The player bot's heist driver `tools/bot/heist_bot.lua` plays the bank now (2026-10-26): `GE_MODE=heist_bot GE_STAGE=levelgen GE_PLAYERBOT=1 GE_PLAYERBOT_HOLSTER=1`, headless with per-stage checkpoints in `tests/heist/run_botheist.sh` (designs/bank-heist.md section 23e). The Bunker 2 small job `heist_bot_cells` is retired with Bunker 2.
 
 ### Guard hearing and awareness
 
@@ -391,6 +392,17 @@ The heist's crew planning board (designs/bank-heist.md section 19). The C side (
 
 `midas.ini [input] intel_hold=1` shows the board only while the key is held. `GE_INTEL_AUTO="<frame>:open|close|page<n>|floor<n>,..."` drives the view in a headless run (the determinism proof in `tests/heist/run_intel.sh`).
 
+### The DEBRIEF panel: `debrief.*`
+
+The heist's end-of-job report (designs/bank-heist.md section 26; `port/src/port_debrief.c`, `port/luavm/port_luavm_debrief.c`, content from `tools/heist_debrief.lua`). Presentation only: a full-screen panel in the INTEL board's style, this machine's, up until its player dismisses it (use, INTEL, A, Start); it takes the input while it is up (not in automated runs).
+
+| Call | What it does |
+|---|---|
+| `debrief.set{ kicker, rating, rating_rgba, flavour, payout, payout_note, title, rows = {{label, value [, rgba]}}, medals = {{name, desc, earned}} }` | Replace the panel's content (up to 22 rows, 15 medals). |
+| `debrief.record{ difficulty, win, payout, time, rating, result }` | Count the run in `Data/Saves/heist_records.json` (next to the exe, a fixed name), save it, put NEW BEST / BEST TIME and the best line on the panel, log `HEIST RECORD {json}`. The file's contents never come back to the script. Call after `set`. |
+| `debrief.show([on])`, `debrief.log(text)` | Open (close) the panel on this machine; one log line up to 2000 characters (`print` stops at 511). |
+| `debrief.is_open()`, `debrief.record_info(difficulty)`, `debrief.records_path()` | Tests only: the view; `new_best, runs, wins, best_payout, saved`; the file's path. |
+
 ### The AR overlay and diagnostics: `ar.*`, `diag.*`
 
 Presentation only (`port/src/port_arhud.c`, `port/luavm/port_luavm_ar.c`; designs/bank-heist.md section 20 has the full table). World
@@ -403,6 +415,80 @@ kind `"hey"`, `"radio"`, `"huh"`), `ar.outline(chr, rgba | nil)` (bracket corner
 `diag.freeze(bool)` (no AI list runs: changes the sim, refused in co-op and netplay). Colours are `0xRRGGBBAA` or a name. Without a mode
 calling `ar.on`, nothing is drawn; another stream's script should guard calls with `if ar then`. The heist's wiring is
 `tools/heist_ar.lua`.
+
+### Crosshair styles: `crosshair.*`
+
+Presentation only (`port/src/port_crosshair.c`, `port/luavm/port_luavm_crosshair.c`). A style replaces the game's sight sprite with a
+shape drawn in code; with no style, no hide and no draw hook the game's own sight draws exactly as before. Works on any solo stage, in a
+mode or not.
+
+There are two layers. A **script's** style (`crosshair.style`) lasts until the next stage start. The **player's** style (`crosshair.use`,
+the console, `GE_CROSSHAIR`) lasts for the session. The script's style wins while it is set.
+
+| Call | Notes |
+| --- | --- |
+| `crosshair.style(opts)` | The script's style. `opts` is a table (below) or the name of a pack style. `nil` drops it. Raises on an unknown shape, colour or weapon. |
+| `crosshair.use(name)` | The player's style, by pack name. `"off"` or `"classic"` returns to the game's sight. Returns false for an unknown name. |
+| `crosshair.list()`, `crosshair.shapes()` | The pack's style names; the shape names. |
+| `crosshair.hide([bool])`, `crosshair.hidden()` | No sight at all: no style, no hook, not the game's sight either (`true` when called with no argument). Dropped at the next stage start. |
+| `crosshair.reset()` | Drops the script's style and the hide. |
+| `crosshair.current()` | `shape, who`: the shape drawn now (`"classic"` when no style is set) and whose style it is (`"script"`, `"player"` or nil). |
+| `crosshair.spread()` | The dynamic gap last drawn, in HUD pixels. |
+| `crosshair.draws()`, `crosshair.test_hit([head])` | Test helpers: frames a custom sight has drawn; a hit marker now. |
+
+Style fields (all optional). Units are **HUD pixels**: the game's 240-line frame, so 1 is 3 window pixels at 720p, before the HUD Scale
+setting. Fractions are fine; edges are drawn at sub-pixel precision.
+
+| Field | Default | Notes |
+| --- | --- | --- |
+| `shape` | `"cross"` | `"classic"` (the game's sprite), `"none"`, `"dot"`, `"cross"` (or `"plus"`), `"t"`, `"x"`, `"circle"` (or `"ring"`), `"chevron"`, `"brackets"` |
+| `size` | 4 | arm length; the circle's radius; the dot's diameter |
+| `gap` | 2 | space between the aim point and the arms |
+| `thickness` | 0.75 | line width |
+| `color` | `0xFFFFFFE6` | `0xRRGGBBAA`, a name (`white red green blue cyan yellow orange gold magenta black`) or `{r, g, b [, a]}` (0..255) |
+| `dot`, `dot_size` | false, 1 | a centre dot as well; `dot = 0.8` sets its size |
+| `outline`, `outline_color`, `outline_thickness` | false, `0x000000A0`, 0.4 | a dark rim under every part; `outline = <colour>` picks its colour |
+| `dynamic` | false | the gap opens with the gun's real spread, movement and firing. A number sets `spread_scale` |
+| `spread_scale`, `move_bloom`, `fire_kick` | 1, 3, 1.5 | x the weapon's spread (its `inaccuracy`, with the first-shot bonus while you are not firing); pixels at full run speed; pixels per shot, fading over 0.25 s |
+| `hit_marker`, `hit_color`, `headshot_color`, `hit_time`, `hit_size` | false, white, red, 0.25, 3 | a short X when one of your shots hits someone, red for a headshot (it reads the mission-stats hit counters) |
+| `always` | true | also while not aiming. The game shows its own sight only in aim mode |
+| `draw` | | `function(x, y, ctx)`: called every frame after the shape (as `draw_crosshair` below) |
+| `weapons` | | `{ <weapon> = { ...fields } }`: per-weapon overrides on top of the rest (names as `weapon.items()`, e.g. `sniperrifle`, `shotgun`, `kf7`) |
+
+`dynamic` with a `circle` draws the real spread: `gunfire.c` places each shot within half of the weapon's scaled `Inaccuracy` of the aim
+point, and that is the ring's extra radius. The game itself has no movement spread, so `move_bloom` and `fire_kick` are cosmetic.
+
+**The draw hook.** `on("draw_crosshair", function(x, y, ctx) ... end)` runs every frame the sight could show (not during a damage flash
+or a cutscene, not in the menus, not after death), after the style. `x, y` is the aim point in HUD pixels from the top left. Draw with:
+
+- `ctx.line(x0, y0, x1, y1 [, thickness [, color]])`, `ctx.rect(x0, y0, x1, y1 [, color])`
+- `ctx.circle(x, y, r [, thickness [, color]])` (thickness 0 fills it), `ctx.dot(x, y [, size [, color]])`
+- `ctx:line(...)` works too. At most 256 calls a frame.
+
+The info fields are `ctx.spread` (HUD px), `ctx.since_hit` (seconds since your last hit; nil before one), `ctx.headshot`, `ctx.aiming`,
+`ctx.weapon` (the `ITEM_*` id), `ctx.player`, `ctx.w`, `ctx.h`. To draw only your own shape, set `crosshair.style{ shape = "none" }`.
+With no style set, the hook draws over the game's sight.
+
+Rules for draw code: it runs on the frame, not the tick, so its call count depends on the frame rate. Never change game state, never call
+`math.random`, and keep it short (the usual instruction budget applies). An erroring hook is disabled and logged once. Hooks do not run
+during netplay: each machine draws a different number of frames, and Lua state must stay identical on both.
+
+```lua
+-- Data/Scripts/my_crosshair.lua: runs at every solo mission start
+crosshair.style{ shape = "cross", size = 3, gap = 1.5, color = "green", outline = true, dynamic = true, hit_marker = true,
+  weapons = { sniperrifle = { shape = "dot", size = 1.2, dynamic = false } } }
+on("draw_crosshair", function(x, y, ctx)
+  if ctx.since_hit and ctx.since_hit < 0.15 then ctx.circle(x, y, 7, 0.5, "red") end
+end)
+```
+
+**The pack.** `Data/Scripts/mods/crosshair_pack.lua` (from `tools/crosshair_pack.lua`) returns an array of styles, each a style table with
+a `name`: `dot`, `cross`, `tactical` (per-weapon: a dot on the sniper rifle, the spread circle on the shotguns), `circle`, `chevron`,
+`brackets`, and `rangefinder` (drawn with the draw API). Pick one in the console with `crosshair <name>` (`crosshair` alone lists them;
+`crosshair off`, `crosshair hide`, `crosshair show`, `crosshair reload` after an edit), with `GE_CROSSHAIR=<name>` at start-up, or from a
+script with `crosshair.use(name)`. Loading the pack runs Lua, so pick before netplay starts; the choice then stays for the session, also in
+multiplayer. The pack's `draw` functions, like every hook, are skipped in netplay. Tests: `tests/crosshair/run.sh` (the API and the shots;
+`proof`: the state hashes with and without a style are identical).
 
 ### Weapons, modifiers, music, menus
 
@@ -419,6 +505,7 @@ The stage-touching tables (`bond`, `spawn`, `zone`, `hud`, `mission`, `hostages`
 
 1. If it needs game types, add a plain-C helper to `port/src/port_lua.c` (or `port_arenamode.c`) and declare it in `port/include/port_lua.h`.
 2. In `port/luavm/port_luavm.c` (or `port_luavm_arena.c`) write a `static int portLuaXxx(lua_State *L)`, validate arguments with `luaL_check*`, and register it in a `luaL_Reg` table.
-3. Gate anything that changes the simulation on `portLuaGameAllowed()` and never call Lua from a render path.
+3. Gate anything that changes the simulation on `portLuaGameAllowed()` and never call Lua from a render path. (The one exception is
+   `draw_crosshair`: solo and co-op only, never in netplay, and its handlers may only draw.)
 
 Lua is its own static library (`ge_lua`) because the game's headers shadow libc; that is why the glue is split in two halves.

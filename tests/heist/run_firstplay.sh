@@ -10,7 +10,7 @@ done
 mkdir -p /home/dev/project/build_pc/firstplay_shots
 rm -f /home/dev/project/build_pc/firstplay_shots/shot_*.bmp /home/dev/project/build_pc/firstplay_shots/shot_*.png
 cd /home/dev/project/build_pc/firstplay_shots || exit 1
-DISPLAY=:99 GE_MODE=heist_firstplay GE_STAGE=levelgen GE_SKIPINTRO=1 GE_NOINISAVE=1 GE_SEED=7 GE_FULLHEIGHT=0 GE_EDGEINSET=1 \
+DISPLAY=:99 GE_MODE=heist_firstplay GE_STAGE=levelgen GE_SKIPINTRO=1 GE_NOINISAVE=1 GE_SEED=${GE_SEED:-7} GE_FULLHEIGHT=0 GE_EDGEINSET=1 \
     GE_FRAMES=${GE_FRAMES:-5000} timeout 400 ../ProjectMidas > ${LOGDIR:-/tmp}/heist_firstplay.log 2>&1
 grep -aE "HEIST|gfx: wrote|ge: lua: .*error" ${LOGDIR:-/tmp}/heist_firstplay.log
 for b in shot_*.bmp; do [ -f "$b" ] && python3 /home/dev/project/tests/bmp2png.py "$b" "${b%.bmp}.png" && rm -f "$b"; done

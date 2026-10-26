@@ -27,6 +27,9 @@ local function secs(v) return string.format("%d s", math.floor(v + 0.5)) end
 
 function heist_intel(ctx)
   local S, H, PW, M, K = ctx.S, ctx.H, ctx.PW, ctx.M, ctx.keys
+  local JOB = ctx.job or heist_job()
+  local JI = JOB.intel                               -- the job's words (tools/jobs/<job>.lua: the bank's are the board's old text)
+  local VAULT_ROOM, FRONT_DOOR = JOB.map.vault_room, JOB.map.doors.front
   local L = LEVEL
   local I = { data = {} }
   local D = I.data
@@ -68,15 +71,12 @@ function heist_intel(ctx)
   I.room_floor = room_floor
 
   -- the keys: every keyed door / safe in the layout, by its card
-  local KEYDEF = {
-    { flag = K.GREEN, name = "GREEN CARD", col = 0x30D050FF, who = "the head teller OR the lobby captain",
-      where = "banking hall: one of the two, the plan doesn't say which", roles = { "head teller", "lobby captain" } },
-    { flag = K.BLUE, name = "BLUE CARD", col = 0x4090FFFF, who = "the security chief", where = "the offices behind GREEN", roles = { "security chief" } },
-    { flag = K.RED, name = "RED CARD", col = 0xFF3838FF, who = "the branch manager", where = "his own office (behind BLUE)", roles = { "branch manager" } },
-    { flag = K.GOLD, name = "GOLD CARD", col = 0xFFD040FF, who = "the vault captain", where = "inside the vault (armoured)", roles = { "vault captain" } },
-    { flag = K.FLOORKEY, name = "FLOOR KEY", col = 0xC080FFFF, who = "nobody: it lies on a shelf", where = "records (ground floor)", roles = {} },
-  }
-  if ctx.rand then ctx.rand.keydef(KEYDEF) end   -- section 25: today's carriers (tools/heist_randomiser.lua)
+  -- (who carries each card, where, and how to get it: the job's words, tools/jobs/<job>.lua intel.keys)
+  local KEYDEF = {}
+  for _, kc in ipairs({ { "GREEN", 0x30D050FF }, { "BLUE", 0x4090FFFF }, { "RED", 0xFF3838FF }, { "GOLD", 0xFFD040FF }, { "FLOORKEY", 0xC080FFFF } }) do
+    local j = JI.keys[kc[1]]
+    KEYDEF[#KEYDEF + 1] = { flag = K[kc[1]], name = j.name or (kc[1] .. " CARD"), col = kc[2], who = j.who, where = j.where, roles = j.roles }
+  end
   D.keys = {}
   local key_by_flag = {}
   for _, k in ipairs(KEYDEF) do
@@ -210,33 +210,14 @@ function heist_intel(ctx)
   -- page 1: THE PLAN
 
   local STEP_Y, STEP_H = 74, 62
-  local function cam_secs() return S.cam_off_time end
   local function plan_steps()
-    local g = S.cover and "Walk in the front door: you're staff, gun holstered. The hall is public; staff rooms cost cover slowly, restricted rooms in a second."
-                     or "Walk in the front door from the street."
-    return {
-      { "GET IN", g,
-        "Same doors, gun out. Once the alarm goes the hall's blast shutters lock: BLUE card to pass." },
-      { "GET THE KEYS", ctx.rand and ctx.rand.plan_keys() or "GREEN (head teller or lobby captain), then BLUE (security chief, offices), then RED (branch manager). Aim at staff to rob them; knock guards out and search them.",
-        "Drop the carrier and take the card off the body. Every card opens doors only for the Bond who holds it." },
-      { "CAMS / POWER", string.format("Security office console (BLUE, press use): every camera off %s. Or the plant room on %s: cabinet %s + main breaker %s.",
-          secs(cam_secs()), names[1] or "B2", secs(S.power_cabinet), secs(S.power_cut)),
-        string.format("Power out = no siren, no panels, no cameras. Backup generator in %s unless you kill it (%s).", secs(S.generator_after), secs(S.generator_time)) },
-      { "CRACK VAULT", string.format("Antechamber, a floor down behind RED. Equip the door decoder and fire it at vault door A (or press use). %s of work, only while a Bond is near it.",
-          secs(S.crack_time)),
-        string.format("It jams (%d%% every %s): fire it again. Two squads come for it even on a quiet run.", math.floor(S.jam_chance * 100 + 0.5), secs(S.jam_every)) },
-      { "GRAB THE GOLD", string.format("Open %s, klaxon at T-%d. %d bars x %s. GOLD card (%s) opens the manager's safe.", secs(S.vault_time), S.klaxon_at,
-          S.vault_bars, ctx.money(S.bar_value), ctx.rand and ctx.rand.cards[K.GOLD].role or "vault captain"),
-        string.format("At 0 the time lock seals it: anyone inside is TRAPPED (alarm, heavy squad, re-crack %s from inside).", secs(S.recrack_time)) },
-      { "GET OUT", "Every living Bond in an exit with the loot: the van on the street or the loading dock. No alarm all run = +" .. math.floor(S.quiet_bonus * 100 + 0.5) .. "%.",
-        string.format("Waves every %s while hot, the elite response after %s. Exit B (dock) is never locked down.", secs(S.wave_interval), secs(S.response_after)) },
-    }
+    return JI.plan(S, { secs = secs, money = ctx.money, floor = names[1] or "B2" })
   end
 
   local function draw_plan_static()
     intel.at(1, 0, false)
     heading(28, 40, "THE PLAN")
-    intel.text(130, 44, ctx.rand and ("TODAY: " .. ctx.rand.twist.text) or "Operation: relieve the Janus bank of its gold. Six steps. Tick them off.", INK2, 0.9)
+    intel.text(130, 44, JI.operation, INK2, 0.9)
     intel.text(176, 62, S.cover and "QUIET  (stay staff, +" .. math.floor(S.quiet_bonus * 100 + 0.5) .. "% bonus)" or "QUIET", 0x9FE0A0FF)
     intel.text(404, 62, "LOUD  (it'll happen)", 0xFF9A9AFF)
     intel.line(172, 72, 172, STEP_Y + 6 * STEP_H - 6, DIM, 1)
@@ -311,12 +292,7 @@ function heist_intel(ctx)
   -- ---------------------------------------------------------------------------------------------------------------------------
   -- page 2: SCHEMATICS
 
-  local LABEL = { hall = "BANKING HALL", sec_office = "SECURITY", manager = "MANAGER", vault = "VAULT", ante_a = "ANTE", records = "RECORDS",
-                  dock = "DOCK", power = "POWER", generator = "GENERATOR", deposit = "DEPOSIT", stairs = "RED STAIRS", typing_pool = "TYPING",
-                  office_a = "OFFICE A", office_b = "OFFICE B", canteen = "CANTEEN", garage = "GARAGE", director = "DIRECTOR", boardroom = "BOARD",
-                  street = "STREET", alley = "ALLEY", barracks = "BARRACKS", guard_room = "GUARDS", armory = "ARMORY", server_room = "SERVERS",
-                  b1_lobby = "B1 LOBBY", vault_corr = "VAULT CORR", service_ramp = "RAMP", counting_room = "COUNTING", roof = "ROOF",
-                  library = "LIBRARY", accounts = "ACCOUNTS", it_dept = "IT", cash_office = "CASH", lockers = "LOCKERS", mezz = "MEZZ" }
+  local LABEL = JI.labels
   local DOORCOL = { [K.GREEN] = 0x30D050FF, [K.BLUE] = 0x4090FFFF, [K.RED] = 0xFF3838FF, [K.GOLD] = 0xFFD040FF, [K.FLOORKEY] = 0xC080FFFF }
 
   local cams = {}                                -- { idx, name, x, z, lx, lz, floor }
@@ -433,21 +409,20 @@ function heist_intel(ctx)
       local x, y = to_board(f, xz[1], xz[2])
       if in_map(x, y) then intel.at(2, f, false); intel.marker(x, y, kind, col, 5, label) end
     end
-    local vr = L.rooms.vault
+    local vr = L.rooms[VAULT_ROOM]
     if vr then
       local f = room_level(vr)
       local x, y = to_board(f, (vr.rect[1] + vr.rect[3]) / 2, (vr.rect[2] + vr.rect[4]) / 2)
       intel.at(2, f, false); intel.marker(x, y + 8, "star", 0xFFD040FF, 7, "GOLD")
     end
-    spot("mgr_safe", "star", 0xFFD040FF, "SAFE", 4)
-    spot("director_safe", "star", 0xFFD040FF, "SAFE", 4)
+    for _, sn in ipairs(JI.safes) do spot(sn, "star", 0xFFD040FF, "SAFE", 4) end
     spot("breaker", "tri", 0xFFA030FF, "BREAKER")
     spot("generator", "tri", 0xFFA030FF, "GENERATOR")
-    spot("floor_key", "door", DOORCOL[K.FLOORKEY], "KEY", 3)
-    spot_pad(ctx.M.P.console, ground, "box", 0x60E0FFFF, "CONSOLE")
-    spot_pad(ctx.M.P.exit_a, ground, "diamond", 0x60FF60FF, "EXIT A: VAN")
-    spot_pad(ctx.M.P.exit_b, ground, "diamond", 0x60FF60FF, "EXIT B: DOCK")
-    spot_pad(ctx.M.P.crack, (L.rooms.ante_a and room_level(L.rooms.ante_a)) or 1, "x", 0xFFE060FF, "CRACK HERE")
+    spot(JI.floor_key, "door", DOORCOL[K.FLOORKEY], "KEY", 3)
+    spot_pad(ctx.M.P.console, ctx.M.P.console and pad_floor(ctx.M.P.console) or ground, "box", 0x60E0FFFF, "CONSOLE")
+    spot_pad(ctx.M.P.exit_a, ground, "diamond", 0x60FF60FF, JI.exit_a)
+    spot_pad(ctx.M.P.exit_b, ground, "diamond", 0x60FF60FF, JI.exit_b)
+    spot_pad(ctx.M.P.crack, (L.rooms[JI.crack_room] and room_level(L.rooms[JI.crack_room])) or 1, "x", 0xFFE060FF, "CRACK HERE")
     if ctx.M.P.screens_at then
       local x, y = to_board(ground, ctx.M.P.screens_at[1], ctx.M.P.screens_at[2])
       intel.at(2, ground, false); intel.marker(x, y, "box", 0x60E0FFFF, 3, "SCREENS")
@@ -459,15 +434,7 @@ function heist_intel(ctx)
       local f = p and pad_floor(p)
       if f then spot_pad(p, f, "pin", col, label) end
     end
-    if ctx.rand then   -- section 25: today's carriers' posts
-      for _, e in ipairs(ctx.rand.posts()) do post(e[1], DOORCOL[e[2]], e[3]) end
-    else
-    post(C.teller, DOORCOL[K.GREEN], "GREEN? HEAD TELLER")
-    post(C.captain, DOORCOL[K.GREEN], "GREEN? LOBBY CAPTAIN")
-    post(C.chief, DOORCOL[K.BLUE], "BLUE: SECURITY CHIEF")
-    post(C.manager, DOORCOL[K.RED], "RED: MANAGER")
-    post(C.vault_captain, DOORCOL[K.GOLD], "GOLD: VAULT CAPTAIN")
-    end
+    for _, q in ipairs(JI.posts) do post(C[q[1]], DOORCOL[K[q[2]]], q[3]) end
   end
 
   -- the next step's place on the map (THE PLAN's red frame): { floor, x, z, label } list
@@ -480,19 +447,17 @@ function heist_intel(ctx)
     local n = I.next_step
     local C = ctx.M.CARRIERS or {}
     if n == 1 then
-      local fd = obj("front_door")
+      local fd = obj(FRONT_DOOR)
       local dw = fd and fd.doorway and door_at[fd.doorway]
       if dw then out[#out + 1] = { ground, dw.x, dw.z, "NEXT: IN HERE" } end
-    elseif n == 2 and ctx.rand then   -- section 25: today's carriers
-      local f = not crew_has(K.GREEN) and K.GREEN or (not crew_has(K.BLUE) and K.BLUE or K.RED)
-      for _, p in ipairs(ctx.rand.next_pads(f)) do at_pad(p, f == K.GREEN and "NEXT: GREEN?" or (f == K.BLUE and "NEXT: BLUE" or "NEXT: RED")) end
     elseif n == 2 then
-      if not crew_has(K.GREEN) then at_pad(C.teller and C.teller[1], "NEXT: GREEN?"); at_pad(C.captain and C.captain[1], "NEXT: GREEN?")
-      elseif not crew_has(K.BLUE) then at_pad(C.chief and C.chief[1], "NEXT: BLUE")
-      else at_pad(C.manager and C.manager[1], "NEXT: RED") end
+      local NP = JI.next_posts
+      if not crew_has(K.GREEN) then for _, c in ipairs(NP.GREEN) do at_pad(C[c] and C[c][1], "NEXT: GREEN?") end
+      elseif not crew_has(K.BLUE) then for _, c in ipairs(NP.BLUE) do at_pad(C[c] and C[c][1], "NEXT: BLUE") end
+      else for _, c in ipairs(NP.RED) do at_pad(C[c] and C[c][1], "NEXT: RED") end end
     elseif n == 4 then at_pad(ctx.M.P.crack, "NEXT: CRACK")
     elseif n == 5 then
-      local vr = L.rooms.vault
+      local vr = L.rooms[VAULT_ROOM]
       if vr then out[#out + 1] = { room_level(vr), (vr.rect[1] + vr.rect[3]) / 2, (vr.rect[2] + vr.rect[4]) / 2, "NEXT: GOLD" } end
     elseif n == 6 then at_pad(ctx.M.P.exit_a, "NEXT: OUT"); at_pad(ctx.M.P.exit_b, "NEXT: OUT") end
     return out
@@ -591,12 +556,8 @@ function heist_intel(ctx)
   local KEYCARD = { w = 186, h = 196 }
   local function key_pos(i) local c, r = (i - 1) % 3, math.floor((i - 1) / 3); return 26 + c * 200, 44 + r * 206 end
   local function how_text(k)
-    if ctx.rand and ctx.rand.cards[k.flag] then return ctx.rand.how(k.flag) end   -- section 25
-    if k.flag == K.GREEN then return "Teller: aim at her till she gives it up. Captain: knock him out and search him (or rob him at gunpoint)." end
-    if k.flag == K.BLUE then return "The chief is tough (x1.5 health). Catch him alone in the offices: KO and search." end
-    if k.flag == K.RED then return "The manager is a civilian: aim at him and he hands it over. Don't kill him." end
-    if k.flag == K.GOLD then return "In the vault with the guards: only once it's open. Armoured, double health." end
-    return "Walk into records (staff area) and pick it up off the shelf."
+    for kn, j in pairs(JI.keys) do if K[kn] == k.flag then return j.how end end
+    return JI.keys.FLOORKEY.how
   end
   local function draw_keys_static()
     intel.at(3, 0, false)
@@ -617,9 +578,9 @@ function heist_intel(ctx)
     local x, y = key_pos(6)
     card(x, y, KEYCARD.w, KEYCARD.h, { photo = 34, photo_col = 0x101010FF })
     intel.text(x + 12, y + 14, "NO KEY", 0xF0F0F0FF, 1.0, 0, 1)
-    intel.text(x + 10, y + 46, "THE VAULT DOORS: time-locked. Only the cracker (the door decoder) opens them.", CARD_INK, 0.78, KEYCARD.w - 18)
-    intel.text(x + 10, y + 90, "PADLOCKS: the alley's dock shutter and the canal tunnel's grate. Shoot the padlock.", CARD_INK, 0.78, KEYCARD.w - 18)
-    intel.text(x + 10, y + 134, S.lockdown and "LOCKDOWN: when the alarm goes the hall's blast shutters close and want BLUE." or "", 0x8A1010FF, 0.78, KEYCARD.w - 18)
+    intel.text(x + 10, y + 46, JI.nokey[1], CARD_INK, 0.78, KEYCARD.w - 18)
+    intel.text(x + 10, y + 90, JI.nokey[2], CARD_INK, 0.78, KEYCARD.w - 18)
+    intel.text(x + 10, y + 134, S.lockdown and JI.nokey[3] or "", 0x8A1010FF, 0.78, KEYCARD.w - 18)
   end
   local function draw_keys_live()
     intel.at(3, 0, true)
@@ -651,21 +612,7 @@ function heist_intel(ctx)
   -- page 4: PERSONNEL
 
   local function personnel()
-    local t = {
-      { "TELLERS", "Behind the counter, unarmed.", "Aim at one: she surrenders, keep aiming and she hands over what she has (the head teller may hold GREEN).", "Civilians: killing them costs " .. ctx.money(S.civ_fine) .. " each and too many fails the job." },
-      { "BRANCH MANAGER", "In his own office behind BLUE.", "Carries RED. Rob him at gunpoint.", "A civilian: hurt him and it counts." },
-      { "LOBBY CAPTAIN", "On the hall floor (if the head teller hasn't got GREEN, he has).", "Armed guard. KO and search, or rob him at gunpoint.", "Judges your disguise like any guard." },
-      { "SECURITY CHIEF", "Posted in the offices.", "Carries BLUE. 1.5x health.", "Guards the camera console's key: lose him and the security room is yours." },
-      { "GUARDS", string.format("About %d posted on this difficulty: hall, offices, corridors, security, dock, vault level.", math.floor(S.guards_post * (ctx.force or 1) + 0.5)),
-        "They stand post. They hear shots, see Bonds, find bodies.", "They treat you as staff until something gives you away, then 'Hey!' and a radio call." },
-      { "ALARM RAISERS", "A few per area.", "On sight or sound they run for the area's alarm panel.", "Drop them before they get there, or cut the power first." },
-      { "SECURITY ROOM", "The security wing's staff watch the cameras.", "A camera that times you relays to them: alarm " .. secs(S.security_delay) .. " later.", "Knock them all out and the cameras raise nothing." },
-      { "VAULT GUARDS", "Asleep inside the vault, with the vault captain (GOLD).", "They wake when the vault opens and come straight at you.", "Armoured captain, double health." },
-      { "SQUADS & WAVES", string.format("Two crack squads hit the cracker. Hot: waves every %s.", secs(S.wave_interval)), string.format("After %s hot: the armoured response, both entrances.", secs(S.response_after)),
-        "Trapped in the vault: the heavy squad (armour, RC-P90s)." },
-    }
-    if ctx.rand then for i, d in pairs(ctx.rand.dossiers()) do t[i] = d end end   -- section 25: today's carriers and job
-    return t
+    return JI.personnel(S, { secs = secs, money = ctx.money, force = ctx.force })
   end
   local function draw_personnel_static()
     intel.at(4, 0, false)
@@ -695,14 +642,13 @@ function heist_intel(ctx)
     n[#n + 1] = { "CAMERAS", string.format("They only time a Bond who looks wrong. A spot goes to the security room, which raises the alarm %s later if anyone there is up. The console (BLUE) blinds them all %s.", secs(S.security_delay), secs(S.cam_off_time)) }
     n[#n + 1] = { "THE POWER", string.format("Plant room, %s. Force the cabinet %s, throw the main %s. Leave, get seen or hit: you lose %s. Generator back in %s unless killed; guards come to look after %s.",
       names[1] or "B2", secs(S.power_cabinet), secs(S.power_cut), secs(S.power_setback), secs(S.generator_after), secs(S.investigate_after)) }
-    n[#n + 1] = { "HOLD FIRE", S.hold_fire and "Guards won't shoot through bank staff. Keep a civilian between you and them - but don't get them killed: the fine and the limit apply." or "Guards shoot through anyone. Mind the staff." }
-    n[#n + 1] = { "ALARM & LOCKDOWN", string.format("Raised by a guard's radio, a panel or the security room. Once up it stays up. %sWaves every %s.", S.lockdown and "The hall's blast shutters lock (BLUE to pass). " or "", secs(S.wave_interval)) }
+    n[#n + 1] = { "HOLD FIRE", S.hold_fire and JI.notes.hold_fire or "Guards shoot through anyone. Mind the staff." }
+    n[#n + 1] = { "ALARM & LOCKDOWN", string.format("Raised by a guard's radio, a panel or the security room. Once up it stays up. %sWaves every %s.", S.lockdown and JI.notes.lockdown or "", secs(S.wave_interval)) }
     n[#n + 1] = { "THE TIME LOCK", string.format("The vault stays open %s, klaxon at T-%d. It seals itself: an empty vault closes quietly, a Bond inside is trapped (re-crack %s).", secs(S.vault_time), S.klaxon_at, secs(S.recrack_time)) }
     n[#n + 1] = { "SCORING", string.format("Gold bar %s, cash bundle %s. +%d%% if the alarm never went. -%s per dead civilian. Knock-outs are free.", ctx.money(S.bar_value), ctx.money(S.money_value),
       math.floor(S.quiet_bonus * 100 + 0.5), ctx.money(S.civ_fine)) }
-    n[#n + 1] = { "THE SCREENS", "The hall's screen wall: press use there to watch the camera feeds. Guards you see go on the SCHEMATICS. Carriers you see go on THE KEYS." }
-    n[#n + 1] = { "THIS BOARD", "Doesn't pause anything. The bank keeps moving while you read. Find a quiet corner." }
-    if ctx.rand then n[#n] = ctx.rand.note() end   -- section 25: today's job, routes and dummy cameras
+    n[#n + 1] = { "THE SCREENS", JI.notes.screens }
+    n[#n + 1] = { "THIS BOARD", JI.notes.board }
     return n
   end
   local function draw_notes_static()
@@ -723,7 +669,7 @@ function heist_intel(ctx)
   function I.build_static()
     intel.clear()
     intel.enable(true)
-    intel.title("JANUS BANK, ST PETERSBURG  -  CREW EYES ONLY")
+    intel.title(JI.title)
     intel.page(1, "THE PLAN"); intel.page(2, "SCHEMATICS"); intel.page(3, "THE KEYS"); intel.page(4, "PERSONNEL"); intel.page(5, "NOTES")
     draw_plan_static()
     draw_map_static()
@@ -757,10 +703,9 @@ function heist_intel(ctx)
     return true
   end
   I.hint = hint
-  local CARD_WORD = { [K.GREEN] = "GREEN", [K.BLUE] = "BLUE", [K.RED] = "RED", [K.GOLD] = "GOLD", [K.FLOORKEY] = "the floor key" }
-  local SHORT_WHO = { [K.GREEN] = "head teller or lobby captain", [K.BLUE] = "the security chief carries it", [K.RED] = "the branch manager carries it",
-                      [K.GOLD] = "the vault captain carries it", [K.FLOORKEY] = "on a shelf in records" }
-  if ctx.rand then for _, f in ipairs({ K.GREEN, K.BLUE, K.RED, K.GOLD }) do SHORT_WHO[f] = ctx.rand.short_who(f) end end   -- section 25
+  local CARD_WORD = { [K.GREEN] = "GREEN", [K.BLUE] = "BLUE", [K.RED] = "RED", [K.GOLD] = "GOLD", [K.FLOORKEY] = JI.keys.FLOORKEY.word }
+  local SHORT_WHO = {}
+  for kn, j in pairs(JI.keys) do SHORT_WHO[K[kn]] = j.short end
   local function hints_tick()
     if not hints_on or H.ended or not H.ready then return end
     for p = 0, bond.count() - 1 do
@@ -793,7 +738,7 @@ function heist_intel(ctx)
           end
           if not done and H.console_zone and zone.contains(H.console_zone, bond.id(p)) and not (H.cam_off_until and H.elapsed < H.cam_off_until) then
             done = hint(p, "console", bond.has_key(p, K.BLUE) and string.format("Camera console: press use, every camera dark %s", secs(S.cam_off_time))
-                                                        or ("The camera console needs BLUE (" .. (ctx.rand and ctx.rand.short_who(K.BLUE) or "the security chief") .. ")"))
+                                                        or JI.console_hint)
           end
           if not done and H.near_monitor and H.near_monitor(p) then
             done = hint(p, "screens", "Screens: press use to watch the feeds (guards go on INTEL)")

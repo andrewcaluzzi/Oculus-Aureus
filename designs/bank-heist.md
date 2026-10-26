@@ -999,8 +999,9 @@ Screenshots of the merged build on v3 are on AC's machine, not in the repo, in `
   between: about 6.7 m in the open, 4 m through an open doorway, 1.7 m through a shut door. Fainter, he only turns ("Huh?") and looks
   from where he stands. Test: `run_ai.sh` `lure`.
 - **Fixed (`polish-ai`): backup calls pulled key-card carriers off their posts.** A carrier (ai kind 3) never answers a backup call;
-  the nearest other free guards do. He still calls backup himself when he is the one in combat. The watchclock and check-in dispatches
-  are unchanged. Test: `run_ai.sh` `backup` (`ai.backup(chr)` calls it from a script).
+  the nearest other free guards do. He still calls backup himself when he is the one in combat. Test: `run_ai.sh` `backup`
+  (`ai.backup(chr)` calls it from a script). **Since 23f** the missed check-in and the watchclock (`ai.nearest_free`) skip carriers
+  too. Test: `run_ai.sh` `holdcard`.
 - **Fixed (`polish-ai`): the camera rule is legible.** When a Bond is within reach of an unsearched knocked-out body or a standing card
   carrier (about to search or pickpocket), and a live camera sees him, the AR specs put a red **CAMERA SEES YOU** diamond on that
   camera ("CAMERA SEES P2" in co-op). A live camera is on, not on a tape loop, with someone in the security room. The diamond is
@@ -1040,14 +1041,160 @@ specs off it still shows, because it is the mode's own HUD lines. `S.guide = fal
 - **Screenshots** (AC's machine): `polish-before-*.jpg` and `polish-after-*.jpg` in the overnight `img` folder. Before, line 2 said only
   "GREEN card: head teller or lobby captain", with no hint of how to get it or what Tab does.
 
+### 23e. The player bot plays the bank (2026-10-26, branch `bot-bank`)
+
+The heist driver for the player bot, `tools/bot/heist_bot.lua`, targeted the retired Bunker 2 heist. It is rewritten for the bank:
+`GE_MODE=heist_bot GE_STAGE=levelgen GE_PLAYERBOT=1 GE_PLAYERBOT_HOLSTER=1`. Bond 0 is the bot. It moves on the stan tiles (its own
+A*), opens doors with B, and every act is a button press; no warps. The script reads the mode's state (`HEIST`, `HEIST.M`, `LEVEL`),
+which is how it knows where the card carriers are, and pushes plan steps (modding/bot.md). The mode is unchanged.
+
+**The route.** Holstered and at peace while the banker cover holds (`holster 1`, `peace 1`). GREEN, BLUE, RED in turn: a guard
+carrier's pocket is picked from behind (85 units behind him, face him level, B with nothing else in reach; the bot presses only when he
+is the nearest standing chr, Bond is 110 or nearer and at least 110 degrees off his facing). The head teller, and any carrier after 6
+misses or 120 s or once the run is hot, goes to the bot's own `key` step (staff held at gunpoint until they hand it over; a guard knocked
+out from behind, or shot, then searched). Then the security console, the crack spot (face vault door A, press B), holding the zone with
+`peace 0` (the vault level is restricted), restarting jams, the bars nearest first until 25 s before the time lock, the nearer exit. A
+blown cover or the alarm turns the fighting on at once. A watchdog drops a step that runs 30 s (a goto onto a spot the tiles cannot
+reach).
+
+**Bot changes (port_playerbot.c, input only).** A `holster 1|0` plan step: the slappers in hand while not fighting, reached with the port's
+previous-weapon action (A from the PP7 never got there in the heist). With `GE_PLAYERBOT_HOLSTER=1` set the stuck recovery's blind B
+press is skipped. The robbery's line test counts the same room as a line, as the heist's own aim test
+does: the tellers stand behind the raised counter and the bot walked into it for good.
+
+**The test.** `tests/heist/run_botheist.sh [seed ...]` (PAR, MAXSECS, EXTRA, SHOTS) runs headless with the bot's fast-forward
+(`GE_FIXEDTICK=1 GE_NOSLEEP=1 GE_CLOCKSCALE=20`, one tick in 60 drawn). `GE_FRAMES` is out of reach: with `GE_NOSLEEP` it counts
+pumps, which is why the heist suites ran out of frames; the run ends on the mission's end or the bot's `MAXSECS`. It prints a PASS or
+FAIL per checkpoint (`ready inside green blue console red vault_level cracking vault_open gold out win`; `out` is Bond in an exit zone)
+and the reach rate over the seeds.
+
+**Results (Agent, default settings, `MAXSECS=600`, seeds 7 8 11 12):** ready 4/4, inside 4/4, GREEN 4/4, BLUE 4/4, console 3/4, RED
+4/4, vault level 3/4, cracking 2/4, vault open 2/4, gold 2/4 (all 30 bars both times), out 1/4, **win 1/4** (seed 7: 386 s, 56 kills,
+one civilian). Every run went loud in the first 20 s; the end is mostly the bot's fighting, not the route. Earlier builds of the same
+driver: seeds 9 and 10 died in the hall at ~50 s; with `GE_HEIST_TUNE1` (carriers only) seeds 8 and 11 died because the bot never drew
+the gun (below), so that tuning is not measured with the final build.
+
+**Findings (not fixed):**
+- **A use press with nothing in reach is a pickpocket on the nearest chr within 120.** A press at a door just out of reach, next to a
+  guard who faces you, is "caught" and blows the cover. The bot did exactly that (its stuck recovery's blind B press). A player pressing
+  use near a guard for any other reason risks the same. Worth a design look (e.g. only from behind, or only with the pickpocket aimed).
+- **Drawing the gun from the opening slappers.** `advance_through_inventory` goes to the hand's *previous* weapon when the cycle's next
+  item is a gadget. With the slappers equipped from the start and never anything else, A did not reach the PP7 for the bot (25 s of
+  presses). The bot now draws once on the street before holstering, which keeps the previous weapon the PP7. Not checked with a human on
+  a pad; if it reproduces, the mode's start loadout (equip the PP7, then the slappers) is the place, but that attempt alone did not fix
+  the bot, so the cause is not fully known.
+- **The pickpocket press often does nothing.** Behind a carrier, facing him, B (3 ticks) frequently fired no `use` event at all, so no
+  pickpocket ran (seed 8: 6 tries, no event). Cause not found (the B tap path in bondview2.c `btap` / `field_D0`). One clean lift seen
+  (seed 8, an earlier build: the lobby captain's GREEN at 8 s, no cover lost).
+- **The crowded hall.** Once loud in the hall, the bot often cannot shoot: a civilian is in every line of fire, so it holds and is shot
+  (seeds 8 / 9 / 10 / 11 deaths at 50-120 s in earlier builds). The teller's robbery and the captain's knock-out are both seen by the
+  hall guards, so the GREEN card goes loud on most seeds.
+- A crew with no loot stands in the exit for ever (the mode needs something carried); the bot leaves at 25 s left even with 0 bars.
+
+**Left:** the quiet route (pickpocket presses that fire; taking GREEN without the hall seeing it; the tape loop or console before the
+crack), fighting in the crowded hall, the exit under the waves (2 of 2 looted runs died or won on the way out), a sweep over more seeds,
+and the record-and-replay check (`tests/bot/heist.sh` is still the Bunker 2 harness).
+
+### 23f. Seed sweep (2026-10-26, branch `soak`)
+
+Every suite had only ever run on `GE_SEED` 7. A sweep ran them across other seeds to find flakes and seed-dependent bugs.
+
+**How:** `tests/heist/seed_sweep.sh` (new). Each (suite, run, seed) job is one game, fast-forwarded the bot harness's way:
+`GE_FIXEDTICK=1 GE_NOSLEEP=1 GE_CLOCKSCALE=20`, with an unbounded `GE_FRAMES`. The script kills the game once it prints `HEIST DONE`.
+`GE_SIMONLY_TEST=2,59,60` renders one tick in 60 (port_simonly.c: the sim is the same). The win path takes 14 s instead of 219 s, and
+seed 7 gives the same 59 checks either way. The suites' own `run_*.sh` scripts stay paced in real time, because `GE_FRAMES` counts
+pumps, and those run out under `GE_NOSLEEP` before the scenario ends. `seed_sweep.sh all 1 2 3` runs the list 6 at a time, and
+`seed_sweep.sh table` sums it up. `run_ai.sh`, `run_gadgets.sh`, `run_cover.sh` and `run_firstplay.sh` honour `GE_SEED` now (default 7).
+
+**Before the fixes** (b389df2, seeds 1–12; a seed counts as clean only if every run of the suite passed on it):
+
+| Suite | Clean seeds | Failing (seed: run) |
+| --- | --- | --- |
+| winpath (5 runs) | 10 / 12 | 5, 11: quiet |
+| guards | 9 / 11 | 1, 3 |
+| ai (12 runs) | 11 / 11 | none |
+| gadgets (10 runs) | 7 / 11 | 5: pocket, disguise; 8, 10, 11: pocket |
+| cover (12 runs) | 5 / 11 | 2, 10: ko; 5, 6, 9, 11: staff |
+| firstplay | 7 / 11 | 3, 6, 9, 10 |
+
+**Fixes.** Every failure reproduced on its own seed, because the sim is deterministic per seed. Two were game bugs:
+- **A key-card carrier left his post for a missed check-in or a missed watchclock station** (afd2430; it was the known gap in 23c).
+  `nearestFree`'s carrier rule now covers both dispatches as well as backup calls, and `ai.nearest_free` never names a carrier. The
+  check-in also looked for the colleague at y 0, not on the downed guard's floor. Test: `run_ai.sh holdcard`, 12 checks. The old build
+  fails 4 of them.
+- **A guard or customer could stand on a carrier's pad** (cd59b06, 17891dc). The carriers' pads are random. The posts, raisers and
+  staff placed after them cycled their area's pads, and spawn_at put one 110 units off the carrier. With seed 5, a posted guard stood
+  next to the security chief, so the guard saw every pickpocket from behind the chief. This was gadgets `pocket` on 4 of 11 seeds. Now
+  the chr whose pad a carrier took moves to the next pad in its list. Renumbering the whole list instead moved every post after it, and
+  3 layout-bound checks failed on seeds 12–14, so the change is the narrow one.
+
+The rest were test assumptions (9acd63a):
+- **guards, witness.** The witness's stock reaction to a death is a roll: he runs at Bond, or he runs to the corpse and stands over it.
+  Both now count as the alert. A witness who stays put still fails.
+- **winpath quiet, vault door.** "Sealed" is the close order. A crack-squad guard in the doorway stops the door, and the time lock snaps
+  it shut 1.5 s later. The check waited only 1 s; it now waits for the snap.
+- **gadgets pocket.** The test guard's spot (`hall_mid`) can be taken, so he spawns a little off it.
+- **gadgets disguise.** The guard heard something and walked off. Bond now follows him, as a player would.
+- **cover staff.** The warp could land a floor away: it now takes pads on the guard's floor only, and tries nearer spots (all outside
+  `close`).
+- **cover ko.** Bond waits in the street, not in the office corridor where another guard saw him. The guards within earshot of the
+  knock-out's thud are removed: with seed 5 the security chief heard it and caught Bond, a fair catch, but not the radio rule this check
+  is about.
+- **firstplay.** The cover's warning wins HUD line 3 by design, so the prompt check turns the cover off.
+
+**After the fixes.**
+- The final build (17891dc) passes every suite on seed 7. It also passes the runs that failed: pocket 5, 8, 10 and 11, disguise 5,
+  staff 5, ko 5, quiet 11, guards 3, piton 12 and 13, and win 14.
+- With cd59b06 (before 17891dc's narrowing), the failing suites passed on seeds 1–11: winpath 11 / 11, guards 11 / 11, gadgets pocket
+  and disguise, cover ko and staff, firstplay 11 / 11, and ai checkin, patrol, holdcard and backup.
+- The same build ran every suite on seeds 12–14. All were clean except the three layout-bound runs that 17891dc fixed.
+- Seeds 15–30 were not run, for lack of time: `seed_sweep.sh all 15 16 ...` runs them.
+
+**Bench** (`run_bench.sh` on v3, headless llvmpipe, with about 11 cores of other streams' games on the 12 threads). The sim column is
+the longest game-code stretch per frame, including the display-list building and GL submission. Average / max, in ms:
+
+| Phase | Agent (36 guards) | 007 (103 guards) |
+| --- | --- | --- |
+| hall | 63 / 249 (frame p95 151) | 92 / 988 (frame p95 205) |
+| vault | 44 / 134 | 60 / 152 |
+| hot | 81 / 221 | 108 / 447 |
+
+All of these are over the 16.7 ms budget at 60 Hz. But this is software GL on a loaded machine, so the numbers measure the machine's
+load, not the game, and there is no baseline from the same conditions. Nothing was optimised. The 007 hall's single 988 ms frame (sim)
+is worth a look on a quiet machine with real GL: a spawn wave or a path plot that hitches. The pools have room: 141 of 460 chr slots,
+610 of 2400 props, and 181 of 485 KB of display list at the peak.
+
+**Determinism on the final build.**
+- **dam1:** identical (453 lines).
+- **Netplay** (`run_determinism.sh net`): run with none of this stream's games going, but with about 11 cores of other streams' load
+  that this stream could not stop.
+  - At the default budget, host and guest were hash-identical over 1731 ticks, with no DESYNC.
+  - At `GE_FRAMES=12000 NETTICKS=4100`, they were hash-identical over 2794 ticks, the scenario notes were identical (24 lines), and there
+    was no DESYNC.
+  - Both runs were short of the 3500 ticks the check needs, so the late steps were not reached (the camera-view knock-out and the
+    wave). This is the same environmental limit as in 16e and 23b, where a quiet machine got 3802 identical ticks.
+
+- **Not reproduced: the GREEN card dropped and not picked up within 4 s** (23c). Every win-path seed above put Bond on the card ("0
+  apart"), and every card was picked up. The likely cause: the card can fall outside the body's room (a carrier down in a doorway),
+  while `take_card`'s `warp_xz` takes only pads in the body's room, so Bond lands away from the card. The one miss came right after the
+  lobby captain had left his post on a backup call. Carriers never leave their posts for backup, check-ins or rounds now (above), and
+  `take_card` falls back to the nearest pad by x, z when Bond lands more than 60 units from the card.
 
 ## 25. The randomiser (stream `randomiser`, 2026-10-26)
 
 Every run is a different bank. At stage start the mode deals the day from the sim RNG (`math.random`: `GE_SEED` solo, the session seed
 in co-op and netplay), so **the same seed always deals the same bank** and both machines of a netplay session deal the same one. The deal
 is made once, in a fixed order over arrays, and goes into the state hash (`mode.state`, ` rnd=...`); the Lua VM is in the solo snapshot
-whole, so it restores with it. The code is one new module, `tools/heist_randomiser.lua`, with small hooks in `mode_heist.lua`,
-`heist_intel.lua` and `heist_guide.lua`, each behind `H.rand` / `ctx.rand` (nil when the randomiser is off).
+whole, so it restores with it. The code is one new module, `tools/heist_randomiser.lua`, with small hooks in `mode_heist.lua`, each
+behind `H.rand` (nil when the randomiser is off).
+
+**It works on the job tables (section 30).** The randomiser deals a *copy* of the job (`tools/jobs/<job>.lua`): one carrier per card, on
+one pad, and the job's words (the board's key cards, posts and dossiers, the plan, the guide's steps, the HUD's `need_*` lines, the
+console's report) rewritten to match. The mode swaps its `JOB` for the dealt copy at stage start, before the map loads, and the INTEL
+board and the guide read it as they read any job, so neither needed a change. The candidates come from the job's own deck
+(`JOB.random.roles`; the bank's is below). A job with no deck (the casino has only `random.one_of_two`) is dealt within its cards: GREEN's
+two `either` alternatives, every carrier's posts, plus the generic dummies, time lock, roster and twists. A job's own twists and routes
+are data too: `random.desk`, `random.delivery`, `random.seal`, `random.vents`.
 
 ### 25a. What changes from run to run
 
@@ -1075,7 +1222,7 @@ whole, so it restores with it. The code is one new module, `tools/heist_randomis
 
   | Twist | Effect |
   | --- | --- |
-  | Armoured-car delivery 1:00-3:00 | two guards at the sally port; from 60 s to 180 s the alley shutter and the inner shutter stand open with no card |
+  | Armoured-car delivery 1:00-3:00 | from 60 s to 180 s the sally port's alley shutter and inner shutter stand open with no card |
   | The manager is out | RED lies in his desk (a floor key on `mgr_desk`), nobody in his office |
   | Flu going round | roster x0.75 |
   | Head-office inspection | roster x1.2 |
@@ -1095,10 +1242,10 @@ whole, so it restores with it. The code is one new module, `tools/heist_randomis
 
 ### 25c. Settings
 
-`S.randomise` (default `true`) turns it on. `false` is today's fixed bank, exactly: no RNG draw, no hook runs, and `mode.state` is
-unchanged. A script that sets `HEIST_SETTINGS` without a `randomise` key (every test) gets the fixed bank, so the old suites run
+`S.randomise` (default `true`) turns it on. `false` is each job exactly as written (the bank, the casino): no RNG draw, no hook runs, and `mode.state` is
+unchanged. A script that sets `HEIST_SETTINGS` without a `randomise` key (every test) gets the job exactly as written, so the old suites run
 unchanged; `tests/heist/heist_firstplay.lua` sets `randomise = false` explicitly. `S.randomiser = { ... }` tunes it: `carriers`,
-`cameras`, `dummy_chance`, `dummy_max`, `timelock`, `vault_spread`, `crack_spread`, `roster`, `roster_spread`, `routes`, `lift_chance`,
+`cameras`, `dummy_chance`, `dummy_max`, `timelock`, `vault_spread`, `crack_spread`, `roster`, `roster_spread`, `routes`, `seal_chance`,
 `vent_chance`, `twist` (false, or a twist id to force one) and `green` / `blue` / `red` / `gold` (a role name to force that carrier).
 
 ### 25d. Tests
@@ -1131,8 +1278,121 @@ it reads "GREEN: ONE OF TWO" now.
 - Camera headings are not dealt (it needs a C hook to turn a camera's look pad).
 - The carriers stand post; none of them walks a guard tour yet.
 - No safe combination: the manager's safe still takes GOLD.
-- The delivery's crew are plain posted guards: no van drives in.
+- The delivery opens doors only: no van drives in and no crew is posted (the spawn helpers are the mode's).
+- The casino has no deck of its own yet (`tools/jobs/casino.lua` `random.roles`): it deals within its cards.
 - Co-op / netplay with the randomiser on: the deal comes from the session seed and is in the hash, and the solo determinism case passes
   randomised; the co-op and netplay cases were not run randomised here.
 - The candidate tiers were checked by hand against bank v3's doors; a layout change could move a candidate behind the wrong card.
   A next step is to run that reachability pass at stage start and drop any candidate it fails.
+
+## 26. The debrief (stream `debrief`, 2026-10-26)
+
+AC's brief: an end-of-heist debrief that makes each run feel like a scored spy mission, a GoldenEye-style end screen with a heist flavour.
+
+### 26a. What a player sees
+
+When the crew gets out (or the job fails), a full-screen panel comes up in the INTEL board's style: the cork frame, the blueprint
+paper, a manila case file and an index-card tab reading DEBRIEF. It shows:
+
+- **The case file (left):** "HEIST COMPLETE - THE CREW GOT OUT" (or "HEIST FAILED - <why>"), the **rating** stamped in its colour, a
+  line of flavour, the **CREW PAYOUT** (the mode's score: loot + quiet bonus - civilian fines; "a head" in co-op), how it adds up, and a
+  red **NEW BEST** stamp (or BEST TIME) with the best on that difficulty.
+- **The job in numbers (right):** result and exit, time, loot, the alarm (never / raised at m:ss), times spotted (cover guards who saw
+  through a Bond + cameras that timed one), radio reports, bodies found by guards, cameras (looped, console, power cuts), knocked out
+  (guards, staff), guards killed, civilians hurt / killed, gadgets used, locks picked, the **route** ("Front door > Lift shaft > Vault >
+  Van"), and how each card was got (pickpocket / knock-out / intimidation / off a body / picked up).
+- **Commendations (bottom):** 15 medals, earned ones lit gold.
+
+| Rating | When |
+| --- | --- |
+| GHOST | out, no alarm, never spotted, no body found, nobody killed or hurt |
+| PROFESSIONAL | out, no alarm, at most 2 guards killed, no civilian killed |
+| COWBOY | out with the alarm up, no civilian killed, under 15 guards killed |
+| CHAOS | out, but a civilian died or 15+ guards did |
+| BUSTED | the job failed (every Bond down, or too many civilians dead) |
+
+Commendations: **Never Seen** (no guard or camera made you, no alarm), **No Bodies** (nobody died), **Quiet Job** (no alarm),
+**Pickpocket** (a card lifted), **Tumbler** (a safe opened by stethoscope), **Spider** (a piton line), **Rat Run** (a vent), **Locksmith**
+(a lock picked), **Quick Change** (a uniform), **Lights Out** (the power cut), **Blind Spot** (a tape loop or the console), **Speedrun**
+(out in under 6:00 on Agent, 7:00 Secret Agent, 8:00 00 Agent, 9:00 007), **Full Vault** (every vault bar), **Clean Hands** (no civilian
+hurt), **Sandman** (five knock-outs, no kills).
+
+**Dismiss:** USE, INTEL (Tab / Back), A or Start, after 0.75 s. The panel stays over whatever comes next (the stage's last frames, the
+death cam, the stock mission screen) until then, and it takes the input while it is up, so the press that closes it does not also skip
+the stock screen (the pads stay blank until every key is let go).
+
+**Records:** the best per difficulty (payout, time, best rating, runs, wins, the last run) is kept in
+`Data/Saves/heist_records.json` next to the exe (`GE_PROFILE` moves it with the saves). Delete the file to start the record book again.
+
+**Log lines** (for tests and AC): `HEIST DEBRIEF {json}` (every number above, the route, the keys, the commendations; one line) and
+`HEIST RECORD {json}` (difficulty, new_best, best_time, runs, wins, best_payout, saved, path).
+
+`S.debrief = false` (or `HEIST_SETTINGS = { debrief = false }`) leaves it all out.
+
+### 26b. How it works
+
+- **The numbers** (`tools/heist_debrief.lua`, included at the end of `tools/mode_heist.lua`): handlers on the sim's own events
+  (`chr_knocked_out`, `chr_died`, `damage`, `cover_blown`, `cctv_spotted`, `body_found`, `chr_searched`, `civilian_robbed`,
+  `item_pickup` for cards) and a tick that reads the heist (`HEIST`), the gadgets' stats and reel ids (`GADGETS`), the Bonds' rooms and
+  the console. It only reads: nothing goes into `mode.state`, nothing calls a sim API that changes anything, no `math.random`. A card's
+  "how" is settled a tick after its pickup (a pickpocket's lift counts in the gadgets' stats after the stock pickup fires).
+- **The end:** `finish()` calls `HEIST.debrief_end(win, msg, bonus, killed)` (one line, in a `pcall`) just before `mission.win/fail`:
+  it rates the run, logs the line, fills the panel (`debrief.set{...}`), counts the run (`debrief.record{...}`) and opens it
+  (`debrief.show()`).
+- **The panel** (`port/src/port_debrief.c`, `port/luavm/port_luavm_debrief.c`): its own copy of the board's primitives (fill
+  rectangles, triangles, the stock Bank Gothic and Zurich faces) into two display lists of its own, drawn from `portConRender` on every
+  screen (not only in a mode). Hooks: `port_console.c` (one render call), `joy_port.c` (while the panel is up the poll's actions are
+  cleared; use / INTEL / menu keys are its dismiss edge), `libultra_shim.c` (the pads read neutral; A / B / Start dismiss),
+  `port_luavm.c` (one register call). PRES in `scripts/port/snap_embed.py`. In an automated run (`GE_FRAMES`) it draws but never takes
+  the input (`GE_DEBRIEF_CAPTURE=1` forces it).
+- **The records stay in C.** The file is this machine's, and the Lua arena is sim state (the rollback snapshot), so its contents never
+  go back to the script: `debrief.record` takes the run, reads and writes the file, and fills the stamp and its line in C. The file name
+  is fixed in C (nothing outside the game folder). A rollback that re-simulates the last tick runs the end again: it is counted once.
+
+### 26c. Tests
+
+`tests/heist/run_debrief.sh` (container, Xvfb `:99`; the records file is deleted first): **42 passed, 0 failed**.
+
+| Case | Checks | What it shows |
+| --- | --- | --- |
+| quiet | 19 + 2 | `tests/heist/heist_debrief_test.lua` on the real mode: the security chief's BLUE card lifted from behind, the console, the crack, the bars, out before the time lock, the van. GHOST; no alarm, never spotted; Never Seen, No Bodies, Quiet Job, Clean Hands, Pickpocket, Blind Spot, Speedrun; BLUE "pickpocket"; payout = the mode's score with the quiet bonus; NEW BEST on the fresh file; the panel up. The `HEIST DEBRIEF` line parses (python `json`) with every field; the records file and the `HEIST RECORD` line count 1 run, new_best true. Screenshot |
+| loud | 17 + 3 | the alarm up from the start, a civilian killed: CHAOS; the alarm counted (raised at 0:02); the death counted and fined; no quiet commendations; no NEW BEST (the quiet run paid more); the file counts 2 runs; the line parses. With `GE_DEBRIEF_CAPTURE=1` and INTEL presses every 300 polls: an INTEL press dismisses the panel ("ge: debrief: dismissed") |
+| det | 1 | presentation only: `heist_determinism.lua` with the debrief in vs left out (`debrief = false`): 4365 ticks hash-identical |
+
+**Regression on this branch** (2026-10-26, the machine shared with five other agents): heist determinism solo 3/3 (4366 ticks) and
+co-op 5/5 (4363 / 4364 ticks, view-switched too); win path 59, trapped 17, civilian fail 5 (each now also prints its `HEIST DEBRIEF`
+and `HEIST RECORD` lines: the win path rates COWBOY with every card "knock-out", the trapped run COWBOY out of the dock, the civilian
+fail BUSTED), quiet 11, 007 count 2; firstplay 6; bindings 38; gadgets pocket 8, safe 6, piton 17; dam1 IDENTICAL (453 lines); `tests/run_logic_tests.sh`
+all pass. Netplay determinism not run (the integration pass runs it alone).
+
+Screenshot (AC's machine): `E:\midas-temp\debrief\shots\debrief_panel.png` (and `debrief-debrief_panel.jpg` in the overnight `img`
+folder): the quiet run's GHOST panel.
+
+### 26d. Limits and next
+
+- **The route** is the way in (the first room off the street: "Front door" from the hall, else "Side way in (<area>)"), the lines and
+  vents in order, the vault and the exit. A test that warps Bond shows "Side way in". It does not know the stairs or doors taken.
+- **"Times spotted"** counts cover blows and cameras that timed a Bond (a camera that spots him after the alarm counts too). The AI
+  layer's awareness states (suspicious, searching) are not counted.
+- **Guards killed** are chrs a Bond killed that are not bank staff (posted guards, waves, squads). Kills by the sleep gas are knock-outs.
+- **Lockpicked cards:** a picked lock is counted ("Locks picked") but is not a card got; THE KEYS rows say "-" for a card never held.
+- **Dismissing in netplay** is per machine; the records are per machine (each machine its own file). A rollback that re-simulates the
+  last tick counts the run once. A predicted end that a rollback then undoes would still have been counted (not seen in practice).
+- **The input capture** was tested with INTEL presses in a headless run. The stock mission screen behind it was not checked by eye on
+  Windows (no hidden-window option); AC should check that a press after dismissing reaches the stock screen as usual.
+- Next: per-crew-member lines in co-op (who did what), a "case file" page on the INTEL board listing the best runs, more commendations
+  from the AI layer (never searched for, a coin that pulled a guard off a camera's view).
+
+## 30. Job 2: the casino, and the job table (stream `job2`, 2026-10-26)
+
+The heist is no longer tied to the bank. A **job definition** (`tools/jobs/<job>.lua`, shipped as `job_<job>.lua`) holds everything the
+mode, the map reader, the INTEL board and the first-play guide used to hard-code: the layout's names (doors, pads, rooms, areas,
+cameras, civilian places, carriers), the card ladder (who carries which card, the body, health and post), and the job's HUD, guide and
+board words. The layout picks its job with `LEVEL.script.heist.job` (default `bank`). The bank's values moved verbatim into
+`tools/jobs/bank.lua`, so the bank behaves exactly as before.
+
+The second job is **Le Grand Casino Janus**, a Monte-Carlo-style casino: the atrium, the Salle Renaissance and the Salle Europe;
+the cage and its mantrap; the eye-in-the-sky catwalks behind one-way glass and the surveillance room; the Salons Privés with the
+high-roller safe; and the house vault and count rooms below. The research, design and routes are in
+[`job2-casino.md`](job2-casino.md). It is built by `tools/levelgen/build_casino.py` and played from its own build dir
+(`-DGE_LEVELGEN_DIR=port/levelgen_casino`: the slot holds one layout per build). The test is `tests/heist/run_job2.sh`.

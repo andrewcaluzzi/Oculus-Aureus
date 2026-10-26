@@ -212,6 +212,7 @@ static const struct { const char *name; int op; } sOps[] = {
     { "spare", PBL_SPARE },    /* spare ai ID */
     { "escort", PBL_ESCORT },  /* escort ai ID [dist] | escort ai 0 */
     { "via", PBL_VIA },        /* via pad N [r] | via x y z [r]: pass through at full speed */
+    { "holster", PBL_HOLSTER },/* holster 1|0 */
 };
 
 const char *pblOpName(int op)
@@ -504,6 +505,7 @@ int pblParsePlan(const char *text, PblPlan *plan, char *err, int errlen)
             case PBL_PEACE:
             case PBL_QUIET:
             case PBL_RUSH:
+            case PBL_HOLSTER:
                 NEED(1);
                 st.a = (int) num(tok[k]);
                 break;

@@ -46,6 +46,9 @@ local function body()
   local c = HEIST.carriers["lobby captain"] or HEIST.carriers["head teller"]
   if c and c.chr then
     mode.guards_wake(false)                        -- (a hall guard waking her is heist_ko's business)
+    -- (the cover's warnings win HUD line 3 by design, and in the busy hall a guard may see through Bond loitering by the body: GE_SEED
+    -- 3, 6, 9, 10 had "HEY! Seen through (loitering)" there. The prompt is this check's business, the cover is heist_cover's)
+    cover.on(false)
     local r = spawn.ko(c.chr, 0)
     print(string.format("HEIST   spawn.ko -> %s, ko.is %s", tostring(r), tostring(ko.is(c.chr))))
     wait(4.5)

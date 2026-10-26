@@ -293,7 +293,13 @@ local function pocket_path()
   shot("pickpocket")
   -- a guard facing him catches his hand: a test guard in the hall with a card, posted facing south
   local px, _, pz = pads.pos(pad("hall_mid"))
-  local g = spawn.chr(pad("hall_mid"), { post = { px, pz - 600 }, weapon = "kf7", body = "St_Petersburg_Guard" })
+  -- (hall_mid itself may be taken: GE_SEED 8 and 11 put a hall guard or customer there, so a little off it then)
+  local g
+  for _, o in ipairs({ { 0, 0 }, { 0, -60 }, { 60, 0 }, { -60, 0 }, { 0, 60 }, { 110, 0 }, { -110, 0 } }) do
+    g = spawn.chr(pad("hall_mid"), { post = { px + o[1], pz - 600 }, weapon = "kf7", body = "St_Petersburg_Guard",
+                   offset = (o[1] ~= 0 or o[2] ~= 0) and o or nil })
+    if g then break end
+  end
   check("a test guard on post in the hall", g ~= nil)
   if not g then return end
   spawn.key(g, 0x100)
@@ -437,8 +443,21 @@ local function disguise_path()
   shot("disguise_secroom")
   -- looked at closely: lingering right next to him
   if g and stand_seen(g, 110) then
-    local hey = wait_for(10, function() return #blown > 0 end)
-    check("lingering next to a guard, he looks closer and sees through it", hey and blown[1].why == "close", hey and blown[1].why or "none")
+    -- (he may hear something and walk off to look, his back to Bond: GE_SEED 5, "Huh?" and 85 units off his post. Out of his sight the
+    -- linger starts again, as designed, so Bond stays at his side the way a player would: back in front of him after 1 s unseen)
+    local seen_n, n, unseen = 0, 0, 0
+    local hey = wait_for(14, function()
+      n = n + 1
+      local s = cover.state(g)
+      if s and (s.sees & 1) ~= 0 then seen_n = seen_n + 1; unseen = 0 else unseen = unseen + 1 end
+      if unseen >= 4 and #blown == 0 then unseen = 0; stand_seen(g, 110) end
+      return #blown > 0 end)
+    local gx, gz = spawn.where(g)
+    local bx, _, bz = bond.pos(0)
+    local i = ai and ai.info and ai.info(g)
+    check("lingering next to a guard, he looks closer and sees through it", hey and blown[1].why == "close", hey and blown[1].why or
+          string.format("none: in his sight %d of %d polls, %.0f apart, he is %s", seen_n, n, gx and d2(gx, gz, bx, bz) or -1,
+          i and (i.name .. " " .. i.sub) or "?"))
   else
     check("next to a security guard", false)
   end

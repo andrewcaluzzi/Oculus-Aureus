@@ -15,9 +15,10 @@ mkdir -p $OUT
 M=/home/dev/project/build_pc/Data/Scripts/modes
 cp /home/dev/project/tests/heist/heist_winpath.lua $M/heist_winpath.lua
 cp /home/dev/project/tools/mode_heist.lua $M/heist.lua
-for f in heist_lib heist_bank_map heist_ai heist_intel heist_guide heist_randomiser heist_gadgets heist_ar; do
+for f in heist_lib heist_bank_map heist_ai heist_intel heist_guide heist_randomiser heist_gadgets heist_ar heist_debrief; do
     cp /home/dev/project/tools/$f.lua $M/$f.lua
 done
+for j in bank casino; do cp /home/dev/project/tools/jobs/$j.lua $M/job_$j.lua; done
 cp /home/dev/project/port/levelgen/levelgen_layout.lua $M/levelgen_layout.lua
 cd /home/dev/project/build_pc || exit 1
 PASS=0

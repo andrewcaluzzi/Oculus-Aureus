@@ -75,8 +75,9 @@ function heist_ar.attach(H, S)
     local going = (H.loot or 0) > 0 or H.hot or ph == "open" or ph == "closing" or ph == "escaped"
     local ax, ay, az = pos(P.exit_a)
     local bx, by, bz = pos(P.exit_b)
-    point("VAN", ax, ay, az, going and 0x50FF70FF or 0x50FF7060)
-    point("DOCK", bx, by, bz, going and 0x50FF70FF or 0x50FF7060)
+    local tags = H.M.MAP and H.M.MAP.exit_tags or { "VAN", "DOCK" }   -- (the job's exit names: tools/jobs/<job>.lua)
+    point(tags[1], ax, ay, az, going and 0x50FF70FF or 0x50FF7060)
+    point(tags[2], bx, by, bz, going and 0x50FF70FF or 0x50FF7060)
     ar.unpoint()
     for label, p in pairs(points) do ar.point(p[1], p[2], p[3], label, p[4]) end
     for label, p in pairs(heist_ar.warn or {}) do ar.point(p[1], p[2], p[3], label, 0xFF3838FF) end

@@ -277,3 +277,6 @@ docs/devnotes/
 
 # the docs live in the private repo
 /docs/
+
+# level editor previews and its test temp files (tools/levelgen/preview.sh, tools/levelgen/test_editor_roundtrip.py)
+build_preview/
