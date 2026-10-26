@@ -150,6 +150,7 @@ local S = {
   spawn_per_tick  = 24,      -- chrs placed per 0.25 s at the start (no hitch)
   test            = false,   -- test hooks on (HEIST.* below are always there; this only adds log lines)
   ar              = true,    -- the Q-Branch specs (tools/heist_ar.lua, section 20): suspicion "?" / "!", bubbles, key brackets, waypoints
+  debrief         = true,    -- the end-of-heist DEBRIEF (tools/heist_debrief.lua, section 26): rating, payout, stats, commendations, records
   -- difficulty (mission.difficulty(): 0 Agent .. 3 007). force: the share of the full force above (posted guards, raisers, vault
   -- guards, wave cap, squads, the response); acc: the guards' accuracy rating (0 = stock, 5 = 1.5x, 10 = 2x: the stock aim is scaled by
   -- 1 + acc / 10); wave: guards per wave. (AC delegated, Claude's call 2026-10-25, revisit: the player bot won 10/10 with the carriers
@@ -1164,6 +1165,7 @@ local function finish(win, msg)
     cctv.view_off(p)
   end
   H.score = score
+  if H.debrief_end then local ok, e = pcall(H.debrief_end, win, msg, bonus, killed); if not ok then log("debrief failed: %s", tostring(e)) end end   -- (section 26)
   if win then mission.win(string.format("Heist complete: %s (best %s)", money(score), money(HEIST_BEST)))
   else mission.fail(msg) end
 end
@@ -1335,5 +1337,7 @@ end)
 
 -- the crew's gadgets (designs/bank-heist.md section 21): their own handlers, after the heist's (their state rides in mode.state)
 include("heist_gadgets")
+-- the end-of-heist DEBRIEF (designs/bank-heist.md section 26): reads the run's events, scores it at finish() (presentation only)
+if S.debrief ~= false then include("heist_debrief") end
 -- the AR specs and diagnostics (tools/heist_ar.lua): after every handler above, so the map is loaded when its stage_start runs
 if heist_ar and heist_ar.attach then heist_ar.attach(H, S) end

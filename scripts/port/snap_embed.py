@@ -49,6 +49,7 @@ PRES_PORT = {
     'segments.c', 'sysstubs.c', 'ucode_dl_stubs.c', 'video.c',
 }
 PRES_PORT |= {'port_arhud.c'}   # the AR overlay / diagnostics (marks, bubbles, toggles): presentation, never rewound
+PRES_PORT |= {'port_debrief.c'}   # the heist DEBRIEF panel (content, view, input capture): presentation, never rewound
 # src/*.c and src/game/*.c that are NOT sim state (audio, scheduler, VI, framebuffers, thread stacks, boot, profiling).
 PRES_SRC = {
     'audi.c', 'snd.c', 'music.c', 'mp_music.c', 'music_0D2720.c', 'sched.c', 'vi.c', 'pi.c', 'speed_graph.c', 'speedgraphrenderer.c',

@@ -1922,6 +1922,11 @@ Gfx *portConRender(Gfx *gdl)
             gdl = portIntelRender(gdl);
         }
     }
+    {   /* heist: the DEBRIEF panel, on every screen until dismissed (port_debrief.c) */
+        extern Gfx *portDebriefRender(Gfx *gdl);
+
+        gdl = portDebriefRender(gdl);
+    }
 
     if (!conOpen)
     {
