@@ -95,6 +95,7 @@ function heist_guide(ctx)
       local gx, _, gz = pads.pos(lh[1])
       if gx and d2(x, z, gx, gz) < 220 then return "Piton point: pick the PITON GUN (next weapon), face up, fire" end
     end
+    if H.hostage_prompt and H.hostage_prompt(p) then return H.hostage_prompt(p) end   -- holding one / a civilian just surrendered (section 31)
     if H.interlock_prompt then return H.interlock_prompt(p, x, z) end   -- a mantrap / the sally port (tools/heist_interlock.lua)
     return nil
   end

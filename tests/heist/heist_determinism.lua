@@ -15,6 +15,10 @@ HEIST_SETTINGS = {
   wave_first = 3, wave_interval = 8,
   hostile_cap = 400,   -- (the ~120 placed guards would hold the waves back at the default cap)
 }
+-- section 31: GE_HEIST_DET_HOSTAGE=1 takes a hostage (a real use press) round the alarm and lets it go; GE_HEIST_DET_NOHOSTAGES=1 runs
+-- with the layer off (S.hostages = false: hash-identical to the default when no hostage is taken)
+local HOSTAGE = mode.env_flag("GE_HEIST_DET_HOSTAGE")
+if mode.env_flag("GE_HEIST_DET_NOHOSTAGES") then HEIST_SETTINGS.hostages = false end
 include("heist")
 mods.set("invincible", true)   -- a hundred guards around a warping test Bond
 
@@ -105,10 +109,41 @@ local function body()
   end
   bond.equip(worker, "pp7sil")
 
+  -- 2b. (GE_HEIST_DET_HOSTAGE) a hostage: aim at a civilian until it surrenders, step behind it, a use press takes it
+  local hostage
+  if HOSTAGE and shield then
+    for i = 2, #HEIST.civs do
+      local c = HEIST.civs[i].chr
+      if spawn.alive(c) and not ko.is(c) then hostage = c; break end
+    end
+    if hostage then
+      local x, z = spawn.where(hostage)
+      local f = math.rad(shield.face(hostage))
+      warp_xz(worker, x + math.sin(f) * 300, z + math.cos(f) * 300)
+      bond.face(worker, x, z)
+      wait(2)
+      note("hostage %d %s", hostage, tostring(civilian.state(hostage)))
+      warp_xz(worker, x - math.sin(f) * 70, z - math.cos(f) * 70)
+      bond.face(worker, x, z)
+      wait(0.25)
+      cctv.test_use(worker)
+      wait(1)
+      note("hostage held by %d: %s", worker, tostring(shield.held(worker)))
+    end
+  end
+
   -- 3. the alarm: hot, the lockdown, the waves
   alarm.start()
   wait(2)
   note("hot %s", tostring(HEIST.hot))
+  if hostage then
+    wait(3)
+    cctv.test_use(worker)
+    wait(1)
+    local inf = shield.info(hostage) or {}
+    note("hostage released: held %s, %s, %.2f s, counts %d/%d", tostring(shield.held(worker)), tostring(inf.why), inf.secs or -1,
+         shield.counts().held_shots, shield.counts().clear_shots)
+  end
 
   -- 4. the crack: plant, a forced jam, the restart, the vault opens
   bond.warp(worker, MP.crack)

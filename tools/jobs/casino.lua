@@ -87,6 +87,7 @@ HEIST_JOBS.casino = {
     vault_open = "The house vault is open! Take the reserve",
     safe_open = "The high-roller safe: gold!",
     safe_log = "the house safe is open: %d bars",
+    negotiator = "Negotiator: Monsieur, we can talk about this. Let them go.",   -- (the hostage stand-off, section 31)
   },
 
   guide = {

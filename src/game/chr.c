@@ -3590,6 +3590,13 @@ void chrTestHit(PropRecord *prop, ShotData *shotdata)
     {
         return;
     }
+    {   /* PORT: heist hostages (port_shield.c): the holder's own shot passes through the hostage he holds */
+        extern int portShieldPassShot(ChrRecord *chr);
+        if (portShieldPassShot(chr))
+        {
+            return;
+        }
+    }
 #endif
     model = chr->model;
     modelsize = getinstsize(model);

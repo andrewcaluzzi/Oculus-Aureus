@@ -609,6 +609,8 @@ if(GE_VIDEO)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/tools/heist_interlock.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/heist_interlock.lua
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/tools/heist_hostages.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/heist_hostages.lua
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/tools/heist_planning.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/heist_planning.lua
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/tools/bot/heist_bot.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/heist_bot.lua

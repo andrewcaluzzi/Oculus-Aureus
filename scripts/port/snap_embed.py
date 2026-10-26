@@ -44,6 +44,8 @@ SIM_PORT = {
     'port_interlock.c',
     # the heist's combat layer: cover, peeks, flanks (designs/bank-heist.md section 24)
     'port_combat.c',
+    # hostages and the human shield (designs/bank-heist.md section 31)
+    'port_shield.c',
 }
 # port/src files that are presentation or transport: never rewound.
 PRES_PORT = {

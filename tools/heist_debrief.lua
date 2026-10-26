@@ -230,6 +230,13 @@ function H.debrief_end(win, msg, bonus, killed)
   }
   for name, k in pairs(D.keys) do R.keys[name] = k.how end
   R.rating = rate(win, R)
+  -- hostages (section 31): fined in the payout already (finish()), shown here; a hostage-taker is a COWBOY at best
+  local HR = H.hostage_report and H.hostage_report() or nil
+  if HR then
+    R.hostages, R.hostage_secs, R.hostages_hurt, R.standoffs, R.hostage_fines = HR.taken, math.floor(HR.secs + 0.5), HR.hurt, HR.standoffs, win and HR.fines or 0
+    R.fines = R.fines + R.hostage_fines
+    if HR.taken > 0 and (R.rating == "GHOST" or R.rating == "PROFESSIONAL") then R.rating = "COWBOY" end
+  end
   local speed = SPEEDRUN[dif] or 420
   local med = {
     { "Never Seen", "No guard or camera made you", win and R.spotted == 0 and not R.alarm },
@@ -248,6 +255,10 @@ function H.debrief_end(win, msg, bonus, killed)
     { "Clean Hands", "No civilian hurt", win and R.civ_hurt == 0 and R.civ_killed == 0 },
     { "Sandman", "Five knock-outs, no kills", R.guards_ko + R.staff_ko >= 5 and R.guards_killed == 0 and R.civ_killed == 0 },
   }
+  if HR then   -- (section 31)
+    med[#med + 1] = { "Negotiator", "Stood off the police, let them go unharmed", HR.negotiator }
+    med[#med + 1] = { "Hostile Takeover", "Took a hostage (fined)", HR.taken > 0 }
+  end
   R.commendations = {}
   for _, m in ipairs(med) do if m[3] then R.commendations[#R.commendations + 1] = m[1] end end
   local line = "HEIST DEBRIEF " .. jenc(R)
@@ -270,6 +281,10 @@ function H.debrief_end(win, msg, bonus, killed)
     { "Locks picked", tostring(R.picks) },
     { "Route", #R.route > 0 and table.concat(R.route, " > ") or "-" },
   }
+  if HR and HR.taken > 0 then   -- (section 31)
+    rows[#rows + 1] = { "Hostages", string.format("%d taken, %s held, %d hurt, %d stand-off", HR.taken, clock(HR.secs), HR.hurt, HR.standoffs),
+                        HR.hurt > 0 and 0xF08080FF or 0xF0C080FF }
+  end
   card_rows(rows)
   local medals = {}
   for _, m in ipairs(med) do medals[#medals + 1] = { m[1]:upper(), m[2], m[3] and true or false } end

@@ -643,7 +643,7 @@ function heist_intel(ctx)
     n[#n + 1] = { "CAMERAS", string.format("They only time a Bond who looks wrong. A spot goes to the security room, which raises the alarm %s later if anyone there is up. The console (BLUE) blinds them all %s.", secs(S.security_delay), secs(S.cam_off_time)) }
     n[#n + 1] = { "THE POWER", string.format("Plant room, %s. Force the cabinet %s, throw the main %s. Leave, get seen or hit: you lose %s. Generator back in %s unless killed; guards come to look after %s.",
       names[1] or "B2", secs(S.power_cabinet), secs(S.power_cut), secs(S.power_setback), secs(S.generator_after), secs(S.investigate_after)) }
-    n[#n + 1] = { "HOLD FIRE", S.hold_fire and JI.notes.hold_fire or "Guards shoot through anyone. Mind the staff." }
+    n[#n + 1] = (H.hostage_note and H.hostage_note()) or { "HOLD FIRE", S.hold_fire and JI.notes.hold_fire or "Guards shoot through anyone. Mind the staff." }   -- (section 31)
     n[#n + 1] = { "ALARM & LOCKDOWN", string.format("Raised by a guard's radio, a panel or the security room. Once up it stays up. %sWaves every %s.", S.lockdown and JI.notes.lockdown or "", secs(S.wave_interval)) }
     n[#n + 1] = { "THE TIME LOCK", string.format("The vault stays open %s, klaxon at T-%d. It seals itself: an empty vault closes quietly, a Bond inside is trapped (re-crack %s).", secs(S.vault_time), S.klaxon_at, secs(S.recrack_time)) }
     n[#n + 1] = { "SCORING", string.format("Gold bar %s, cash bundle %s. +%d%% if the alarm never went. -%s per dead civilian. Knock-outs are free.", ctx.money(S.bar_value), ctx.money(S.money_value),

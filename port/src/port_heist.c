@@ -130,6 +130,11 @@ void portHeistStageReset(void)
 
         portPlanningReset();
     }
+    {
+        extern void portShieldReset(void);   /* port_shield.c: hostages and the human shield (section 31) */
+
+        portShieldReset();
+    }
 }
 
 static void heistScan(void)
@@ -764,6 +769,11 @@ void portHeistNoteUse(PropRecord *prop)
     extern s32 portJoyPortUseKeyPeek(void);
     int kind, idx, ot, p = (int) get_cur_playernum();
 
+    {
+        extern void portShieldUse(int p, int target);   /* port_shield.c: take or let go of a hostage (section 31) */
+
+        portShieldUse(p, prop != NULL && (prop->type == PROP_TYPE_DOOR || prop->type == PROP_TYPE_OBJ || prop->type == PROP_TYPE_WEAPON));
+    }
     if (portEventListenerCount(PORT_EV_USE) == 0) return;
     heistTarget(prop, &kind, &idx, &ot);
     if (p >= 0 && p < 4) sUseKey[p] = (u8) (portJoyPortUseKeyPeek() ? 1 : 0);
@@ -1036,6 +1046,45 @@ void portHeistCivilianTune(float range, float aim_sec, float threat_sec, float c
 
 int portHeistCivilianKilled(void) { return sCivKilled; }
 
+/* port_shield.c (section 31): the civilian table, a hostage let go cowers, and the staff round a hostage-taking panic */
+int portHeistCivilianCount(void) { return sCivN; }
+int portHeistCivilianChr(int i) { return (i >= 0 && i < sCivN && sCiv[i].used) ? (int) sCiv[i].chrnum : -1; }
+
+void portHeistCivilianCower(int chrnum)
+{
+    HeistCiv *v = civFind(chrnum);
+
+    if (v == NULL) return;
+    v->state = 2;
+    v->cowerT = sCivCowerSec;
+    v->aimT = v->threatT = v->idleT = 0.0f;
+    memset(v->aimP, 0, sizeof(v->aimP));
+    memset(v->threatP, 0, sizeof(v->threatP));
+}
+
+int portHeistCivilianScare(float x, float z, float r)
+{
+    int i, n = 0;
+
+    for (i = 0; i < sCivN; i++)
+    {
+        ChrRecord *c;
+        f32 dx, dz;
+
+        if (!sCiv[i].used || sCiv[i].state != 0) continue;   /* (hands up already, or cowering) */
+        c = chrFindByLiteralId(sCiv[i].chrnum);
+        if (c == NULL || c->prop == NULL || chrIsDead(c) || koIsDown(c->chrnum)) continue;
+        dx = c->prop->pos.x - x;
+        dz = c->prop->pos.z - z;
+        if (dx * dx + dz * dz > r * r) continue;
+        sCiv[i].state = 2;
+        sCiv[i].cowerT = sCivCowerSec * 2.0f;
+        portLuaGameChrAnim(sCiv[i].chrnum, "startled", 1);
+        n++;
+    }
+    return n;
+}
+
 /* ---- hold fire (mode.hold_fire; AC delegated, Claude's call 2026-10-25) ----
  * A guard about to fire holds the shot while a bank civilian (standing, cowering or knocked out) is near his line of fire to his
  * target: within HOLD_RADIUS of the segment and short of the target, or within HOLD_NEAR of the target on any side (P2.4). He keeps
@@ -1102,7 +1151,14 @@ int portHeistHoldFire(ChrRecord *self)
     PropRecord *target, *me;
     f32 dx, dz, len2, len;
     int i, hold = 0;
+    extern int portShieldHoldFire(ChrRecord *self);   /* port_shield.c: a hostage in his line to the Bond who holds it (section 31) */
+    extern int portShieldHolds(int chrnum);
 
+    if (portShieldHoldFire(self))
+    {
+        fireStat(self->chrnum, 1);
+        return 1;
+    }
     if (!sHoldFire || !portModeActive() || self == NULL || self->prop == NULL || isCivilian(self->chrnum)) return 0;
     me = self->prop;
     target = getCurrentPlayerProp();
@@ -1117,7 +1173,7 @@ int portHeistHoldFire(ChrRecord *self)
         ChrRecord *c;
         f32 px, pz, t, ex, ez, along, ty;
 
-        if (!sCiv[i].used) continue;
+        if (!sCiv[i].used || portShieldHolds(sCiv[i].chrnum)) continue;   /* (a held hostage: only its line counts, above) */
         c = chrFindByLiteralId(sCiv[i].chrnum);
         if (c == NULL || c->prop == NULL || c == self || (chrIsDead(c) && !koIsDown(c->chrnum))) continue;
         px = c->prop->pos.x - me->pos.x;
@@ -1293,6 +1349,11 @@ static void civTick(HeistCiv *v, f32 dt)
     if (koIsDown(v->chrnum))
     {
         return;   /* knocked out: the KO tick holds it down */
+    }
+    {
+        extern int portShieldHolds(int chrnum);   /* port_shield.c: a hostage held by a Bond (section 31) */
+
+        if (portShieldHolds(v->chrnum)) return;
     }
     mask = aimedMask(c);
     if (v->state == 1)
@@ -1501,6 +1562,11 @@ int portHeistChrNoAi(ChrRecord *c)
 
         if (portCombatOwns(c)) return 1;
     }
+    {
+        extern int portShieldOwns(const ChrRecord *c);   /* port_shield.c: a hostage held by a Bond (section 31) */
+
+        if (portShieldOwns(c)) return 1;
+    }
     if (sKoBusy <= 0) return 0;
     for (i = 0; i < sKoN; i++)
     {
@@ -1528,6 +1594,11 @@ int portHeistChrWaking(const ChrRecord *c)
         extern int portCombatOwns(const ChrRecord *c);   /* port_combat.c: the combat layer runs him to cover / a flank point */
 
         if (portCombatOwns(c)) return 1;
+    }
+    {
+        extern int portShieldOwns(const ChrRecord *c);   /* port_shield.c: a held hostage goes where its holder goes */
+
+        if (portShieldOwns(c)) return 1;
     }
     if (sKoBusy <= 0 || c == NULL) return 0;
     for (i = 0; i < sKoN; i++)
@@ -2070,6 +2141,11 @@ void portHeistAiTick(void)
         extern void portCombatTick(void);   /* port_combat.c: guards in a fight take cover, peek, flank, fall back (section 24) */
 
         portCombatTick();
+    }
+    {
+        extern void portShieldTick(void);   /* port_shield.c: the held hostages, the guards whose line one blocks (section 31) */
+
+        portShieldTick();
     }
 }
 
@@ -3033,6 +3109,11 @@ unsigned portHeistStateHash(void)
         extern unsigned portPlanningHash(void);   /* port_planning.c: the planning hold and its input */
 
         h = h * 16777619u + portPlanningHash();
+    }
+    {
+        extern unsigned portShieldHash(void);   /* port_shield.c: hostages and the human shield (section 31) */
+
+        h = h * 16777619u + portShieldHash();
     }
     return h;
 }
