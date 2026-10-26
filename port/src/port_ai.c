@@ -48,6 +48,7 @@
 #include "port_event.h"
 #include "port_lua.h"
 #include "port_noise.h"
+#include "port_traits.h"   /* guard personalities (port_traits.c, section 32): every value neutral when off */
 
 extern s32 g_GlobalTimer;
 extern s32 g_ClockTimer;
@@ -268,11 +269,13 @@ static void barkSfx(ChrRecord *c, int kind)
                              portGameSfxPlay(RADIO_MESSAGE_SFX, vol, 1.1f, 0.4f, pan); break;
         default: break;
     }
+    portTraitBarkSfx(c->chrnum, kind, vol, pan);
 }
 
 static void bark(AiG *g, ChrRecord *c, int kind, const char *text)
 {
     if (g != NULL && kind != BK_HEY && kind != BK_FOUND_BODY && kind != BK_BACKUP && sNow - g->barkAt < 30 && g->barkAt > 0) return;
+    if (c != NULL) text = portTraitText(c->chrnum, kind, text);
     if (g != NULL) g->barkAt = sNow;
     sBarkN++;
     printf("ge: ai: bark chr %d %s \"%s\" (%s, level %.2f)\n", c != NULL ? (int) c->chrnum : -1, sBarkName[kind], text,
@@ -454,7 +457,7 @@ static int searchNext(AiG *g, ChrRecord *c)
 static void startSearch(AiG *g, ChrRecord *c, int run)
 {
     g->looks = 0;
-    g->lookMax = (u8) (1 + (sT.searchPads > 0 ? sT.searchPads : 0));
+    g->lookMax = (u8) (1 + (sT.searchPads > 0 ? sT.searchPads : 0) + (int) portTraitVal(g->chrnum, TV_PADS));
     g->run = (u8) (run ? 1 : 0);
     g->plots = 0;
     if (g->state < AS_SEARCHING) setState(g, AS_SEARCHING);
@@ -492,8 +495,8 @@ void portAiHear(int i, int kind, float loud, float x, float y, float z, int room
     if (i < 0 || i >= sGN || !sG[i].used) return;
     g = &sG[i];
     c = gChr(g);
-    if (!chrUp(c)) return;
-    add = loud * sT.weight[kind];
+    if (!chrUp(c) || portTraitDeaf(g->chrnum, kind)) return;
+    add = loud * sT.weight[kind] * portTraitVal(g->chrnum, TV_HEAR);
     g->level += add;
     if (kind == NOISE_COIN && sT.lure > 0.0f)
     {   /* a distraction is meant to be followed: inside `lure` of his hearing range (loud = 1 at the noise, 0 at the edge of radius x
@@ -552,6 +555,7 @@ void portAiHear(int i, int kind, float loud, float x, float y, float z, int room
         faceAngle(c, heading(c->prop->pos.x, c->prop->pos.z, x, z));
         setSub(g, SUB_TURN);
         g->run = (u8) (g->state >= AS_ALERT);
+        if (g->state == AS_SUSPICIOUS) portTraitSuspicious(g->chrnum, x, y, z);   /* a rookie radios it in */
     }
 }
 
@@ -631,7 +635,8 @@ static void callBackup(AiG *g, ChrRecord *c)
     int who[8], n, k;
 
     g->backup = 1;
-    n = nearestFree(c->prop->pos.x, c->prop->pos.y, c->prop->pos.z, sT.backupRange, who, sT.backupN, g->chrnum, 1);
+    n = nearestFree(c->prop->pos.x, c->prop->pos.y, c->prop->pos.z, sT.backupRange, who, sT.backupN + (int) portTraitVal(g->chrnum, TV_BACKUP),
+                    g->chrnum, 1);
     bark(g, c, BK_BACKUP, n > 0 ? "Contact! Need backup!" : "Contact!");
     for (k = 0; k < n; k++)
     {
@@ -766,9 +771,9 @@ static void guardStep(AiG *g, f32 dt)
     switch (g->sub)
     {
         case SUB_TURN:
-            if (sNow - g->subAt >= (s32) (((g->state >= AS_ALERT || g->run) ? sT.alertTurn : sT.turn) * 60.0f))
+            if (sNow - g->subAt >= (s32) (((g->state >= AS_ALERT || g->run) ? sT.alertTurn : sT.turn) * portTraitVal(g->chrnum, TV_TURN) * 60.0f))
             {
-                if (g->level >= sT.searchLevel || g->state >= AS_SEARCHING)
+                if (g->level >= sT.searchLevel || g->state >= AS_SEARCHING || portTraitVal(g->chrnum, TV_FULL) > 0.0f)
                 {
                     startSearch(g, c, g->run || g->state >= AS_ALERT);
                 }
@@ -857,6 +862,11 @@ static void guardStep(AiG *g, f32 dt)
                 int pad = sRoute[g->route].pad[g->ridx % sRoute[g->route].n];
 
                 g->ridx = (s16) ((g->ridx + 1) % sRoute[g->route].n);
+                if (portTraitSkipPad(g->chrnum, pad))
+                {   /* a veteran skips this watchclock station this lap: straight on to the next pad */
+                    pad = sRoute[g->route].pad[g->ridx % sRoute[g->route].n];
+                    g->ridx = (s16) ((g->ridx + 1) % sRoute[g->route].n);
+                }
                 g->plotAt = sNow;
                 chrGoToPad(c, pad, SPEED_WALK);
             }
@@ -999,7 +1009,7 @@ static void checkins(void)
         AiG *g = &sG[i];
         int who[1];
 
-        if (!g->used || !g->down || g->missed || sNow - g->downAt < (s32) (sT.checkin * 60.0f)) continue;
+        if (!g->used || !g->down || g->missed || sNow - g->downAt < (s32) (sT.checkin * portTraitVal(g->chrnum, TV_CHECKIN) * 60.0f)) continue;
         g->missed = 1;
         if (found(g->chrnum) || alarmIsActive()) continue;
         sCheckinN++;

@@ -165,6 +165,10 @@ local S = {
   hostages        = true,    -- hostages and the human shield (tools/heist_hostages.lua, section 31); false = off; a table tunes the fines
   debrief         = true,    -- the end-of-heist DEBRIEF (tools/heist_debrief.lua, section 26): rating, payout, stats, commendations, records
   planning        = true,    -- the PLANNING board before the clock starts (tools/heist_planning.lua, section 27); off in automated runs
+  -- guard personalities (tools/heist_traits.lua, section 32): rookies, veterans, by-the-book, bribable guards, dealt from the sim RNG.
+  -- false = uniform guards exactly as before. A script that sets HEIST_SETTINGS without this key (the tests) gets them off.
+  personalities   = true,
+  bribe_cost      = 50000,   -- a bribe (USE face to face with a bribable guard who suspects nothing) comes off the crew's payout
   -- difficulty (mission.difficulty(): 0 Agent .. 3 007). force: the share of the full force above (posted guards, raisers, vault
   -- guards, wave cap, squads, the response); acc: the guards' accuracy rating (0 = stock, 5 = 1.5x, 10 = 2x: the stock aim is scaled by
   -- 1 + acc / 10); wave: guards per wave. (AC delegated, Claude's call 2026-10-25, revisit: the player bot won 10/10 with the carriers
@@ -180,6 +184,7 @@ for k, v in pairs(JOB.settings or {}) do S[k] = v end   -- the job's own setting
 if type(HEIST_SETTINGS) == "table" then
   for k, v in pairs(HEIST_SETTINGS) do S[k] = v end
   if HEIST_SETTINGS.randomise == nil then S.randomise = false end   -- (section 25: the tests opt in)
+  if HEIST_SETTINGS.personalities == nil then S.personalities = false end   -- (section 32: the tests opt in)
 end
 local DIFF = S.difficulty
 
@@ -1186,6 +1191,7 @@ local function finish(win, msg)
   local best = ""
   if win and H.plan_cost then score = math.max(0, score - H.plan_cost) end   -- (the planning spend, section 27)
   if win and H.hostage_fine then score = math.max(0, score - H.hostage_fine()) end   -- (the hostages' fines, section 31)
+  if win and H.traits then score = math.max(0, score - H.traits.cost()) end   -- (the bribes, section 32)
   if win and score > HEIST_BEST then HEIST_BEST = score; best = "  NEW BEST" end
   log("%s: %s | loot %s (%d bars, %d cash) + quiet bonus %s - %d civilians x %s = SCORE %s | best this session %s | %d s, alarm %s",
       win and "WIN" or "FAIL", msg, money(H.loot), H.bars, H.cash, money(bonus), killed, money(S.civ_fine), money(score),
@@ -1383,6 +1389,8 @@ include("heist_planning")
 include("heist_gadgets")
 -- the door interlocks: the staff entrance mantrap and the sally port (designs/bank-heist.md section 29; their state rides in mode.state)
 if S.interlock ~= false then include("heist_interlock") end
+-- guard personalities (designs/bank-heist.md section 32): the deal, bribes, the dossiers, the AR tags (their state is in C, hashed)
+if S.personalities then include("heist_traits") end
 -- the end-of-heist DEBRIEF (designs/bank-heist.md section 26): reads the run's events, scores it at finish() (presentation only)
 -- hostages and the human shield (designs/bank-heist.md section 31; the hold is in C, port_shield.c): before the debrief, which reports it
 H.job_text, H.money = JT, money

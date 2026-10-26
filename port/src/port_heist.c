@@ -116,6 +116,11 @@ void portHeistStageReset(void)
         portCombatStageReset();
     }
     {
+        extern void portTraitStageReset(void);   /* port_traits.c: guard personalities (section 32) */
+
+        portTraitStageReset();
+    }
+    {
         extern void portGadgetsReset(void);   /* port_gadgets.c: the gadgets' triggers, reels and disguises */
 
         portGadgetsReset();
@@ -2133,6 +2138,11 @@ void portHeistAiTick(void)
         portAiTick();
     }
     {
+        extern void portTraitTick(void);   /* port_traits.c: guard personalities (the rookie's radio, observations, gaps; section 32) */
+
+        portTraitTick();
+    }
+    {
         extern void portInterlockTick(void);   /* port_interlock.c: the doors-closing timer, the hold, the queue (section 29) */
 
         portInterlockTick();
@@ -2538,6 +2548,13 @@ static void coverScan(f32 dt)
                 {
                     e->linger[p] = 0.0f;
                 }
+            }
+            {
+                extern float portTraitVal(int chrnum, int field);   /* port_traits.c: a rookie's meter fills faster; bribed: he looks away */
+                f32 tm = portTraitVal(e->chrnum, 1 /* TV_SUSP */);
+
+                if (tm <= 0.0f) inst = 0;
+                rate *= tm;
             }
             if (inst) e->susp[p] = 1.0f;
             else if (rate > 0.0f) e->susp[p] += rate * dt;
@@ -3094,6 +3111,12 @@ unsigned portHeistStateHash(void)
         extern unsigned portCombatHash(void);   /* port_combat.c: the combat layer (section 24) */
 
         h = h * 16777619u + portCombatHash();
+    }
+    {
+        extern int portTraitOn(void);
+        extern unsigned portTraitHash(void);   /* port_traits.c: guard personalities (section 32); only while on, so off hashes as before */
+
+        if (portTraitOn()) h = h * 16777619u + portTraitHash();
     }
     {
         extern unsigned portGadgetsHash(void);   /* port_gadgets.c: triggers, reels, disguises */

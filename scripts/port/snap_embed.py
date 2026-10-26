@@ -46,6 +46,8 @@ SIM_PORT = {
     'port_combat.c',
     # hostages and the human shield (designs/bank-heist.md section 31)
     'port_shield.c',
+    # guard personalities: the deal, bribes, watchclock skips, what the crew has observed (designs/bank-heist.md section 32)
+    'port_traits.c',
 }
 # port/src files that are presentation or transport: never rewound.
 PRES_PORT = {

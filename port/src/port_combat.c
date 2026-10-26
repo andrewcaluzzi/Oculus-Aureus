@@ -42,6 +42,7 @@
 #include "port_event.h"
 #include "port_lua.h"
 #include "port_noise.h"
+#include "port_traits.h"   /* guard personalities (section 32): a rookie falls back sooner, a veteran later; neutral when off */
 
 extern s32 g_GlobalTimer;
 extern s32 g_ClockTimer;
@@ -597,7 +598,7 @@ static void step(Cb *g)
         if (!fighting && !under) { g->engagedAt = 0; return; }
         if (g->engagedAt == 0) g->engagedAt = sNow;
         if (!under && sNow - g->engagedAt < (s32) (sT.react * 60.0f)) return;
-        if (sT.retreat && hp <= sT.retreatHp && !g->retreated)
+        if (sT.retreat && hp <= sT.retreatHp * portTraitVal(g->chrnum, TV_RETREAT) && !g->retreated)
         {
             if (takeCover(g, c, bp, 1) > 0)
             {
@@ -629,7 +630,7 @@ static void step(Cb *g)
         return;
     }
     c->chrflags &= ~CHRFLAG_NEAR_MISS;
-    if (sT.retreat && hp <= sT.retreatHp && !g->retreated && g->st != CB_TOCOVER && sBudget > 0)
+    if (sT.retreat && hp <= sT.retreatHp * portTraitVal(g->chrnum, TV_RETREAT) && !g->retreated && g->st != CB_TOCOVER && sBudget > 0)
     {
         unpair(g);
         int r = takeCover(g, c, bp, 1);

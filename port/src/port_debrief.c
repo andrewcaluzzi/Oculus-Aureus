@@ -38,7 +38,7 @@ extern const char *portRootPath(const char *name);
 extern FILE *portRootFopen(const char *name, const char *mode);
 
 #define DB_ROWS    22
-#define DB_MEDALS  18   /* 15, plus the hostages' two (section 31): six tighter rows */
+#define DB_MEDALS  20   /* 15, the hostages' two (section 31) and the guard personalities' three (section 32): seven rows */
 #define DB_DL_GFX  (40 * 1024)
 #define DB_DL_SAFE 400
 #define DB_RECORDS "Data/Saves/heist_records.json"
@@ -660,13 +660,14 @@ static Gfx *drawPanel(Gfx *g)
     }
     for (i = 0; i < sDb.medals; i++)
     {
-        const s32 cx = 30 + (i % 3) * 196, cy = 328 + (i / 3) * (sDb.medals > 15 ? 22 : 26);
+        const s32 rowh = sDb.medals > 18 ? 18 : (sDb.medals > 15 ? 21 : 26);   /* 7 rows of 20 still end by y 438 */
+        const s32 cx = 30 + (i % 3) * 196, cy = 328 + (i / 3) * rowh;
         const DbMedal *m = &sDb.medal[i];
 
         if (cy > 438) break;
         if (m->earned)
         {
-            g = bfill(g, cx - 2, cy - 2, cx + 190, cy + 23, 0xF2C84028u);
+            g = bfill(g, cx - 2, cy - 2, cx + 190, cy + rowh - 3, 0xF2C84028u);
             g = star(g, cx + 9, cy + 9, 8, 0x5A3A00FFu);
             g = star(g, cx + 9, cy + 9, 7, 0xF2C840FFu);
         }
