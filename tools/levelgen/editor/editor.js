@@ -119,7 +119,7 @@
   }
   function focusOn(x0, z0, x1, z1) {
     S.view.cx = (x0 + x1) / 2; S.view.cz = (z0 + z1) / 2;
-    var s = Math.min((W - 80) / Math.max(200, x1 - x0), (H - 80) / Math.max(200, z1 - z0));
+    var s = Math.min((W - 80) / Math.max(1400, x1 - x0), (H - 80) / Math.max(1400, z1 - z0));
     S.view.s = Math.min(Math.max(s, 0.02), 1.5);
   }
 
