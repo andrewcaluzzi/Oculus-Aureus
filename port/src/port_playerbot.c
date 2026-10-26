@@ -659,6 +659,8 @@ static s32 bestGun(void)
     return ITEM_UNARMED;
 }
 
+extern ITEM_IDS get_next_weapon_in_cycle_for_hand(GUNHAND hand, s32 direction);   /* gun.c: in hand, or the switch under way */
+
 /* tap A (next weapon) until the wanted weapon is in hand */
 static void weaponTick(void)
 {
@@ -673,6 +675,11 @@ static void weaponTick(void)
 
     if (want < 0 || !bondinvItemAvailable(want) || cur == want)
     {
+        return;
+    }
+    if (get_next_weapon_in_cycle_for_hand(GUNRIGHT, 0) == want)
+    {   /* the switch to it is under way: another tap would step on past it. From the slappers the swap runs longer than the 24
+         * ticks between taps, so A went 1 -> 5, then 5 -> 1 (the cycle wraps), for good: the PP7 never came (2026-10-26) */
         return;
     }
     if (B.tick - B.lastCycleTick >= 24)
@@ -4457,9 +4464,10 @@ static void stageBegin(void)
     B.step = 0;
     B.peace = 0;
     B.quiet = 0;
-    B.holster = 0;   /* (not from the first tick: the bot draws the PP7 once on the street before the script holsters it. Holstered
-                      * from tick 0, the hand's previous weapon stayed the slappers and A never drew the gun again: the stock cycle
-                      * goes to the previous weapon when its next item is a gadget - 0 shots in a whole fight, 2026-10-26) */
+    /* GE_PLAYERBOT_HOLSTER (the heist): holstered from the first tick, as the crew starts. (Until 2026-10-26 the bot drew the PP7 once
+     * on the street first, a workaround for A never drawing it again; the hall guards then saw it armed in the first seconds. The real
+     * cause was weaponTick's second tap during the slappers' long swap: see there. A human's A draws it: heist_inputfix.lua.) */
+    B.holster = getenv("GE_PLAYERBOT_HOLSTER") != NULL;
     B.rush = getenv("GE_PLAYERBOT_RUSH") != NULL;
     B.moveOnly = 0;
     B.nAvoid = 0;
@@ -5465,8 +5473,17 @@ int portPlayerBotPushLine(const char *line, char *err, int errlen)
         snprintf(err, errlen, "plan full");
         return 0;
     }
-    memcpy(&B.plan.s[B.plan.n], one.s, (size_t) one.n * sizeof(PblStep));
-    B.plan.n += one.n;
+    {
+        const s32 idle = B.step >= B.plan.n;
+
+        memcpy(&B.plan.s[B.plan.n], one.s, (size_t) one.n * sizeof(PblStep));
+        B.plan.n += one.n;
+        if (idle)
+        {   /* the pushed step starts now: its clock (stepTick) was the time the last step ended, so a `press b 3` pushed onto an idle
+             * plan ended at once without a press (the heist's pickpocket presses, "no use event", 2026-10-26) */
+            stepBegin();
+        }
+    }
     return 1;
 }
 
