@@ -57,6 +57,7 @@ aside { width: 360px; border-left: 1px solid var(--line); background: var(--pane
 .kv { color: var(--muted); margin: 0 0 10px; font-size: 13px; }
 .row { display: grid; grid-template-columns: 98px 1fr; gap: 8px; align-items: center; margin: 5px 0; font-size: 13px; }
 .row span { color: var(--muted); }
+.row .val { font: 500 13px ui-monospace, Menlo, Consolas, monospace; word-break: break-all; }
 .row input[type=text], .row input[type=number], .row select { width: 100%; font: 13px ui-monospace, Menlo, Consolas, monospace; padding: 4px 6px; border: 1px solid var(--line); border-radius: 5px; background: var(--bg); color: var(--ink); min-height: 28px; }
 .row input[type=checkbox] { justify-self: start; width: 18px; height: 18px; }
 .sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -1px; border: 1px solid rgba(0,0,0,.4); }
@@ -77,8 +78,14 @@ body.dropping #stage::after { content: "Drop a layout JSON"; position: absolute;
 body.readonly .edit-only { display: none !important; }
 #mode.on { background: var(--accent); color: var(--accent-ink); }
 @media (max-width: 760px) {
-  body { height: auto; min-height: 100%; }
+  body { height: auto; min-height: 100%; overflow-x: hidden; }
   header { padding: 8px 16px; gap: 8px; }
+  header .spacer { display: none; }
+  #stats { order: 5; width: 100%; gap: 4px; }
+  .chip { font-size: 11px; padding: 2px 7px; }
+  #mode { margin-left: auto; }
+  .tabs button { min-width: 0; padding: 9px 2px; font-size: 13px; }
+  .row { grid-template-columns: 84px minmax(0, 1fr); }
   header h1 { font-size: 13px; }
   .bar { padding: 6px 16px; }
   .group + .group { margin-left: 0; padding-left: 0; border-left: 0; }

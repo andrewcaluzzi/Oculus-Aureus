@@ -87,6 +87,20 @@ crosses rooms only through doorways). Proven by `tests/levelgen/run.sh`: culling
 guard routing C -> B -> A. Limits: box rooms only, one floor height per doorway, open doorways, no setup objects yet.
 Format, textures found and the Lua `LEVEL` table: [`modding/levelgen.md`](../modding/levelgen.md).
 
+**The level editor** (`tools/levelgen/editor/`, [its README](../tools/levelgen/editor/README.md)) edits a layout in a browser
+and checks it with `gen_level.py`'s rules, ported to JS. `tools/levelgen/test_editor_roundtrip.py` runs 30 broken layouts through
+both and requires the same verdict and message from each. `tools/levelgen/preview.sh` builds a layout into `build_preview/` through
+CMake's `LEVELGEN_DIR` (default `port/levelgen`), so a preview never touches the committed level. Things learned building it:
+
+- **Writing the JSON back byte for byte needs Python's number and string rules.** `json.dump` writes a whole float as `1.0`
+  (bank v3 has seven `"intensity": 1.0`), so the editor's reader keeps those as floats. Python switches to exponent notation
+  below 1e-4 and from 1e16 (JS uses 1e-7 and 1e21), and writes `1e-05`, not JS's `1e-5`. `ensure_ascii` escapes DEL (0x7f) as
+  well as every non-ASCII character.
+- **The generator's formatting.** `"%.0f"` rounds half to even, and so does Python 3's `round()` (in `floor_at`). The JS port uses
+  the same rounding, or a footprint or a ramp height lands one unit off.
+- **The checks gen_level can only make on the mesh** (the tile and pad totals, the grids settling, a room cut in two by blocks,
+  the stan links across doorways) are not ported. The editor leaves those to the preview.
+
 ## Bunker 2's map (the heist's stand-in bank)
 
 From the BG portal table and the waypoint graph (stan rooms and BG rooms are the same numbers). Full tables:

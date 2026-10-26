@@ -95,7 +95,7 @@
   function fixSel() { if (S.sel && !selTarget(S.sel)) S.sel = null; }
 
   // -------------------------------------------------------------------------------------------------------------- view ---
-  var cv = $("plan"), ctx = cv.getContext("2d"), W = 0, H = 0, DPR = 1;
+  var cv = $("plan"), ctx = cv.getContext("2d"), W = 0, H = 0, DPR = 1, MK = 1;
   function resize() {
     DPR = window.devicePixelRatio || 1;
     var r = cv.getBoundingClientRect();
@@ -181,7 +181,7 @@
   // -------------------------------------------------------------------------------------------------------------- drawing ---
   function rect(x0, z0, x1, z1) { var a = sx(x0), b = sy(z1); ctx.rect(a, b, sx(x1) - a, sy(z0) - b); }
   function fillRect(x0, z0, x1, z1, col) { ctx.fillStyle = col; ctx.beginPath(); rect(x0, z0, x1, z1); ctx.fill(); }
-  function dot(x, z, r, col, stroke) { ctx.beginPath(); ctx.arc(sx(x), sy(z), r, 0, Math.PI * 2); ctx.fillStyle = col; ctx.fill(); if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 1.5; ctx.stroke(); } }
+  function dot(x, z, r, col, stroke) { ctx.beginPath(); ctx.arc(sx(x), sy(z), r * MK, 0, Math.PI * 2); ctx.fillStyle = col; ctx.fill(); if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 1.5; ctx.stroke(); } }
   function floorColour(R) {
     if (R.ramp) return C.ramp;
     if (R.zone && ZONE[R.zone]) return ZONE[R.zone];
@@ -190,6 +190,7 @@
 
   function draw() {
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    MK = S.view.s < 0.05 ? 0.55 : S.view.s < 0.1 ? 0.75 : 1;           // markers shrink when zoomed far out
     ctx.fillStyle = C.bg; ctx.fillRect(0, 0, W, H);
     if (!S.M) { ctx.fillStyle = "#8a8d99"; ctx.font = "15px system-ui, sans-serif"; ctx.textAlign = "center"; ctx.fillText("Open a layout (tools/levelgen/*.json) or drop one here", W / 2, H / 2); return; }
     drawGrid();
@@ -283,7 +284,7 @@
         var x = LL.num(p.at[0]), z = LL.num(p.at[1]), tg = tags[p.name] || [];
         var post = tg.some(function (s) { return s.indexOf("guard post") === 0; });
         if (post && S.layers.posts) {
-          var X = sx(x), Y = sy(z); ctx.beginPath(); ctx.moveTo(X, Y - 6); ctx.lineTo(X + 5, Y + 4); ctx.lineTo(X - 5, Y + 4); ctx.closePath();
+          var X = sx(x), Y = sy(z); ctx.beginPath(); ctx.moveTo(X, Y - 6 * MK); ctx.lineTo(X + 5 * MK, Y + 4 * MK); ctx.lineTo(X - 5 * MK, Y + 4 * MK); ctx.closePath();
           ctx.fillStyle = C.post; ctx.fill(); ctx.strokeStyle = "#fff"; ctx.lineWidth = 1; ctx.stroke();
         } else if (S.layers.pads) dot(x, z, p.loot ? 3 : 2.2, p.loot ? C.loot : C.pad);
       });
@@ -331,6 +332,7 @@
   function drawScale() {
     var m = [100, 200, 500, 1000, 2000, 5000].find(function (v) { return v * S.view.s >= 60; }) || 5000;
     var px = m * S.view.s, x = 14, y = H - 16;
+    ctx.fillStyle = "rgba(20,21,26,0.78)"; ctx.fillRect(x - 8, y - 24, Math.max(px, 120) + 16, 32);
     ctx.strokeStyle = "#c9ccd6"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + px, y); ctx.moveTo(x, y - 4); ctx.lineTo(x, y + 4); ctx.moveTo(x + px, y - 4); ctx.lineTo(x + px, y + 4); ctx.stroke();
     ctx.fillStyle = "#c9ccd6"; ctx.font = "11px system-ui, sans-serif"; ctx.textAlign = "left"; ctx.textBaseline = "bottom";
     ctx.fillText(m >= 100 ? (m / 100) + " m (" + m + " units)" : m + " units", x, y - 6);
@@ -345,7 +347,7 @@
     ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.setLineDash([3, 4]); ctx.beginPath(); ctx.moveTo(sx(p.x), sy(p.z)); ctx.lineTo(sx(q.x), sy(q.z)); ctx.stroke(); ctx.setLineDash([]);
     [p, q].forEach(function (e) {
       var X = sx(e.x), Y = sy(e.z), on = set.has(e.R);
-      ctx.beginPath(); ctx.moveTo(X, Y - 6); ctx.lineTo(X + 6, Y); ctx.lineTo(X, Y + 6); ctx.lineTo(X - 6, Y); ctx.closePath();
+      ctx.beginPath(); ctx.moveTo(X, Y - 6 * MK); ctx.lineTo(X + 6 * MK, Y); ctx.lineTo(X, Y + 6 * MK); ctx.lineTo(X - 6 * MK, Y); ctx.closePath();
       ctx.fillStyle = on ? col : "rgba(0,0,0,0)"; ctx.fill(); ctx.strokeStyle = col; ctx.lineWidth = 1.5; ctx.stroke();
     });
     if (S.view.s > 0.05) { ctx.fillStyle = col; ctx.font = "11px system-ui, sans-serif"; ctx.textAlign = "left"; ctx.textBaseline = "middle"; var e = set.has(p.R) ? p : q; ctx.fillText(label, sx(e.x) + 9, sy(e.z)); }
@@ -649,11 +651,11 @@
       var li = document.createElement("li");
       li.className = i.level;
       li.innerHTML = '<span class="tag">' + (i.level === "error" ? (i.gen ? "gen_level" : "engine") : i.level) + "</span> " + esc(i.msg);
-      if (i.ref) li.onclick = function () { goTo(i.ref); };
+      if (i.ref) li.onclick = function () { goTo(i.ref, true); };
       el.appendChild(li);
     });
   }
-  function goTo(ref) {
+  function goTo(ref, scroll) {
     var sel = null;
     if (ref.kind === "room") sel = { kind: "room", name: ref.name };
     else if (ref.kind === "door") sel = S.M.doors.some(function (D) { return D.index === ref.index; }) ? { kind: "door", index: ref.index } : null;
@@ -672,7 +674,7 @@
     var b = selBox(sel) || (R && [R.x0, R.z0, R.x1, R.z1]);
     if (b) focusOn(b[0] - 300, b[1] - 300, b[2] + 300, b[3] + 300);
     renderInspector(); draw();
-    if (window.matchMedia("(max-width: 760px)").matches) document.getElementById("plan").scrollIntoView({ behavior: "smooth" });
+    if (scroll && window.matchMedia("(max-width: 760px)").matches) document.getElementById("plan").scrollIntoView({ behavior: "smooth" });
   }
 
   function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
@@ -680,6 +682,13 @@
     opts = opts || {};
     var row = document.createElement("label"); row.className = "row";
     var span = document.createElement("span"); span.textContent = label; row.appendChild(span);
+    if (S.readOnly) {             // view only (phones): the value as text
+      var v = document.createElement("b"); v.className = "val";
+      var opt = opts.options && opts.options.find(function (o) { return String(o[0]) === String(value); });
+      v.textContent = opts.check ? (value ? "yes" : "no") : opt ? opt[1] : (value === undefined || value === null || value === "" ? "—" : String(value));
+      row.appendChild(v);
+      return row;
+    }
     var inp;
     if (opts.options) {
       inp = document.createElement("select");
@@ -696,7 +705,7 @@
     return row;
   }
   function info(html) { var p = document.createElement("p"); p.className = "kv"; p.innerHTML = html; return p; }
-  function button(label, fn, cls) { var b = document.createElement("button"); b.textContent = label; b.onclick = fn; if (cls) b.className = cls; b.disabled = S.readOnly; return b; }
+  function button(label, fn, cls) { var b = document.createElement("button"); b.textContent = label; b.onclick = fn; b.className = (cls || "") + " edit-only"; return b; }
 
   var RULES = [["0", "unlocked"], ["2", "GREEN"], ["4", "BLUE"], ["8", "RED"], ["16", "GOLD"], ["1", "floor key"], ["3", "GREEN + floor key"], ["1073741824", "VAULT (cracker only)"]];
   function renderInspector() {
