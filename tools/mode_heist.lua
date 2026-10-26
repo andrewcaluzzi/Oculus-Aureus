@@ -162,6 +162,7 @@ local S = {
   -- written. A script that sets HEIST_SETTINGS without this key (the tests) gets the fixed job. randomiser = { ... } tunes it.
   randomise       = true,
   randomiser      = nil,
+  hostages        = true,    -- hostages and the human shield (tools/heist_hostages.lua, section 31); false = off; a table tunes the fines
   debrief         = true,    -- the end-of-heist DEBRIEF (tools/heist_debrief.lua, section 26): rating, payout, stats, commendations, records
   planning        = true,    -- the PLANNING board before the clock starts (tools/heist_planning.lua, section 27); off in automated runs
   -- difficulty (mission.difficulty(): 0 Agent .. 3 007). force: the share of the full force above (posted guards, raisers, vault
@@ -1184,6 +1185,7 @@ local function finish(win, msg)
   if not win then score = 0 end
   local best = ""
   if win and H.plan_cost then score = math.max(0, score - H.plan_cost) end   -- (the planning spend, section 27)
+  if win and H.hostage_fine then score = math.max(0, score - H.hostage_fine()) end   -- (the hostages' fines, section 31)
   if win and score > HEIST_BEST then HEIST_BEST = score; best = "  NEW BEST" end
   log("%s: %s | loot %s (%d bars, %d cash) + quiet bonus %s - %d civilians x %s = SCORE %s | best this session %s | %d s, alarm %s",
       win and "WIN" or "FAIL", msg, money(H.loot), H.bars, H.cash, money(bonus), killed, money(S.civ_fine), money(score),
@@ -1306,13 +1308,13 @@ on("stage_start", function(stage)
   end
   waves = heist.reinforce{ pads = P.waves_front, interval = S.wave_interval, per_wave = math.max(1, diff.wave), max_alive = scaled(S.wave_max_alive, 4),
                            first = S.wave_first, reserve = S.reserve_slots, opts = wave_opts, on_spawn = function(c) spawn.role(c, "wave"); if HEIST_COMBAT then HEIST_COMBAT.guard(c, "wave") end end,
-                           active = function() return H.hot and not H.ended and hostiles_alive() < S.hostile_cap end }
+                           active = function() return H.hot and not H.ended and hostiles_alive() < S.hostile_cap and not (H.standoff_hold and H.standoff_hold()) end }
   response = heist.reinforce{ pads = { P.waves_front[1], P.waves_dock[1], P.waves_front[2], P.waves_dock[2] }, interval = S.response_interval,
                               per_wave = scaled(S.response_size, 1), max_alive = scaled(S.wave_max_alive, 4), first = 0, reserve = S.reserve_slots,
                               on_spawn = function(c) spawn.role(c, "response"); if HEIST_COMBAT then HEIST_COMBAT.guard(c, "response") end end,
                               opts = function() return guard_opts({ behaviour = "chase", body = pick({ "Siberian_Special_Forces", "Janus_Special_Forces" }),
                                                                     weapon = pick({ "rcp90", "ar33" }), armour = 1.5, sunglasses = true }) end,
-                              active = function() return H.hot and not H.ended and H.hot_at and H.elapsed - H.hot_at >= S.response_after
+                              active = function() return H.hot and not H.ended and H.hot_at and H.elapsed - H.hot_at - (H.standoff or 0) >= S.response_after
                                                          and hostiles_alive() < S.hostile_cap end }
   flash(S.cover and JT.intro_cover or JT.intro_plain, 8)
   log("stage start: %s, %d Bond(s), difficulty %d", MAP.label, bond.count(), mission.difficulty())
@@ -1382,6 +1384,9 @@ include("heist_gadgets")
 -- the door interlocks: the staff entrance mantrap and the sally port (designs/bank-heist.md section 29; their state rides in mode.state)
 if S.interlock ~= false then include("heist_interlock") end
 -- the end-of-heist DEBRIEF (designs/bank-heist.md section 26): reads the run's events, scores it at finish() (presentation only)
+-- hostages and the human shield (designs/bank-heist.md section 31; the hold is in C, port_shield.c): before the debrief, which reports it
+H.job_text, H.money = JT, money
+if S.hostages ~= false then include("heist_hostages") end
 if S.debrief ~= false then include("heist_debrief") end
 -- the AR specs and diagnostics (tools/heist_ar.lua): after every handler above, so the map is loaded when its stage_start runs
 if heist_ar and heist_ar.attach then heist_ar.attach(H, S) end

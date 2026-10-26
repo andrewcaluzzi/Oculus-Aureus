@@ -1768,6 +1768,11 @@ static lua_State *portLuaState(void)
 
         portLuaInterlockRegister(sL);
     }
+    {   /* hostages and the human shield: shield.* (port_luavm_shield.c, port/src/port_shield.c) */
+        extern void portLuaShieldRegister(lua_State *L);
+
+        portLuaShieldRegister(sL);
+    }
     {   /* the heist INTEL board: intel.* (port_luavm_intel.c) */
         extern void portLuaIntelRegister(lua_State *L);
 

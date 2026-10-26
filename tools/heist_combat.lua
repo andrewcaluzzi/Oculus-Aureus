@@ -77,7 +77,8 @@ function C.setup(ctx)
       first = 0, reserve = S.reserve_slots,
       opts = function() return ctx.guard_opts({ behaviour = "chase", body = "Russian_Infantry", weapon = (math.random(3) == 1) and "dd44" or "kf7" }) end,
       on_spawn = function(c) spawn.role(c, "wave"); C.guard(c, "police"); C.first_cop = C.first_cop or c end,
-      active = function() return H.hot and not H.ended and H.hot_at and H.elapsed - H.hot_at >= C.heat.police_at and ctx.hostiles() < S.hostile_cap end }
+      active = function() return H.hot and not H.ended and H.hot_at and H.elapsed - H.hot_at - (H.standoff or 0) >= C.heat.police_at and ctx.hostiles() < S.hostile_cap
+                                 and not (H.standoff_hold and H.standoff_hold()) end }   -- (a hostage stand-off holds them back: section 31)
   end
   log("on: difficulty %d, react %.1f s, flank chance %.2f, police %s s after the alarm (%d a wave, every %d s, %d alive)", d, t.react,
       t.flank_chance, tostring(C.police and C.heat.police_at or "off"), C.heat.police_size, C.heat.police_interval, C.heat.police_max)
@@ -99,7 +100,7 @@ function C.tick()
   local ctx = C.ctx
   local H, S = ctx.H, ctx.S
   if not H.hot or not H.hot_at or H.ended then return end
-  local heat = H.elapsed - H.hot_at
+  local heat = H.elapsed - H.hot_at - (H.standoff or 0)   -- (a hostage stand-off moves the heat clock on: section 31)
   if C.stage < 1 and C.police and heat >= C.heat.police_at then
     C.stage = 1
     combat.stage(1)

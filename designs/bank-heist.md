@@ -1971,3 +1971,151 @@ the cage and its mantrap; the eye-in-the-sky catwalks behind one-way glass and t
 high-roller safe; and the house vault and count rooms below. The research, design and routes are in
 [`job2-casino.md`](job2-casino.md). It is built by `tools/levelgen/build_casino.py` and played from its own build dir
 (`-DGE_LEVELGEN_DIR=port/levelgen_casino`: the slot holds one layout per build). The test is `tests/heist/run_job2.sh`.
+
+## 31. Hostages and the human shield (stream `hostages`, 2026-10-26)
+
+AC approved "hostages and the human shield": a civilian who has surrendered can be taken as a shield. The guards hold fire while it is
+in their line and try to get round it; the police hold back once for each hostage; and the debrief makes you pay for it.
+
+### 31a. How to play it
+
+- **Take one.** Aim at a civilian (a teller, a customer, a croupier) until it puts its hands up, or catch one cowering after gunfire.
+  Step **beside or behind** it, and with a **one-handed gun** in hand press **USE** at nothing. One-handed means a pistol (PP7, DD44,
+  the Magnum, the gold, silver and golden guns), the Klobb, the ZMG, a knife or the watch laser. If you stand in front of it you get
+  "Get beside or behind them". With the slappers or a two-handed gun you get "one hand free - draw a pistol".
+- **Holding it.** The hostage is held 45 units in front of you, hands up, facing where you face. You walk at half speed. You can still
+  shoot: your own shots pass through the hostage. Every guard and camera that sees you knows something is wrong: it counts as an act, so
+  your cover is blown where you are seen. Civilians nearby panic and cower. The AR specs put a red bracket and **HOSTAGE** on it.
+- **The guards.** A guard about to fire at you **holds the shot** whenever the hostage is in his line: within 34 units of the line from
+  him to you, on his side of you. Anything in front of you is covered, about 50 degrees either side. He keeps aiming, and he barks
+  "Hold your fire! He's got a hostage!", "Let them go!" and the like. **From the side or from behind he has a clear line, and he fires.**
+  A guard the combat layer drives (section 24) goes round for a clear shot after 2 s of held shots ("I'll get round him!"). He runs
+  to a point 60 to 100 degrees off your facing that you can see, and fires from there. Turn to face him and the hostage covers you
+  again.
+- **Letting go.** Press **USE** again at nothing (a press at a door or an object opens it and you keep the hostage). The hostage cowers,
+  then goes back to its own list. You also let go when:
+  - you are hit (a 35 % chance on each hit);
+  - you switch to a two-handed gun;
+  - you or the hostage goes down;
+  - you start two-handed work: the vault door (use or the decoder), the breaker or the generator, a piton line or a vent.
+  Ordinary doors open one-handed.
+- **The police stand-off.** Once the police are in (section 24), holding a hostage where a police officer has the line to you (within
+  2500 units) starts a **stand-off**. The HUD and the officer's radio say "Negotiator: We can talk about this. Nobody else has to get
+  hurt." (the job table's `text.negotiator`; the casino has its own line). For 30 s no wave spawns: the police, the bank's waves and
+  SWAT all wait. The heat clock also moves on by 30 s, so SWAT comes 30 s later. You get **one stand-off per hostage**.
+- **The price** (in the payout, before the debrief):
+  - $50,000 for each time you take a hostage;
+  - $50,000 for each minute held (counted by the second);
+  - $150,000 for a hostage hurt while held, on top of the usual civilian fine if it dies.
+  A crew that took a hostage is rated **COWBOY at best**: a run that would have been GHOST or PROFESSIONAL is capped, and CHAOS stays
+  CHAOS. There are two new commendations:
+  - **Negotiator**: you used a stand-off and then let that hostage go unharmed;
+  - **Hostile Takeover**: you took a hostage. It is a mark against you, but it lights up like the others.
+  The debrief adds a **Hostages** row ("1 taken, 0:37 held, 0 hurt, 1 stand-off"), and the hostage fines are counted in its fines line.
+- **Hints.** The first time a civilian surrenders to you, the guide line shows "USE beside/behind them, pistol drawn: take a hostage"
+  for 10 s. While you hold one it shows "HOSTAGE: USE lets go. Guards in line hold fire. You walk". The INTEL board's NOTES page has a
+  **HOSTAGES** card where the HOLD FIRE card was. The hold-fire rule for the other staff still applies.
+
+`S.hostages = false` turns it all off and gives the old game exactly: the C layer is never enabled and nothing is drawn. To tune it, use
+`S.hostages = { fine_take =, fine_minute =, hurt_fine =, standoff =, standoff_range =, tune = { shield.tune keys } }`.
+
+### 31b. How it works
+
+- **C: the hold** (`port/src/port_shield.c`, Lua `shield.*` in `port/luavm/port_luavm_shield.c`). The hooks, each a few lines:
+  - `port_heist.c`, nine hooks:
+    - `portHeistNoteUse`: every use press, flagged with whether a door or an object was its target;
+    - `portHeistHoldFire`: asks `portShieldHoldFire` first, and its own civilian test skips a held hostage. A hostage within 90 of
+      you would otherwise hold every shot, from any side;
+    - `civTick`: a held hostage is not ticked;
+    - `portHeistChrNoAi` and `portHeistChrWaking`: no AI list and no arena route for a held hostage;
+    - the stage reset, the AI tick, the state hash;
+    - four small accessors: the civilian table, cower one, scare the ones round a point.
+  - `chr.c chrTestHit`: the holder's own shot passes through his hostage.
+  - `bondview2.c`: the stick is capped at `speed` for a Bond holding a hostage.
+  - `port_combat.c`: `portCombatFlankTo`, a solo flank to a given point.
+  - `port_debrief.c`: 18 medals, set closer together when there are more than 15.
+- **The grab** picks the nearest civilian that:
+  - has its hands up or is cowering (`civilian.state`);
+  - is up (not knocked out), within `reach` 120, ahead of the Bond (60 degrees) and on his floor;
+  - has the Bond outside its own front 120 degrees (`front`).
+  While held, it carries the knock-out's flags (no collision box, no auto-aim). Each tick it is pinned: a stan walk from the Bond's
+  tile up to 45 units ahead. Walls and doors stop it shorter: 70 %, 40 %, or at his feet. Its yaw is set to the Bond's facing, its
+  rooms are detected again, and the "surrender" animation is kept.
+- **Hold fire.** The test is geometric, on sim positions: the hostage's projection on the shooter-to-Bond segment, `t` in (0, 1), and
+  its distance from the line at most `line` (34). A held shot counts in the guard's own `spawn.fire_stats` "held". The guard's record
+  (the first and last held shot) drives his barks and, for a combat guard, the flank. The flank point is the Bond's position turned
+  1.25, 1.5, 1.05 or 1.8 radians off his facing, toward the guard's side first. It is at the guard's distance (350 to 900), or 0.7 of
+  it, on the guard's floor, and the Bond must see it. He tries again every 6 s at most.
+- **The stand-off and the money** (`tools/heist_hostages.lua`, included by `mode_heist.lua` before the debrief):
+  - Every 0.5 s it checks each Bond holding a hostage against the police controller's officers (`combat.los`). The C record gets the
+    stand-off bit (`shield.standoff`).
+  - `H.standoff` (the heat clock offset) and `H.standoff_until` (the pause) are read in three places: the waves' and the response's
+    `active` in `mode_heist.lua`, and the police's `active` and the heat stage clock in `heist_combat.lua`.
+  - `H.hostage_report()` / `H.hostage_fine()` sum the C records. `finish()` takes the fine off the score, next to the planning cost.
+    The debrief caps the rating, adds the row and the two medals, and puts the fines into its `fines` / `hostage_fines` fields.
+- **Determinism.** Every decision reads sim state. The only random draw is the drop on a hit (`randomGetNext`). Nothing reads the local
+  player: the Bond is the one whose tick runs the press or the shot. The hash and the snapshot cover it all:
+  - `portShieldHash` covers the records, the holds, the guards' records and the counters (the tune is set by the script at the stage
+    start, the same on every machine). It is 0 until the first grab or
+    refused grab, so a run with no hostage hashes the same as one with `S.hostages = false`.
+  - The Lua stand-off clock rides in `mode.state` (` HS[...]`, empty until a stand-off).
+  - `port_shield.c` is a SIM file in `scripts/port/snap_embed.py`.
+  - The HUD lines, the AR marks and the guide hint are presentation.
+- **Both jobs and co-op.** The layer reads only the civilian table and the job map's vault doors. On the casino the croupiers and the
+  guests are the civilians, and the casino's negotiator line comes from `tools/jobs/casino.lua`. Each Bond holds his own hostage (per
+  Bond in C), and the hold-fire test uses whichever Bond the guard is firing at.
+
+### 31c. Tests
+
+`tests/heist/run_hostage.sh` (`tests/heist/heist_hostage.lua`, the real mode on the bank, Agent, seed 7, one scenario per run):
+
+| Run | Checks | What it shows |
+| --- | --- | --- |
+| grab | 17 | an idle civilian: no; surrendered, slappers in hand: no (`nogun`); in front: no (`front`); beside it with the PP7: held; the HUD line; pinned 45 units ahead, east of him when he turns east; USE: let go unharmed, it cowers; cowering is compliant (re-taken); a KF7 in hand: let go (`weapon`); killed while held: let go (`hostage_down`), hurt, the death counted, the report fines it |
+| fire | 11 | a stock guard 450-900 away in Bond's line, the hostage between: 10 s facing him, **0 shots fired with it in his line** (counted from his fire stats and the positions), 84 held, "Hold your fire!", the hostage unhurt; side-on: he fires (166 clear shots); registered with the combat layer: he goes round (481 units) and fires from a clear line |
+| standoff | 15 | the alarm, police on the timer (every 5 s); a civilian at a spot an officer sees, taken: the stand-off at once (+30 s, the negotiator line); no police wave for 26 s; they come again at +30 s; no second stand-off for that hostage; let go unharmed and out at the dock: Negotiator and Hostile Takeover |
+| debrief | 10 | a quiet run (no alarm, nobody hurt): held 12 s, the fine $60,000 (one take + 0.2 min); out at the van: **COWBOY** (capped), payout = loot + quiet bonus - fine, Hostile Takeover lit, no Negotiator |
+| off | 5 | `S.hostages = false`: the layer off; surrendered, Bond behind it, PP7 drawn: no hostage; no HOSTAGES card, no report |
+
+`tests/heist/heist_determinism.lua` has two switches:
+- `GE_HEIST_DET_HOSTAGE=1` takes a hostage with a real use press (`cctv.test_use`) before the alarm, holds it through the alarm, and
+  lets it go;
+- `GE_HEIST_DET_NOHOSTAGES=1` runs with the layer off.
+
+Results on this branch:
+- With a hostage taken: determinism solo 3/3 (4359 ticks) and co-op 5/5 (4364 ticks, view-switched too; Bond 1 held it while 8
+  guard shots were held).
+- Not run (the time box ran out): the comparison with the layer off against the default; winpath; firstplay; run_combat.sh;
+  debrief; guards; dam1. The hooks are inert while no hostage is held, and dam1 runs no mode.
+
+Screenshot: `hostage-shield.jpg` in the overnight `img` folder. It shows the back of the hostage's head, the guard behind it holding
+his fire ("Hold your fire! He's got a hostage!"), and the HOSTAGE tag.
+
+### 31d. The Lua API (`shield.*`, any mode)
+
+- `shield.enable(on)`, `shield.on()`
+- `shield.tune{ dist = 45, reach = 120, speed = 0.5, drop = 0.35, line = 34, flank_after = 2, front = 0.5, flank = 1 }`
+- `shield.held(p) -> chr | nil`, `shield.holder(chr) -> p | nil`
+- `shield.grab(p [, chr])`: a use press at nothing (test hook).
+- `shield.release(p [, why])`
+- `shield.last(p) -> what, serial`: `what` is "grab", "nogun", "front" or "release".
+- `shield.info(chr) -> { by, held, secs, hurt, standoff, clean, takes, why }`
+- `shield.list()`, `shield.standoff(chr)`, `shield.face(chr)`
+- `shield.counts() -> { grabs, releases, refused, held_shots, clear_shots, drops, flanks, barks }`
+
+Log lines: `ge: shield: Bond <p> takes chr <c> as a hostage`, `... lets hostage chr <c> go (<why>, <secs> s held)`,
+`ge: shield: chr <g> goes round for a clear shot`, and `ge: heist: hostages: STAND-OFF: ...`.
+
+### 31e. Limits and next
+
+- **No third-person view.** In first person the hostage is the back of a head and shoulders 45 units ahead. The bracket and the HUD line
+  carry it.
+- **Guards' misses.** A guard with a clear line can still miss into the hostage (stock scatter). The test counts the shots fired with
+  the hostage in the line, not where the bullets land. The old 90-unit "next to the target" rule is off for the held hostage, because it
+  would hold every shot from every side.
+- **Guards on their stock lists** (not taken by the combat layer) hold their aim but do not go round. Two guards do not coordinate a
+  pincer around a hostage; each flank is on its own.
+- **The hostage only plays the surrender pose**, with no struggle animation. It cannot be handed to a crew mate, and a guard cannot free it.
+- **The casino.** It works through the same tables, but this stream did not run it on the casino build (`build_job2`).
+- **Next:** a struggle animation, a negotiator who asks for the release ("release one and we hold back 60 s"), an AI marksman who
+  waits for a head-shot window, and SWAT who never stand off.

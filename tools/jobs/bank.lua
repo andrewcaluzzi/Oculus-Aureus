@@ -223,6 +223,7 @@ HEIST_JOBS.bank = {
     vault_open = "The vault is open! Grab the gold",
     safe_open = "The manager's safe: gold!",
     safe_log = "the manager's safe is open: %d bars",
+    negotiator = "Negotiator: We can talk about this. Nobody else has to get hurt.",   -- (the hostage stand-off, section 31)
   },
 
   -- ----------------------------------------------------------------------------------------------------------------------------------

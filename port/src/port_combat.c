@@ -870,6 +870,27 @@ int portCombatPair(int fchr, int schr)
     return startFlank(f, fc, s, sc, bp);
 }
 
+/* port_shield.c (section 31): a tracked guard whose shot a hostage blocks runs to (x, z) for a clear line, alone (a flank with no
+ * partner: at the point he fires, then fights from cover as anyone); 1 = on his way */
+int portCombatFlankTo(int chrnum, float x, float z)
+{
+    Cb *g = cFind(chrnum);
+    ChrRecord *c;
+    f32 y;
+
+    if (g == NULL || !sOn || !chrUp(c = cChr(g)) || !armed(c) || g->st == CB_FLANK || g->retreated || tileAt(x, c->ground, z, &y) == NULL) return 0;
+    if (!runTo(c, x, c->ground, z)) return 0;
+    unpair(g);
+    g->role = ROLE_FLANK;
+    g->px = x; g->pz = z; g->cy = y;
+    g->seenAt = sNow;
+    if (g->engagedAt == 0) g->engagedAt = sNow;
+    setSt(g, CB_FLANK);
+    g->flanks++;
+    sFlankN++;
+    return 1;
+}
+
 /* combat.stage(n): the mode's heat stage (0 none, 1 police, 2 SWAT), kept here so it is in the hash */
 int portCombatStage(int n)
 {

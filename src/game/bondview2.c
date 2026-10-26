@@ -8508,6 +8508,19 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
             g_CurrentPlayer->speedsideways = -1;
         }
 
+#ifndef TARGET_N64
+        { /* PORT: heist hostages (port_shield.c): a Bond holding a hostage walks */
+            extern float portShieldSpeedCap(void);
+            f32 cap = portShieldSpeedCap();
+            if (cap < 1.0f)
+            {
+                if (g_CurrentPlayer->speedforwards > cap) g_CurrentPlayer->speedforwards = cap;
+                if (g_CurrentPlayer->speedforwards < -cap) g_CurrentPlayer->speedforwards = -cap;
+                if (g_CurrentPlayer->speedsideways > cap) g_CurrentPlayer->speedsideways = cap;
+                if (g_CurrentPlayer->speedsideways < -cap) g_CurrentPlayer->speedsideways = -cap;
+            }
+        }
+#endif
         g_CurrentPlayer->speedforwards *= 1.08f;
         g_CurrentPlayer->speedforwards *= g_CurrentPlayer->speedboost;
 
