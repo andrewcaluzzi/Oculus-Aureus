@@ -493,6 +493,17 @@ end)
 
 local function area_by_name(n) for _, a in ipairs(AREAS) do if a.name == n then return a end end end
 
+-- the pads the card carriers took (queue_carriers runs first): the posts, raisers and staff placed after them skip those pads, so a
+-- carrier stands alone where the board cases him. Before (GE_SEED 5), a posted guard landed 110 units off the security chief (spawn_at's
+-- offset), and every pickpocket from behind the chief was seen by him
+local carrier_pads = {}
+local function clear_of_carriers(list, i)   -- the i-th pad of the list without the carriers' (so the posts still get a pad each)
+  local free = {}
+  for _, p in ipairs(list) do if not carrier_pads[p] then free[#free + 1] = p end end
+  if #free == 0 then return list[(i - 1) % #list + 1] end
+  return free[(i - 1) % #free + 1]
+end
+
 local function queue_area_guards()
   local total_share = 0
   for _, a in ipairs(AREAS) do total_share = total_share + a.share end
@@ -503,8 +514,8 @@ local function queue_area_guards()
   for _, a in ipairs(AREAS) do
     local n = math.floor(posts * a.share / total_share + 0.5)
     for k = 1, n do
-      local pad = a.pads[(k - 1) % #a.pads + 1]
       queue[#queue + 1] = function()
+        local pad = clear_of_carriers(a.pads, k)
         local c = spawn_at(pad, guard_opts({ post = face_for(a, pad) or true }))
         if c then note_guard(c, "post", a.name) end
       end
@@ -512,8 +523,8 @@ local function queue_area_guards()
     local r = math.min(a.raisers, raiser_left)
     raiser_left = raiser_left - r
     for k = 1, r do
-      local pad = a.pads[(k * 3) % #a.pads + 1]
       queue[#queue + 1] = function()
+        local pad = clear_of_carriers(a.pads, (k * 3) % #a.pads + 1)
         local c = spawn_at(pad, guard_opts({ behaviour = "hold", alarm_pad = a.panel }))
         if c then note_guard(c, "raiser", a.name) end
       end
@@ -530,10 +541,10 @@ local function queue_civilians()
       for k = 1, place[3] do
         if made >= n then break end
         made = made + 1
-        local pad = place[2][(k - 1) % #place[2] + 1]
+        local list, i = place[2], (k - 1) % #place[2] + 1
         local area = place[1]
         queue[#queue + 1] = function()
-          local c = spawn_at(pad, { behaviour = "civilian", body = pick(S.civ_bodies) })
+          local c = spawn_at(clear_of_carriers(list, i), { behaviour = "civilian", body = pick(S.civ_bodies) })
           if c then H.civs[#H.civs + 1] = { chr = c, area = area }; H.placed.civ = H.placed.civ + 1 end
         end
       end
@@ -545,11 +556,13 @@ end
 local function give_card(c, flags, role, area, pad)
   local h = c and spawn.key(c, flags) or nil
   H.carriers[role] = { chr = c, key = h, flags = flags, area = area, pad = pad }
+  carrier_pads[pad] = true
   log("card %s (0x%x) on %s chr %s at pad %d (%s)", role, flags, role, tostring(c), pad, area)
 end
 
 local function queue_carriers()
   queue[#queue + 1] = function()
+    carrier_pads = {}
     -- GREEN: the head teller (a civilian at the counter) or the lobby captain (a guard on the hall floor), chosen at random
     if math.random(2) == 1 then
       local pad = pick(CARRIERS.teller)
