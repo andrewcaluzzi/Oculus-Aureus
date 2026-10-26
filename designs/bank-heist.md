@@ -1049,9 +1049,16 @@ Screenshots of the merged build on v3 are on AC's machine, not in the repo, in `
   - **A Bond sees himself on a camera (AC's playtest).** The feed poses and draws Bonds' bodies too (`portCctvDrawChrs`: a
     `PROP_TYPE_VIEWER` with a body, in the camera's rooms): the watching Bond himself (never onscreen in his own view) and his
     partner when his own view does not have him, standing where they stand and facing their yaw, inside the same RNG / pool /
-    model save and restore as the guards. Co-op and netplay only: a solo Bond has no body (`bondviewRemovePlayerBody`), so he is
-    still not on the feed (keeping the body in a solo heist is a sim change; it needs the solo suites rerun). Test:
-    `run_cctvself.sh` (local co-op: the hall camera at the screens, the security camera at its pad; `cctv.render_info().bonds`).
+    model save and restore as the guards.
+    **Solo too (AC's case).** A solo Bond has no body (the intro builds one in the hands' weapon buffers and
+    `bondviewRemovePlayerBody` drops it), so `port/src/port_cctvbody.c` keeps a presentation-only one: the same body and head
+    models the intro picks for him, loaded by ID from the ROM data with `load_object_fill_header` into its own heap buffers (the
+    weapon-buffer path: nothing from the STAGE pool, no model slot, no chr, no prop), built with `animInit` + `makeonebody` (a model
+    given), posed from his position, floor and yaw with the unarmed MP idle / walk / crouch animations, ticked and drawn only in the
+    feed pass inside its save and restore, lit from his floor tile. Rebuilt each stage. `GE_CCTV_NOSELF=1` turns it off.
+    Tests: `run_cctvself.sh [coop|solo|hash]` (the hall camera at the screens, the security camera near its pad,
+    `cctv.render_info().bonds`; hash: the solo run with the feed drawn and with no feed render, 2591 ticks hash-identical); the solo
+    determinism scenario drawn vs `GE_CCTV_NORENDER=1`: 5856 ticks identical.
   - Tests: `run_inputfix.sh [seeds]` (use in front of a facing guard: cover holds; behind but looking away: no pickpocket; B behind
     each carrier: event and lift; A from the slappers: the PP7).
 - **The Windows exe was not smoke-run on Windows**, because the port has no hidden-window option. The same source booted the heist

@@ -1,6 +1,6 @@
 -- Heist CCTV self-view test: a Bond watching a camera that covers him sees his own body on the feed (and his co-op partner's).
--- Run: tests/heist/run_cctvself.sh (local co-op, GE_COOP=1: the Bonds have bodies). Screenshots via cctv.test_shot() land in
--- build_pc/heist_cctvself_shots/.
+-- Run: tests/heist/run_cctvself.sh [coop|solo] (co-op: the Bonds' own bodies; solo: port_cctvbody.c's presentation-only body).
+-- Screenshots via cctv.test_shot() land in build_pc/heist_cctvself_shots/.
 HEIST_SETTINGS = { test = true }
 include("heist")
 mods.set("invincible", true)
@@ -53,8 +53,9 @@ local function body()
     wait(1)
     local r = cctv.render_info()
     print(string.format("HEIST INFO cam %d (%s): %d chrs posed, %d Bonds", cam, tostring(cctv.name(cam)), r and r.chrs or -1, r and r.bonds or -1))
-    if r and r.bonds > bestbonds then best, bestbonds = cam, r.bonds end
+    if r and r.bonds > bestbonds then bestbonds = r.bonds end
   end
+  best = seen[1]   -- (the flow never depends on what was drawn: run_cctvself.sh hash compares a drawn run with an undrawn one)
   check("the feed of a camera that sees Bond 0 draws his own body", bestbonds >= 1, "bonds=" .. tostring(bestbonds))
   if best then
     cctv.view(0, best)
@@ -69,12 +70,16 @@ local function body()
   local g = cctv.get(cs)
   if g and g.lookpad and g.lookpad >= 0 then
     local px, _, pz = pads.pos(g.lookpad)
-    bond.warp(0, g.lookpad, 0, 0)
-    bond.face(0, g.x, g.z)
     local dx, dz = g.x - px, g.z - pz
+    local dn = math.max(1, math.sqrt(dx * dx + dz * dz))
+    -- part of the way towards the camera and a step aside: in front of whoever stands on the pad
+    bond.warp(0, g.lookpad, dx * 0.4 + dz / dn * 120, dz * 0.4 - dx / dn * 120)
+    bond.face(0, g.x, g.z)
     local n = math.max(1, math.sqrt(dx * dx + dz * dz))
-    bond.warp(1, g.lookpad, -dz / n * 90, dx / n * 90)   -- 90 to his side
-    bond.face(1, g.x, g.z)
+    if bond.count() > 1 then
+      bond.warp(1, g.lookpad, -dz / n * 90, dx / n * 90)   -- 90 to his side
+      bond.face(1, g.x, g.z)
+    end
     wait(0.5)
     cctv.view(0, cs)
     wait(1.5)

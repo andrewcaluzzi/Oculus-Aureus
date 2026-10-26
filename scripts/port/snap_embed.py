@@ -56,6 +56,7 @@ PRES_PORT |= {'port_arhud.c'}   # the AR overlay / diagnostics (marks, bubbles, 
 PRES_PORT |= {'port_hidden.c'}  # GE_HIDDEN hidden-window switch (port/README-headless.md): process setting, never rewound
 PRES_PORT |= {'port_debrief.c'}   # the heist DEBRIEF panel (content, view, input capture): presentation, never rewound
 PRES_PORT |= {'port_crosshair.c'}   # crosshair styles, hit-marker timers, the sight's draw list: presentation, never rewound
+PRES_PORT |= {'port_cctvbody.c'}   # the solo Bond's body on a CCTV feed (its own heap buffers, posed and drawn only in the feed): presentation
 # src/*.c and src/game/*.c that are NOT sim state (audio, scheduler, VI, framebuffers, thread stacks, boot, profiling).
 PRES_SRC = {
     'audi.c', 'snd.c', 'music.c', 'mp_music.c', 'music_0D2720.c', 'sched.c', 'vi.c', 'pi.c', 'speed_graph.c', 'speedgraphrenderer.c',
