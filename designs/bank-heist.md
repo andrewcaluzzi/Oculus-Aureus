@@ -2067,4 +2067,36 @@ stream** can scale its surrender threshold by `portTraitVal(chr, TV_SURRENDER)`:
 
 ### 32d. Tests
 
-TESTS_PLACEHOLDER
+`tests/heist/run_traits.sh [runs|det|all]` (`tests/heist/heist_traits.lua`, the real mode on bank v3, Agent, seed 7, one scenario per
+run, one game at a time):
+
+| Run | Checks | What it shows |
+| --- | --- | --- |
+| off | 4 | `personalities` left out: the layer is off, nothing is dealt, `heist_traits.lua` is not loaded, every value is the base one |
+| deal | 7 x 4 + 2 | 36 of 36 guards dealt, at least 4 kinds, the values move the right way; seed 7 twice deals the same, seeds 7 / 8 / 9 deal three different banks |
+| rookie | 7 | two test guards the same distance from a noise: the rookie's awareness rises +0.558 against +0.349; he radios "Control, I think I saw something..." (the plain guard does not); his own line "W-what was that?" |
+| book | 7 | a faint noise (0.22 each): the plain guard looks from his post (suspicious, look, 5 units off it); the by-the-book guard searches (searching, go) and walks 333 units towards it |
+| patrol | 6 | 6 watchclock tours: veterans skip a station (the hall tour, 80 s in); the by-the-book guard on the 3-station ring punches 16 times and skips none; Bond warped to the skipped station while its gap is open: Clocked Out |
+| bribe | 10 + 1 | the security chief (bribable) face to face, his meter 0.11: "ok", BLUE goes to Bond, $50,000 on the books, his meter stays at 0 with Bond in front of him holding the card; a hall guard at awareness 0.35 refuses and nothing more is charged; the payout is $1,200,000 (loot $1,000,000 + quiet bonus $250,000 - the bribe); the `HEIST DEBRIEF` line lists Paid Off |
+| shot | 2 | from the hall the crew has seen 3 guards; the PERSONNEL page with the GUARD FILE (`traits-traits_personnel.jpg`) and the AR tag in the view |
+| det | 10 | `run_determinism.sh` with `GE_HEIST_TEST_TRAITS=1`: solo 4359 ticks hash-identical, co-op a/b 4363 and the view switch 4347 ticks, notes identical, every step reached, the traits dealt in both |
+
+**Off = today.** `tests/heist/run_traits_base.sh` runs the solo determinism scenario with a hash log. Run on the build before this
+stream (d26c63e) and on this one with the traits off, the two logs are byte-identical (4363 ticks).
+
+**Regression on this branch** (2026-10-26, traits off, as every old suite runs): dam1 IDENTICAL (453 lines); win path 59, trapped 17,
+civilian fail 5, quiet 11, 007 count 2; debrief 42 (with its own presentation proof, 4361 ticks); firstplay 6; guards (seed 7) 37;
+combat cover 12, flank 8, retreat 5, heat 12; ai hear 8, giveup 5, checkin 5, patrol 6, backup 9 (the other ai runs not rerun: time).
+Netplay not run (the integration pass runs it alone).
+
+### 32e. Limits and next
+
+- No SMOKER yet (the optional fifth trait: a cigarette break at a known spot on a timer, coughing). The veteran's cough is the hook for
+  it.
+- The rookie's surrender ease is only a value (`TV_SURRENDER`); guards do not surrender at gunpoint in this branch. The hostages stream
+  can read it.
+- "Seen" is a line within 14 m or a camera feed: a guard glimpsed across the hall counts; a guard heard but not seen does not.
+- A bribe is per guard, not per Bond: in co-op one payment buys his blind eye for the whole crew. Bribes are paid from the payout at the
+  end (no crew funds during the job), so a failed job costs nothing.
+- The casino deals from the default deck (it has no `random.traits` of its own); it was not run with the traits on.
+- The AR tag sits under the guard's feet (the specs' mark layer), so furniture can hide it.
