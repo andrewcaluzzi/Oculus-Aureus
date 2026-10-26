@@ -1,6 +1,6 @@
 -- heist_combat.lua - the LOUD route (designs/bank-heist.md section 24). Included by mode_heist.lua. The guards' fighting is in C
 -- (port/src/port_combat.c, Lua combat.*): cover, peek-and-shoot, flanking pairs, falling back. This file turns it on and tunes it from
--- the settings and the difficulty, registers the guards, and runs the heat: after the alarm, police at the street and the dock, then the
+-- the settings and the difficulty, registers the guards, and runs the heat: after the alarm, police at the job's entrances (the bank: the street and the dock), then the
 -- SWAT response (the mode's own `response`), with a megaphone line and the vault-stair doors slamming shut.
 --
 -- Settings: S.combat = { ... } (every key optional; S.combat = false turns the whole layer off: stock guards and the mode's own waves):
@@ -59,14 +59,20 @@ function C.setup(ctx)
   C.stage, C.said_police, C.said_swat = 0, false, false
   combat.stage(0)
   local H, P = ctx.H, ctx.P
-  -- the police: at the street (the front) and the dock, round robin
+  -- the police: at the job's entrances (its map's P.police pads if it names them, else its front and dock wave pads, round robin;
+  -- tools/jobs/<job>.lua), so any job gets them
   C.police = nil
-  if cfg.police ~= false and P.waves_front and P.waves_dock then
-    local pads = {}
-    for i = 1, math.max(#P.waves_front, #P.waves_dock) do
-      if P.waves_front[i] then pads[#pads + 1] = P.waves_front[i] end
-      if P.waves_dock[i] then pads[#pads + 1] = P.waves_dock[i] end
+  local pads = {}
+  if type(P.police) == "table" and #P.police > 0 then
+    for _, id in ipairs(P.police) do pads[#pads + 1] = id end
+  else
+    local fr, dk = P.waves_front or {}, P.waves_dock or {}
+    for i = 1, math.max(#fr, #dk) do
+      if fr[i] then pads[#pads + 1] = fr[i] end
+      if dk[i] then pads[#pads + 1] = dk[i] end
     end
+  end
+  if cfg.police ~= false and #pads > 0 then
     C.police = heist.reinforce{ pads = pads, interval = C.heat.police_interval, per_wave = C.heat.police_size, max_alive = C.heat.police_max,
       first = 0, reserve = S.reserve_slots,
       opts = function() return ctx.guard_opts({ behaviour = "chase", body = "Russian_Infantry", weapon = (math.random(3) == 1) and "dd44" or "kf7" }) end,
@@ -98,7 +104,7 @@ function C.tick()
     C.stage = 1
     combat.stage(1)
     log("heat: POLICE at %.0f s after the alarm", heat)
-    if C.cfg.megaphone ~= false then ctx.flash("POLICE at the street and the dock! Fight your way out - or find another way", 6) end
+    if C.cfg.megaphone ~= false then ctx.flash("POLICE at the entrances! Fight your way out - or find another way", 6) end
   end
   if C.stage == 1 and not C.said_police and C.first_cop and C.cfg.megaphone ~= false then
     C.said_police = true
