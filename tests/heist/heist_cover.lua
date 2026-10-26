@@ -69,12 +69,13 @@ on("cover_blown", function(g, p, why) blown[#blown + 1] = { g = g, p = p, why = 
 on("cover_report", function(g, p) reports[#reports + 1] = { g = g, p = p, t = HEIST.elapsed } end)
 
 -- Bond 0 onto a point: the nearest pad plus an offset
-local function warp_xz(x, z)
+-- (with y: a pad on that floor only, +-150 as heist_gadgets.lua's: bank v3's floors stack, so the nearest pad in x, z may be a floor away)
+local function warp_xz(x, z, y)
   local best, bd = nil, 1e9
   for _, p in ipairs(pads.far_from(x, z, 0, 900)) do
-    local px, _, pz = pads.pos(p)
+    local px, py, pz = pads.pos(p)
     local d = d2(px, pz, x, z)
-    if d < bd then best, bd = p, d end
+    if d < bd and (not y or math.abs(py - y) < 150) then best, bd = p, d end
   end
   if not best then return false end
   local px, _, pz = pads.pos(best)
@@ -93,10 +94,11 @@ local POSTS = { post = true, raiser = true, carrier = true }
 -- stand where guard c has Bond in sight, about `dist` away (8 directions round him), facing him; true when his scan sees Bond
 local function stand_seen(c, dist)
   local x, z = spawn.where(c)
+  local _, y = gadget.chr_yaw(c)
   if not x then return false end
   for k = 0, 7 do
     local a = k * math.pi / 4
-    if warp_xz(x + math.sin(a) * dist, z + math.cos(a) * dist) then
+    if warp_xz(x + math.sin(a) * dist, z + math.cos(a) * dist, y) then
       face = { x, z }
       wait(0.4)
       local s = cover.state(c)
@@ -206,7 +208,11 @@ local function staff_path()
   local off = guards("offices", { post = true })
   check("office guards on post", #off >= 1, tostring(#off))
   local g
-  for _, c in ipairs(off) do if stand_seen(c, 420) then g = c; break end end
+  -- (his facing is the mode's roll (face_for): at 420 the spot in his cone can be through a wall, so nearer ones too, all outside `close`)
+  for _, dist in ipairs({ 420, 320, 240 }) do
+    for _, c in ipairs(off) do if stand_seen(c, dist) then g = c; break end end
+    if g then break end
+  end
   check("an office guard has Bond in sight", g ~= nil)
   if not g then return end
   local t0 = HEIST.elapsed
@@ -223,16 +229,42 @@ end
 local function ko_path()
   mode.body_check(false)          -- (a body found would put everyone on alert: not this test's business)
   local off = guards("offices", { post = true })
+  -- the loneliest office guard first: the knock-out thuds (the AI layer's noise), and a guard near enough to hear it turns and sees
+  -- through the staffer standing there, a fair catch (GE_SEED 5: the security chief 8001 heard it, "Hey! What was that?")
+  local lone = {}
+  for _, c in ipairs(off) do
+    local x, z = spawn.where(c)
+    local near = 1e9
+    for _, h in ipairs(HEIST.guards) do
+      if h.chr ~= c and spawn.alive(h.chr) and not spawn.down(h.chr) then
+        local hx, hz = spawn.where(h.chr)
+        if hx and x then near = math.min(near, d2(hx, hz, x, z)) end
+      end
+    end
+    lone[c] = near
+  end
+  table.sort(off, function(a, b) return lone[a] > lone[b] end)
   local g
   for _, c in ipairs(off) do if stand_seen(c, 300) then g = c; break end end
-  check("an office guard has Bond in sight", g ~= nil)
+  check("an office guard has Bond in sight", g ~= nil, g and string.format("the nearest other guard %.0f from him", lone[g]) or "")
   if not g then return end
+  -- (the offices are small: with GE_SEED 5 the loneliest still had the security chief 306 away, who heard the thud and caught Bond. This
+  -- check is the radio rule, so the guards within earshot of him go)
+  do
+    local gx, gz = spawn.where(g)
+    for _, h in ipairs(HEIST.guards) do
+      local hx, hz = spawn.where(h.chr)
+      if h.chr ~= g and hx and d2(hx, hz, gx, gz) < 900 then spawn.remove(h.chr) end
+    end
+  end
   cover.blow(g, 0)
   check("he sees through Bond", witness(g))
   wait(2)
   spawn.ko(g, 0)
   check("knocked out before his radio time", ko.is(g))
-  bond.warp(0, pad("ocorr_n"))   -- away, out of sight of the others
+  -- away, out of sight of the others: the street. (The office corridor's ocorr_n was not: with GE_SEED 2 and 10 another office guard
+  -- had Bond in sight there, saw through him and raised the alarm, which is a fair catch, not the knock-out's)
+  bond.warp(0, pad("street_e") or HEIST.M.P.start[1])
   wait(8)
   check("no report, no alarm, the cover holds", #reports == 0 and not HEIST.hot and not cover.alert(),
         string.format("reports=%d hot=%s alert=%s", #reports, tostring(HEIST.hot), tostring(cover.alert())))

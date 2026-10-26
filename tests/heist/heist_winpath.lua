@@ -109,7 +109,13 @@ local function take_card(flags, label)
   local alive, held, kx, kz = spawn.key_alive(c.key)
   check(label .. ": knocked out and searched, the card drops", s == c.chr and ((alive and not held) or bond.has_key(0, flags)),
         string.format("search=%s held=%s", tostring(s), tostring(held)))
-  if kx then warp_xz(kx, kz, croom) end
+  if kx then
+    warp_xz(kx, kz, croom)
+    -- (the card can land outside the body's room: a carrier down in a doorway. Then no pad of croom is near it and Bond stood far from
+    -- the card: the one unseeded GREEN miss in section 23b, after the lobby captain had left his post on a backup call. Then by x, z)
+    local bx, _, bz = bond.pos(0)
+    if d2(bx, bz, kx, kz) > 60 then warp_xz(kx, kz) end
+  end
   do local bx, _, bz = bond.pos(0)
      print(string.format("HEIST   card at %s,%s (room %s), Bond at %.0f,%.0f (room %s), %.0f apart", tostring(kx and math.floor(kx)),
            tostring(kz and math.floor(kz)), tostring(croom), bx, bz, tostring(bond.room(0)), kx and d2(bx, bz, kx, kz) or -1)) end
@@ -429,6 +435,9 @@ local function quiet_path()
   wait(1)
   check("the time lock on an empty vault raises no alarm", not HEIST.hot and not alarm.active(),
         string.format("hot=%s alarm=%s", tostring(HEIST.hot), tostring(alarm.active())))
+  -- (sealed is the close order: a crack-squad guard in the doorway stops the moving door, and the time lock snaps it 1.5 s after the
+  -- order (hold_vault_doors). GE_SEED 5: 0.11 open 1 s after it)
+  wait_for(1.5, function() local g = door.get(W.vault_a); return g and g.open < 0.05 end)
   local da = door.get(W.vault_a)
   check("vault door A shut and relocked", da and da.open < 0.05 and da.keyflags == 0x40000000, da and string.format("%.2f", da.open) or "nil")
   bond.warp(0, W.exit_a)                        -- exit A, the van
