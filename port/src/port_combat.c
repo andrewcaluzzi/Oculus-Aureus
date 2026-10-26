@@ -51,7 +51,7 @@ extern void bondviewUpdateGuardTankFlagsRelated(PropRecord *prop, s32 flag);
 extern int portHeistKoIs(int chrnum);
 extern int portHeistChrOnGo(const ChrRecord *c);
 extern int portNoiseNearDoor(float x, float z, float r);
-extern int portNoiseEventArgs(float *x, float *y, float *z, float *radius, int *kind, int *src);
+extern int portNoiseLast(float *x, float *z, float *radius, int *kind, int *heard, int *count);
 extern int portAiBark(int chrnum, const char *kind, const char *text);
 extern int portAiAwareness(int chrnum, int *state, float *level, float *lastx, float *lastz);
 extern s32 chrIsNotDeadOrShot(ChrRecord *self);
@@ -589,7 +589,7 @@ static void step(Cb *g)
         fighting = astate == 4 || (c->lastseetarget60 > 0 && g_GlobalTimer - c->lastseetarget60 < 120)
             || c->actiontype == ACT_ATTACK || c->actiontype == ACT_ATTACKWALK || c->actiontype == ACT_ATTACKROLL;
         near = (c->chrflags & CHRFLAG_NEAR_MISS) != 0;
-        shot = sShotAt[p] > 0 && sNow - sShotAt[p] < 60 && d2(sShotX[p], sShotZ[p], c->prop->pos.x, c->prop->pos.z) < sT.engage;
+        shot = sShotAt[0] > 0 && sNow - sShotAt[0] < 60 && d2(sShotX[0], sShotZ[0], c->prop->pos.x, c->prop->pos.z) < sT.engage;
         if (!fighting && !hit && !near && !shot) { g->engagedAt = 0; return; }   /* (the line test only for a guard in a fight) */
         sees = bondSees(bp, c);
         if (sees) g->seenAt = sNow;
@@ -758,39 +758,20 @@ static void team(void)
     }
 }
 
-/* the C event bus: a Bond's shot (the ai layer's gunshot noise) and a hit on a tracked guard */
-static void onEvent(int type, int a, int b, int c, int d, void *ud)
+/* a Bond's shot: the ai layer's gunshot noise (only Bonds' shots are noises), read from the hearing layer's last noise each tick. No
+ * event listener: a C listener on PORT_EV_NOISE makes port_noise.c emit every noise, and the bus has 8 slots a type. (A hit on a guard
+ * is his damage going up, read in his step.) */
+static void pollShots(void)
 {
-    (void) c; (void) d; (void) ud;
-    if (!portCombatOn()) return;
-    if (type == PORT_EV_NOISE && a == NOISE_SHOT && b <= -2 && b >= -5)
-    {
-        float x, y, z, r;
-        int k, src, p = -2 - b;
+    float x, z, r;
+    int k, heard, n;
 
-        if (portNoiseEventArgs(&x, &y, &z, &r, &k, &src))
-        {
-            sShotAt[p] = sNow > 0 ? sNow : 1;
-            sShotX[p] = x;
-            sShotZ[p] = z;
-        }
-    }
-    else if (type == PORT_EV_DAMAGE && PORT_CHR_IS_BOND(b))
-    {
-        Cb *g = cFind(a);
-
-        if (g != NULL) g->hitAt = sNow > 0 ? sNow : 1;
-    }
-}
-
-static void hookEvents(void)
-{
-    if (sHooked) return;
-    sHooked = 1;
-    portEventOff(PORT_EV_NOISE, onEvent, NULL);
-    portEventOff(PORT_EV_DAMAGE, onEvent, NULL);
-    portEventOn(PORT_EV_NOISE, onEvent, NULL);
-    portEventOn(PORT_EV_DAMAGE, onEvent, NULL);
+    if (!portNoiseLast(&x, &z, &r, &k, &heard, &n) || n == sHooked) return;
+    sHooked = n;
+    if (k != NOISE_SHOT) return;
+    sShotAt[0] = sNow > 0 ? sNow : 1;
+    sShotX[0] = x;
+    sShotZ[0] = z;
 }
 
 /* port_heist.c portHeistAiTick */
@@ -799,7 +780,7 @@ void portCombatTick(void)
     int i;
 
     if (!portCombatOn()) return;
-    hookEvents();
+    pollShots();
     sNow += g_ClockTimer;
     sAcc += g_ClockTimer;
     sTeamAcc += g_ClockTimer;
@@ -925,7 +906,7 @@ int portCombatTune(const char *name, float v)
 unsigned portCombatHash(void)
 {
     unsigned h = (unsigned) sOn * 3u + (unsigned) sCN * 5u + (unsigned) sNow * 7u + (unsigned) sAcc * 11u + (unsigned) sTeamAcc * 13u
-        + (unsigned) sStage * 17u;
+        + (unsigned) sStage * 17u + (unsigned) sHooked * 19u;
     int i, p;
 
     if (!sOn) return h;

@@ -38,7 +38,7 @@ function C.setup(ctx)
   C.ctx = ctx
   local S = ctx.S
   local cfg = S.combat
-  C.on = cfg ~= false and combat ~= nil
+  C.on = cfg ~= false and combat ~= nil and not mode.env_flag("GE_COMBAT_OFF")   -- (GE_COMBAT_OFF=1: an A/B switch for tests)
   if not C.on then
     if combat then combat.enable(false) end
     return
