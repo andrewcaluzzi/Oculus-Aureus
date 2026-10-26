@@ -14050,6 +14050,46 @@
    ],
    "map_label": "the Janus bank (v3)",
    "no_cams": "(records, deposit hall: no cams)"
-  }
+  },
+  "interlocks": [
+   {
+    "name": "staff_mantrap",
+    "label": "staff entrance",
+    "kind": "mantrap",
+    "doors": [
+     "staff_outer",
+     "staff_inner",
+     "dock_door"
+    ],
+    "hold": 3,
+    "close": 4,
+    "fail": "safe",
+    "badge": "0x2",
+    "verify": {
+     "room": "staff_entry",
+     "camera": "cam_staff_entry"
+    }
+   },
+   {
+    "name": "sally_port",
+    "label": "sally port",
+    "kind": "sally",
+    "doors": [
+     "garage_shutter",
+     "sally_inner",
+     "cash_garage"
+    ],
+    "hold": 2,
+    "close": 8,
+    "fail": "secure",
+    "badge": "0x20",
+    "outer_key": "0x20",
+    "car": true,
+    "verify": {
+     "room": "sally_port",
+     "camera": "cam_sally"
+    }
+   }
+  ]
  }
 }

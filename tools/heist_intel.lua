@@ -611,6 +611,7 @@ function heist_intel(ctx)
     intel.text(x + 10, y + 46, "THE VAULT DOORS: time-locked. Only the cracker (the door decoder) opens them.", CARD_INK, 0.78, KEYCARD.w - 18)
     intel.text(x + 10, y + 90, "PADLOCKS: the alley's dock shutter and the canal tunnel's grate. Shoot the padlock.", CARD_INK, 0.78, KEYCARD.w - 18)
     intel.text(x + 10, y + 134, S.lockdown and "LOCKDOWN: when the alarm goes the hall's blast shutters close and want BLUE." or "", 0x8A1010FF, 0.78, KEYCARD.w - 18)
+    if H.interlock_keyline and H.interlock_keyline() then intel.text(x + 10, y + 170, H.interlock_keyline(), 0x204080FF, 0.72, KEYCARD.w - 18) end
   end
   local function draw_keys_live()
     intel.at(3, 0, true)
@@ -691,7 +692,7 @@ function heist_intel(ctx)
     n[#n + 1] = { "SCORING", string.format("Gold bar %s, cash bundle %s. +%d%% if the alarm never went. -%s per dead civilian. Knock-outs are free.", ctx.money(S.bar_value), ctx.money(S.money_value),
       math.floor(S.quiet_bonus * 100 + 0.5), ctx.money(S.civ_fine)) }
     n[#n + 1] = { "THE SCREENS", "The hall's screen wall: press use there to watch the camera feeds. Guards you see go on the SCHEMATICS. Carriers you see go on THE KEYS." }
-    n[#n + 1] = { "THIS BOARD", "Doesn't pause anything. The bank keeps moving while you read. Find a quiet corner." }
+    n[#n + 1] = (H.interlock_note and H.interlock_note()) or { "THIS BOARD", "Doesn't pause anything. The bank keeps moving while you read. Find a quiet corner." }
     return n
   end
   local function draw_notes_static()

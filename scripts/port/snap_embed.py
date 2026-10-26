@@ -38,6 +38,8 @@ SIM_PORT = {
     'port_playerbot.c', 'port_playerbotgraph.c',
     # the heist's hearing layer and guard awareness (designs/bank-heist.md section 18)
     'port_noise.c', 'port_ai.c',
+    # door interlocks: mantraps, sally ports (designs/bank-heist.md section 29)
+    'port_interlock.c',
 }
 # port/src files that are presentation or transport: never rewound.
 PRES_PORT = {

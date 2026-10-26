@@ -1001,7 +1001,20 @@ def script():
         "grapples": GRAPPLES,
         "map_label": "the Janus bank (v3)",
         "no_cams": "(records, deposit hall: no cams)",
-    }}
+    }, "interlocks": INTERLOCKS}
+
+
+# door interlocks (designs/bank-heist.md section 29; tools/heist_interlock.lua): of each group's doors only one may stand open. The first
+# door is the outer one, the second the inner. `hold`: the verification seconds after the last door shuts (`verify`: the room checked and
+# the camera that watches it); `close`: the doors-closing timer; `fail`: what a power cut does ("safe": the maglocks release, the exit
+# route's life-safety rule; "secure": the motorised shutters freeze); `badge`: the card that verifies a Bond.
+INTERLOCKS = [
+    {"name": "staff_mantrap", "label": "staff entrance", "kind": "mantrap", "doors": ["staff_outer", "staff_inner", "dock_door"],
+     "hold": 3, "close": 4, "fail": "safe", "badge": "0x2", "verify": {"room": "staff_entry", "camera": "cam_staff_entry"}},
+    {"name": "sally_port", "label": "sally port", "kind": "sally", "doors": ["garage_shutter", "sally_inner", "cash_garage"],
+     "hold": 2, "close": 8, "fail": "secure", "badge": "0x20", "outer_key": "0x20", "car": True,
+     "verify": {"room": "sally_port", "camera": "cam_sally"}},
+]
 
 
 def check_names(L):

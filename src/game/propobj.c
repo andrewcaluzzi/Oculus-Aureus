@@ -14773,6 +14773,13 @@ void doorActivate(DoorRecord *door, DOORSTATE State) //#MATCH
     DoorRecord *linkeddoor;
     DOORSTATE   LinkedState = State;
 
+#ifndef TARGET_N64
+    {   /* PORT: door interlocks (port/src/port_interlock.c): a mantrap's door does not open while another door of its group is open */
+        extern int portInterlockGate(DoorRecord *door, s32 state);
+
+        if (!portInterlockGate(door, State)) return;
+    }
+#endif
     if (door->flags2 & 0x40000000) //Close first door before opening second
     {
         if (State == DOORSTATE_OPENING)

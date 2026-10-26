@@ -1758,6 +1758,11 @@ static lua_State *portLuaState(void)
 
         portLuaGadgetsRegister(sL);
     }
+    {   /* door interlocks: interlock.* (port_luavm_interlock.c, port/src/port_interlock.c) */
+        extern void portLuaInterlockRegister(lua_State *L);
+
+        portLuaInterlockRegister(sL);
+    }
     {   /* the heist INTEL board: intel.* (port_luavm_intel.c) */
         extern void portLuaIntelRegister(lua_State *L);
 
