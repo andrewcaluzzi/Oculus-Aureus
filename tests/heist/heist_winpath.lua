@@ -9,13 +9,20 @@
 --   GE_HEIST_TEST_QUIET=1    the quiet win: crack, grab, leave the vault before the time lock; the empty vault seals with no alarm, and
 --                            the exit pays the quiet bonus
 --   GE_HEIST_TEST_COUNT=1    (with GE_DIFF=3) the full force on 007: 100+ guards placed
+--   GE_HEIST_TEST_RANDOM=1   (with any run; tests/heist/run_random.sh) the randomiser on (section 25): the carriers come from the mode's
+--                            truth, plus the deal's checks (the board, the guide, dummies, sealed routes). GE_HEIST_TEST_OFFICER=1 forces
+--                            RED onto the duty officer; GE_HEIST_RANDOM_SHOTS=1 shoots THE KEYS and PERSONNEL
 -- Prints "HEIST PASS|FAIL <name> ..." and "HEIST DONE n passed, m failed" (the mission then ends with the mode's own win / fail).
 local TRAPPED = mode.env_flag("GE_HEIST_TEST_TRAPPED")
 local FAILRUN = mode.env_flag("GE_HEIST_TEST_FAIL")
 local QUIET = mode.env_flag("GE_HEIST_TEST_QUIET")
 local COUNT = mode.env_flag("GE_HEIST_TEST_COUNT")
+-- GE_HEIST_TEST_RANDOM=1 (tests/heist/run_random.sh): the randomiser on (section 25); the carriers come from the mode's truth
+local RANDOM = mode.env_flag("GE_HEIST_TEST_RANDOM")
 HEIST_SETTINGS = {
   test = true,
+  randomise = RANDOM,
+  randomiser = mode.env_flag("GE_HEIST_TEST_OFFICER") and { red = "duty officer" } or nil,   -- (force the one RED role seeds 1-10 never dealt)
   cover = false,   -- the stock sight, as before section 16: this test warps an armed Bond through restricted rooms (tests/heist/heist_cover.lua has the cover)
   crack_time = 12, jam_chance = 0, jam_every = 1000,     -- the jam is forced through HEIST.force_jam()
   vault_time = (TRAPPED or QUIET) and 14 or 45, klaxon_at = 5, recrack_time = 8,
@@ -80,7 +87,7 @@ local function warp_xz(x, z, room)
 end
 
 local function carrier(flags)
-  for _, role in ipairs({ "head teller", "lobby captain", "security chief", "branch manager", "vault captain" }) do
+  for _, role in ipairs(HEIST.rand and HEIST.rand.role_order or { "head teller", "lobby captain", "security chief", "branch manager", "vault captain" }) do
     local c = HEIST.carriers[role]
     if c and c.flags == flags then return c, role end
   end
@@ -89,8 +96,17 @@ end
 -- knock the card carrier out, search him, pick the card up
 local function take_card(flags, label)
   local c, role = carrier(flags)
-  check(label .. " carrier exists (" .. tostring(role) .. ")", c ~= nil and c.chr ~= nil and c.key ~= nil)
+  check(label .. " carrier exists (" .. tostring(role) .. ")", c ~= nil and (c.chr ~= nil or c.floor) and c.key ~= nil)
   if not c then return false end
+  if c.floor then                                  -- (section 25: a card lying on a pad, no carrier)
+    local alive, _, kx, kz = spawn.key_alive(c.key)
+    check(label .. " card lies on its pad", alive == true)
+    local x, _, z = pads.pos(c.pad)
+    warp_xz(kx or x, kz or z, pad_room(c.pad))
+    local got = wait_for(4, function() return bond.has_key(0, flags) end)
+    check(label .. " card picked up (bond.has_key)", got, string.format("keys=0x%x", bond.keys(0)))
+    return got
+  end
   check(label .. " carrier holds the card", select(2, spawn.key_alive(c.key)) == true)
   spawn.ko(c.chr, 0)
   wait(4.5)
@@ -182,11 +198,54 @@ local function all_flags(list, flags)
   return #list > 0
 end
 
+-- the randomiser's truth (section 25): every carrier where the deal put him, and the INTEL board, the guide and the HUD naming him
+local function key_entry(flag)
+  for _, k in ipairs(HEIST.intel and HEIST.intel.data.keys or {}) do if k.flag == flag then return k end end
+end
+local function guide_says(flag, label)
+  local line = HEIST.guide and HEIST.guide.objective(0) or ""
+  local KN = { [0x2] = "GREEN", [0x4] = "BLUE", [0x8] = "RED", [0x10] = "GOLD" }
+  local want = flag and HEIST.rand.cards[KN[flag]] or nil
+  local ok
+  if not flag then ok = line:find(label, 1, true) ~= nil
+  elseif want.kind == "floor" then ok = line:find("desk", 1, true) ~= nil
+  else ok = line:find(want.role, 1, true) ~= nil end
+  check("random: the guide's next step names today's " .. label .. " carrier", ok, line)
+end
+local function random_checks()
+  local R = HEIST.rand
+  print("HEIST RANDOM layout " .. R.sig)
+  for _, f in ipairs({ { 0x2, "GREEN" }, { 0x4, "BLUE" }, { 0x8, "RED" }, { 0x10, "GOLD" } }) do
+    local e = R.cards[f[2]]
+    local c = HEIST.carriers[e.role]
+    local where_ok
+    if e.kind == "floor" then where_ok = c and c.floor and spawn.key_alive(c.key)
+    else where_ok = c and c.chr and spawn.alive(c.chr) and spawn.room(c.chr) == pad_room(e.pad) end
+    check("random: " .. f[2] .. " is on today's carrier, in his room", where_ok and c.flags == f[1],
+          string.format("%s at %s (room %s, carrier room %s)", e.role, e.pad_name, tostring(pad_room(e.pad)), tostring(c and c.chr and spawn.room(c.chr))))
+    local k = key_entry(f[1])
+    local listed = false
+    for _, r in ipairs(k and k.roles or {}) do if r == e.role then listed = true end end
+    check("random: the INTEL board's " .. f[2] .. " card names the carrier", listed and (e.kind == "floor" and k.who:find("desk", 1, true) or k.who:find(e.role, 1, true)) ~= nil,
+          k and (k.who .. " | " .. k.where) or "no key entry")
+  end
+  for _, i in ipairs(R.dead_list) do
+    local g = cctv.get(i)
+    if not (g and g.disabled) then check("random: dummy camera " .. i .. " is dead", false); return end
+  end
+  check("random: every dummy camera is dead (" .. #R.dead_list .. ")", true)
+  for _, n in ipairs(R.sealed) do
+    local g = door.get(LEVEL.objects[n].index)
+    check("random: " .. n .. " is sealed", g and g.keyflags == 0x40000000 and door.try(0, LEVEL.objects[n].index) == false)
+  end
+end
+
 -- the bank's own checks (P2.4): the map's people and rooms
 local function bank_checks()
   local mgr = HEIST.carriers["branch manager"]
-  check("bank: the branch manager sits in his own office (behind BLUE)", mgr and mgr.chr and spawn.room(mgr.chr) == LEVEL.rooms.manager.id
-        and door.get(W.mgr_door).keyflags == 0x4, mgr and string.format("room %s", tostring(spawn.room(mgr.chr))) or "no manager")
+  if RANDOM then random_checks() end
+  if RANDOM and not (mgr and mgr.chr) then mgr = nil else check("bank: the branch manager sits in his own office (behind BLUE)", mgr and mgr.chr and spawn.room(mgr.chr) == LEVEL.rooms.manager.id
+        and door.get(W.mgr_door).keyflags == 0x4, mgr and string.format("room %s", tostring(spawn.room(mgr.chr))) or "no manager") end
   local bad, posts = {}, 0
   for _, g in ipairs(HEIST.guards) do
     if g.kind == "post" and spawn.alive(g.chr) then
@@ -203,9 +262,10 @@ local function bank_checks()
   check("bank: no posted guard stands in a furniture block", posts > 20 and #bad == 0, string.format("%d posts, in blocks: %s", posts, table.concat(bad, ",")))
   local sides = {}
   for _, g in ipairs(HEIST.guards) do sides[g.area] = (sides[g.area] or 0) + 1 end
+  local m = RANDOM and 1 or 2                     -- (RANDOM: a short-staffed roster, x0.64 at worst, may leave one in an area)
   check("bank: guards posted in every area (hall, corridor, offices, security, dock, records, antechamber, deposit)",
-        (sides.hall or 0) >= 3 and (sides.corridor or 0) >= 2 and (sides.offices or 0) >= 2 and (sides.security or 0) >= 1 and (sides.dock or 0) >= 2
-        and (sides.records or 0) >= 1 and (sides.vault_ante or 0) >= 2 and (sides.deposit or 0) >= 1,
+        (sides.hall or 0) >= m + 1 and (sides.corridor or 0) >= m and (sides.offices or 0) >= m and (sides.security or 0) >= 1 and (sides.dock or 0) >= m
+        and (sides.records or 0) >= 1 and (sides.vault_ante or 0) >= m and (sides.deposit or 0) >= 1,
         string.format("hall %s corridor %s offices %s security %s dock %s records %s ante %s deposit %s", tostring(sides.hall), tostring(sides.corridor),
         tostring(sides.offices), tostring(sides.security), tostring(sides.dock), tostring(sides.records), tostring(sides.vault_ante), tostring(sides.deposit)))
   check("bank: exit B: the staff door to the dock needs no card, the alley shutter is padlocked",
@@ -227,7 +287,7 @@ end
 local function win_path()
   -- the setup
   local want = HEIST.want or { post = -100, raiser = -100 }
-  check("guards placed for the difficulty (Agent: ~30 posted, 4 raisers)", mission.difficulty() == 0 and math.abs(HEIST.placed.post - 30) <= 3
+  check("guards placed for the difficulty (Agent: ~30 posted, 4 raisers)", mission.difficulty() == 0 and (RANDOM or math.abs(HEIST.placed.post - 30) <= 3)
         and math.abs(HEIST.placed.post - want.post) <= 3 and HEIST.placed.raiser == want.raiser,
         string.format("difficulty %d, guards=%d (posted %d of %d, raisers %d of %d, carriers %d)", mission.difficulty(), #HEIST.guards,
         HEIST.placed.post, want.post, HEIST.placed.raiser, want.raiser, HEIST.placed.carrier))
@@ -244,9 +304,21 @@ local function win_path()
   check("phase casing", HEIST.phase == "casing", HEIST.phase)
   check("per-player keys: no card, the GREEN door refuses", door.try(0, W.green_door) == false)
   if BANK then bank_checks() end
+  if RANDOM then guide_says(0x2, "GREEN") end
+  if RANDOM and mode.env_flag("GE_HEIST_RANDOM_SHOTS") then   -- (run_random.sh shots: THE KEYS and PERSONNEL of today's bank)
+    for _, page in ipairs({ 3, 4 }) do
+      intel.test_show(true, page, 0)
+      wait(0.6)
+      print("HEIST SHOT random_intel_" .. page)
+      cctv.test_shot()
+      wait(0.6)
+    end
+    intel.test_show(false)
+  end
 
   -- the ladder
   take_card(0x2, "GREEN")
+  if RANDOM then guide_says(0x4, "BLUE") end
   bond.warp(0, W.office_at)
   wait(0.5)
   check("GREEN opens the office doors", door.try(0, W.office_door) == true)
@@ -274,6 +346,7 @@ local function win_path()
     check("bank: BLUE opens the manager's office", door.try(0, W.mgr_door) == true)
   end
   take_card(0x8, "RED")
+  if RANDOM then guide_says(nil, "the vault") end
   bond.warp(0, W.red_at)
   wait(0.5)
   check("RED opens the vault approach", door.try(0, W.red_door) == true)
@@ -314,7 +387,7 @@ local function win_path()
   wait(1.5)
   local da = door.get(W.vault_a)
   check("vault door A is opening/open", da and da.open > 0.1, da and string.format("%s %.2f", da.state, da.open) or "nil")
-  check("countdown running", (hud.countdown_left() or 0) > 30, tostring(hud.countdown_left()))
+  check("countdown running", (hud.countdown_left() or 0) > HEIST.S.vault_time - 15, tostring(hud.countdown_left()))
 
   -- the loot (walking onto one bar picks up the ones next to it too)
   local _, counted = grab("vault")
@@ -351,6 +424,9 @@ local function win_path()
     for c = 8000, 8400 do local a, b = spawn.fire_stats(c); f, h = f + (a or 0), h + (b or 0) end
     return f, h
   end
+  -- (RANDOM: skipped. The deal moves the crew's path, and an early alarm can pull the hall's guards away, so nobody shoots and the check
+  -- reads 0 held; the fixed runs keep it)
+  if RANDOM then print("HEIST   (random: the tellers' crossfire check is the fixed run's)") else
   if not alarm.active() then alarm.start() end
   local tx, _, tz = pads.pos(LEVEL.pads.teller_2)
   warp_xz(tx + 40, tz + 60)
@@ -360,6 +436,7 @@ local function win_path()
   local f1, h1 = shots()
   check("bank: Bond among the tellers with the alarm up: the guards hold their fire, no teller dies", civilian.killed() == k0 and h1 > h0,
         string.format("killed %d, shots fired %d, held %d in 15 s", civilian.killed() - k0, f1 - f0, h1 - h0))
+  end
 
   -- the exit
   bond.warp(0, W.exit_a)

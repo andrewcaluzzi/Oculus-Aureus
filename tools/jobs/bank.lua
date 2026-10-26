@@ -146,6 +146,67 @@ HEIST_JOBS.bank = {
   console_roles = { "head teller", "lobby captain", "security chief", "branch manager", "vault captain" },
 
   -- ----------------------------------------------------------------------------------------------------------------------------------
+  -- the randomiser's deck (tools/heist_randomiser.lua, designs/bank-heist.md section 25; S.randomise). Only read when it is on.
+  -- roles[KEY]: every plausible carrier of that card, with his words (where / short on the board, how / tip for taking it). Each is
+  -- reachable with the cards before his own on bank v3 (a reachability pass over its doors: street, +GREEN, +BLUE, +RED). pads: a key of
+  -- map.carriers or of carriers below (pads the layout lacks are dropped; a role with none is left out).
+  random = {
+    carrier_order = { "officer", "clerk", "sergeant", "entrance", "duty_officer", "cashier", "counter", "desk" },
+    carriers = {
+      officer = { "officer_desk", "platform_1" }, clerk = { "rec_1", "rec_2", "rec_3" }, sergeant = { "canteen_1", "canteen_2", "lounge_1" },
+      entrance = { "entry_post" }, duty_officer = { "sec_mid", "sec_2" }, cashier = { "cash_1", "cash_2" }, counter = { "count_1", "count_2" },
+      desk = { "mgr_desk" },
+    },
+    one_of_two = { GREEN = true },              -- the board names the GREEN carrier and a decoy, as the fixed bank does
+    roles = {
+      GREEN = {
+        { role = "head teller", kind = "civ", pads = "teller", body = "Civilian_1_Female", area = "hall", where = "behind the counter (hall)",
+          short = "counter", how = "Teller: aim a gun at her till she hands it over", tip = "Teller: aim a gun at her" },
+        { role = "lobby captain", kind = "guard", pads = "captain", body = "St_Petersburg_Guard", area = "hall", where = "the hall floor",
+          short = "hall", how = "Captain: slap him twice, USE to search", tip = "Captain: slap x2, USE to search" },
+        { role = "assistant manager", kind = "civ", pads = "officer", body = "Civilian_2", area = "hall", where = "the officers' platform (hall)",
+          short = "platform", how = "Asst manager: aim a gun at him till he hands it over", tip = "Asst manager: aim at him" },
+        { role = "records clerk", kind = "civ", pads = "clerk", body = "Civilian_1_Female", area = "records", where = "records (ground floor, staff)",
+          short = "records", how = "Clerk: aim a gun at her till she hands it over", tip = "Clerk: aim a gun at her" },
+      },
+      BLUE = {
+        { role = "security chief", kind = "guard", pads = "chief", body_setting = "chief_body", health = 1.5, area = "offices",
+          where = "the offices behind GREEN", short = "offices", how = "Catch him alone: slap twice (he's tough), then USE to search" },
+        { role = "duty sergeant", kind = "guard", pads = "sergeant", body = "Russian_Soldier", health = 1.25, area = "corridor",
+          where = "on his break: the canteen or the staff lounge", short = "canteen", how = "On his break: slap him twice, then USE to search" },
+        { role = "entrance guard", kind = "guard", pads = "entrance", body = "St_Petersburg_Guard", area = "security",
+          where = "the staff entrance (off the dock)", short = "staff entrance", how = "At the staff entrance: slap him twice, USE to search" },
+      },
+      RED = {
+        { role = "branch manager", kind = "civ", pads = "manager", body_setting = "manager_body", area = "@manager",
+          where = "his own office (behind BLUE)", short = "manager", how = "Aim a gun at him and he hands it over (BLUE opens the offices)" },
+        { role = "duty officer", kind = "guard", pads = "duty_officer", body = "Russian_Commandant", health = 1.5, area = "security",
+          where = "the security office (behind BLUE)", short = "security", how = "Tough (x1.5): slap him twice out of sight, USE to search" },
+        { role = "chief cashier", kind = "civ", pads = "cashier", body = "Civilian_4", area = "security",
+          where = "the cash office (behind BLUE, by the security room)", short = "cash office", how = "Aim a gun at her and she hands it over" },
+      },
+      GOLD = {
+        { role = "vault captain", kind = "guard", pads = "vault_captain", body = "Russian_Commandant", health = 2, armour = 1, area = "vault",
+          where = "inside the vault (armoured)", short = "vault", how = "In the vault with the guards: only once it's open. Armoured, double health." },
+        { role = "head counter", kind = "civ", pads = "counter", body = "Civilian_3", area = "vault_ante",
+          where = "the counting room (vault level, behind RED)", short = "counting room", how = "A civilian in the counting room: aim at him, he hands it over" },
+      },
+    },
+    -- the job's own twists: the manager is out (RED lies in his desk), an armoured-car delivery opens the sally port for two minutes
+    desk = { key = "RED", role = "manager's desk", kind = "floor", pads = "desk", area = "@manager", empty_area = "manager",
+             where = "in the manager's desk (behind BLUE)", short = "manager", how = "Nobody to rob: walk over the card on his desk",
+             who = "nobody: the manager is out, it's in his desk", short_who = "it's in the manager's desk", label = "manager out",
+             note = "His office is behind BLUE.", text = "The manager is out: RED is in his desk" },
+    delivery = { doors = { "garage_shutter", "sally_inner" }, keyflags = 0x4, open_at = 60, close_at = 180,
+                 text = "Armoured-car delivery 1:00-3:00: the sally port is open",
+                 open_text = "The armoured car is in: the sally port is open", close_text = "The armoured car has gone: the sally port is shut" },
+    seal = { "lift_gate" }, seal_words = { lift_gate = "the lift-shaft gate" },
+    vents = { "records", "lounge", "server", "plant", "sewer" },  -- (not the vault ventilator: the power rules it)
+    dossier_slots = { 1, 2, 3, 4 },            -- PERSONNEL: TELLERS, BRANCH MANAGER, LOBBY CAPTAIN, SECURITY CHIEF -> GREEN, BLUE, RED, TODAY
+    vault_slot = 8,                             -- VAULT GUARDS: says where GOLD is when it is not with them
+  },
+
+  -- ----------------------------------------------------------------------------------------------------------------------------------
   text = {
     hud_title = "JANUS BANK",
     not_here = "HEIST MODE: run it on the Janus bank (GE_STAGE=levelgen, janus_bank.json on the slot)",

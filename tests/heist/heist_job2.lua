@@ -12,6 +12,7 @@
 -- tests/heist/run_job2.sh runs it. Prints "HEIST PASS|FAIL <name> ..." and "HEIST DONE n passed, m failed".
 HEIST_SETTINGS = {
   test = true,
+  randomise = mode.env_flag("GE_HEIST_TEST_RANDOM"),   -- (designs/bank-heist.md section 25: GE_HEIST_TEST_RANDOM=1 deals the casino)
   cover = false,   -- the stock sight (the win path warps an armed Bond through restricted rooms; tests/heist/heist_cover.lua has the cover)
   crack_time = 12, jam_chance = 0, jam_every = 1000,
   vault_time = 45, klaxon_at = 5, recrack_time = 8,

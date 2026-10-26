@@ -70,6 +70,9 @@ HEIST_JOBS.casino = {
     { key = "GOLD", role = "vault manager", kind = "guard", pads = "vault_manager", body = "Russian_Commandant", health = 2, armour = 1, area = "vault" },
   },
   console_roles = { "head croupier", "floor supervisor", "shift manager", "casino director", "vault manager" },
+  -- the randomiser's deck (tools/heist_randomiser.lua, designs/bank-heist.md section 25): no extra roles yet, so it deals within the
+  -- cards above (GREEN's two alternatives, every carrier's posts), plus the generic dummies / time lock / roster / twists
+  random = { one_of_two = { GREEN = true } },
 
   text = {
     hud_title = "CASINO",

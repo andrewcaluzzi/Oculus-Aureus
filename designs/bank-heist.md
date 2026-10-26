@@ -1362,6 +1362,116 @@ them.
 - No grenades, no suppressive blind fire, no stacking up at doors; SWAT have no shields. The police do not negotiate (no hostage talk).
 - The megaphone is a radio bark and a HUD line: GoldenEye has no megaphone voice.
 - No screenshots this stream (the time went into the tests).
+
+## 25. The randomiser (stream `randomiser`, 2026-10-26)
+
+Every run is a different bank. At stage start the mode deals the day from the sim RNG (`math.random`: `GE_SEED` solo, the session seed
+in co-op and netplay), so **the same seed always deals the same bank** and both machines of a netplay session deal the same one. The deal
+is made once, in a fixed order over arrays, and goes into the state hash (`mode.state`, ` rnd=...`); the Lua VM is in the solo snapshot
+whole, so it restores with it. The code is one new module, `tools/heist_randomiser.lua`, with small hooks in `mode_heist.lua`, each
+behind `H.rand` (nil when the randomiser is off).
+
+**It works on the job tables (section 30).** The randomiser deals a *copy* of the job (`tools/jobs/<job>.lua`): one carrier per card, on
+one pad, and the job's words (the board's key cards, posts and dossiers, the plan, the guide's steps, the HUD's `need_*` lines, the
+console's report) rewritten to match. The mode swaps its `JOB` for the dealt copy at stage start, before the map loads, and the INTEL
+board and the guide read it as they read any job, so neither needed a change. The candidates come from the job's own deck
+(`JOB.random.roles`; the bank's is below). A job with no deck (the casino has only `random.one_of_two`) is dealt within its cards: GREEN's
+two `either` alternatives, every carrier's posts, plus the generic dummies, time lock, roster and twists. A job's own twists and routes
+are data too: `random.desk`, `random.delivery`, `random.seal`, `random.vents`.
+
+### 25a. What changes from run to run
+
+- **Who carries which card, and where they stand.** Each carrier is one of the plausible roles for that card, on one of the role's pads.
+  Every candidate is reachable with the cards before his own: a reachability pass over bank v3's doors (street, then GREEN, then
+  GREEN+BLUE, then +RED; padlocks shut, the time lock impassable) put each candidate's room in the right tier.
+
+  | Card | Candidates (post) | How you get it |
+  | --- | --- | --- |
+  | GREEN | head teller (counter), lobby captain (hall floor), assistant manager (officers' platform), records clerk (records) | rob the civilians at gunpoint; KO and search the captain |
+  | BLUE | security chief (offices), duty sergeant (on his break: canteen or staff lounge), entrance guard (staff entrance) | KO and search (the chief x1.5 health, the sergeant x1.25) |
+  | RED | branch manager (his office), duty officer (security office), chief cashier (cash office); all behind BLUE | rob / KO and search |
+  | GOLD | vault captain (in the vault), head counter (counting room, behind RED) | KO and search / rob |
+
+  GREEN stays "one of two" on the board, as on the fixed bank: the true carrier and one decoy role, in alphabetical order. BLUE, RED and
+  GOLD are named.
+- **Dummy cameras.** Each camera is a dummy with chance 0.2 (at most 8). A dummy is dead all run: the console and the power coming back
+  never re-enable it. The board's schematics draw it grey; NOTES and PERSONNEL say how many.
+- **The time lock.** The vault stays open `vault_time` x 0.75..1.25 (x1.5 on a time-lock fault) and the crack takes `crack_time` x
+  0.85..1.15.
+- **The guard roster.** The posted guards are the difficulty's count x 0.85..1.15 (x0.75 short-staffed, x1.2 on an inspection).
+- **Routes.** The goods-lift gate is welded shut with chance 0.35 (the vault flag: no card, the lockpicks refuse it). Each vent
+  (records, lounge, server, plant, sewer) has its fans running with chance 0.25: it is blocked, and the guide stops offering it.
+- **The job of the day** (one twist; "an ordinary day" is three times as likely as each other):
+
+  | Twist | Effect |
+  | --- | --- |
+  | Armoured-car delivery 1:00-3:00 | from 60 s to 180 s the sally port's alley shutter and inner shutter stand open with no card |
+  | The manager is out | RED lies in his desk (a floor key on `mgr_desk`), nobody in his office |
+  | Flu going round | roster x0.75 |
+  | Head-office inspection | roster x1.2 |
+  | New cameras fitted | no dummies |
+  | Time-lock fault | the vault stays open x1.5 |
+  | Generator in for service | the backup generator takes 180 s to start |
+
+### 25b. How a player sees it
+
+- Nine seconds in, HUD line 3 says **"TODAY: <the twist>"**. The delivery flashes when the shutters open and shut.
+- The **INTEL board** (Tab / Back) shows the truth: THE PLAN's header is today's twist and its keys step names today's carriers; THE
+  KEYS cards say who carries each card, where, and how to take it; SCHEMATICS pins today's carriers' posts (the GREEN pair as "GREEN?")
+  and greys the dummies; PERSONNEL replaces the teller / manager / captain / chief dossiers with today's GREEN, BLUE and RED carriers
+  and a TODAY'S JOB card (the twist, the routes, the cameras); NOTES' last card is TODAY.
+- The **first-play guide's** objective line names today's carrier and his room ("Next: BLUE card - the duty sergeant (CANTEEN)").
+- The **AR specs** bracket whoever really holds a card (port_arhud.c reads the chr's inventory), so they were right already.
+
+### 25c. Settings
+
+`S.randomise` (default `true`) turns it on. `false` is each job exactly as written (the bank, the casino): no RNG draw, no hook runs, and `mode.state` is
+unchanged. A script that sets `HEIST_SETTINGS` without a `randomise` key (every test) gets the job exactly as written, so the old suites run
+unchanged; `tests/heist/heist_firstplay.lua` sets `randomise = false` explicitly. `S.randomiser = { ... }` tunes it: `carriers`,
+`cameras`, `dummy_chance`, `dummy_max`, `timelock`, `vault_spread`, `crack_spread`, `roster`, `roster_spread`, `routes`, `seal_chance`,
+`vent_chance`, `twist` (false, or a twist id to force one) and `green` / `blue` / `red` / `gold` (a role name to force that carrier).
+
+### 25d. Tests
+
+`tests/heist/run_random.sh [layout|win|all]` (container, Xvfb :99; `SEEDS`, `PAR`). It reuses the win path
+(`heist_winpath.lua`, `GE_HEIST_TEST_RANDOM=1`): the driver finds each carrier through the mode's truth (`HEIST.rand.role_order`), takes
+a floor key off its pad, and adds the randomiser's checks: each card is on today's carrier, in his post's room; THE KEYS card for each
+card lists and names that carrier; the guide's next step names him (GREEN at the start, BLUE after GREEN, the vault after RED); every
+dummy camera is dead; a sealed lift gate refuses Bond. Its tellers' crossfire check stays with the fixed runs (on seed 1 an earlier
+alarm had pulled the hall's guards away, so nobody fired and nothing was held), and its every-area guard count wants 1 per area, not 2
+(a short-staffed roster left one guard in the offices on seed 6).
+
+| Check (2026-10-26, after merging `heist` 15db916: the job tables) | Result |
+| --- | --- |
+| layouts over seeds 1-10 (`run_random.sh layout`) | 10 distinct deals of 10 |
+| seed 1 dealt three times | the same deal; two runs hash-identical over 995 ticks |
+| win path, seeds 1-10 (`run_random.sh win`) | 10 of 10 win, 69-70 checks each, 0 failed |
+| casino, randomised (`GE_HEIST_TEST_RANDOM=1 run_job2.sh`) | 52 passed, 0 failed, win (dealt within its cards: 7 dummies, the head croupier) |
+| casino, fixed (`run_job2.sh`) | 52 passed, 0 failed, win |
+| bank, fixed: win path (seed 7) / trapped / fail / quiet / count | 59 / 17 / 5 / 11 / 2, 0 failed, as before |
+| determinism solo, randomised | 4366 ticks hash-identical, notes identical, coverage |
+| firstplay (fixed) | 5 of 6: a hall guard found the knocked-out teller and the "found someone out cold" flash took line 3 before the search prompt (the AI layer's timing; the fixed bank, randomiser off) |
+| before the merge: RED forced to the duty officer (`GE_HEIST_TEST_OFFICER=1`) | 69 / 0 |
+| before the merge: determinism randomised, solo / co-op (`GE_HEIST_TEST_RANDOM=1 run_determinism.sh`) | solo 4196 ticks identical; co-op a/b and the view switch 4126 ticks identical, coverage |
+| before the merge: fixed suites | dam1 identical (453), logic tests pass, ai 17 runs 0 failed, ar 13 + proof, intel 28, firstplay 6, trapped 17, fail 5, quiet 11, count 2 |
+
+Screenshots (AC's machine): `E:\midas-temp\randomiser\shots\randomiser-random_intel_keys.jpg` (THE KEYS on a dealt bank: GREEN "the
+lobby captain OR the records clerk", BLUE the duty sergeant, RED the duty officer, GOLD the head counter) and
+`randomiser-random_intel_personnel.jpg` (today's carriers' dossiers and TODAY'S JOB). The GREEN dossier's title overflowed in that shot;
+it reads "GREEN: ONE OF TWO" now.
+
+### 25e. Limits and next
+
+- Camera headings are not dealt (it needs a C hook to turn a camera's look pad).
+- The carriers stand post; none of them walks a guard tour yet.
+- No safe combination: the manager's safe still takes GOLD.
+- The delivery opens doors only: no van drives in and no crew is posted (the spawn helpers are the mode's).
+- The casino has no deck of its own yet (`tools/jobs/casino.lua` `random.roles`): it deals within its cards.
+- Netplay with the randomiser on was not run (the integration pass runs netplay alone); solo and co-op passed randomised before the
+  merge. The regression suites after the merge: see the stream report.
+- The candidate tiers were checked by hand against bank v3's doors; a layout change could move a candidate behind the wrong card.
+  A next step is to run that reachability pass at stage start and drop any candidate it fails.
+
 ## 26. The debrief (stream `debrief`, 2026-10-26)
 
 AC's brief: an end-of-heist debrief that makes each run feel like a scored spy mission, a GoldenEye-style end screen with a heist flavour.

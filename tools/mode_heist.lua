@@ -33,10 +33,12 @@ include("heist_ai")                            -- HEIST_AI: the guards' hearing,
 pcall(include, "heist_combat")                 -- HEIST_COMBAT: the LOUD route: cover, flanks, police and SWAT (section 24; optional)
 include("heist_intel")                         -- heist_intel(ctx): the INTEL board's content and the hints (section 19)
 include("heist_guide")                         -- heist_guide(ctx): the first-play objective line, key strip and prompts (section 23d)
+include("heist_randomiser")                    -- heist_randomiser(ctx): every run a different job (section 25; S.randomise)
 pcall(include, "heist_ar")                     -- the AR specs and diagnostics (section 20; presentation only, optional)
 local STAGE_LEVELGEN = 52                      -- LEVELID_LEE: the generated level's slot
 local JOB = heist_job()                        -- the job definition the layout names (tools/jobs/<job>.lua; designs/job2-casino.md 6)
 local JT = JOB.text
+local BASE_JOB = JOB                           -- (section 25: with the randomiser on, JOB is the day's dealt copy of it)
 
 local S = {
   -- people: the FULL force (007). Each difficulty takes its `force` share of these (difficulty below): Agent about 30 posted guards,
@@ -155,6 +157,11 @@ local S = {
   test            = false,   -- test hooks on (HEIST.* below are always there; this only adds log lines)
   ar              = true,    -- the Q-Branch specs (tools/heist_ar.lua, section 20): suspicion "?" / "!", bubbles, key brackets, waypoints
   interlock       = true,    -- the mantrap and sally-port interlocks (tools/heist_interlock.lua, section 29); a table tunes them
+  -- the randomiser (tools/heist_randomiser.lua, section 25): who carries which card (within the job's deck, JOB.random), dummy cameras,
+  -- the time lock, the roster, sealed routes, the job of the day; from the sim RNG (same seed, same deal). false = the job exactly as
+  -- written. A script that sets HEIST_SETTINGS without this key (the tests) gets the fixed job. randomiser = { ... } tunes it.
+  randomise       = true,
+  randomiser      = nil,
   debrief         = true,    -- the end-of-heist DEBRIEF (tools/heist_debrief.lua, section 26): rating, payout, stats, commendations, records
   planning        = true,    -- the PLANNING board before the clock starts (tools/heist_planning.lua, section 27); off in automated runs
   -- difficulty (mission.difficulty(): 0 Agent .. 3 007). force: the share of the full force above (posted guards, raisers, vault
@@ -171,6 +178,7 @@ local S = {
 for k, v in pairs(JOB.settings or {}) do S[k] = v end   -- the job's own settings (the bank has none), under a test's
 if type(HEIST_SETTINGS) == "table" then
   for k, v in pairs(HEIST_SETTINGS) do S[k] = v end
+  if HEIST_SETTINGS.randomise == nil then S.randomise = false end   -- (section 25: the tests opt in)
 end
 local DIFF = S.difficulty
 
@@ -580,7 +588,12 @@ local function place_carrier(card, d)
   local body = d.body_setting and S[d.body_setting] or d.body
   local pad = pick(CARRIERS[d.pads])
   local c
-  if d.kind == "civ" then
+  if d.kind == "floor" then   -- (section 25: a card lying on its pad, no carrier)
+    H.carriers[d.role] = { key = spawn.key_at(pad, KEYS[card.key]), flags = KEYS[card.key], area = area, pad = pad, floor = true }
+    carrier_pads[pad] = true
+    log("card %s (0x%x) lies at pad %d (%s)", d.role, KEYS[card.key], pad, area)
+    return
+  elseif d.kind == "civ" then
     c = spawn_at(pad, { behaviour = "civilian", body = body })
     if c then H.civs[#H.civs + 1] = { chr = c, area = area }; H.placed.civ = H.placed.civ + 1 end
   else
@@ -917,9 +930,10 @@ function H.intel_lines(p)
   t[#t + 1] = "VAULT: " .. vault_text()
   for _, cr in ipairs(CARD_ROLES) do
     local c, role
-    for r, cc in pairs(H.carriers) do if cc.flags == cr[1] and cc.chr then c, role = cc, r end end
+    for r, cc in pairs(H.carriers) do if cc.flags == cr[1] and (cc.chr or cc.floor) then c, role = cc, r end end
     local where
     if not c then where = "-"
+    elseif c.floor then where = spawn.key_alive(c.key) and ((AREA_LABEL[c.area] or c.area) .. " (on the desk)") or "taken"   -- (section 25)
     elseif not (c.key and select(2, spawn.key_alive(c.key))) then where = "card not on him"
     elseif not spawn.alive(c.chr) or spawn.down(c.chr) then where = "down"
     else
@@ -973,7 +987,7 @@ local function near_xz(p, xz)
 end
 
 local function set_cams(on)
-  for _, cam in ipairs(cctv.list()) do if on then cctv.enable(cam) else cctv.disable(cam) end end
+  for _, cam in ipairs(cctv.list()) do if not on then cctv.disable(cam) elseif not (H.rand and H.rand.dead[cam]) then cctv.enable(cam) end end
 end
 
 function H.cut_power(why)
@@ -1242,12 +1256,16 @@ on("stage_start", function(stage)
     H.phase = "off"
     return
   end
+  H.rand = heist_randomiser{ S = S, H = H, job = BASE_JOB }   -- section 25: today's deal (nil when S.randomise is off)
+  JOB = H.rand and H.rand.job or BASE_JOB
+  JT = JOB.text
   load_map()
   H.map = MAP.name
   diff = DIFF[mission.difficulty()] or DIFF[1]
   H.civ_limit = S.civ_limit or diff.civ_limit
   spawn.keep_bodies(true)
   setup_doors()
+  if H.rand then H.rand.doors() end
   -- the cover (section 16): every room classed by its layout area; cameras report to the security room instead of the alarm
   cover.on(S.cover and true or false)
   if S.cover then
@@ -1317,6 +1335,7 @@ local function state_text()
       tostring(cover.alert()), H.blown, H.reports, H.report and string.format("%.2f", H.report.at) or "-", tostring(PW.out), PW.step,
       tostring(PW.task), tostring(PW.by), PW.prog, tostring(PW.cut_at), tostring(PW.saved.cabinet + PW.saved.breaker + PW.saved.generator),
       tostring(PW.gen_off), #PW.invest, tostring(PW.invest_at), PW.repair, #PW.pending)
+    .. (H.rand and H.rand.state() or "")   -- (section 25: today's deal)
 end
 H.state_text = state_text
 
@@ -1333,12 +1352,13 @@ on("tick", function(dt)
   end
   if H.intel then H.intel.tick(dt) end   -- the INTEL board's content and the hints (presentation; tools/heist_intel.lua)
   if H.plan and H.plan.tick(dt) then return end   -- the PLANNING phase holds the start (tools/heist_planning.lua, section 27)
+  if H.rand then H.rand.tick(dt) end     -- section 25: the job of the day's timed events
   if not H.ready then return end
   if H.hot and S.siren_latch and not alarm.active() then alarm.start() end
   if H.cam_off_until and H.elapsed >= H.cam_off_until then
     H.cam_off_until = nil
     if not PW.out then
-      for _, cam in ipairs(cctv.list()) do cctv.enable(cam) end
+      for _, cam in ipairs(cctv.list()) do if not (H.rand and H.rand.dead[cam]) then cctv.enable(cam) end end   -- (a dummy stays dead)
       flash("The cameras are back on", 3)
     end
   end

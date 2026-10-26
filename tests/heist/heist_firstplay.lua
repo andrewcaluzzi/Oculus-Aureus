@@ -2,6 +2,7 @@
 -- the first minute of the real heist on the compiled bank. Bond is left where the mode puts him (the street), then warped to the hall.
 -- Run: tests/heist/run_firstplay.sh (container, Xvfb :99). Each shot follows a "HEIST SHOT <name>" line, with the HUD lines and the
 -- panel printed so the log alone shows the text. Ends with "HEIST DONE <n> passed, <m> failed".
+HEIST_SETTINGS = { randomise = false }   -- the fixed bank (section 25: the randomiser is on by default for players)
 include("heist")
 
 local pass, fail = 0, 0
