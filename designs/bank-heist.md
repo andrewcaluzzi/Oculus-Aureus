@@ -819,7 +819,7 @@ Every Bond starts with the gadgets in his inventory, next to the PP7 and the doo
 | **Tape loop** (2) | the data thief (55) | aim at a camera within 14 m, **fire** | that camera sees nothing for 60 s (its feed's label says `[LOOP]`), then it is back. |
 | **Sleep gas** (1) | the bomb defuser (39) | **fire** | the canister lands like a coin; 3 s later everyone (guards and staff) within 330 units is knocked out. Bodies are bodies: a guard who finds one raises the alert. |
 | **Thermal imager** | the spy camera (40) | **fire** | 10 s of every chr within 35 m outlined through the walls (red: armed, white: unarmed); then 30 s to recharge. Presentation only: it changes nothing the guards do. |
-| **Pickpocket** | anything | behind a card carrier (more than 100 degrees off where he faces), not on to you (not alert, his meter under half, not a witness), within 120 units: **use** | his keys are yours ("Lifted: the BLUE card"). Facing you, or on to you: he catches your hand: a guard sees through you at once (`cover.blow`). |
+| **Pickpocket** | anything | behind a card carrier (more than 100 degrees off where he faces), not on to you (not alert, his meter under half, not a witness), within 120 units: **use** | his keys are yours ("Lifted: the BLUE card"). On to you: he catches your hand: a guard sees through you at once (`cover.blow`). Not behind anyone you face: a plain use press (23c). |
 | **Disguise** | anything | at a knocked-out guard or staffer: **use** once (the stock search), **use** again and stay with him 4 s unseen | you wear his uniform. A **guard's**: the restricted and staff rooms count as public for you (the security wing, the vault level), but a guard you linger next to looks twice as fast ("close"); loot, a drawn gun or an act still give you away. A **staffer's**: the staff rooms are yours. Interrupted if you move off or a cover guard sees you at it (that is an act). One uniform per body. |
 | **Vents** | anything | at a vent grille (pads `vent_<id>_a` / `_b`): **use** | you crawl through (3 s, held still) and come out at the other end. Two on the bank: the east staff corridor into the **security office**, the staff lounge into the **lockers** (next to the RED stairs). |
 
@@ -1006,6 +1006,40 @@ Screenshots of the merged build on v3 are on AC's machine, not in the repo, in `
   camera ("CAMERA SEES P2" in co-op). A live camera is on, not on a tape loop, with someone in the security room. The diamond is
   presentation only, on the points layer, so Shift+F3 hides it. Test: `run_ai.sh` `camwarn`. Body dragging has no mechanic yet, so it
   has no warning.
+- **Fixed (branch `inputfix`, 2026-10-26): the use press and the pickpocket (23e's findings).**
+  - *A use press was a pickpocket on the nearest chr.* With nothing in reach, `heist_gadgets.lua` went for the nearest chr within 120,
+    so a press at a door just out of reach, in front of a guard who faced Bond, was "caught" and blew the cover. Now the mark must be
+    a standing chr within 120 on Bond's floor that Bond stands **behind** (100 degrees or more off his facing) and **looks at**
+    (within 60 degrees of his view, `pick_cone`). With no such chr the press stays a plain use press (doors, screens, console). Behind
+    a guard who is on to Bond, it is still caught. `run_gadgets.sh pocket`'s "facing him" check now expects the cover to hold.
+  - *"B behind a carrier fires no use event"* was the bot, not the game. Raw B (`cctv.test_press`) behind the lobby captain, the
+    security chief and the branch manager fires `use` and lifts the card on every press. The bot's `press b 3` never pressed: a step
+    pushed onto an idle plan kept the clock of the step before it (`stepTick`), so a timed step ended on its first tick.
+    `portPlayerBotPushLine` now begins the step on the push.
+  - *"A from the slappers never drew the PP7"* was the bot too. A human's A draws it from the opening slappers, and again after
+    holstering. The bot tapped A every 24 ticks, and the swap from the slappers runs longer than that. So the second tap stepped on
+    from the queued PP7 and wrapped back to the slappers (1 -> 5 -> 1), over and over. `weaponTick` no longer taps while the switch
+    to the wanted weapon is under way. The street draw (the old workaround, seen "armed" in the hall) is gone: with
+    `GE_PLAYERBOT_HOLSTER` the bot is holstered from the first tick. For the head teller it walks up holstered and draws within
+    3.5 m.
+  - *Bot results* (`run_botheist.sh`, MAXSECS 600). Before: seed 7 reached ready, inside, green, blue and red, then died at 257 s;
+    seed 8 reached cracking and died at 555 s. Both were blown "armed" in the first 10 s. After: seed 8 is **the first quiet win**
+    (242 s, no alarm, all three cards pickpocketed on the first press, 30 bars). Seed 7 (GREEN is the head teller) is still a
+    robbery in the hall guards' view (blown "armed" at the counter, the alarm at 19 s), but it now reaches cracking (8 of 12
+    checkpoints, died at 314 s; before: 5 of 12).
+  - *The CCTV feed's Port binds in netplay.* `portJoyPortCctvTake` reads the latches of the watching Bond's own pad
+    (`portCoopPadSwap(get_cur_playernum())`). Under lockstep, pads 0 and 1 are fed only from the synced records
+    (`portJoyPortNetApply`; the poll's pad-0 downs go into the record window), the same path as next/prev weapon and the gadgets'
+    inventory keys. Only the INTEL board is local, and it is cleared before the window. So the feed keys were already synced: no
+    code change. Test: `run_netcctv.sh` (host and guest on loopback; the host's record carries a next_weapon press every 45
+    ticks while Bond 0 watches). Both machines cycled Bond 0's feed on the same ticks to the same cameras (6 of 6 cycles).
+  - **New gap, found by that test: cycling the feed desyncs netplay.** From tick 1246 only `rng` differs, then chrs, chrai and
+    props. The extra chrs the feed pass draws restore the RNG (`portCctvDrawChrs`), but the world draw from the camera does not:
+    a camera with other rooms in view (a guard firing there) takes sim RNG on the watching machine only. The standard scenario
+    keeps one camera, so `run_determinism.sh net` does not see it. Not fixed. Next step: `GE_NET_RNGTRACE` (`net_rngdiff.sh`) on that
+    tick. `run_netcctv.sh` fails its hash and DESYNC checks until this is fixed.
+  - Tests: `run_inputfix.sh [seeds]` (use in front of a facing guard: cover holds; behind but looking away: no pickpocket; B behind
+    each carrier: event and lift; A from the slappers: the PP7).
 - **The Windows exe was not smoke-run on Windows**, because the port has no hidden-window option. The same source booted the heist
   headless in the Linux build. `build_win_next`'s Lua scripts were refreshed after the fixes (they are copied only on a relink).
 
