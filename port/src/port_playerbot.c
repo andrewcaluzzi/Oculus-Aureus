@@ -4457,7 +4457,9 @@ static void stageBegin(void)
     B.step = 0;
     B.peace = 0;
     B.quiet = 0;
-    B.holster = getenv("GE_PLAYERBOT_HOLSTER") != NULL;   /* (from the first tick: a heist's cover; the mode script's steps come later) */
+    B.holster = 0;   /* (not from the first tick: the bot draws the PP7 once on the street before the script holsters it. Holstered
+                      * from tick 0, the hand's previous weapon stayed the slappers and A never drew the gun again: the stock cycle
+                      * goes to the previous weapon when its next item is a gadget - 0 shots in a whole fight, 2026-10-26) */
     B.rush = getenv("GE_PLAYERBOT_RUSH") != NULL;
     B.moveOnly = 0;
     B.nAvoid = 0;

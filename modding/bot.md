@@ -46,7 +46,7 @@ objectives and with no position drift; `failure_point` says where it died or got
 | `GE_PLAYERBOT_EXIT=0` | do not exit the process after the result line |
 | `GE_PLAYERBOT_LOG` | 0 quiet, 1 status every 5 s (default), 2 + door / stuck details, 3 + a line per tick |
 | `GE_PLAYERBOT_NOLOOT` | do not detour for dropped guns, ammo and armour |
-| `GE_PLAYERBOT_HOLSTER=1` | a heist's banker cover: `holster 1` from the first tick, and never the stuck recovery's blind B press (a use press with nothing in reach is the heist's pickpocket) |
+| `GE_PLAYERBOT_HOLSTER=1` | a heist's banker cover: never the stuck recovery's blind B press (a use press with nothing in reach is the heist's pickpocket). `holster` itself comes from the plan (not from tick 0: the bot must draw the PP7 once first, or A never reaches it again; designs/bank-heist.md 23e) |
 | `GE_PLAYERBOT_AIMY` | aim height over a chr's origin (default 52, the head) |
 | `GE_PLAYERBOT_NOCOVER`, `GE_PLAYERBOT_NOKITE`, `GE_PLAYERBOT_RUSH` | A/B switches: no cover, no backing away, `rush 1` from the start |
 | `GE_PLAYERBOT_SPAREALL`, `GE_PLAYERBOT_GLASSTEST` | experiments (quiet: shoot only guards that noticed Bond; shoot raisers through closed doors) |
@@ -154,7 +154,7 @@ skipped once objective N is complete or not needed at this difficulty, `diff=A-B
 | `walk ticks stickY [stickX]` | raw stick |
 | `face X Y Z` / `look pitch` | turn |
 | `wait ticks` / `kill [radius]` / `peace 1|0` | wait / fight everything visible / stop shooting |
-| `holster 1|0` | keep the slappers in hand while not fighting (a heist's banker cover reads a drawn gun); a step that wants an item still gets it. `GE_PLAYERBOT_HOLSTER=1` sets it from the first tick. Holstered, the stuck recovery's blind B press is skipped (with nothing in reach it is the heist's pickpocket, and a guard who sees it blows the cover) |
+| `holster 1|0` | keep the slappers in hand while not fighting (a heist's banker cover reads a drawn gun); a step that wants an item still gets it. Holstered (or with `GE_PLAYERBOT_HOLSTER=1`), the stuck recovery's blind B press is skipped (with nothing in reach it is the heist's pickpocket, and a guard who sees it blows the cover) |
 | `quiet 1|0` | stealth: silenced guns preferred; unaware guards facing away (beyond 250) are left alone; unaware guard key carriers are knocked out from behind (heist modes) |
 | `key FLAGS` | fetch a key with any of these flags: lying (walk over it), on a guard (knock out and search, or shoot), on heist staff (hold a gun on it until it hands it over) |
 | `rush 1|0` | keep walking the route while fighting (the stick and the C strafe buttons move, the look stays on the target) |

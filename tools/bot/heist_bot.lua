@@ -86,7 +86,7 @@ local function summary(how)
 end
 do
   local real_win, real_fail = mission.win, mission.fail
-  mission.win = function(msg) reach("win"); summary("WIN"); return real_win(msg) end
+  mission.win = function(msg) reach("out"); reach("win"); summary("WIN"); return real_win(msg) end
   mission.fail = function(msg) summary("FAIL " .. tostring(msg)); return real_fail(msg) end
 end
 
