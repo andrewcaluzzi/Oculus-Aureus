@@ -555,6 +555,9 @@ if(GE_VIDEO)
         COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:ge>/Data/Scripts
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/tools/scripts_example.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/example.lua
+        COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:ge>/Data/Scripts/mods
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/tools/crosshair_pack.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/mods/crosshair_pack.lua
         COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:ge>/Data/Scripts/modes
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/tools/mode_hostage.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/hostage.lua

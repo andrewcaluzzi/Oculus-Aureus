@@ -68,6 +68,7 @@ wsl -d Ubuntu -- docker rm -f midas-test
 | Lua scenario scripts | `tests/lua/` | `GE_LUA_TEST=<file>`, `tests/solo_modes.sh` |
 | Heist suites | `tests/heist/run.sh` (bindings), `run_guards.sh`, `run_ko.sh`, `run_winpath.sh` (win path, trapped, civilian fail), `run_cctv.sh`, `run_determinism.sh`, `run_shots.sh` | Bunker 2, Xvfb `:99`. Last counts: bindings 38, guards 34, ko 26, winpath 50 / trapped 16 / fail 5, cctv 40, determinism 12/12 |
 | AR specs and diagnostics | `tests/heist/run_ar.sh [api\|proof]` | `api`: the `ar.*` / `diag.*` API and the heist wiring (13 checks; `GE_AR_SHOTS=1` for the showcase shots); `proof`: AR off vs AR + diag on, state hashes identical |
+| Crosshair styles | `tests/crosshair/run.sh [api\|proof]` | `api`: the `crosshair.*` API, the pack and the draw hook as a mode on Dam (16 checks; `GE_XHAIR_SHOTS=1` takes one shot per pack style, `sheet.py` tiles them); `proof`: no style vs the `tactical` style + a hook, state hashes identical (3473 ticks) |
 | Generated level | `tests/levelgen/run.sh` | culling, walking through doorways, guard routing |
 | Arena presets and soaks | `tests/arena_a5/`, `tests/arena_a6/`, `tests/arena_crowd/` | copy a preset into `Data/Scripts/modes/`; one preset per scenario (Lua has no `os`) |
 | Co-op / netplay / rollback | `tests/coop_determinism.sh`, `coop_drops.sh`, `net_lockstep.sh` (phases), `net_soak.sh`, `net_replay*.sh`, `snap_resim.sh`, `simonly_solo.sh` | each script's header says how to run it; some need recorded input files the generators write |
