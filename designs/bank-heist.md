@@ -2319,3 +2319,60 @@ Netplay not run (the integration pass runs it alone).
   end (no crew funds during the job), so a failed job costs nothing.
 - The casino deals from the default deck (it has no `random.traits` of its own); it was not run with the traits on.
 - The AR tag sits under the guard's feet (the specs' mark layer), so furniture can hide it.
+
+## 33. Integration (evening 2026-10-26)
+
+About fifteen branches merged into `heist` during the day (bot, winheadless, debrief, crosshair, leveled, soak, job2 and the job tables,
+inputfix, interlocks, heistperf, planning and planfix, netcctv and the solo CCTV body, combat, randomiser, hostages, personalities).
+Each passed its own tests on its own branch. This pass ran every suite on the combined build (54716c4, then the fixes below), headless,
+with up to four games at once. The netplay cases ran last, on their own.
+
+### 33a. Fixes
+
+- **The delivery day's sally port** (477f66d). Two things did not work when the randomiser, the planning board and the interlocks came
+  together:
+  - The planning board's SALLY PORT entry asked for `H.job.sally`, which nothing sets. So it was never on offer, even on a delivery
+    day. It now opens on the randomiser's delivery twist (`H.rand.twist.id == "delivery"`) or on `S.plan_sally`.
+  - The delivery opens `garage_shutter` and `sally_inner` together, but both are in the sally-port interlock group, which opens one
+    door at a time. While the car is in, the randomiser now clears the group (they become plain doors). Once both doors are shut after
+    the car has gone, it defines the group again (`dl=3` in the state text). The doors also get their own keyflags back, so the outer
+    roller wants the interlock's DOCK KEY again, not the layout's 0x4.
+  - A new interlock run, `delivery` (`GE_PLANNING=1`, twist forced), checks the whole chain: the entry is on offer and chosen, Bond
+    starts in the sally port, both rollers open at 60 s, the group and the DOCK KEY come back at 180 s, and the rollers open one at a
+    time again. 11/11.
+- **ENTRY on the casino** (477f66d). The entries are the bank's. On the casino the board offered four rows that all said "NOT ON THIS
+  MAP". The tab now leaves out any entry whose pad the map lacks, so the casino offers its front door only. The start log names the
+  entries: on the bank `front,staff,roof,dig,sally`, on the casino `front`. A job table could carry its own entries later.
+- **Intel "feeds: the hall cameras"** (af1df03), which also failed on 9fb0126. The check watched each hall camera for 1 s.
+  `guards_post = 0` leaves only the card carriers to see, the cameras sweep, and the content run is not on a fixed tick. So the sweeps
+  sometimes pointed away during every window and nobody went on the board. Now, if nobody is known after the 1 s round, the test goes
+  round the feeds again, up to 6 s each. The 1 s round stays as it was, because the hint checks after it depend on its timing.
+
+### 33b. The merged test table
+
+| Check | Got |
+| --- | --- |
+| dam1 oracle | identical (453 lines) |
+| `run_logic_tests.sh` | pass |
+| `test_gen_level.py` / `test_editor_roundtrip.py` | 12 OK / 9 OK (on Windows: the container has no node, so 9 skip there) |
+| `run_bank.sh` static / route A / route B / guards | 16 / 2 / 3 / 5 |
+| crosshair api + proof | 16 checks; proof 4363 ticks identical |
+| winpath (seed 7): win / trapped / fail / quiet / count | 59 / 17 / 5 / 11 / 2, 0 failed |
+| guards (seed 7) / ko / bindings / cctv | 37 / 26 / 38 / 41 |
+| ai / cover / gadgets | 13 runs / 12 runs / 10 runs, 0 failed |
+| gadgets det | 4 / 4 |
+| intel (content + det + nointel) | 28 / 0. Content alone after af1df03: 25 / 0, three runs |
+| ar (api + proof) / cctvself / debrief | 13 + proof / 7 / 42 |
+| planning | 175 / 0 (before and after 477f66d) |
+| combat / hostage / traits | 4 runs / 5 runs / 77, 0 failed |
+| interlock | basic 21, guards 10, tailgate 19, verify 16, power 18, win 16, delivery 11 (new) |
+| inputfix seeds 7 / 8 / 11, firstplay | 19 / 23 / 23, 6 / 6 |
+| random (layouts + win, seeds 1-10) | 13 / 0, 10 of 10 win |
+| job2 casino fixed / randomised (`build_job2`) | 52 / 52, win |
+| botheist seeds 7, 8 | both win (431 s, 316 s) |
+| determinism solo / co-op | 3 / 3, 5 / 5 |
+| determinism randomised solo / co-op (`GE_HEIST_TEST_RANDOM=1`) | 3 / 3, 5 / 5 |
+| simprof (d0) | ran: 6002 ticks, nothing dropped |
+| netcctv | 3 / 3: 2200 ticks identical, no DESYNC, 24 cycles on both machines |
+| determinism net | 4 / 4 with `GE_FRAMES=16000 NETTICKS=4100`: 4100 ticks hash-identical, notes identical, no DESYNC, every step reached. Four other streams' games were running by then. At the default budget the frame cap stopped the run at 2279 identical ticks, and at `GE_FRAMES=9000` at 3168, both short of 3500 with no difference: lockstep stalls under load, an environmental failure |
+| Windows `build_win_next` (mingw), `tests/win/smoke_hidden.ps1` | SMOKE PASS (900 frames, hidden, screenshot not blank). `Data\Scripts` is the same as build_pc's (`tools/*.lua` at HEAD) |
