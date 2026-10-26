@@ -14,10 +14,10 @@ cp /home/dev/project/port/levelgen/levelgen_layout.lua /home/dev/project/build_p
 LOGDIR=${LOGDIR:-/tmp}
 mkdir -p $LOGDIR /home/dev/project/build_pc/heist_ai_shots
 cd /home/dev/project/build_pc/heist_ai_shots || exit 1
-for run in ${RUNS:-hear slap door giveup camko camact camdown checkin patrol backup lure camwarn}; do
+for run in ${RUNS:-hear slap door giveup camko camact camdown checkin patrol backup lure camwarn holdcard}; do
     flag=GE_AI_$(echo $run | tr a-z A-Z)=1
     echo "HEIST RUN $run"
-    env $flag DISPLAY=:99 GE_MODE=heist_ai_test GE_STAGE=levelgen GE_SKIPINTRO=1 GE_NOINISAVE=1 GE_FIXEDTICK=1 GE_TICKHZ=60 GE_SEED=7 \
+    env $flag DISPLAY=:99 GE_MODE=heist_ai_test GE_STAGE=levelgen GE_SKIPINTRO=1 GE_NOINISAVE=1 GE_FIXEDTICK=1 GE_TICKHZ=60 GE_SEED=${GE_SEED:-7} \
         GE_FULLHEIGHT=0 GE_EDGEINSET=1 GE_FRAMES=${GE_FRAMES:-4800} timeout 400 ../ProjectMidas > $LOGDIR/heist_ai_$run.log 2>&1
     grep -aE "HEIST|gfx: wrote|ge: ai:|ge: lua: ge: heist: (ready|ALARM|cover|camera|the security|ai:)|ge: lua: .*error" $LOGDIR/heist_ai_$run.log
 done
