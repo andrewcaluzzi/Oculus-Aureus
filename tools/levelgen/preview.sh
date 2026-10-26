@@ -33,7 +33,7 @@ dock python3 $P/tools/levelgen/editor/footprints.py $P/build_preview/layout.json
 echo "== build build_preview"
 if [ ! -f "$OUT/CMakeCache.txt" ]; then
     dock cmake -S $P -B $P/build_preview -DCMAKE_BUILD_TYPE=Debug -DGE_VIDEO=ON -DSDL2_LINUX_ROOT=/home/dev/sdl2-linux-i686 \
-        -DLEVELGEN_DIR=build_preview/levelgen > "$OUT/configure.log"
+        -DGE_LEVELGEN_DIR=build_preview/levelgen > "$OUT/configure.log"
 fi
 dock cmake --build $P/build_preview -j "$JOBS" > "$OUT/build.log" 2>&1 || { tail -30 "$OUT/build.log"; exit 1; }
 [ -f "$OUT/Data/baserom.u.z64" ] || cp "$ROOT/baserom.u.z64" "$OUT/Data/baserom.u.z64"

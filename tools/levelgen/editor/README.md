@@ -106,7 +106,7 @@ tools/levelgen/preview.sh my_layout.json [room ...]        # Linux shell with Do
 ```
 
 1. It generates the layout into `build_preview/levelgen/` with `gen_level.py`, and stops with the generator's message if the layout is refused.
-2. It builds `build_preview/`, a build dir of its own (CMake `-DLEVELGEN_DIR=build_preview/levelgen`), so `port/levelgen/` and
+2. It builds `build_preview/`, a build dir of its own (CMake `-DGE_LEVELGEN_DIR=build_preview/levelgen`), so `port/levelgen/` and
    `build_pc/` are never touched. The first run builds everything, which takes minutes; later runs rebuild only the level.
 3. It boots the game headless in a throwaway container (Xvfb, `GE_STAGE=levelgen`) with `tests/levelgen/levelgen_preview_shots.lua`.
    That script takes Bond's start, then one shot per room you name, or the five largest rooms. For each room, Bond stands on the

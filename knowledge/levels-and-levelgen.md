@@ -63,6 +63,12 @@ GoldenEye has unused stage ids. The fork compiles generated levels into them (al
 
 Still free: `LIP`, `RIT`, `WAX`, `PAM`, `ELD` (`bondconstants.h`).
 
+The levelgen slot holds one layout per **build**, not per checkout. The CMake cache variable `GE_LEVELGEN_DIR` (default
+`port/levelgen`) names the generated directory a build dir compiles and ships with `levelgen_layout.lua`. The casino job
+(`designs/job2-casino.md`) lives in `port/levelgen_casino` and is built in `build_job2`. A build dir can be seeded with another dir's
+objects (copy `CMakeFiles/ge.dir/**/*.o` and `asset_obj/*` except the levelgen ones, then touch them newer than `flags.make`): only
+the slot's three asset objects and the link run then.
+
 What wiring a slot needs (learned on Flatland):
 
 - **Fetch stan and setup by symbol, not by file name** (`bg.c load_bg_file`, `prop.c proplvreset2`). Adding entries to
@@ -90,7 +96,7 @@ Format, textures found and the Lua `LEVEL` table: [`modding/levelgen.md`](../mod
 **The level editor** (`tools/levelgen/editor/`, [its README](../tools/levelgen/editor/README.md)) edits a layout in a browser
 and checks it with `gen_level.py`'s rules, ported to JS. `tools/levelgen/test_editor_roundtrip.py` runs 30 broken layouts through
 both and requires the same verdict and message from each. `tools/levelgen/preview.sh` builds a layout into `build_preview/` through
-CMake's `LEVELGEN_DIR` (default `port/levelgen`), so a preview never touches the committed level. Things learned building it:
+CMake's `GE_LEVELGEN_DIR` (default `port/levelgen`), so a preview never touches the committed level. Things learned building it:
 
 - **Writing the JSON back byte for byte needs Python's number and string rules.** `json.dump` writes a whole float as `1.0`
   (bank v3 has seven `"intensity": 1.0`), so the editor's reader keeps those as floats. Python switches to exponent notation
