@@ -2248,6 +2248,10 @@ void portInputInit(void)
             return;
         }
         portConLogf("ge: input: controller backends up\n");
+        if (portHidden())
+        {
+            portConLogf("ge: hidden: %d joysticks visible (every SDL backend off)\n", SDL_NumJoysticks());
+        }
     }
     /* the device records' first path: moves an old ./Devices under Data/ now,
      * at boot, not whenever player 1's device first changes */

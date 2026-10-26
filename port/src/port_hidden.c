@@ -21,9 +21,14 @@
  */
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
+/* No <string.h> and no <windows.h>: the game's include/string.h shadows the C one (windows.h pulls it in too),
+ * and its strlen(const unsigned char *) clashes with the one SDL.h's intrin.h declares on MinGW. The three
+ * kernel32 calls are declared by hand instead. */
 #ifdef _WIN32
-#include <windows.h>
+__declspec(dllimport) int __stdcall SetEnvironmentVariableA(const char *name, const char *value);
+__declspec(dllimport) void *__stdcall GetCurrentProcess(void);
+__declspec(dllimport) int __stdcall SetPriorityClass(void *process, unsigned long priorityclass);
+#define HIDDEN_BELOW_NORMAL_PRIORITY_CLASS 0x00004000ul
 #endif
 #ifdef GE_VIDEO
 #include <SDL.h>
@@ -33,6 +38,16 @@
 #include "port_console.h"
 
 static int s_Hidden = -1;
+
+static int hiddenStrEq(const char *a, const char *b)
+{
+    while (*a != '\0' && *a == *b)
+    {
+        a++;
+        b++;
+    }
+    return *a == *b;
+}
 
 static int hiddenEnvOn(void)
 {
@@ -88,7 +103,7 @@ void portHiddenInit(int argc, char **argv)
 
     for (i = 1; i < argc; i++)
     {
-        if (argv[i] != NULL && strcmp(argv[i], "--hidden") == 0)
+        if (argv[i] != NULL && hiddenStrEq(argv[i], "--hidden"))
         {
 #ifdef _WIN32
             _putenv("GE_HIDDEN=1");
@@ -132,7 +147,7 @@ void portHiddenInit(int argc, char **argv)
 #endif
 
 #ifdef _WIN32
-    SetPriorityClass(GetCurrentProcess(), BELOW_NORMAL_PRIORITY_CLASS);
+    SetPriorityClass(GetCurrentProcess(), HIDDEN_BELOW_NORMAL_PRIORITY_CLASS);
 #endif
 
     portConLogf("ge: hidden: window never shown, audio %s, no controllers, window %s, ini not written\n",
