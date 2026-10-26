@@ -1312,6 +1312,147 @@ folder): the quiet run's GHOST panel.
 - Next: per-crew-member lines in co-op (who did what), a "case file" page on the INTEL board listing the best runs, more commendations
   from the AI layer (never searched for, a coin that pulled a guard off a camera's view).
 
+## 28. Sim performance (stream `heistperf`, 2026-10-26)
+
+The soak's bench (23f) measured 63â€“108 ms of "sim" per frame on bank v3, and a 988 ms frame at 007. Its sim column is wall time and
+includes building the display lists, llvmpipe's GL and every other stream's load, so it said little about the game code. This stream
+measured the sim step alone, in CPU time, and made the biggest part of it cheaper without changing what it computes.
+
+### 28a. How it is measured
+
+- **`GE_PROFILE_SIM=<file>`** (`port/luavm/port_luavm_simprof.c`) is a sampling profiler of the sim step. A POSIX timer on the sim
+  thread's own CPU clock (`CLOCK_THREAD_CPUTIME_ID`, `SIGPROF` to that thread only) fires every 1/`GE_PROFILE_HZ` s of that thread's
+  CPU time. The kernel tick limits it to about 250 Hz in WSL. A descheduled thread earns no samples, so other load does not move them.
+  - Each sample taken inside a sim-only tick (`GE_SIMONLY_TEST`, port_simonly.c) records the tick, the phase, the native EBP chain (the
+    tree is built `-fno-omit-frame-pointer`) and the Lua frames running at that moment (`source:line` of each function).
+  - Each sim-only tick's thread CPU time is recorded as well.
+  - Lua `simprof.phase(name)` tags the phases. The `simprof` table exists only with `GE_PROFILE_SIM`, so a normal run's Lua state is
+    unchanged. The profiler only reads.
+- **`tests/heist/run_simprof.sh`** (`BIN=`, `DIFF=`, `TAG=`) runs the soak's bench script `heist_bench.lua` this way, now tagged
+  setup / hall / vault / ramp / hot. The run is fast-forwarded (`GE_FIXEDTICK=1 GE_NOSLEEP=1 GE_CLOCKSCALE=20`), sim-only with one
+  rendered tick in 60, on `GE_SEED=7` with `GE_HASHLOG`. It writes `build_pc/logs_perf/{simprof,hash}_<TAG>.txt`.
+- **`tests/heist/simprof_report.py <dump> <binary> [phases] [top] [worst]`**, run in the container (it uses addr2line), prints per phase:
+  - tick CPU avg / p50 / p95 / max;
+  - self and inclusive % (inlined frames included);
+  - Lua inclusive / self;
+  - the worst ticks and what they ran.
+  `CALLERS=f,g` adds who called f, and `LINES=f` adds f's hottest source lines.
+- **`tests/heist/hash_compare.py a b`** diffs two `GE_HASHLOG` files and names the first tick where they part.
+
+Thread CPU time still moves by 10â€“30 % from run to run on a loaded machine: hyperthread siblings and caches are shared. So
+before/after numbers come from pairs of runs going at the same moment (`base2` and `f1` below). The shares are steadier than the
+milliseconds.
+
+### 28b. Where the sim time goes (before the fix, seed 7, sim-only ticks)
+
+Sim tick CPU: Agent hall 0.8â€“1.1 ms, Agent hot 1.6â€“1.9 ms; 007 hall 1.6â€“1.9 ms, 007 hot 6.4â€“6.5 ms (p95 13â€“14 ms). Even at 007 with
+the alarm up, the sim fits the 16.7 ms tick on average. The heist's own systems are small. The engine's chr movement and collision is
+most of it.
+
+Top 10, 007 hot (inclusive % of sim CPU samples, 2607 samples):
+
+| # | Where | % | What it is |
+| --- | --- | --- | --- |
+| 1 | `chrTickInner` (propsTick) | 80 | every chr's tick: animation, movement, AI |
+| 2 | `stanTestLineUnobstructed` | 36 (14 self) | the line test against the level and every prop in the rooms crossed |
+| 3 | `sub_GAME_7F01F614` (chrUpdateAnim > subcalcpos) | 35 | a chr's animated move: line test + volume test |
+| 4 | `stanTestVolume` | 21 (6 self) | the circle test against every prop in the rooms |
+| 5 | `chrlvTickGoPos` > `chrlvTravelTick` > `sub_GAME_7F03081C` | 21 / 19 / 15 | route following: can the chr cut to the next waypoint |
+| 6 | `bgLevelRender` (room visibility, also in a sim-only tick) | 9 | which rooms are in view (the AI reads it) |
+| 7 | `chrpropsRenderPass` | 9 | chr model matrices (hit tests read them) |
+| 8 | `chraiGetCollisionBounds` / `chrUpdateCollisionBounds` | 8 / 4 self | each prop's collision polygon, per test |
+| 9 | `chrCanSeeBond` | 5 | guard sight (line tests) |
+| 10 | `propIsOfCdType` / `roomGetProps` | 4.5 / 3.7 self | the prop filter and the room prop list, per test |
+
+The heist layer at 007 hot: camera sight (`portHeistCctvAllBonds`) 1.3 %, `portHeistAiTick` 0.3 %, the guard AI layer (port_ai.c,
+port_noise.c) under 0.5 %, the AR overlay 0.1 %, Lua 1 %. At Agent hall the same list reads:
+- `chrTickInner` 33 %, `stanTestLineUnobstructed` 18 %;
+- `bgLevelRender` 14 %, `objTick` 14 %, `chrpropsRenderPass` 12 %;
+- Bond's move 8 %;
+- camera sight 7 % (`cctvSeesBond`, 31 cameras);
+- Lua 6 % (`mode_heist.lua`'s tick 4 %, the INTEL board's 1â€“2 %);
+- the AI layer about 2 %.
+
+The line test's hottest source line was the per-edge `doSegmentsIntersect` call (with the `% numvertices0` divide): 10.6 % of the
+007 hot sim on one line.
+
+### 28c. The fix (118b70b, `src/game/stan.c`, inside `#ifndef TARGET_N64`)
+
+- **The line test.** doSegmentsIntersect's first half asks whether the edge's two ends are strictly on one side of the move line.
+  That is `getRotationalDirectionBetween(move, end - p)` for each end. Each vertex's side is now worked out once per polygon, and an edge
+  with both ends on one side is skipped. These are the same float operations on the same values: `-(p - v)` equals `(v - p)` exactly in
+  IEEE arithmetic. An edge that passes goes to doSegmentsIntersect as before. A hit can move `dest_x` / `dest_z` (the height gate), so
+  after a hit the cached sides are dropped for the rest of that polygon.
+- **The volume test.** An edge counts only if the point is within the radius of the edge itself. A prop whose polygon's bounding box
+  is farther than radius + m from the point is skipped, with m = 1 unit + 1e-4 of the coordinates, hundreds of times the float error of
+  those distances. The edge loop sets nothing unless an edge counts.
+- Both loops lose the per-edge `(i + 1) % n`.
+
+Nothing is cached across calls, every prop's collision bounds are still computed (`chrUpdateCollisionBounds` writes chr state), and
+props are visited in the same order. Things looked at and left alone:
+- Skipping or reordering line tests (the camera's `cctvSeesBond && coverCamSuspect`, cached camera sight). Every line test writes the
+  stan collision globals that later code reads.
+- Throttling Lua handlers. The INTEL board's tick is 1â€“2 % at Agent, and Lua is part of the rollback state.
+
+### 28d. Before / after (pairs of runs at the same moment; sim tick CPU ms avg / p95)
+
+| Phase | Agent before | Agent after | 007 before | 007 after |
+| --- | --- | --- | --- | --- |
+| hall | 1.10 / 2.92 | 1.05 / 3.24 | 1.92 / 5.12 | 1.74 / 5.46 |
+| vault | 0.64 / 1.64 | 0.72 / 1.98 | 1.69 / 3.73 | 1.37 / 3.05 |
+| alarm ramp | 1.09 / 2.71 | 0.95 / 2.41 | 3.25 / 8.06 | 2.16 / 5.28 |
+| hot | 1.90 / 4.51 | 1.54 / 3.93 | 6.54 / 13.09 | **4.47 / 9.22** |
+| whole run | 1.29 / 3.56 | 1.12 / 3.20 | 3.62 / 10.05 | **2.62 / 7.03** |
+
+- At 007 with the alarm up (the worst case) the sim is 32 % cheaper, and p95 drops from 13 to 9 ms.
+- At Agent, where the sim is about 1 ms, the change is within the noise in the quiet phases, and 13â€“19 % in the busy ones.
+- Inside the line test the edge work (self plus getRotationalDirectionBetween) fell from 17 % to 13 % of a smaller total. Most of
+  what is left is per prop: `propIsOfCdType`, collision bounds, `roomGetProps`.
+
+**Same sim, proven by the state hash.** The bench's `GE_HASHLOG` sequence of the new build equals the old build's, tick for tick:
+6150 ticks at 007 (`hash_compare.py`: IDENTICAL) and 6105 at Agent. The run covers setup, the quiet hall, the vault, the alarm, the
+waves and the response. Two runs of the old build agree with each other too, so the bench is deterministic.
+
+### 28e. The 007 hitch (988 ms in 23f)
+
+**Reproduced.** In the real-time bench at 007 (`run_bench.sh` with `GE_HITCHMS=150`), the hall's worst frame was 681 ms:
+`models 1 (465.4 ms) tex 16 (435.7 ms)`. The game had just logged `romdata: model CsnowguardZ converted (85 nodes, 1085 verts, 28 DLs)`.
+That is a wave guard with a body no one on the map had used yet. Its model is loaded, converted from the ROM and its 16 textures
+inflated and palette-converted, all on first spawn (`spawnChrImpl` > `load_object_fill_header` > `texLoad` / `texInflateZlib`). The
+same happens with `CtrevguardZ` later.
+
+**Explained.** In the CPU profile the same spawn tick (1230) costs 8.6 ms of thread CPU against about 1.6 ms for a hall tick, so the
+load itself is about 7 ms of CPU. The rest of the 465 ms is the game thread waiting for a core: about 11 cores of other streams, plus
+llvmpipe's own render threads (run_bench.sh leaves `LP_NUM_THREADS` unset). It is not a path search or a Lua GC pause: that tick's
+samples are in the model load. On a quiet machine this is a one-frame bump, not a second. The other big ticks are:
+- the first heist tick, where the mode spawns every guard (36 at Agent, 103 at 007) (48â€“109 ms of CPU, during the intro);
+- the bench's own report writing.
+
+**Next:** warm the wave and response bodies (and their guns) at stage load. Do it behind the hash check, because a model loaded
+earlier moves the stage heap.
+
+### 28f. Tests
+
+On the fixed build (118b70b), seed 7. The seed sweep ran fast-forwarded, 2 jobs at a time
+(`seed_sweep.sh all 7` with `BIN=ProjectMidas_f1`).
+
+| Check | Result |
+| --- | --- |
+| winpath (win, trapped, fail, quiet, count) | 59, 17, 5, 11, 2 passed, 0 failed |
+| guards | 37 / 37 |
+| ai (13 runs) | all pass, 0 failed |
+| gadgets (10 runs) | all pass, 0 failed |
+| cover (12 runs, `doors` included) | all pass, 0 failed |
+| firstplay | 6 passed |
+| dam1 oracle | IDENTICAL (453 lines) |
+| bench state hash, old vs new build | IDENTICAL: 6150 ticks at 007, 6105 at Agent |
+| determinism scenario, old vs new build, profiler off | 3009 ticks hash-identical (the runs end on the frame budget, 3009 / 3102 ticks) |
+| determinism solo | 3 passed, 0 failed (3102 ticks hash-identical, every step reached) |
+| determinism coop | 5 passed, 0 failed (3447 ticks hash-identical, the local view switched too) |
+
+Not run in this stream: cctv, ko, bindings, ar and intel. Their real-time scripts take 10 minutes a run on today's loaded machine, and
+the hash identity above covers the sim they exercise. Netplay determinism is left to the integration pass, as agreed.
+
 ## 29. Door interlocks: the staff mantrap and the sally port (stream `interlocks`, 2026-10-26)
 
 Bank v3's staff entrance and sally port were "just two doors in a row" (section 22). They are real interlocks now, the way the research

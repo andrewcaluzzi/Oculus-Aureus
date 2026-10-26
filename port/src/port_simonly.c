@@ -191,6 +191,7 @@ int portSimOnlyBegin(void)
     if (sOn && inWindow(sCount)) {
         g_PortSimOnly = 1;
         sT0 = portProfNow();
+        { extern void portSimProfBegin(unsigned tick); portSimProfBegin(sCount); }   /* GE_PROFILE_SIM (port_luavm_simprof.c) */
         if (sRunFirst == 0) {
             printf("ge: simonly: stretch starts at tick %u\n", sCount);
             fflush(stdout);
@@ -211,6 +212,9 @@ void portSimOnlyEnd(void)
     extern unsigned int g_PortNetHoldBeat;   /* the Windows stall watchdog (main.c) counts it as progress: a sim-only tick submits no gfx task */
 
     if (g_PortSimOnly) {
+        extern void portSimProfEnd(void);   /* GE_PROFILE_SIM (port_luavm_simprof.c) */
+
+        portSimProfEnd();
         g_PortNetHoldBeat++;
     }
     if (g_PortSimOnly && sT0 != 0) {
