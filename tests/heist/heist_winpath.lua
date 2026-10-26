@@ -257,9 +257,10 @@ local function bank_checks()
   check("bank: no posted guard stands in a furniture block", posts > 20 and #bad == 0, string.format("%d posts, in blocks: %s", posts, table.concat(bad, ",")))
   local sides = {}
   for _, g in ipairs(HEIST.guards) do sides[g.area] = (sides[g.area] or 0) + 1 end
+  local m = RANDOM and 1 or 2                     -- (RANDOM: a short-staffed roster, x0.64 at worst, may leave one in an area)
   check("bank: guards posted in every area (hall, corridor, offices, security, dock, records, antechamber, deposit)",
-        (sides.hall or 0) >= 3 and (sides.corridor or 0) >= 2 and (sides.offices or 0) >= 2 and (sides.security or 0) >= 1 and (sides.dock or 0) >= 2
-        and (sides.records or 0) >= 1 and (sides.vault_ante or 0) >= 2 and (sides.deposit or 0) >= 1,
+        (sides.hall or 0) >= m + 1 and (sides.corridor or 0) >= m and (sides.offices or 0) >= m and (sides.security or 0) >= 1 and (sides.dock or 0) >= m
+        and (sides.records or 0) >= 1 and (sides.vault_ante or 0) >= m and (sides.deposit or 0) >= 1,
         string.format("hall %s corridor %s offices %s security %s dock %s records %s ante %s deposit %s", tostring(sides.hall), tostring(sides.corridor),
         tostring(sides.offices), tostring(sides.security), tostring(sides.dock), tostring(sides.records), tostring(sides.vault_ante), tostring(sides.deposit)))
   check("bank: exit B: the staff door to the dock needs no card, the alley shutter is padlocked",

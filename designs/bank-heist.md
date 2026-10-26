@@ -1255,18 +1255,20 @@ unchanged; `tests/heist/heist_firstplay.lua` sets `randomise = false` explicitly
 a floor key off its pad, and adds the randomiser's checks: each card is on today's carrier, in his post's room; THE KEYS card for each
 card lists and names that carrier; the guide's next step names him (GREEN at the start, BLUE after GREEN, the vault after RED); every
 dummy camera is dead; a sealed lift gate refuses Bond. Its tellers' crossfire check stays with the fixed runs (on seed 1 an earlier
-alarm had pulled the hall's guards away, so nobody fired and nothing was held).
+alarm had pulled the hall's guards away, so nobody fired and nothing was held), and its every-area guard count wants 1 per area, not 2
+(a short-staffed roster left one guard in the offices on seed 6).
 
-| Check (2026-10-26) | Result |
+| Check (2026-10-26, after merging `heist` 15db916: the job tables) | Result |
 | --- | --- |
-| layouts over seeds 1-10 | 10 distinct deals of 10 |
-| seed 1 dealt three times | the same deal; two runs hash-identical over 994 ticks |
-| win path, seeds 1-10 | 10 of 10 win, 69-71 checks each, 0 failed (every role but the duty officer dealt; every twist but "flu") |
-| win path, RED forced to the duty officer (`GE_HEIST_TEST_OFFICER=1`, seed 6) | 69 passed, 0 failed |
-| determinism solo, randomised (`GE_HEIST_TEST_RANDOM=1 run_determinism.sh solo`) | 4196 ticks hash-identical, notes identical, coverage |
-| fixed bank: win path (seed 7) | 59 / 0, as before |
-| dam1 oracle | identical (453 lines) |
-| `tests/run_logic_tests.sh` | pass |
+| layouts over seeds 1-10 (`run_random.sh layout`) | 10 distinct deals of 10 |
+| seed 1 dealt three times | the same deal; two runs hash-identical over 995 ticks |
+| win path, seeds 1-10 (`run_random.sh win`) | 10 of 10 win, 69-70 checks each, 0 failed |
+| casino, randomised (`GE_HEIST_TEST_RANDOM=1 run_job2.sh`) | 52 passed, 0 failed, win (dealt within its cards: 7 dummies, the head croupier) |
+| casino, fixed (`run_job2.sh`) | 52 passed, 0 failed, win |
+| bank, fixed: win path (seed 7) | 59 / 0, as before |
+| before the merge: RED forced to the duty officer (`GE_HEIST_TEST_OFFICER=1`) | 69 / 0 |
+| before the merge: determinism randomised, solo / co-op (`GE_HEIST_TEST_RANDOM=1 run_determinism.sh`) | solo 4196 ticks identical; co-op a/b and the view switch 4126 ticks identical, coverage |
+| before the merge: fixed suites | dam1 identical (453), logic tests pass, ai 17 runs 0 failed, ar 13 + proof, intel 28, firstplay 6, trapped 17, fail 5, quiet 11, count 2 |
 
 Screenshots (AC's machine): `E:\midas-temp\randomiser\shots\randomiser-random_intel_keys.jpg` (THE KEYS on a dealt bank: GREEN "the
 lobby captain OR the records clerk", BLUE the duty sergeant, RED the duty officer, GOLD the head counter) and
@@ -1280,8 +1282,8 @@ it reads "GREEN: ONE OF TWO" now.
 - No safe combination: the manager's safe still takes GOLD.
 - The delivery opens doors only: no van drives in and no crew is posted (the spawn helpers are the mode's).
 - The casino has no deck of its own yet (`tools/jobs/casino.lua` `random.roles`): it deals within its cards.
-- Co-op / netplay with the randomiser on: the deal comes from the session seed and is in the hash, and the solo determinism case passes
-  randomised; the co-op and netplay cases were not run randomised here.
+- Netplay with the randomiser on was not run (the integration pass runs netplay alone); solo and co-op passed randomised before the
+  merge. The regression suites after the merge: see the stream report.
 - The candidate tiers were checked by hand against bank v3's doors; a layout change could move a candidate behind the wrong card.
   A next step is to run that reachability pass at stage start and drop any candidate it fails.
 

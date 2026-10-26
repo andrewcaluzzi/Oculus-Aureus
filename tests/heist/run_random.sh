@@ -48,15 +48,15 @@ if [ "$WHICH" = layout ] || [ "$WHICH" = all ]; then
     game layout_again_a $first 1400 GE_HEIST_TEST_COUNT=1 GE_HASHLOG=$OUT/again_a.hash
     : > $OUT/layouts.txt
     for s in $SEEDS; do
-        l=$(grep -a "heist: randomiser: GREEN=" $OUT/layout_$s.log | head -n 1 | sed 's/.*randomiser: //')
+        l=$(grep -a "heist: randomiser: [a-z_]*: GREEN=" $OUT/layout_$s.log | head -n 1 | sed 's/.*randomiser: [a-z_]*: //')
         if [ -z "$l" ]; then bad "layout seed $s: no deal in the log"; else echo "seed $s: $l" | tee -a $OUT/layouts.txt; fi
     done
     nd=$(sed 's/^seed [0-9]*: //' $OUT/layouts.txt | sort -u | wc -l)
     ns=$(wc -l < $OUT/layouts.txt)
     if [ "$nd" -ge "$MINDIFF" ]; then ok "layouts differ: $nd distinct of $ns seeds"; else bad "layouts: only $nd distinct of $ns seeds (need $MINDIFF)"; fi
-    a=$(grep -a "heist: randomiser: GREEN=" $OUT/layout_$first.log | head -n 1 | sed 's/.*randomiser: //')
-    b=$(grep -a "heist: randomiser: GREEN=" $OUT/layout_again.log | head -n 1 | sed 's/.*randomiser: //')
-    c=$(grep -a "heist: randomiser: GREEN=" $OUT/layout_again_a.log | head -n 1 | sed 's/.*randomiser: //')
+    a=$(grep -a "heist: randomiser: [a-z_]*: GREEN=" $OUT/layout_$first.log | head -n 1 | sed 's/.*randomiser: [a-z_]*: //')
+    b=$(grep -a "heist: randomiser: [a-z_]*: GREEN=" $OUT/layout_again.log | head -n 1 | sed 's/.*randomiser: [a-z_]*: //')
+    c=$(grep -a "heist: randomiser: [a-z_]*: GREEN=" $OUT/layout_again_a.log | head -n 1 | sed 's/.*randomiser: [a-z_]*: //')
     if [ -n "$a" ] && [ "$a" = "$b" ] && [ "$a" = "$c" ]; then ok "seed $first deals the same bank three times"; else bad "seed $first: '$a' / '$b' / '$c'"; fi
     na=$(grep -c '^tick' $OUT/again_a.hash)
     nb=$(grep -c '^tick' $OUT/again_b.hash)
