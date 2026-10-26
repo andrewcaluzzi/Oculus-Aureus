@@ -272,9 +272,12 @@ port_add_asset_direct(port/colosseum/Tbg_colosseum_all_p_stanZ.c Tbg_colosseum_a
 port_add_asset_direct(port/colosseum/UsetupcolosseumZ.c UsetupcolosseumZ)
 # The generated level (lab, heist P2): tools/gen_level.py <layout.json> -> port/levelgen/, on the cut slot LEVELID_LEE
 # (bg symbol bg_lee_all_p_seg); see modding/levelgen.md.
-port_add_asset_seg(port/levelgen/bg_levelgen_all_p.c bg_lee_all_p_seg)
-port_add_asset_direct(port/levelgen/Tbg_levelgen_all_p_stanZ.c Tbg_levelgen_all_p_stanZ)
-port_add_asset_direct(port/levelgen/UsetuplevelgenZ.c UsetuplevelgenZ)
+# LEVELGEN_DIR (relative to the source dir): where the generated files are; tools/levelgen/preview.sh builds a level editor preview
+# from build_preview/levelgen without touching port/levelgen.
+set(LEVELGEN_DIR port/levelgen CACHE STRING "generated level sources (tools/gen_level.py --out), relative to the source dir")
+port_add_asset_seg(${LEVELGEN_DIR}/bg_levelgen_all_p.c bg_lee_all_p_seg)
+port_add_asset_direct(${LEVELGEN_DIR}/Tbg_levelgen_all_p_stanZ.c Tbg_levelgen_all_p_stanZ)
+port_add_asset_direct(${LEVELGEN_DIR}/UsetuplevelgenZ.c UsetuplevelgenZ)
 get_property(ASSET_OBJS_KEEP GLOBAL PROPERTY PORT_ASSET_OBJS_KEEP)
 get_property(ASSET_OBJS_SERVED GLOBAL PROPERTY PORT_ASSET_OBJS_SERVED)
 # GE_ROMDATA_FALLBACK OFF: drop the served asset objects (models/bg/setups/
@@ -579,7 +582,7 @@ if(GE_VIDEO)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/tools/heist_ar.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/heist_ar.lua
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            ${CMAKE_SOURCE_DIR}/port/levelgen/levelgen_layout.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/levelgen_layout.lua
+            ${CMAKE_SOURCE_DIR}/${LEVELGEN_DIR}/levelgen_layout.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/levelgen_layout.lua
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/tools/mode_levelgen_test.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/levelgen_test.lua
         COMMAND ${CMAKE_COMMAND} -E copy_if_different

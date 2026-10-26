@@ -331,5 +331,37 @@ class Edits(unittest.TestCase):
         self.assertEqual(lost, ["gal", "low", "st"])
 
 
+def find_browser():
+    """A Chromium-family browser that can run headless (--dump-dom), or None."""
+    for n in ("chromium", "chromium-browser", "google-chrome", "msedge", "chrome"):
+        p = shutil.which(n)
+        if p:
+            return p
+    for p in (r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe", r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+              r"C:\Program Files\Google\Chrome\Application\chrome.exe"):
+        if os.path.exists(p):
+            return p
+    return None
+
+
+BROWSER = find_browser()
+
+
+@unittest.skipIf(BROWSER is None, "no headless Chromium / Chrome / Edge found")
+class Page(unittest.TestCase):
+    def test_selftest(self):
+        """editor/selftest.js in a headless browser: tap, drag, undo, the door tool and its rule, delete, export (17 checks)."""
+        d = tmpdir()
+        page = os.path.join(d, "editor.html")
+        subprocess.run([sys.executable, os.path.join(HERE, "editor", "build_standalone.py"), page, "--selftest"], check=True, capture_output=True)
+        url = "file:///" + page.replace("\\", "/").lstrip("/") + "#selftest"
+        r = subprocess.run([BROWSER, "--headless=new", "--disable-gpu", "--no-first-run", "--user-data-dir=" + os.path.join(d, "profile"),
+                            "--window-size=1400,900", "--virtual-time-budget=10000", "--dump-dom", url],
+                           capture_output=True, text=True, encoding="utf-8", timeout=180)
+        dom = r.stdout
+        lines = [ln for ln in dom.replace('<pre id="selftest">', "\n").replace("</pre>", "\n").splitlines() if ln.startswith(("PASS ", "FAIL ", "SELFTEST"))]
+        self.assertTrue(any(ln.startswith("SELFTEST PASS") for ln in lines), "\n".join(lines) or dom[-3000:])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
