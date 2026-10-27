@@ -1664,7 +1664,7 @@ static const char sSortSource[] =
 
 /* ---- include(name): run another mode script (Data/Scripts/modes/<name>.lua) from a mode script. The modes folder is hashed with the
  * other scripts at the netplay handshake, so both machines run the same text. Used by preset modes (hostage-flatland.lua sets its
- * HOSTAGE_SETTINGS and includes "hostage"). Only while a mode script is running; depth 4. ---- */
+ * HOSTAGE_SETTINGS and includes "hostage"). Only while a mode script is running; depth 8 (the arena start menu added three levels under arena.lua: a preset that includes a preset hit the old limit of 4). ---- */
 static int sIncludeDepth;
 static int sInMode;
 
@@ -1689,7 +1689,7 @@ static int portLuaInclude(lua_State *L)
             return luaL_error(L, "script name '%s': only letters, digits, '_' and '-'", name);
         }
     }
-    if (sIncludeDepth >= 4)
+    if (sIncludeDepth >= 8)
     {
         return luaL_error(L, "include() nested too deep");
     }

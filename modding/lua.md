@@ -20,7 +20,7 @@ The build copies `tools/scripts_example.lua` to `Data/Scripts/example.lua` (all 
 
 A mode **removes the stage's guards, objectives and level AI scripts**; the level's **objects are kept** (doors, keyed locks, padlocks, cells, CCTV cameras, monitors, safes, props), and the stock object code still runs (cameras raise the alarm after 300 ticks of unbroken sight). The reset also turns the UNLOCK DOORS cheat on one second into the stage, so every door opens for Bond; call `mode.keep_locks()` at script load to prevent that (`GE_MODE=reset` is just the reset). Scripts run only in a single-player mission (`getPlayerCount() == 1`, solo or co-op): not in demos, recording, split-screen multiplayer or the title stage. They run at stage load, before Bond exists, so register handlers with `on(...)` and do the setup in `stage_start`.
 
-`include(name)` (a global) runs `Data/Scripts/modes/<name>.lua` from inside a mode script (nesting depth 4, names up to 40 characters). There is no `require`: scripts share state through globals (`HEIST`, `HEIST_SETTINGS`, `ARENA_SETTINGS`, `HEIST_BEST`).
+`include(name)` (a global) runs `Data/Scripts/modes/<name>.lua` from inside a mode script (nesting depth 8, names up to 40 characters). There is no `require`: scripts share state through globals (`HEIST`, `HEIST_SETTINGS`, `ARENA_SETTINGS`, `HEIST_BEST`).
 
 Handy: pick the stage with `GE_STAGE=dam` (or `colosseum`, `flatland`, `levelgen` (generated rooms, `modding/levelgen.md`), ...), skip the intro with `GE_SKIPINTRO=1`, run a script from anywhere with `GE_LUA_TEST=<file>`. The in-game console has `lua <code>` (an expression prints `=> value`) and `lua_reload`. Both are refused during netplay. Logs go to `ge: lua: ...`; `print` goes there too.
 
