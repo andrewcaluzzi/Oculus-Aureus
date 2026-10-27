@@ -238,6 +238,7 @@ typedef struct
     const DpPickup *pickups; s32 npickups;
     const DpProp *props; s32 nprops;
     u8 patrolPath; u16 patrolAi; u8 *patrolAiBytes; const s8 *patrolSeq; s32 npatrol;
+    u8 joinLast;     /* the last waypoint also joins the nearest stock waypoint in the wing's seam-1 room */
 } DpWingSetup;
 
 /* -- the motor pool (slice 2) -- */
@@ -327,7 +328,47 @@ static const DpWingSetup sCommsSetup = {
     13, 0x0485, sAiPatrol13, sCommsPatrol, ARRAYCOUNT(sCommsPatrol),
 };
 
-static const DpWingSetup *const sWingSetups[] = { &sMotorSetup, &sCommsSetup };
+/* -- concept 2: the west service gallery (frame: port_damplus_wings.c; u across, v along the gallery from room 84's hatch) -- */
+static const DpWPad sGalleryPads[] = {
+    /* 0-13: waypoints: the hatch, the gallery, the hall entry, on to the stub's axis, the landing, the stair, the vestibule */
+    { 75, 150, 0, 0 }, { 75, 300, 0, 0 }, { 190, 1500, 0, 0 }, { 400, 2800, 0, 0 }, { 680, 4100, 0, 0 }, { 1080, 5300, 0, 0 },
+    { 1330, 6450, 0, 0 }, { 1663, 7943, 0, 0 }, { 2248, 9876, 0, 0 }, { 2280, 9982, 0, 0 }, { 2529, 9906, 0, 0 },
+    { 2367, 9370, 267, 0 }, { 2219, 8882, 535, 0 }, { 1970, 8958, 535, 0 },
+    /* 14-17: guards: by the hatch, the hall walkway's two ends, the vestibule */
+    { 140, 900, 0, 180 }, { 340, 2900, 0, 20 }, { 590, 3400, 0, 200 }, { 2100, 8940, 535, 200 },
+    /* 18-19: pickups: body armour on the walkway, a KF7 on the landing */
+    { 460, 3150, 0, 0 }, { 2420, 10010, 0, 0 },
+    /* 20-22: props: drums on the landing, a crate in the gallery */
+    { 2500, 9950, 0, 0 }, { 2440, 9985, 0, 0 }, { 1150, 5550, 0, 0 },
+};
+
+static const DpGuard sGalleryGuards[] = {
+    { DP_LOCAL(14), 0x0002, 22, 140 },
+    { DP_LOCAL(15), 0x0002, 7, 141 },
+    { DP_LOCAL(16), 0x0002, 22, 142 },
+    { DP_LOCAL(17), 0x0002, 7, 143 },
+    { DP_LOCAL(5), 0x0486, 7, 144 },      /* walks the gallery, hatch to landing */
+};
+
+static const DpPickup sGalleryPickups[] = {
+    { DP_PICK_ARMOUR, DP_LOCAL(18), 0 },
+    { DP_PICK_WEAPON, DP_LOCAL(19), 7 },
+};
+
+static const DpProp sGalleryProps[] = {
+    { DP_LOCAL(20), PROP_OIL_DRUM1 }, { DP_LOCAL(21), PROP_OIL_DRUM2 }, { DP_LOCAL(22), PROP_METAL_CRATE1 },
+};
+
+static u8 sAiPatrol14[] = { DP_AI_PATROL(14) };
+static const s8 sGalleryPatrol[] = { 1, 2, 3, 4, 5, 6, 7, 8, 7, 6, 5, 4, 3, 2 };
+
+static const DpWingSetup sGallerySetup = {
+    DP_GALLERY, sGalleryPads, ARRAYCOUNT(sGalleryPads), 14, sGalleryGuards, ARRAYCOUNT(sGalleryGuards),
+    sGalleryPickups, ARRAYCOUNT(sGalleryPickups), sGalleryProps, ARRAYCOUNT(sGalleryProps),
+    14, 0x0486, sAiPatrol14, sGalleryPatrol, ARRAYCOUNT(sGalleryPatrol), 1,
+};
+
+static const DpWingSetup *const sWingSetups[] = { &sMotorSetup, &sCommsSetup, &sGallerySetup };
 
 /* -- the comms console's reward ------------------------------------------------------------------------------------------- */
 #define DP_COMMS_TAG 20               /* our tag id for the console (stock tags are 0-18) */
@@ -763,6 +804,49 @@ static s32 dpAddWingWaypoints(const DpWingSetup *ws, s32 seamroom)
     wg[ng].waypoints = members;
     wg[ng].dist = 0;
     memset(&wg[ng + 1], 0, sizeof(waygroup));
+    if (ws->joinLast)
+    {   /* the far end: the last waypoint joins the nearest stock waypoint in the seam-1 room too */
+        s32 room1 = portDamPlusWingSeamRoom(ws->part, 1), best2 = -1, j;
+        f32 bd2 = 1e30f;
+        PadRecord *wl = &g_CurrentSetup.pads[dpPadIndex(DP_LOCAL(nwp - 1))];
+
+        for (j = 0; j < nw; j++)
+        {
+            PadRecord *pd = &g_CurrentSetup.pads[wp[j].padID];
+
+            if (pd->stan != NULL && getTileRoom((StandTile *) pd->stan) == room1)
+            {
+                f32 dx = pd->pos.f[0] - wl->pos.f[0], dz = pd->pos.f[2] - wl->pos.f[2];
+                if (dx * dx + dz * dz < bd2)
+                {
+                    bd2 = dx * dx + dz * dz;
+                    best2 = j;
+                }
+            }
+        }
+        if (best2 >= 0)
+        {
+            s32 *nb = mempAllocBytesInBank(5 * sizeof(s32), MEMPOOL_STAGE), k = 0;
+
+            if (nwp > 1) nb[k++] = nw + nwp - 2;
+            nb[k++] = best2;
+            nb[k] = -1;
+            if (nwp > 1) wp[nw + nwp - 1].neighbours = nb;
+            else wp[nw].neighbours = dpListPlus(wp[nw].neighbours, best2);
+            wp[best2].neighbours = dpListPlus(wp[best2].neighbours, nw + nwp - 1);
+            if (wp[best2].groupNum != wp[best].groupNum)
+            {
+                wg[ng].neighbours = dpListPlus(wg[ng].neighbours, wp[best2].groupNum);
+                wg[wp[best2].groupNum].neighbours = dpListPlus(wg[wp[best2].groupNum].neighbours, ng);
+            }
+            else
+            {
+                /* already a neighbour group: no change */
+            }
+            printf("ge: dam+: wing 0x%x: last waypoint %d joined to stock waypoint %d (pad %d)\n", ws->part, nw + nwp - 1, best2,
+                   wp[best2].padID);
+        }
+    }
     g_CurrentSetup.pathwaypoints = wp;
     g_CurrentSetup.waypointgroups = wg;
     printf("ge: dam+: wing 0x%x: waypoints %d-%d (group %d) joined to stock waypoint %d (pad %d)\n", ws->part, nw, nw + nwp - 1, ng,

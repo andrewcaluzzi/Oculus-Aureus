@@ -135,7 +135,7 @@ static s32 sStanOk;             /* the extended stan is live */
 static s32 sMaxRoom;            /* highest room id we add (0 = none) */
 
 /* cuts: per stock room, which of its primary-DL triangles (by ordinal) are dropped when it loads */
-typedef struct { u8 room; s32 ntris; u8 *drop; s32 ndrop; } DpRoomCut;
+typedef struct { u8 room; s32 ntris[2]; u8 *drop[2]; s32 ndrop; } DpRoomCut;   /* [0] primary list, [1] secondary */
 static DpRoomCut sCuts[8];
 static s32 sNCuts;
 
@@ -544,7 +544,7 @@ static s32 dpSeamInsert(DpFrame *f, s32 si, const DpSeam *s, StandTile *first)
         mid = ((sx - a->x) * ex + (sz - a->z) * ez);
         c0 = mid - w / 2;   /* along A->B */
         c1 = mid + w / 2;
-        if (c0 < 10.0f || c1 > len - 10.0f)
+        if (c0 < 2.0f || c1 > len - 2.0f)
         {
             printf("ge: dam+: %s: the doorway does not fit its stock edge (%.0f..%.0f of %.0f) - wing off\n", f->w->name, c0, c1, len);
             return 0;
@@ -1266,34 +1266,92 @@ void portDamPlusStan(f32 levelscale)
 
 /* ---- stock room data (read from the bg file at run time, never stored) ------------------------------------------------------ */
 typedef struct { f32 x, y, z; s16 s, t; u8 r, g, b; } DpSV;
-typedef struct { s32 v[3]; u32 c0; u16 tex; } DpST;
+typedef struct { s32 v[3]; u32 c0; u16 tex; u8 key; s32 ord; } DpST;   /* key 1 primary, 2 secondary; ord within its list */
 
-static s32 dpReadStockRoom(s32 room, DpSV **vout, s32 *nv, DpST **tout, s32 *nt)
+static s32 dpParseDl(const u8 *dl, s32 dlen, s32 nvtx, u8 key, DpST **T, s32 *n, s32 *cap)
 {
-    s32 csz = g_BgRoomInfo[room].csize_point_index_binary, dsz = g_BgRoomInfo[room].csize_primary_DL_binary;
-    u8 *cbuf, *vraw, *draw;
-    s32 vlen, dlen, i, n = 0, cap = 4096;
-    DpSV *V;
-    DpST *T;
-    s32 vbuf[32];
+    s32 vbuf[32], i, ord = 0;
     u32 c0 = 0xC0080002;
     u16 tex = 0;
+
+    for (i = 0; i < 32; i++) vbuf[i] = -1;
+    for (i = 0; i + 8 <= dlen; i += 8)
+    {
+        const u8 *b = dl + i;
+        u32 w0 = ((u32) b[0] << 24) | ((u32) b[1] << 16) | ((u32) b[2] << 8) | b[3];
+        u32 w1 = ((u32) b[4] << 24) | ((u32) b[5] << 16) | ((u32) b[6] << 8) | b[7];
+        u32 op = w0 >> 24;
+        s32 tri[4][3], nt = 0, q;
+
+        if (op == 0x04)
+        {
+            s32 cnt = ((w0 >> 20) & 0xF) + 1, v0 = (w0 >> 16) & 0xF, base = (w1 & 0xFFFFFF) / 16, k;
+            for (k = 0; k < cnt && v0 + k < 32; k++)
+            {
+                vbuf[v0 + k] = (base + k < nvtx) ? base + k : -1;
+            }
+        }
+        else if (op == 0xC0)
+        {
+            c0 = w0;
+            tex = (u16) w1;
+        }
+        else if (op == 0xB1)
+        {
+            for (q = 0; q < 4; q++)
+            {
+                s32 aa = (w1 >> (8 * q)) & 0xF, bb = (w1 >> (8 * q + 4)) & 0xF, cc = (w0 >> (4 * q)) & 0xF;
+                if (aa == 0 && bb == 0 && cc == 0) continue;
+                tri[nt][0] = vbuf[aa]; tri[nt][1] = vbuf[bb]; tri[nt][2] = vbuf[cc];
+                nt++;
+            }
+        }
+        else if (op == 0xBF)
+        {
+            tri[0][0] = vbuf[((w1 >> 16) & 0xFF) / 10]; tri[0][1] = vbuf[((w1 >> 8) & 0xFF) / 10]; tri[0][2] = vbuf[(w1 & 0xFF) / 10];
+            nt = 1;
+        }
+        else if (op == 0xB8)
+        {
+            break;
+        }
+        for (q = 0; q < nt; q++)
+        {
+            if (*n >= *cap) { *cap *= 2; *T = realloc(*T, *cap * sizeof(DpST)); }
+            memcpy((*T)[*n].v, tri[q], sizeof(tri[q]));
+            (*T)[*n].c0 = c0;
+            (*T)[*n].tex = tex;
+            (*T)[*n].key = key;
+            (*T)[*n].ord = ord++;
+            (*n)++;
+        }
+    }
+    return ord;
+}
+
+/* a stock room's vertices (file units) and the triangles of both display lists, read from the bg file (scratch only) */
+static s32 dpReadStockRoom(s32 room, DpSV **vout, s32 *nv, DpST **tout, s32 *nt, s32 *n1, s32 *n2)
+{
+    s32 csz = g_BgRoomInfo[room].csize_point_index_binary, dsz = g_BgRoomInfo[room].csize_primary_DL_binary;
+    s32 ssz = g_BgRoomInfo[room].csize_secondary_DL_binary;
+    u8 *cbuf, *vraw, *draw;
+    s32 vlen, dlen, i, n = 0, cap = 4096, big;
+    DpSV *V;
+    DpST *T;
     f32 *pos = ptr_bgdata_room_fileposition_list[room].pos.f;
 
     if (csz <= 0 || dsz <= 0)
     {
         return 0;
     }
-    cbuf = malloc(((csz > dsz ? csz : dsz) + 0x40) & ~0xf);
+    big = csz > dsz ? csz : dsz;
+    big = big > ssz ? big : ssz;
+    cbuf = malloc((big + 0x40) & ~0xf);
     vraw = malloc(0x40000);
     draw = malloc(0x40000);
     obLoadBGFileBytesAtOffset((u8 *) portDamPlusBgName(), cbuf,
                               (s32) ((u32) (uintptr_t) ptr_bgdata_room_fileposition_list[room].pPointTableBin + 0xf1000000u), (csz + 0xf) & ~0xf);
     vlen = bgDecompress(cbuf, vraw);
-    obLoadBGFileBytesAtOffset((u8 *) portDamPlusBgName(), cbuf,
-                              (s32) ((u32) (uintptr_t) ptr_bgdata_room_fileposition_list[room].pPriMappingBin + 0xf1000000u), (dsz + 0xf) & ~0xf);
-    dlen = bgDecompress(cbuf, draw);
-    free(cbuf);
     V = malloc((vlen / 16 + 1) * sizeof(DpSV));
     for (i = 0; i < vlen / 16; i++)
     {
@@ -1308,52 +1366,19 @@ static s32 dpReadStockRoom(s32 room, DpSV **vout, s32 *nv, DpST **tout, s32 *nt)
         V[i].b = b[14];
     }
     T = malloc(cap * sizeof(DpST));
-    for (i = 0; i < 32; i++) vbuf[i] = -1;
-    for (i = 0; i + 8 <= dlen; i += 8)
+    obLoadBGFileBytesAtOffset((u8 *) portDamPlusBgName(), cbuf,
+                              (s32) ((u32) (uintptr_t) ptr_bgdata_room_fileposition_list[room].pPriMappingBin + 0xf1000000u), (dsz + 0xf) & ~0xf);
+    dlen = bgDecompress(cbuf, draw);
+    *n1 = dpParseDl(draw, dlen, vlen / 16, 1, &T, &n, &cap);
+    *n2 = 0;
+    if (ssz > 0 && ptr_bgdata_room_fileposition_list[room].pSecMappingBin != NULL)
     {
-        u8 *b = draw + i;
-        u32 w0 = ((u32) b[0] << 24) | ((u32) b[1] << 16) | ((u32) b[2] << 8) | b[3];
-        u32 w1 = ((u32) b[4] << 24) | ((u32) b[5] << 16) | ((u32) b[6] << 8) | b[7];
-        u32 op = w0 >> 24;
-
-        if (op == 0x04)
-        {
-            s32 cnt = ((w0 >> 20) & 0xF) + 1, v0 = (w0 >> 16) & 0xF, base = (w1 & 0xFFFFFF) / 16, k;
-            for (k = 0; k < cnt && v0 + k < 32; k++)
-            {
-                vbuf[v0 + k] = (base + k < vlen / 16) ? base + k : -1;
-            }
-        }
-        else if (op == 0xC0)
-        {
-            c0 = w0;
-            tex = (u16) w1;
-        }
-        else if (op == 0xB1)
-        {
-            s32 q;
-            for (q = 0; q < 4; q++)
-            {
-                s32 a = (w1 >> (8 * q)) & 0xF, bb = (w1 >> (8 * q + 4)) & 0xF, c = (w0 >> (4 * q)) & 0xF;
-                if (a == 0 && bb == 0 && c == 0) continue;
-                if (n >= cap) { cap *= 2; T = realloc(T, cap * sizeof(DpST)); }
-                T[n].v[0] = vbuf[a]; T[n].v[1] = vbuf[bb]; T[n].v[2] = vbuf[c];
-                T[n].c0 = c0; T[n].tex = tex;
-                n++;
-            }
-        }
-        else if (op == 0xBF)
-        {
-            if (n >= cap) { cap *= 2; T = realloc(T, cap * sizeof(DpST)); }
-            T[n].v[0] = vbuf[((w1 >> 16) & 0xFF) / 10]; T[n].v[1] = vbuf[((w1 >> 8) & 0xFF) / 10]; T[n].v[2] = vbuf[(w1 & 0xFF) / 10];
-            T[n].c0 = c0; T[n].tex = tex;
-            n++;
-        }
-        else if (op == 0xB8)
-        {
-            break;
-        }
+        obLoadBGFileBytesAtOffset((u8 *) portDamPlusBgName(), cbuf,
+                                  (s32) ((u32) (uintptr_t) ptr_bgdata_room_fileposition_list[room].pSecMappingBin + 0xf1000000u), (ssz + 0xf) & ~0xf);
+        dlen = bgDecompress(cbuf, draw);
+        *n2 = dpParseDl(draw, dlen, vlen / 16, 2, &T, &n, &cap);
     }
+    free(cbuf);
     free(vraw);
     free(draw);
     *vout = V;
@@ -1446,18 +1471,23 @@ static void dpEmitPatchPoly(const DpFrame *f, f32 p[][DP_NA], s32 n, u32 c0, u16
     }
 }
 
-static DpRoomCut *dpCutFor(s32 room, s32 ntris)
+static DpRoomCut *dpCutFor(s32 room, s32 n1, s32 n2)
 {
-    s32 i;
+    s32 i, k;
     for (i = 0; i < sNCuts; i++)
     {
         if (sCuts[i].room == room) return &sCuts[i];
     }
     if (sNCuts >= 8) return NULL;
     sCuts[sNCuts].room = room;
-    sCuts[sNCuts].ntris = ntris;
-    sCuts[sNCuts].drop = mempAllocBytesInBank((ntris + 16) & ~15, MEMPOOL_STAGE);
-    memset(sCuts[sNCuts].drop, 0, (ntris + 16) & ~15);
+    sCuts[sNCuts].ntris[0] = n1;
+    sCuts[sNCuts].ntris[1] = n2;
+    for (k = 0; k < 2; k++)
+    {
+        s32 n = k ? n2 : n1;
+        sCuts[sNCuts].drop[k] = mempAllocBytesInBank((n + 16) & ~15, MEMPOOL_STAGE);
+        memset(sCuts[sNCuts].drop[k], 0, (n + 16) & ~15);
+    }
     sCuts[sNCuts].ndrop = 0;
     return &sCuts[sNCuts++];
 }
@@ -1471,16 +1501,25 @@ static void dpDoCuts(DpFrame *f)
         const DpCut *cut = &f->w->cuts[c];
         DpSV *V;
         DpST *T;
-        s32 nv, nt, i, removed = 0, pieces0 = sNPatch;
+        s32 nv, nt, n1, n2, i, removed = 0, pieces0 = sNPatch;
         DpRoomCut *rc;
         f32 box[3][2] = { { cut->u0, cut->u1 }, { cut->v0, cut->v1 }, { cut->h0, cut->h1 } };
+        DpFrame cf = *f;     /* the frame the box is in: the wing's, or a seam's own */
 
-        if (!dpReadStockRoom(cut->room, &V, &nv, &T, &nt))
+        if (cut->frameseam > 0 && cut->frameseam < f->nseam && f->nsp[(s32) cut->frameseam] >= 2)
+        {
+            s32 fs = cut->frameseam, last = f->nsp[fs] - 1;
+            f32 ux = f->sp[fs][last][0] - f->sp[fs][0][0], uz = f->sp[fs][last][2] - f->sp[fs][0][2], l = sqrtf(ux * ux + uz * uz);
+            StandTile *ref = f->insTile[fs] != NULL ? f->insTile[fs] : f->lnkTile[fs][0];
+
+            dpSetFrame(&cf, f->sp[fs][0], ux / l, uz / l, ref);
+        }
+        if (!dpReadStockRoom(cut->room, &V, &nv, &T, &nt, &n1, &n2))
         {
             printf("ge: dam+: %s: cut %d: room %d has no data\n", f->w->name, c, cut->room);
             continue;
         }
-        rc = dpCutFor(cut->room, nt);
+        rc = dpCutFor(cut->room, n1, n2);
         for (i = 0; i < nt && rc != NULL; i++)
         {
             f32 P[3][DP_NA], A[12][DP_NA], B[12][DP_NA];
@@ -1496,7 +1535,7 @@ static void dpDoCuts(DpFrame *f)
             {
                 DpSV *s = &V[T[i].v[j]];
                 f32 d[3];
-                dpDesign(f, s->x, s->y, s->z, d);
+                dpDesign(&cf, s->x, s->y, s->z, d);
                 P[j][0] = d[0]; P[j][1] = d[1]; P[j][2] = d[2];
                 P[j][3] = s->s; P[j][4] = s->t;
                 P[j][5] = s->r; P[j][6] = s->g; P[j][7] = s->b;
@@ -1527,9 +1566,13 @@ static void dpDoCuts(DpFrame *f)
                 continue;
             }
             /* yes: it is dropped, and what lies outside the box is drawn again (pieces: outside plane 1, inside 1 outside 2, ...) */
-            rc->drop[i] = 1;
+            rc->drop[T[i].key - 1][T[i].ord] = 1;
             rc->ndrop++;
             removed++;
+            if (T[i].key != 1)
+            {
+                continue;   /* a translucent (secondary-list) triangle: dropped, not redrawn */
+            }
             for (j = 0; j < 3; j++)
             {
                 f->outdoor[0] += P[j][5];
@@ -1557,7 +1600,7 @@ static void dpDoCuts(DpFrame *f)
 
                     /* the part beyond this face: kept */
                     m = dpClip(A, n, ax, box[ax][side], side, Cpart);
-                    dpEmitPatchPoly(f, Cpart, m, T[i].c0, T[i].tex, cut->patchroom);
+                    dpEmitPatchPoly(&cf, Cpart, m, T[i].c0, T[i].tex, cut->patchroom);
                     /* the rest continues to the next face */
                     m = dpClip(A, n, ax, box[ax][side], !side, B);
                     memcpy(A, B, sizeof(f32) * DP_NA * m);
@@ -1566,8 +1609,8 @@ static void dpDoCuts(DpFrame *f)
             }
             (void) inside;
         }
-        printf("ge: dam+: %s: cut %d: room %d: %d of %d triangles cut, %d patch triangles\n", f->w->name, c, cut->room, removed, nt,
-               sNPatch - pieces0);
+        printf("ge: dam+: %s: cut %d: room %d: %d of %d+%d triangles cut, %d patch triangles\n", f->w->name, c, cut->room, removed, n1,
+               n2, sNPatch - pieces0);
         free(V);
         free(T);
     }
@@ -2390,90 +2433,93 @@ void portDamPlusBgRooms(void)
     fflush(stdout);
 }
 
-/* bgLoadRoomModelData, a stock room just loaded: drop the triangles our cuts replaced (degenerate, in the loaded copy) */
+/* one loaded display list: zero the marked triangles (TRI4 slot nibbles / TRI1 word), after checking its triangle count */
+static s32 dpDropInDl(u32 *dl, s32 n, const u8 *drop, s32 ntris, s32 room, s32 key)
+{
+    s32 i, count = 0, dropped = 0, pass;
+
+    for (pass = 0; pass < 2; pass++)
+    {
+        count = 0;
+        for (i = 0; i < n; i++)
+        {
+            u32 w0 = dl[i * 2], w1 = dl[i * 2 + 1], op = w0 >> 24;
+            if (op == 0xB1)
+            {
+                s32 q;
+                for (q = 0; q < 4; q++)
+                {
+                    if (((w1 >> (8 * q)) & 0xFF) || ((w0 >> (4 * q)) & 0xF))
+                    {
+                        if (pass == 1 && drop[count])
+                        {
+                            w1 &= ~(0xFFu << (8 * q));
+                            w0 &= ~(0xFu << (4 * q));
+                            dropped++;
+                        }
+                        count++;
+                    }
+                }
+                if (pass == 1)
+                {
+                    dl[i * 2] = w0;
+                    dl[i * 2 + 1] = w1;
+                }
+            }
+            else if (op == 0xBF)
+            {
+                if (pass == 1 && drop[count])
+                {
+                    dl[i * 2 + 1] = 0;
+                    dropped++;
+                }
+                count++;
+            }
+            else if (op == 0xB8)
+            {
+                break;
+            }
+        }
+        if (pass == 0 && count != ntris)
+        {
+            static s32 warned;
+            if (!warned++)
+            {
+                printf("ge: dam+: room %d list %d loaded with %d triangles, the bg file has %d - cut not applied\n", room, key, count, ntris);
+            }
+            return 0;
+        }
+    }
+    return dropped;
+}
+
+/* bgLoadRoomModelData, a stock room just loaded: drop the triangles our cuts replaced (in the loaded copy) */
 void portDamPlusRoomLoaded(s32 room)
 {
     DpRoomCut *rc = NULL;
-    u32 *dl;
-    s32 n, i, count = 0, dropped = 0;
+    s32 i, dropped = 0;
 
     for (i = 0; i < sNCuts; i++)
     {
         if (sCuts[i].room == room) rc = &sCuts[i];
     }
-    if (rc == NULL || rc->ndrop == 0 || g_BgRoomInfo[room].ptr_expanded_mapping_info == NULL)
+    if (rc == NULL || rc->ndrop == 0)
     {
         return;
     }
-    dl = (u32 *) g_BgRoomInfo[room].ptr_expanded_mapping_info;
-    n = g_BgRoomInfo[room].usize_primary_DL_binary / 8;
-    /* first pass: the triangle count must match the bg file's (same commands, textures expanded) */
-    for (i = 0; i < n; i++)
+    if (g_BgRoomInfo[room].ptr_expanded_mapping_info != NULL)
     {
-        u32 w0 = dl[i * 2], w1 = dl[i * 2 + 1], op = w0 >> 24;
-        if (op == 0xB1)
-        {
-            s32 q;
-            for (q = 0; q < 4; q++)
-            {
-                if (((w1 >> (8 * q)) & 0xFF) || ((w0 >> (4 * q)) & 0xF)) count++;
-            }
-        }
-        else if (op == 0xBF)
-        {
-            count++;
-        }
-        else if (op == 0xB8)
-        {
-            break;
-        }
+        dropped += dpDropInDl((u32 *) g_BgRoomInfo[room].ptr_expanded_mapping_info, g_BgRoomInfo[room].usize_primary_DL_binary / 8,
+                              rc->drop[0], rc->ntris[0], room, 1);
     }
-    if (count != rc->ntris)
+    if (g_BgRoomInfo[room].ptr_secondary_expanded_mapping_info != NULL && rc->ntris[1] > 0)
     {
-        static s32 warned;
-        if (!warned++) printf("ge: dam+: room %d loaded with %d triangles, the bg file has %d - cut not applied\n", room, count, rc->ntris);
-        return;
-    }
-    count = 0;
-    for (i = 0; i < n; i++)
-    {
-        u32 w0 = dl[i * 2], w1 = dl[i * 2 + 1], op = w0 >> 24;
-        if (op == 0xB1)
-        {
-            s32 q;
-            for (q = 0; q < 4; q++)
-            {
-                if (((w1 >> (8 * q)) & 0xFF) || ((w0 >> (4 * q)) & 0xF))
-                {
-                    if (rc->drop[count])
-                    {
-                        w1 &= ~(0xFFu << (8 * q));
-                        w0 &= ~(0xFu << (4 * q));
-                        dropped++;
-                    }
-                    count++;
-                }
-            }
-            dl[i * 2] = w0;
-            dl[i * 2 + 1] = w1;
-        }
-        else if (op == 0xBF)
-        {
-            if (rc->drop[count])
-            {
-                dl[i * 2 + 1] = 0;
-                dropped++;
-            }
-            count++;
-        }
-        else if (op == 0xB8)
-        {
-            break;
-        }
+        dropped += dpDropInDl((u32 *) g_BgRoomInfo[room].ptr_secondary_expanded_mapping_info,
+                              g_BgRoomInfo[room].usize_secondary_DL_binary / 8, rc->drop[1], rc->ntris[1], room, 2);
     }
     {
         static u32 logged;
-        if (!(logged & (1u << (sNCuts > 0 ? (rc - sCuts) : 0))))
+        if (!(logged & (1u << (rc - sCuts))))
         {
             logged |= 1u << (rc - sCuts);
             printf("ge: dam+: room %d loaded: %d triangles cut\n", room, dropped);

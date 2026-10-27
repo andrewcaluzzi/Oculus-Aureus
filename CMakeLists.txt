@@ -647,6 +647,7 @@ if(GE_VIDEO)
                 "${CMAKE_SOURCE_DIR}/launchers/Walk Janus Bank.bat"
                 "${CMAKE_SOURCE_DIR}/launchers/Play Dam+ (Night Shift).bat"
                 "${CMAKE_SOURCE_DIR}/launchers/Play Dam+ (Comms annex).bat"
+                "${CMAKE_SOURCE_DIR}/launchers/Play Dam+ (West gallery).bat"
                 "${CMAKE_SOURCE_DIR}/launchers/Play Dam+.bat"
                 "$<TARGET_FILE_DIR:ge>"
             VERBATIM)

@@ -4,6 +4,8 @@ rem   Night Shift: more guards, patrols and pickups.
 rem   Motor pool: the rusty shutter beside the start opens onto a vehicle bay and a barracks. Its key is on the guard by the truck.
 rem   Comms annex: a doorway in the valley yard's west wall leads to a radio room and up to a roof deck with a dish over the yard.
 rem     Shoot the comms console and the alarm stops calling in reinforcements.
+rem   West gallery: a hatch in the westernmost underground room leads through a long gallery and a turbine hall inside the
+rem     wall up to the crest's dead-end stub, whose hazard-striped end now opens.
 rem Same mission, briefing and objectives.
 rem Difficulty: GE_DIFF 0 Agent .. 3 007 (00 Agent = all four objectives). Edit the line below to change it.
 rem Needs Data\baserom.u.z64 (see README.txt).

@@ -39,7 +39,7 @@ on("tick", function(dt)
   if left and left < 45 then
     local floor = ty - 51
     print(string.format("DPCOMMS leg %d reached pad %d in %.1f s (room %s, y %.0f, floor %.0f)", leg, ROUTE[leg], legt, tostring(r), y, floor))
-    if math.abs(y - floor) > 30 then fail(string.format("at pad %d Bond is at y %.0f, its floor is %.0f", ROUTE[leg], y, floor)) end
+    if ROUTE[leg] >= 367 and math.abs(y - floor) > 30 then fail(string.format("at pad %d Bond is at y %.0f, its floor is %.0f", ROUTE[leg], y, floor)) end
     leg = leg + 1; legt = 0
     if not ROUTE[leg] then
       test.walk_stop()

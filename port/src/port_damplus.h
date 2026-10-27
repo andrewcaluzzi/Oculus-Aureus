@@ -84,7 +84,10 @@ typedef struct
 } DpSeam;
 
 /* a stock-geometry cut: stock triangles of `room` that reach into the box lose that part (the rest is re-drawn in `patchroom`) */
-typedef struct { u8 room; u8 patchroom; s16 u0, u1, v0, v1, h0, h1; u8 maxny100; s8 fitseam; } DpCut;
+typedef struct { u8 room; u8 patchroom; s16 u0, u1, v0, v1, h0, h1; u8 maxny100; s8 fitseam; s8 frameseam; } DpCut;
+/* frameseam > 0: the box is in that seam's own frame (origin its first point, u towards its last, v away from the stock room,
+ * h from the first point's floor) instead of the wing's. Secondary (translucent) stock triangles in the box are dropped, not
+ * redrawn. */
 
 /* a portal: a vertical quad from (u0, v0) to (u1, v1), h0..h1, between two rooms (stock or ours) */
 typedef struct { u8 r1, r2; s16 u0, v0, u1, v1, h0, h1; } DpPortalSpec;
