@@ -314,12 +314,80 @@ static const DpWing sSpillWing = {
 #undef SA
 #undef SB
 
+/* ===========================================================================================================================
+ * Concept 3: the island lookout. Rare's island (stock room 81) is fully built but its stan stops at the quay: no floor in the
+ * hut, a ladder never linked, nothing on the upper floor or its grated balcony. Frame: a 240-wide doorway inserted into the
+ * island quay's north stan edge (u along it, +x; v north towards the hut; h from y -642). Room 146: an outdoor steel stair from
+ * the quay up to a landing on the hut's west balcony (+428, the upper floor's level). Stan only, in room 81 (the stock
+ * geometry is already drawn there): the balcony ring as four strips, and the upper floor in four pieces around the ladder's
+ * floor hole, both stitched to the stock threshold tile of the upper floor's west door (seam 1, used as found). Coordinates of
+ * the hut's corners in this frame come from a local design aid (gen_c3.py). The launch across is in port_damplus.c. */
+static const DpSeam sIslandSeams[] = {
+    { SEAM_INSERT, 81, -2620, -36755, -642, 240, 1, 0, 0 },
+    { SEAM_EDGES, 81, -2238, -37393, -214, 0, 1, 3, 90 },
+};
+
+#define IS DP_ROOM_ISLAND
+#define I1 81
+static const DpPiece sIslandPieces[] = {
+    /* room 146: the apron off the quay (stan only: the island ground is drawn), the stair, the landing at the balcony */
+    { IS, 4, 0, { DP_SEAM(0, 0), DP_SEAM(0, 1), 400, 160 }, { 0, 0, 60, 60 }, { O, W, O, W }, { 0 }, 0, M_GRATE, M_METAL, M_METAL,
+      PF_NOGFX },
+    { IS, 4, 0, { 400, 160, 160, 400 }, { 60, 60, 680, 680 }, { O, R, O, R }, { 0, 100, 0, 100 }, 0, M_GRATE, M_METAL, M_METAL,
+      PF_STEPS | PF_NOCEIL | PF_OUTDOOR, { 0, 0, 428, 428 } },
+    { IS, 5, 0, { 160, 400, 470, 475, 160 }, { 680, 680, 680, 760, 760 }, { O, R, O, R, R }, { 0, 100, 0, 100, 100 }, 0,
+      M_GRATE, M_METAL, M_METAL, PF_NOCEIL | PF_OUTDOOR | PF_SLAB, { 428, 428, 428, 428, 428 } },
+    /* room 81 (stan only): the balcony ring: west strip (the landing and the door's threshold on it), north, east, south */
+    { I1, 8, 0, { 438, 552, DP_SEAM(1, 2), DP_SEAM(1, 0), 579, 482, 475, 470 }, { 215, 316, 0, 0, 740, 857, 760, 680 }, { W, W, O, W, W, W, O, W },
+      { 0 }, 0, M_GRATE, M_METAL, M_METAL, PF_NOGFX, { 428, 428, 428, 428, 428, 428, 428, 428 } },
+    { I1, 4, 0, { 482, 579, 1007, 1119 }, { 857, 740, 712, 814 }, { O, W, O, W }, { 0 }, 0, M_GRATE, M_METAL, M_METAL, PF_NOGFX,
+      { 428, 428, 428, 428 } },
+    { I1, 4, 0, { 1007, 980, 1080, 1119 }, { 712, 289, 172, 814 }, { W, O, W, O }, { 0 }, 0, M_GRATE, M_METAL, M_METAL, PF_NOGFX,
+      { 428, 428, 428, 428 } },
+    { I1, 4, 0, { 438, 1080, 980, 552 }, { 215, 172, 289, 316 }, { W, O, W, O }, { 0 }, 0, M_GRATE, M_METAL, M_METAL, PF_NOGFX,
+      { 428, 428, 428, 428 } },
+    /* room 81 (stan only): the upper floor around the ladder's hole: the west column (the threshold on its west side), the
+     * piece north-east of the hole, south-east, and the strip east of it */
+    { I1, 8, 0, { 581, 857, 857, 862, 862, 606, DP_SEAM(1, 1), DP_SEAM(1, 3) }, { 338, 320, 431, 538, 698, 715, 0, 0 }, { W, O, W, O, W, W, O, W },
+      { 0 }, 0, M_GRATE, M_METAL, M_METAL, PF_NOGFX, { 428, 428, 428, 428, 428, 428, 428, 428 } },
+    { I1, 5, 0, { 862, 943, 969, 978, 862 }, { 538, 531, 529, 691, 698 }, { W, O, W, W, O }, { 0 }, 0, M_GRATE, M_METAL, M_METAL,
+      PF_NOGFX, { 428, 428, 428, 428, 428 } },
+    { I1, 5, 0, { 857, 957, 963, 938, 857 }, { 320, 313, 422, 424, 431 }, { W, W, O, W, O }, { 0 }, 0, M_GRATE, M_METAL, M_METAL,
+      PF_NOGFX, { 428, 428, 428, 428, 428 } },
+    { I1, 4, 0, { 943, 938, 963, 969 }, { 531, 424, 422, 529 }, { W, O, W, O }, { 0 }, 0, M_GRATE, M_METAL, M_METAL, PF_NOGFX,
+      { 428, 428, 428, 428 } },
+};
+
+static const DpVis sIslandVis[] = {
+    /* the island and its stair see the lake, the mountains and the whole dam (as the crest does, and the dam from behind) */
+    { I1, I1, DP_VIS_FORCE, 61, { 35, 1, 2, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 25, 26, 27, 28,
+      29, 30, 31, 32, 33, 34, 38, 43, 48, 53, 54, 55, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 118,
+      119, 114, IS } },
+    { IS, IS, DP_VIS_FORCE, 61, { 35, 1, 2, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 25, 26, 27, 28,
+      29, 30, 31, 32, 33, 34, 38, 43, 48, 53, 54, 55, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 118,
+      119, 114, I1 } },
+    /* wherever the island is drawn from, its stair too */
+    { 51, 80, DP_VIS_FORCE, 1, { IS } },
+};
+
+static const DpLamp sIslandLamps[] = { { 300, 400, 300, 600, 160, 175, 200, IS } };
+
+static const DpWing sIslandWing = {
+    DP_ISLAND, "island", DP_ROOM_ISLAND, 1,
+    sIslandSeams, ARRAYCOUNT(sIslandSeams), sIslandPieces, ARRAYCOUNT(sIslandPieces), sIslandLamps, ARRAYCOUNT(sIslandLamps),
+    NULL, 0, NULL, 0, NULL, 0, NULL, 0, sIslandVis, ARRAYCOUNT(sIslandVis),
+    { 0.2f, 0.22f, 0.26f },
+};
+#undef IS
+#undef I1
+
 /* =========================================================================================================================== */
 const DpWing *const g_DpWings[] = {
     &sMotorWing,
     &sCommsWing,
     &sGalleryWing,
     &sSpillWing,
+    &sIslandWing,
 };
 const s32 g_DpNumWings = ARRAYCOUNT(g_DpWings);
 

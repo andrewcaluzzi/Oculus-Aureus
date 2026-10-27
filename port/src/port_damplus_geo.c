@@ -599,7 +599,8 @@ static s32 dpSeamEdges(DpFrame *f, s32 si, const DpSeam *s, StandTile *first)
             StandTilePoint *e2[2];
             s32 m;
 
-            if (a->link >= 16 || hypotf(a->x - sx, a->z - sz) > r || hypotf(b->x - sx, b->z - sz) > r || fabsf(a->y - sy) > 60.0f)
+            if (a->link >= 16 || hypotf(a->x - sx, a->z - sz) > r || hypotf(b->x - sx, b->z - sz) > r || fabsf(a->y - sy) > 60.0f
+                || fabsf(b->y - sy) > 60.0f)
             {
                 continue;
             }
@@ -2493,12 +2494,49 @@ static s32 dpDropInDl(u32 *dl, s32 n, const u8 *drop, s32 ntris, s32 room, s32 k
     return dropped;
 }
 
-/* bgLoadRoomModelData, a stock room just loaded: drop the triangles our cuts replaced (in the loaded copy) */
+/* Night Shift's lights-out pockets: underground corridor stretches whose lights are off (their baked vertex light scaled down in
+ * the loaded copy; presentation only: nothing in the sim reads vertex colours) */
+static const u8 sDarkRooms[] = { 85, 92, 94 };
+#define DP_DARK_SCALE 0.3f
+
+static void dpLightsOut(s32 room)
+{
+    s32 i, n;
+    u8 *v;
+
+    if (!(portDamPlusParts() & DP_NIGHT) || g_BgRoomInfo[room].vertices == NULL)
+    {
+        return;
+    }
+    for (i = 0; i < (s32) ARRAYCOUNT(sDarkRooms); i++)
+    {
+        if (sDarkRooms[i] == room)
+        {
+            break;
+        }
+    }
+    if (i == (s32) ARRAYCOUNT(sDarkRooms))
+    {
+        return;
+    }
+    n = g_BgRoomInfo[room].usize_point_index_binary / 16;
+    v = (u8 *) g_BgRoomInfo[room].vertices;
+    for (i = 0; i < n; i++, v += 16)
+    {
+        v[12] = (u8) (v[12] * DP_DARK_SCALE);
+        v[13] = (u8) (v[13] * DP_DARK_SCALE);
+        v[14] = (u8) (v[14] * DP_DARK_SCALE);
+    }
+}
+
+/* bgLoadRoomModelData, a stock room just loaded: drop the triangles our cuts replaced (in the loaded copy); Night Shift's dark
+ * corridors */
 void portDamPlusRoomLoaded(s32 room)
 {
     DpRoomCut *rc = NULL;
     s32 i, dropped = 0;
 
+    dpLightsOut(room);
     for (i = 0; i < sNCuts; i++)
     {
         if (sCuts[i].room == room) rc = &sCuts[i];

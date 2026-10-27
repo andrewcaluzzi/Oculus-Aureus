@@ -16,6 +16,10 @@
 #define DP_ISLAND   0x20   /* concept 3: the island lookout */
 #define DP_ALLPARTS 0x3f
 
+/* our tag ids (stock Dam uses 0-18) */
+#define DP_PIERBOX_TAG 22   /* the launch call box on the west pier */
+#define DP_ISLEBOX_TAG 23   /* and on the island quay */
+
 /* fixed room ids (a disabled wing's ids hold empty rooms, so every wing keeps its ids whatever else is on) */
 #define DP_ROOM_BAY 137
 #define DP_ROOM_BARRACKS 138
@@ -26,7 +30,8 @@
 #define DP_ROOM_GAL_C 143
 #define DP_ROOM_SPILL_A 144
 #define DP_ROOM_SPILL_B 145
-#define DP_ROOM_LAST 145
+#define DP_ROOM_ISLAND 146         /* the island hut's outdoor stair (the hut's own floors are stan in stock room 81) */
+#define DP_ROOM_LAST 146
 
 /* ---- design model (world units; u along the frame's first axis, v across it, h up from the frame origin's floor) ---- */
 /* u codes: a seam point of this wing (its u, v and h then come from the stock point itself), or W - x for the shutter */
@@ -76,8 +81,8 @@ typedef struct
 {
     u8 type;
     u8 room;                /* stock stan room */
-    s16 x, z;               /* search point, world */
-    s16 y;                  /* expected floor height, world */
+    s32 x, z;               /* search point, world (the island is at z -37000: past s16) */
+    s32 y;                  /* expected floor height, world */
     s16 width;              /* SEAM_INSERT: doorway width, world */
     s16 hx, hz;             /* +u hint (world direction) */
     s16 radius;             /* SEAM_EDGES: search radius */

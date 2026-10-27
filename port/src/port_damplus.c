@@ -26,6 +26,7 @@
 #include "game/stan.h"
 #include "game/chr.h"
 #include "game/propobj.h"
+#include "game/player.h"
 #include "port_damplus.h"
 
 extern s32 getPlayerCount(void);
@@ -127,7 +128,7 @@ typedef struct
     s16 chrnum;     /* our chr number (unused by stock Dam: 0-47 are taken) */
 } DpGuard;
 
-enum { DP_PICK_ARMOUR, DP_PICK_WEAPON };
+enum { DP_PICK_ARMOUR, DP_PICK_WEAPON, DP_PICK_SNIPER };
 
 typedef struct
 {
@@ -227,7 +228,7 @@ static const DpPickup sNightPickups[] = {
 typedef struct { s16 u, v, h, yaw; } DpWPad;
 
 enum { DP_PROP_PLAIN, DP_PROP_CONSOLE };
-typedef struct { s16 pad; s16 model; u8 kind; s16 scale; } DpProp;   /* scale: 256 = 1 (0 = 256) */
+typedef struct { s16 pad; s16 model; u8 kind; s16 scale; u8 tag; } DpProp;   /* scale: 256 = 1 (0 = 256); tag: consoles */
 
 typedef struct
 {
@@ -239,6 +240,8 @@ typedef struct
     const DpProp *props; s32 nprops;
     u8 patrolPath; u16 patrolAi; u8 *patrolAiBytes; const s8 *patrolSeq; s32 npatrol;
     u8 joinLast;     /* the last waypoint also joins the nearest stock waypoint in the wing's seam-1 room */
+    const DpPad *apads; s32 napads;   /* pads anchored to stock pads (anchor + offset), after the design pads */
+    u8 snipers;      /* the wing's guards carry sniper rifles */
 } DpWingSetup;
 
 /* -- the motor pool (slice 2) -- */
@@ -399,7 +402,51 @@ static const DpWingSetup sSpillSetup = {
     0, 0, NULL, NULL, 0, 0,
 };
 
-static const DpWingSetup *const sWingSetups[] = { &sMotorSetup, &sCommsSetup, &sGallerySetup, &sSpillSetup };
+/* -- concept 3: the island lookout (frame: port_damplus_wings.c; u along the island quay's north edge, v north to the hut) -- */
+static const DpWPad sIslandPads[] = {
+    /* 0-2: snipers: the balcony's south side, its east side, inside the upper floor (all looking towards the dam) */
+    { 760, 240, 428, 180 }, { 1050, 450, 428, 200 }, { 700, 450, 428, 180 },
+    /* 3: a sniper rifle on the upper floor; 4: body armour on the stair landing */
+    { 660, 660, 428, 0 }, { 300, 720, 428, 0 },
+    /* 5-7: walk stops: the stair's middle, the balcony's north side, the balcony by the upper floor's door */
+    { 280, 370, 214, 0 }, { 800, 790, 428, 180 }, { 530, 580, 428, 90 },
+    /* 8: just inside the upper floor's door */
+    { 650, 585, 428, 90 },
+};
+
+static const DpPad sIslandAPads[] = {
+    /* 0: the pier's call box, 1: the launch moored off the pier end, 2: where the launch drops Bond at the pier (stock pad 224 is
+     * on the west quay's pier, 200 short of its end) */
+    { 224, 200, -120, 180 }, { 224, 0, -430, 90 }, { 224, -150, -60, 180 },
+    /* 3: the island's call box, 4: the launch off the island quay (stock pad 80 is on the island quay) */
+    { 80, 150, 100, 0 }, { 80, 150, 330, 270 },
+};
+
+static const DpGuard sIslandGuards[] = {
+    { DP_LOCAL(0), 0x0002, 41, 160 },
+    { DP_LOCAL(1), 0x0002, 41, 161 },
+    { DP_LOCAL(2), 0x0002, 41, 162 },
+};
+
+static const DpPickup sIslandPickups[] = {
+    { DP_PICK_SNIPER, DP_LOCAL(3), 7 },
+    { DP_PICK_ARMOUR, DP_LOCAL(4), 0 },
+};
+
+static const DpProp sIslandProps[] = {
+    { DP_LOCAL(9), PROP_CONSOLE_SEVC, DP_PROP_CONSOLE, 0, DP_PIERBOX_TAG },
+    { DP_LOCAL(10), PROP_SPEEDBOAT, DP_PROP_PLAIN, 0 },
+    { DP_LOCAL(12), PROP_CONSOLE_SEVC, DP_PROP_CONSOLE, 0, DP_ISLEBOX_TAG },
+    { DP_LOCAL(13), PROP_SPEEDBOAT, DP_PROP_PLAIN, 0 },
+};
+
+static const DpWingSetup sIslandSetup = {
+    DP_ISLAND, sIslandPads, ARRAYCOUNT(sIslandPads), 0, sIslandGuards, ARRAYCOUNT(sIslandGuards),
+    sIslandPickups, ARRAYCOUNT(sIslandPickups), sIslandProps, ARRAYCOUNT(sIslandProps),
+    0, 0, NULL, NULL, 0, 0, sIslandAPads, ARRAYCOUNT(sIslandAPads), 1,
+};
+
+static const DpWingSetup *const sWingSetups[] = { &sMotorSetup, &sCommsSetup, &sGallerySetup, &sSpillSetup, &sIslandSetup };
 
 /* -- the comms console's reward ------------------------------------------------------------------------------------------- */
 #define DP_COMMS_TAG 20               /* our tag id for the console (stock tags are 0-18) */
@@ -443,6 +490,9 @@ static ObjectRecord *sKeyRec;
 static DoorRecord *sDoorRec;
 static ObjectRecord *sConsoleRec;
 static ObjectRecord *sValveRec;      /* the spillway's valve station */
+static ObjectRecord *sPierBox, *sIsleBox;   /* the launch's call boxes: the west pier, the island quay */
+static s32 sPierArrive = -1;         /* pad: where the launch drops Bond at the pier */
+#define DP_ISLE_ARRIVE 80            /* stock pad on the island quay */
 static s32 sValveOpen;
 static s32 sConsoleIdx;
 static s32 sNightPadsOn; /* how many night pads were appended (0 when slice 1 is off) */
@@ -682,6 +732,11 @@ static s32 dpEmitPickups(u32 **w, PropDefHeaderRecord *defs, const DpPickup *k, 
             continue;
         }
         o = (ObjectRecord *) dpEmit(w, t);
+        if (k->kind == DP_PICK_SNIPER)
+        {
+            o->obj = PROP_CHRSNIPERRIFLE;
+            ((WeaponObjRecord *) o)->weaponnum = ITEM_SNIPERRIFLE;
+        }
         o->pad = dpPadIndex(k->pad);
         o->flags &= ~PROPFLAG_ASSIGNEDTOCHR;
         o->flags2 &= ~0x000000F0;   /* the stock armours are "don't load" on harder difficulties: ours are on every one */
@@ -936,6 +991,8 @@ void portDamPlusSetup(s32 stageId)
     sConsoleRec = NULL;
     sValveRec = NULL;
     sValveOpen = 0;
+    sPierBox = sIsleBox = NULL;
+    sPierArrive = -1;
     sConsoleIdx = -1;
     sCallsSeen = 0;
     if (stageId != LEVELID_DAM || (!night && !anywing) || defs == NULL || g_CurrentSetup.pads == NULL)
@@ -953,7 +1010,7 @@ void portDamPlusSetup(s32 stageId)
         sWingPadBase[wi] = npads + nnew + nwingpads;
         if (sWingOn[wi])
         {
-            nwingpads += sWingSetups[wi]->npads;
+            nwingpads += sWingSetups[wi]->npads + sWingSetups[wi]->napads;
         }
     }
     pads = mempAllocBytesInBank((npads + nnew + nwingpads + 1) * sizeof(PadRecord), MEMPOOL_STAGE);
@@ -972,9 +1029,21 @@ void portDamPlusSetup(s32 stageId)
             s32 k = sWingPadBase[wi] - npads + i;
             sPadOk[k & 127] = dpMakeWingPad(&pads[npads + k], ws->part, &ws->pads[i], k);
         }
+        for (i = 0; i < ws->napads; i++)
+        {
+            s32 k = sWingPadBase[wi] - npads + ws->npads + i;
+            sPadOk[k & 127] = dpMakePad(&pads[npads + k], pads, &ws->apads[i], k);
+        }
     }
     memset(&pads[npads + nnew + nwingpads], 0, sizeof(PadRecord));
     g_CurrentSetup.pads = pads;
+    for (wi = 0; wi < (s32) ARRAYCOUNT(sWingSetups); wi++)
+    {
+        if (sWingOn[wi] && sWingSetups[wi]->part == DP_ISLAND)
+        {
+            sPierArrive = sWingPadBase[wi] + sWingSetups[wi]->npads + 2;
+        }
+    }
 
     /* AI lists, patrol paths, waypoints */
     if (night)
@@ -1040,7 +1109,21 @@ void portDamPlusSetup(s32 stageId)
 
         if (!sWingOn[wi]) continue;
         sCurWing = wi;
-        nguards += dpEmitGuards(&w, defs, ws->guards, ws->nguards);
+        {
+            u32 *g0 = w;
+
+            nguards += dpEmitGuards(&w, defs, ws->guards, ws->nguards);
+            for (; ws->snipers && g0 < w; g0 += sizepropdef((PropDefHeaderRecord *) g0))
+            {
+                ObjectRecord *o = (ObjectRecord *) g0;
+
+                if (o->type == PROPDEF_COLLECTABLE && (o->flags & PROPFLAG_ASSIGNEDTOCHR))
+                {
+                    o->obj = PROP_CHRSNIPERRIFLE;
+                    ((WeaponObjRecord *) o)->weaponnum = ITEM_SNIPERRIFLE;
+                }
+            }
+        }
         npick += dpEmitPickups(&w, defs, ws->pickups, ws->npickups);
         for (i = 0; tprop != NULL && i < ws->nprops; i++)
         {
@@ -1063,7 +1146,7 @@ void portDamPlusSetup(s32 stageId)
                     continue;
                 }
                 tag = (TagObjectRecord *) dpEmit(&w, dpFindType(defs, PROPDEF_TAG));
-                tag->ID = (ws->part == DP_SPILL) ? DP_VALVE_TAG : DP_COMMS_TAG;
+                tag->ID = pr->tag ? pr->tag : (ws->part == DP_SPILL) ? DP_VALVE_TAG : DP_COMMS_TAG;
                 tag->OffsetToObj = 1;               /* the record right after it */
                 tag->NextTag = NULL;
                 tag->TaggedObject = NULL;
@@ -1072,7 +1155,13 @@ void portDamPlusSetup(s32 stageId)
                 o->pad = dpPadIndex(pr->pad);
                 o->prop = NULL;
                 o->model = NULL;
-                if (ws->part == DP_SPILL)
+                if (pr->tag == DP_PIERBOX_TAG || pr->tag == DP_ISLEBOX_TAG)
+                {
+                    o->flags |= PROPFLAG_INVINCIBLE;   /* a call box stays */
+                    if (pr->tag == DP_PIERBOX_TAG) sPierBox = o; else sIsleBox = o;
+                    printf("ge: dam+: launch call box (tag %d) at pad %d\n", pr->tag, o->pad);
+                }
+                else if (ws->part == DP_SPILL)
                 {
                     sValveRec = o;
                     printf("ge: dam+: spillway valve station: model %d, tag %d\n", pr->model, DP_VALVE_TAG);
@@ -1286,6 +1375,81 @@ static void dpValveTick(void)
     fflush(stdout);
 }
 
+/* The launch: B at a call box (the stock activation flag on its object): the screen fades to black, Bond is moved to the other
+ * side (the island quay's pad 80, or the pier), the screen fades back. GE_DAMPLUS_TEST=boat[:t1:t2] (tests only) presses the
+ * pier's box at t1 s and the island's at t2 s. */
+static void dpBoatTick(void)
+{
+    extern void portTeleportBondToPad(PropRecord *bp, s32 pad, f32 offx, f32 offz);
+    static s32 phase, timer, dest, toIsland, parsed, t1 = 4, t2 = 16, pressed;
+    static const char *test;
+    f32 t = g_GlobalTimer / 60.0f;
+    s32 saved;
+
+    if (sPierBox == NULL || sIsleBox == NULL || sPierArrive < 0 || g_playerPointers[0] == NULL || g_playerPointers[0]->prop == NULL)
+    {
+        return;
+    }
+    if (!parsed)
+    {
+        parsed = 1;
+        test = getenv("GE_DAMPLUS_TEST");
+        if (test != NULL && strncmp(test, "boat", 4) == 0) sscanf(test + 4, ":%d:%d", &t1, &t2); else test = NULL;
+    }
+    if (g_GlobalTimer < 30)
+    {
+        phase = timer = pressed = 0;
+    }
+    if (test != NULL)
+    {
+        if (!(pressed & 1) && t >= t1) { pressed |= 1; sPierBox->runtime_bitflags |= RUNTIMEBITFLAG_ACTIVATED; printf("ge: dam+: test: pier call box pressed at %.1f s\n", t); }
+        if (!(pressed & 2) && t >= t2) { pressed |= 2; sIsleBox->runtime_bitflags |= RUNTIMEBITFLAG_ACTIVATED; printf("ge: dam+: test: island call box pressed at %.1f s\n", t); }
+    }
+    saved = get_cur_playernum();
+    set_cur_player(0);
+    if (phase == 0)
+    {
+        if (sPierBox->prop != NULL && (sPierBox->runtime_bitflags & RUNTIMEBITFLAG_ACTIVATED))
+        {
+            dest = DP_ISLE_ARRIVE;
+            toIsland = 1;
+            phase = 1;
+        }
+        else if (sIsleBox->prop != NULL && (sIsleBox->runtime_bitflags & RUNTIMEBITFLAG_ACTIVATED))
+        {
+            dest = sPierArrive;
+            toIsland = 0;
+            phase = 1;
+        }
+        if (phase == 1)
+        {
+            timer = 0;
+            currentPlayerAdjustFade(30.0f, 0, 0, 0, 1.0f);
+            printf("ge: dam+: launch: casting off for the %s at %.1f s\n", toIsland ? "island" : "pier", t);
+        }
+    }
+    else if (phase == 1)
+    {
+        if (++timer >= 36)
+        {
+            portTeleportBondToPad(g_playerPointers[0]->prop, dest, 0.0f, 0.0f);
+            currentPlayerAdjustFade(40.0f, 0, 0, 0, 0.0f);
+            printf("ge: dam+: launch: Bond at the %s (pad %d, room %d) at %.1f s\n", toIsland ? "island" : "pier", dest,
+                   g_playerPointers[0]->prop->stan ? getTileRoom(g_playerPointers[0]->prop->stan) : -1, t);
+            fflush(stdout);
+            phase = 2;
+            timer = 0;
+        }
+    }
+    else if (++timer >= 90)
+    {
+        phase = 0;
+    }
+    sPierBox->runtime_bitflags &= ~RUNTIMEBITFLAG_ACTIVATED;
+    sIsleBox->runtime_bitflags &= ~RUNTIMEBITFLAG_ACTIVATED;
+    set_cur_player(saved);
+}
+
 void portDamPlusTick(void)
 {
     if (sParts == 0 || g_ClockTimer <= 0)
@@ -1297,6 +1461,7 @@ void portDamPlusTick(void)
         dpCommsTick();
     }
     dpValveTick();
+    dpBoatTick();
 }
 
 #endif
