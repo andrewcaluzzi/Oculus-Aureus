@@ -2883,6 +2883,10 @@ void proplvreset2(enum LEVELID stageId)
 #ifndef TARGET_N64
     portLintSetup();
     portPropDump();
+    {
+        extern void portDamPlusVerify(void);
+        portDamPlusVerify(); /* Dam+ (port_damplus.c): logs whether the appended records became objects */
+    }
 #endif
 
     alloc_false_GUARDdata_to_exec_global_action();
