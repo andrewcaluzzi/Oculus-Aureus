@@ -10,6 +10,8 @@ local EXPECT = {
   [140] = { 143 }, [141] = { 142, 143 }, [142] = { 142 }, [143] = { 141 }, [144] = { 141, 142, 143 },
   -- spillway (concept 4): the balcony's two ends, the lower landing
   [150] = { 145 }, [151] = { 145 }, [152] = { 145 },
+  -- island (concept 3): the snipers on the balcony and the upper floor
+  [160] = { 81 }, [161] = { 81 }, [162] = { 81 },
 }
 local PATROLS = { [122] = {}, [134] = {}, [144] = {} }
 local t, fails, checked, done = 0, 0, false, false
