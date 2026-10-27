@@ -77,6 +77,15 @@ int portLuaCrowdBatch(lua_State *L)
     return 1;
 }
 
+/* crowd.bake([on]) -> on: corpses that lie still are captured once and drawn from that (gfx_corpsebake.inl) */
+int portLuaCrowdBake(lua_State *L)
+{
+    extern int portPerfBake(int on);
+
+    lua_pushboolean(L, portPerfBake(lua_isnoneornil(L, 1) ? -1 : (lua_toboolean(L, 1) ? 1 : 0)));
+    return 1;
+}
+
 int portLuaCrowdLod(lua_State *L)
 {
     lua_pushnumber(L, portPerfCrowdLod(lua_isnoneornil(L, 1) ? -1.0f : (float)luaL_checknumber(L, 1)));

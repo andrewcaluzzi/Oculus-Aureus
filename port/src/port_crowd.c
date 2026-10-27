@@ -386,7 +386,55 @@ int portCrowdFarHas(const ChrRecord *chr)
            sFarMark[(u32)chr->chrnum & 1023].serial == sFarSerial;
 }
 
-/* before the world-end marker (lv.c): one batched draw of every impostor, depth-tested against the scene */
+/* ---- baked corpses (port_perfcat.c decides, gfx_corpsebake.inl draws): the corpses this view draws from their bakes, and the
+ * command that bakes this view's captures. Static ring, as the far list. */
+#define BAKE_MAX 1024
+static int sBkSlot[FAR_RING][BAKE_MAX], sBkSerial[FAR_RING][BAKE_MAX];
+static CrowdCorpses sBkFrame[FAR_RING];
+static s32 sBkN, sBkRing;
+
+int portCrowdBakedAdd(int slot, int serial)
+{
+    if (sBkN >= BAKE_MAX)
+    {
+        return 0;
+    }
+    sBkSlot[sBkRing][sBkN] = slot;
+    sBkSerial[sBkRing][sBkN] = serial;
+    sBkN++;
+    return 1;
+}
+
+static Gfx *corpsesCmd(Gfx *gdl, Mtxf *cam, Mtxf *proj)
+{
+    extern int portPerfBake(int on);   /* port_perfcat.c */
+    CrowdCorpses *c = &sBkFrame[sBkRing];
+    s32 i, j, n = sBkN;
+
+    sBkN = 0;
+    if (!portPerfBake(-1) || cam == NULL || proj == NULL)
+    {
+        return gdl;
+    }
+    for (i = 0; i < 4; i++)
+    {
+        for (j = 0; j < 4; j++)
+        {
+            c->mvp[i * 4 + j] = cam->m[i][0] * proj->m[0][j] + cam->m[i][1] * proj->m[1][j]
+                              + cam->m[i][2] * proj->m[2][j] + cam->m[i][3] * proj->m[3][j];
+        }
+    }
+    c->n = n;
+    c->slot = sBkSlot[sBkRing];
+    c->serial = sBkSerial[sBkRing];
+    gdl->words.w0 = ((uintptr_t)G_CROWD_EXT << 24) | CROWD_CORPSES;
+    gdl->words.w1 = (uintptr_t)c;
+    gdl++;
+    sBkRing = (sBkRing + 1) % FAR_RING;
+    return gdl;
+}
+
+/* before the world-end marker (lv.c): one batched draw of every impostor, depth-tested against the scene; and the baked corpses */
 Gfx *portCrowdDraw(Gfx *gdl)
 {
     Mtxf *cam, *proj;
@@ -396,7 +444,13 @@ Gfx *portCrowdDraw(Gfx *gdl)
 
     sFarN = 0;
     sFarSerial++;
-    if (sN == 0 || sModel[0] == NULL || !portModeActive())
+    if (!portModeActive())
+    {
+        sBkN = 0;
+        return gdl;
+    }
+    gdl = corpsesCmd(gdl, camGetWorldToScreenMtxf(), currentPlayerGetProjectionMatrixF());
+    if (sN == 0 || sModel[0] == NULL)
     {
         return gdl;
     }

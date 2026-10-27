@@ -2061,6 +2061,26 @@ static GlRetainedProgram* gl_ret_bound = nullptr;
 static int gl_ret_cull_mode = -1;            /* GE_ROCGL_CULL: 0 off, 1 front = CW, 2 front = CCW (default: shot-proven) */
 static unsigned gl_ret_dbg_draws = 0, gl_ret_dbg_tris = 0;
 
+/* GE arena baked corpses (gfx_corpsebake.inl): their triangles were captured with the CPU cull skipped, so the GPU culls them,
+ * the retained geometry's way (front = CCW). cull_bits = the G_CULL_* bits at capture, 0 = off (and back to the interpreter's
+ * state: no GL culling). GE_BAKE_CULL=0 never culls (both faces drawn), 1 front = CW, 2 front = CCW (default). */
+extern "C" void gfx_opengl_bake_cull(uint32_t cull_bits, int invert_y) {
+    static int mode = -1;
+    if (mode < 0) {
+        const char* e = getenv("GE_BAKE_CULL");
+        mode = e ? atoi(e) : 2;
+    }
+    const int want = mode != 0 ? (int) (cull_bits & (uint32_t) G_CULL_BOTH) : 0;
+    if (want != 0) {
+        glEnable(GL_CULL_FACE);
+        glFrontFace(((mode == 2) != (invert_y != 0)) ? GL_CCW : GL_CW);   /* a y-flipped target mirrors the winding */
+        glCullFace(want == G_CULL_BOTH ? GL_FRONT_AND_BACK : (want & G_CULL_FRONT) ? GL_FRONT : GL_BACK);
+    } else {
+        glDisable(GL_CULL_FACE);
+    }
+    gl_ret_cull_state = want;
+}
+
 /* back to the interpreter's state: its VBO, its program's attribute arrays */
 static void gl_ret_restore(void) {
     if (!gl_ret_active) {

@@ -155,6 +155,9 @@ Set them by editing table `S` at the top of `arena.lua`, or in a preset file wit
 | `hp_growth` / `acc_growth` | 0.10 / 2.5 | enemy health and armour grow by this fraction per wave / accuracy points gained per wave |
 | `crowd` (or `crowd_real`) | 150 | real spectators, front rows first |
 | `crowd_impostors` | 1000 | impostor spectators on the spare seats (PC; see below) |
+| `crowd_lod` | 2500 | (PC, presentation) real spectators farther than this from the camera are drawn as impostors of their own skin and pose; 0 = always models; `GE_CROWD_LOD` overrides |
+| `chr_batch` | true | (PC, presentation) spectators', corpses' and fighters' opaque triangles drawn once per draw state, not a draw per limb; `GE_CHR_BATCH=0/1` |
+| `corpse_bake` | true | (PC, presentation) a body still for 1.5 s is captured once by the renderer and redrawn from that (not in the arena fog, not Whacky-tinted); `GE_CORPSE_BAKE=0/1` |
 | `reactions`, `REACT`, `multikill_n`, `multikill_window`, `big_hit`, `low_health`, `react_gap`, `crowd_volume` | true, see below | the crowd's cheers and boos (see Crowd reactions) |
 | `crowd_screams`, `scream_volume`, `SCREAMS` | false, 0.8, see below | the crowd screams the game's own hit yells (see The scream crowd) |
 | `supplies` | true | false turns off every pickup and gift between waves |

@@ -964,6 +964,7 @@ static void gfx_dxlu_apply_state(const struct DXluState* s) {
 }
 
 #include "gfx_chrbatch.inl" /* the arena's chr batch: marked chrs' opaque triangles drawn once per draw state */
+#include "gfx_corpsebake.inl" /* the arena's baked corpses: captured once, redrawn from world space */
 
 /* ---- plane pass (Newell) ------------------------------------------------
  * Tolerance in world units: vertices within it of a plane count as ON it
@@ -3814,7 +3815,7 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
                             v3->x, v3->y, v3->z, v3->w);
                 }
             }
-            if (roc_capturing == nullptr) {
+            if (roc_capturing == nullptr && pkb_cur < 0) { /* (a corpse bake captures it too: gfx_corpsebake.inl) */
                 return;
             }
             roc_drop = true;
@@ -3849,7 +3850,7 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
             case G_CULL_FRONT:
                 if (cross <= 0) {
                     ge_tris_culled++;
-                    if (roc_capturing == nullptr) {
+                    if (roc_capturing == nullptr && pkb_cur < 0) { /* (a corpse bake captures it too: gfx_corpsebake.inl) */
                         return;
                     }
                     roc_drop = true;
@@ -3859,7 +3860,7 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
             case G_CULL_BACK:
                 if (cross >= 0) {
                     ge_tris_culled++;
-                    if (roc_capturing == nullptr) {
+                    if (roc_capturing == nullptr && pkb_cur < 0) { /* (a corpse bake captures it too: gfx_corpsebake.inl) */
                         return;
                     }
                     roc_drop = true;
@@ -3869,7 +3870,7 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
             case G_CULL_BOTH:
                 // Why is this even an option?
                 ge_tris_culled++;
-                if (roc_capturing == nullptr) {
+                if (roc_capturing == nullptr && pkb_cur < 0) { /* (a corpse bake captures it too: gfx_corpsebake.inl) */
                     return;
                 }
                 roc_drop = true;
@@ -4095,6 +4096,7 @@ ndcprobe_done:;
         prg = ts.prg; num_inputs = ts.num_inputs; clip_parameters = ts.clip_parameters;
         dec_pull = ts.dec_pull; dec_pull_b = ts.dec_pull_b;
     } else {
+    PC_OP_BEGIN(pc_rs0); /* bench: draw-state re-derivation time (gfx_perfcat.inl) */
     depth_test = ((rsp.geometry_mode & G_ZBUFFER) == G_ZBUFFER || (rdp.other_mode_l & G_ZS_PRIM) == G_ZS_PRIM) &&
                       ((rdp.other_mode_h & G_CYC_1CYCLE) == G_CYC_1CYCLE || (rdp.other_mode_h & G_CYC_2CYCLE) == G_CYC_2CYCLE);
     depth_update = (rdp.other_mode_l & Z_UPD) == Z_UPD;
@@ -4309,7 +4311,9 @@ ndcprobe_done:;
                         rdp.palette_fmt >> G_MDSFT_TEXTLUT);
             }
             if (rdp.textures_changed[i]) {
+                PC_OP_BEGIN(pc_tx0);
                 import_texture(i, tile, false); /* flushes itself, only when the binding really changes */
+                PC_OP_END(pc_tx0, 3, 1u);
                 rdp.textures_changed[i] = false;
             }
 
@@ -4632,6 +4636,7 @@ ndcprobe_done:;
     }
     ts.prg = prg; ts.num_inputs = num_inputs; ts.clip_parameters = clip_parameters;
     ts.dec_pull = dec_pull; ts.dec_pull_b = dec_pull_b;
+    PC_OP_END(pc_rs0, 2, 1u);
     } /* ts_recompute */
     const bool dxlu_capture = gfx_dxlu_enabled() && !dxlu_closed
         && use_alpha && depth_test && depth_compare && !depth_update
@@ -4975,6 +4980,10 @@ ndcprobe_done:;
                            clip_parameters.invert_y, clip_parameters.z_is_from_0_to_1,
                            dec_pull, dec_pull_b, ge_dec_pull, v_arr, dxlu_capture);
         }
+    }
+    if (pkb_cur >= 0 && !pkb_bad) {
+        pkb_capture(roc_vstart, is_rect, prg, use_alpha, use_modulate, depth_test, depth_update, depth_compare, depth_source_prim,
+                    zmode, depth_mode, used_textures, use_fog, use_pixfog, roc_fog_ofs);
     }
     if (roc_drop) {
         buf_vbo_len = roc_vstart; /* recorded above; not drawn this frame */
@@ -7272,6 +7281,18 @@ static void gfx_crowd_cmd(uint32_t op, uintptr_t arg) {
             ge_state_serial++;   /* the next triangle re-derives its whole draw state */
             break;
         }
+        case CROWD_CORPSES: {   /* gfx_corpsebake.inl: bake this view's captures, draw the baked corpses */
+            float fix[2] = { 1.0f, 0.0f };
+            if (!fbActive && gfx_current_dimensions.aspect_ratio != 0.0f) {
+                fix[0] = rsp.aspect_scale / gfx_current_dimensions.aspect_ratio;
+                fix[1] = rsp.aspect_ofs * fix[0];
+            }
+            if (arg != 0) {
+                pkb_corpses((const CrowdCorpses*) arg, fix, gfx_rapi->get_clip_parameters().invert_y);
+            }
+            ge_state_serial++;
+            break;
+        }
     }
 }
 
@@ -7440,8 +7461,11 @@ static void gfx_run_dl(Gfx* cmd) {
                     s_GeHudPivotY = (float) (cmd->words.w1 & 0xFFFu);
                 } else if ((cmd->words.w1 >> 24) == PERFCAT_MAGIC) {
                     /* render cost category of the commands that follow (port_perfcat.c) */
+                    pkb_end(); /* a corpse capture ends with its prop */
                     pc_switch(cmd->words.w1 & 0xFFu);
                     pc_batch = (cmd->words.w1 & PERFCAT_FLAG_BATCH) != 0;
+                } else if ((cmd->words.w1 >> 24) == PKB_MAGIC) {
+                    pkb_begin(cmd->words.w1); /* capture this corpse for baking (gfx_corpsebake.inl) */
                 } else if ((cmd->words.w1 >> 24) == 0x59u) {
                     /* the next rect's edge fractions (bondwalk2.c portRectPreciseTag) */
                     for (int i = 0; i < 4; i++) {
@@ -7470,9 +7494,12 @@ static void gfx_run_dl(Gfx* cmd) {
             case (uint8_t)G_TEXTURE:
                 gfx_sp_texture(C1(16, 16), C1(0, 16), C0(11, 3), C0(8, 3), C0(0, 8));
                 break;
-            case G_VTX:
+            case G_VTX: {
+                PC_OP_BEGIN(pc_v0);
                 gfx_sp_vertex(C0(0, 16) / sizeof(Vtx), C0(16, 4), (const Vtx*)seg_addr(cmd->words.w1));
+                PC_OP_END(pc_v0, 0, (unsigned) (C0(0, 16) / sizeof(Vtx)));
                 break;
+            }
             case G_DL:
                 /* GE bring-up: ring-log every DL jump so the runaway fatal
                  * can name the parent that held a garbage pointer (the
@@ -7577,12 +7604,18 @@ static void gfx_run_dl(Gfx* cmd) {
                 s_GeHudAnchorFrac = (cmd->words.w1 & 0x01000000u) ? (float) ((cmd->words.w1 >> 16) & 0xFF) / 255.f : 1.f;
                 gfx_sp_extra_geometry_mode(~C0(0, 24), cmd->words.w1 & 0x0000FFFFu);
                 break;
-            case (uint8_t)G_TRI1:
+            case (uint8_t)G_TRI1: {
+                PC_OP_BEGIN(pc_t0);
                 gfx_sp_tri1(C1(16, 8) / 10, C1(8, 8) / 10, C1(0, 8) / 10, false);
+                PC_OP_END(pc_t0, 1, 1u);
                 break;
-            case (uint8_t)G_TRI4:
+            }
+            case (uint8_t)G_TRI4: {
+                PC_OP_BEGIN(pc_t0);
                 gfx_sp_tri4(cmd);
+                PC_OP_END(pc_t0, 1, 2u);
                 break;
+            }
             case (uint8_t)G_SETOTHERMODE_L:
                 gfx_sp_set_other_mode(C0(8, 8), C0(0, 8), cmd->words.w1);
                 break;
@@ -7779,6 +7812,7 @@ static void gfx_run_dl(Gfx* cmd) {
                 gfx_dxlu_new_view();
                 pc_switch(PERFCAT_LEVEL);
                 pc_batch = false;
+                pkb_view_reset();
                 break;
             case G_DXLU_GROUP_EXT:
                 gfx_dxlu_group(cmd->words.w1);
@@ -8036,6 +8070,7 @@ extern "C" void gfx_run(Gfx* commands) {
 
     ++num_dls;
     pc_frame_begin();
+    pkb_view_reset();
     gfx_sp_reset();
     s_GeHudScale = false;   /* a bracket never outlives its frame */
     s_GeRectFracPending = false;

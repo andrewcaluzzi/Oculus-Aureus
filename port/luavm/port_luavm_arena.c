@@ -843,6 +843,7 @@ extern int portLuaCrowdLod(lua_State *L);
 extern int portLuaBenchSummary(lua_State *L);
 extern int portLuaBenchShot(lua_State *L);
 extern int portLuaCrowdBatch(lua_State *L);
+extern int portLuaCrowdBake(lua_State *L);
 
 static int crowdImpostors(lua_State *L)
 {
@@ -1239,7 +1240,8 @@ void portLuaArenaRegister(lua_State *L)
         { "hide", portLuaBenchHide }, { "summary", portLuaBenchSummary }, { "shot", portLuaBenchShot },   /* port_luavm_perfcat.c */
         { NULL, NULL } };
 
-    static const luaL_Reg crowdLib[] = { { "impostors", crowdImpostors }, { "cheer", crowdCheer }, { "lod", portLuaCrowdLod }, { "batch", portLuaCrowdBatch }, { NULL, NULL } };
+    static const luaL_Reg crowdLib[] = { { "impostors", crowdImpostors }, { "cheer", crowdCheer }, { "lod", portLuaCrowdLod }, { "batch", portLuaCrowdBatch },
+        { "bake", portLuaCrowdBake }, { NULL, NULL } };
     static const luaL_Reg soundLib[] = { { "play_file", soundPlayFile }, { "play_any", soundPlayAny }, { "variants", soundVariants },
         { "file_exists", soundExists }, { "stop", soundStop }, { "playing", soundPlaying }, { "play_sfx", soundPlaySfx },
         { "sfx_burst", soundSfxBurst }, { "sfx_names", soundSfxNames }, { "stop_sfx", soundStopSfx }, { "sfx_playing", soundSfxPlaying },

@@ -10,6 +10,10 @@ static int64_t pc_t;                      /* ns of the last switch */
 static unsigned int pc_draws[PERFCAT_N], pc_tris[PERFCAT_N];
 static int64_t pc_ns[PERFCAT_N], pc_drawns[PERFCAT_N];
 static PerfCatFrame pc_last;
+static int64_t pc_opns[4];                /* see PerfCatFrame.opms */
+static unsigned int pc_opn[4];
+#define PC_OP_BEGIN(v) const int64_t v = pc_timing ? pc_now() : 0
+#define PC_OP_END(v, k, n) do { if (pc_timing) { pc_opns[k] += pc_now() - (v); pc_opn[k] += (n); } } while (0)
 
 static inline int64_t pc_now(void) {
     return (int64_t) std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
@@ -30,6 +34,8 @@ static void pc_frame_begin(void) {
     memset(pc_tris, 0, sizeof(pc_tris));
     memset(pc_ns, 0, sizeof(pc_ns));
     memset(pc_drawns, 0, sizeof(pc_drawns));
+    memset(pc_opns, 0, sizeof(pc_opns));
+    memset(pc_opn, 0, sizeof(pc_opn));
     pc_timing = g_PerfCatOn != 0;
     pc_t = pc_timing ? pc_now() : 0;
     pc_cur = PERFCAT_FRAME;
@@ -44,6 +50,10 @@ static void pc_frame_end(unsigned frame) {
         pc_last.tris[i] = pc_tris[i];
         pc_last.ms[i] = (float) pc_ns[i] / 1.0e6f;
         pc_last.drawms[i] = (float) pc_drawns[i] / 1.0e6f;
+    }
+    for (int i = 0; i < 4; i++) {
+        pc_last.opms[i] = (float) pc_opns[i] / 1.0e6f;
+        pc_last.opn[i] = pc_opn[i];
     }
     pc_last.frame = frame;
 }

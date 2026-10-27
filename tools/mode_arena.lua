@@ -37,6 +37,10 @@
 --   chr_batch     (PC, presentation only) true: the opaque triangles of spectators, corpses and live enemies are drawn once per draw
 --                 state for the whole view instead of a draw per limb of every chr (thousands of draws at wave 20); the z-buffer
 --                 orders them, so the picture is the same. false = the old way. GE_CHR_BATCH=0/1 overrides
+--   corpse_bake   (PC, presentation only) true: a body that has lain still for 1.5 s is captured once by the renderer and drawn from
+--                 that capture after, instead of being transformed limb by limb every frame (the biggest cost of a late wave). The
+--                 sim still builds it every frame (shots, hit boxes the same). Not while the arena fog is on or for a Whacky-tinted
+--                 body. false = the old way. GE_CORPSE_BAKE=0/1 overrides
 --   crowd         real spectators in the stands, front rows first (150; crowd_real is the same setting); they appear crowd_rate a second (200: the mode ticks 4 times a second, so 50 a tick),
 --                 so a big crowd does not hitch the start. The stage needs the chr slots: GE_COLOSSEUM_SLOTS=<n> (default 600) on a PC that can take 1000+
 --   reactions     the crowd cheers and boos (true; false = only the old wave-clear / boss reactions, no sounds). REACT below has, per
@@ -82,6 +86,7 @@ local S = {
   crowd_impostors = 1000,
   crowd_lod   = 2500,     -- (PC, presentation) a real spectator farther than this from the camera is drawn as an impostor (0 = never)
   chr_batch   = true,     -- (PC, presentation) spectators, corpses and fighters drawn once per draw state, not a draw per limb
+  corpse_bake = true,     -- (PC, presentation) still bodies captured once and redrawn from that
   crowd_rate  = 200,
 
   -- crowd reactions (presentation: the impostors and the sounds; the real spectators' animations follow the same sim events)
@@ -1340,6 +1345,7 @@ on("stage_start", function(stage)
     local nimp = (S.crowd_impostors or 0) > 0 and impostors_set(S.crowd_impostors) or 0
     local lod = IMPOSTORS and IMPOSTORS.lod and IMPOSTORS.lod(nimp > 0 and S.crowd_lod or 0) or 0   -- (PC, presentation) far spectators as impostors
     if IMPOSTORS and IMPOSTORS.batch then IMPOSTORS.batch(S.chr_batch and true or false) end        -- (PC, presentation) the chr batch
+    if IMPOSTORS and IMPOSTORS.bake then IMPOSTORS.bake(S.corpse_bake and true or false) end        -- (PC, presentation) baked corpses
     print(string.format("ge: arena: crowd %d of %d seats, %d impostors, real spectators beyond %d drawn as impostors", #crowd_pads, #seats, nimp, lod))
     if SOUND and S.reactions then   -- load the crowd recordings now (none is fine), so the first cheer does not read the disk
       local parts = {}

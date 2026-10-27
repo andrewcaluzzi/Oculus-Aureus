@@ -17,9 +17,10 @@
 --
 -- Late-wave variant (GE_BENCH_LATE=1, the "Arena Benchmark (Late Waves).bat" launcher): the state of waves 15-20 - the default crowd
 -- (150 real spectators in the front rows + 1000 impostors), 150 corpses, 40 live enemies chasing and shooting Bond - then 8 s phases
--- that each drop one category from the display list (bench.hide: the props are still built, so the game runs the same), giving the
--- cost of each on this machine's GPU: ALL (as shipped), LOD OFF (every real spectator a full model: the build before crowd_lod),
--- then without spectators / impostors / corpses / live enemies, and the level alone. About a minute after the spawns settle.
+-- on this machine's GPU: ALL (crowd_lod + chr_batch + corpse_bake, the defaults), BEFORE (all three off: the arena v0.1 renderer),
+-- BATCH OFF, LOD OFF, BAKE OFF,
+-- then in the BEFORE setup each category dropped from the display list in turn (bench.hide: the props are still built, so the game
+-- runs the same), the level alone, and ALL again (the first phase also pays the warm-up). About 1.5 minutes after the spawns settle.
 -- The report adds the render-thread ms, draw batches and triangles of every category per phase, and a closing summary table.
 local LIVE = BENCH_LIVE and true or false
 local LATE = (BENCH_LATE or mode.env_flag("GE_BENCH_LATE")) and not LIVE
@@ -66,17 +67,20 @@ if LATE then
   local C, K, L = 150, 150, 40
   PH = {
     { name = "ALL",       crowd = C, corpses = K, live = L, settle = 4, imp = 1000 },
-    { name = "BEFORE (lod 0, batch off)", crowd = C, corpses = K, live = L, settle = 1, lod = 0, batch = false },
+    { name = "BEFORE (lod, batch, bake off)", crowd = C, corpses = K, live = L, settle = 1, lod = 0, batch = false, bake = false },
     { name = "BATCH OFF", crowd = C, corpses = K, live = L, settle = 1, batch = false },
     { name = "LOD OFF",   crowd = C, corpses = K, live = L, settle = 1, lod = 0 },
-    { name = "-SPECT",    crowd = C, corpses = K, live = L, settle = 1, hide = { "spectators" } },
-    { name = "-IMP",      crowd = C, corpses = K, live = L, settle = 1, hide = { "impostors" } },
-    { name = "-CORPSES",  crowd = C, corpses = K, live = L, settle = 1, hide = { "corpses" } },
-    { name = "-LIVE",     crowd = C, corpses = K, live = L, settle = 1, hide = { "live" } },
-    { name = "LEVEL",     crowd = C, corpses = K, live = L, settle = 1, hide = { "spectators", "impostors", "corpses", "live", "objects", "fx" } },
+    { name = "BAKE OFF",  crowd = C, corpses = K, live = L, settle = 2, bake = false },
+    -- attribution as it was before (all three off): each category left out in turn
+    { name = "BEFORE -SPECT",   crowd = C, corpses = K, live = L, settle = 1, lod = 0, batch = false, bake = false, hide = { "spectators" } },
+    { name = "BEFORE -IMP",     crowd = C, corpses = K, live = L, settle = 1, lod = 0, batch = false, bake = false, hide = { "impostors" } },
+    { name = "BEFORE -CORPSES", crowd = C, corpses = K, live = L, settle = 1, lod = 0, batch = false, bake = false, hide = { "corpses" } },
+    { name = "BEFORE -LIVE",    crowd = C, corpses = K, live = L, settle = 1, lod = 0, batch = false, bake = false, hide = { "live" } },
+    { name = "LEVEL ONLY",      crowd = C, corpses = K, live = L, settle = 1, hide = { "spectators", "impostors", "corpses", "live", "objects", "fx" } },
+    { name = "ALL AGAIN", crowd = C, corpses = K, live = L, settle = 1 },   -- the first phase also pays the warm-up (shaders, textures)
   }
 end
-local lod_default, batch_default                    -- crowd.lod / crowd.batch as the arena set them (LATE)
+local lod_default, batch_default, bake_default      -- crowd.lod / batch / bake as the arena set them (LATE)
 
 local bt, pi, st, st_t = 0, 0, "start", 0          -- bench clock, phase index, step, seconds in the step
 local corpses_made = 0
@@ -114,6 +118,10 @@ local function start_phase(n)
     if crowd.batch then
       if batch_default == nil then batch_default = crowd.batch() end
       if p.batch == nil then crowd.batch(batch_default) else crowd.batch(p.batch) end
+    end
+    if crowd.bake then
+      if bake_default == nil then bake_default = crowd.bake() end
+      if p.bake == nil then crowd.bake(bake_default) else crowd.bake(p.bake) end
     end
     if bench.hide then bench.hide(p.hide or {}) end
   end

@@ -28,6 +28,7 @@ static float sLastSim, sLastGl;   /* avg sim / gl ms of the phase portBenchEnd w
 static double sCatMs[PERFCAT_N], sCatDrawMs[PERFCAT_N], sCatDraws[PERFCAT_N], sCatTris[PERFCAT_N];
 static int sCatN;
 static unsigned sCatLastFrame;
+static double sOpMs[4], sOpN[4];                             /* PerfCatFrame.opms / opn, summed */
 static unsigned sPasses0;                                    /* portCrowdPasses at bench.begin */
 extern unsigned portCrowdPasses(void);                       /* port_crowd.c: view passes drawn */
 /* the closing table: one row per finished phase */
@@ -76,6 +77,11 @@ void portBenchFrame(unsigned long long interval_us, unsigned long long run_us, u
                 sCatDrawMs[i] += pf.drawms[i];
                 sCatDraws[i] += pf.draws[i];
                 sCatTris[i] += pf.tris[i];
+            }
+            for (i = 0; i < 4; i++)
+            {
+                sOpMs[i] += pf.opms[i];
+                sOpN[i] += pf.opn[i];
             }
             sCatN++;
         }
@@ -127,12 +133,18 @@ void portBenchBegin(void)
     memset(sCatDrawMs, 0, sizeof(sCatDrawMs));
     memset(sCatDraws, 0, sizeof(sCatDraws));
     memset(sCatTris, 0, sizeof(sCatTris));
+    memset(sOpMs, 0, sizeof(sOpMs));
+    memset(sOpN, 0, sizeof(sOpN));
     sCatN = 0;
     portPerfCatBench(1);
     {
         unsigned r, f;
 
+        unsigned bk[3];
+        extern void portPerfBakeCounts(unsigned out[3]);
+
         portPerfCrowdCounts(&r, &f);   /* from here */
+        portPerfBakeCounts(bk);
     }
     sPasses0 = portCrowdPasses();
     sActive = 1;
@@ -263,14 +275,29 @@ void portBenchEnd(const char *label, const char *extra, const int *pools)
             ttr += sCatTris[i];
         }
         portBenchLine("    %-11s %6.2f ms |           | %6.0f draws | %7.0f tris", "TOTAL", tms / sCatN, tdr / sCatN, ttr / sCatN);
+        portBenchLine("  interpreter per frame: G_VTX %.0f vertices %.2f ms | G_TRI %.0f triangles %.2f ms (with their draws), of which draw-state "
+                      "re-derivations %.0f x %.2f ms, of which texture binds %.0f x %.2f ms",
+                      sOpN[0] / sCatN, sOpMs[0] / sCatN, sOpN[1] / sCatN, sOpMs[1] / sCatN, sOpN[2] / sCatN, sOpMs[2] / sCatN,
+                      sOpN[3] / sCatN, sOpMs[3] / sCatN);
         portPerfCrowdCounts(&real, &far);
         passes = portCrowdPasses() - sPasses0;
         if (passes > 0)
         {
             extern int portPerfBatch(int on);
 
+            extern int portPerfBake(int on);
+            extern void portPerfBakeCounts(unsigned out[3]);
+            extern void gfx_corpsebake_stats(unsigned int out[5]);
+            unsigned bk[3], rs[5];
+
             portBenchLine("  spectators per view pass: %.1f drawn as models, %.1f as far impostors (crowd.lod %.0f, chr batch %s)",
                           (double)real / passes, (double)far / passes, (double)portPerfCrowdLod(-1.0f), portPerfBatch(-1) ? "on" : "off");
+            portPerfBakeCounts(bk);
+            gfx_corpsebake_stats(rs);
+            portBenchLine("  corpses per view pass: %.1f built and drawn, %.1f being baked, %.1f drawn from bakes (corpse bake %s) | "
+                          "renderer so far: %u baked, %u failed, %u stale skipped",
+                          (double)bk[0] / passes, (double)bk[1] / passes, (double)bk[2] / passes, portPerfBake(-1) ? "on" : "off",
+                          rs[0], rs[1], rs[4]);
         }
     }
     if (extra != NULL && extra[0] != '\0')

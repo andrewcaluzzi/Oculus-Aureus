@@ -36,6 +36,11 @@ typedef struct {
     float ms[PERFCAT_N];             /* render-thread time inside gfx_run (DL walk, transforms, state, GL calls) */
     float drawms[PERFCAT_N];         /* of which inside the GL draw call itself (gfx_rapi->draw_triangles) */
     unsigned int frame;              /* gfx_run count */
+    /* where the interpreter's time goes, every category together (timed only while g_PerfCatOn):
+     * [0] G_VTX loads (n = vertices), [1] G_TRI1/G_TRI4 commands (n = triangles; their draw state included),
+     * [2] of [1]: draw-state re-derivations (combiner, textures, shader: about once per limb), [3] of [2]: texture binds */
+    float opms[4];
+    unsigned int opn[4];
 } PerfCatFrame;
 
 #ifdef __cplusplus
