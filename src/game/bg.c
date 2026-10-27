@@ -4045,6 +4045,12 @@ void bgLoadRoomModelData(s32 roomID)
         }
     }
 
+#ifndef TARGET_N64
+    {   /* Dam+ (port_damplus_geo.c): stock triangles a Dam+ wing cut through are dropped from this loaded copy */
+        extern void portDamPlusRoomLoaded(s32 room);
+        portDamPlusRoomLoaded(roomID);
+    }
+#endif
     bgBuildRoomVtxBounds(roomID);
     roomsHandleStateDebugging();
 

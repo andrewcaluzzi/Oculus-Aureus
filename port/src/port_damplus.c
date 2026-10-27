@@ -4,14 +4,15 @@
  *   slice 1 "Night Shift": extra pads (anchored to stock pads by id plus an offset, floor tile found by walking the stock stan
  *   from the anchor's tile), extra guards cloned from a stock guard record read at run time (with that guard's own weapon
  *   records), new patrol paths over the stock waypoints, a few floor pickups cloned from stock records.
- * Nothing stock is renumbered: new pads, propdefs, AI lists and patrol paths go after the stock ones, so every objective,
+ *   the wings (port_damplus_geo.c builds them, port_damplus_wings.c describes them): per wing, pads on its floors (design
+ *   points), a waypoint chain joined to the stock graph, guards, props, pickups, a patrol. The motor pool also gives the start
+ *   shutter (door 281) a key on the truck guard; the comms annex has a console that, once destroyed, stops the alarm
+ *   reinforcements (our replacement for the background list 0x1002, stock ai_22, which spawns at pad 116 while the alarm sounds).
+ * Nothing stock is renumbered: new pads, propdefs, tags, AI lists and patrol paths go after the stock ones, so every objective,
  * tag, flag, the intro/outro and the bungee keep their ids.
  *
- *   slice 2 "Motor pool": the start shutter (door 281) opens onto two generated rooms (port_damplus_geo.c); here: its key on
- *   the truck guard, the door culling them, pads on the new floor, guards, props, pickups, waypoints and a patrol.
- *
- * Switch: GE_DAMPLUS (unset/0 = off; 1 = everything; "night" = slice 1 only; "motor" = slice 2 only). Off in attract demos, while recording, in
- * multiplayer and on every stage but Dam. Tests and the dam1 oracle never set it. */
+ * Switch: GE_DAMPLUS (unset/0 = off; 1 = everything; or a comma list of night, motor, comms, gallery, spill, island). Off in
+ * attract demos, while recording, in multiplayer and on every stage but Dam. Tests and the dam1 oracle never set it. */
 #ifndef TARGET_N64
 
 #include <stdio.h>
@@ -23,6 +24,9 @@
 #include <bondconstants.h>
 #include "memp.h"
 #include "game/stan.h"
+#include "game/chr.h"
+#include "game/propobj.h"
+#include "port_damplus.h"
 
 extern s32 getPlayerCount(void);
 extern s32 get_is_ramrom_flag(void);
@@ -32,30 +36,44 @@ extern const char *portModeChoice(void);
 extern s32 sizepropdef(PropDefHeaderRecord *pdef);
 extern stagesetup g_CurrentSetup;
 extern ChrRecord *chrFindByLiteralId(s32 id);
-
-#define DP_NIGHT 1      /* slice 1: Night Shift (setup remix) */
-#define DP_MOTORPOOL 2  /* slice 2: the motor pool behind door 281 */
+extern s32 g_ClockTimer;
+extern s32 g_GlobalTimer;
 
 static s32 sParts;      /* parts on for the stage being loaded (0 = stock Dam); set once per stage load */
 
 /* What GE_DAMPLUS asks for, whatever the stage. */
 static s32 portDamPlusWanted(void)
 {
+    static const struct { const char *name; s32 part; } names[] = {
+        { "night", DP_NIGHT }, { "motor", DP_MOTORPOOL }, { "comms", DP_COMMS }, { "gallery", DP_GALLERY },
+        { "spill", DP_SPILL }, { "island", DP_ISLAND },
+    };
     const char *e = getenv("GE_DAMPLUS");
+    s32 parts = 0;
 
     if (e == NULL || e[0] == '\0' || e[0] == '0')
     {
         return 0;
     }
-    if (strcmp(e, "night") == 0)
+    if (strcmp(e, "1") == 0 || strcmp(e, "all") == 0)
     {
-        return DP_NIGHT;
+        return DP_ALLPARTS;
     }
-    if (strcmp(e, "motor") == 0)
+    while (*e)
     {
-        return DP_MOTORPOOL;
+        s32 i, n = (s32) strcspn(e, ",");
+
+        for (i = 0; i < (s32) ARRAYCOUNT(names); i++)
+        {
+            if ((s32) strlen(names[i].name) == n && strncmp(e, names[i].name, n) == 0)
+            {
+                parts |= names[i].part;
+            }
+        }
+        e += n;
+        if (*e == ',') e++;
     }
-    return DP_NIGHT | DP_MOTORPOOL;
+    return parts;
 }
 
 /* Called once at the start of every stage load (load_bg_file), before any Dam+ hook. */
@@ -91,6 +109,7 @@ s32 portDamPlusParts(void)
  * Waypoint ids in the patrol paths are stock Dam waypoints (the approach and dam graphs are untouched). */
 
 #define DP_NEW(n) (0x4000 + (n))
+#define DP_LOCAL(n) (0x5000 + (n))     /* pad n of the wing being set up */
 #define DP_END_PATH (-1)
 
 typedef struct
@@ -102,7 +121,7 @@ typedef struct
 
 typedef struct
 {
-    s16 pad;        /* stock pad id, or DP_NEW(n) */
+    s16 pad;        /* stock pad id, DP_NEW(n), or DP_LOCAL(n) */
     u16 ailist;     /* AI list id (stock global/stage list, or one of ours below) */
     s16 tmplchr;    /* stock guard whose record (body, stats) and weapons are cloned */
     s16 chrnum;     /* our chr number (unused by stock Dam: 0-47 are taken) */
@@ -200,74 +219,147 @@ static const DpPickup sNightPickups[] = {
     { DP_PICK_WEAPON, 285, 7 },        /* a KF7 at the tunnel bend */
 };
 
-
 /* ---------------------------------------------------------------------------------------------------------------------------
- * Slice 2 data: the motor pool behind door 281 (geometry: port_damplus_geo.c). Pads here are DESIGN points in the door-local
- * frame (world units: u along the shutter, v into the rock), DP_MP(n) names them. */
+ * Wing setups. Pads are DESIGN points in the wing's frame (world units; u, v, the floor height h of the spot, a facing in the
+ * frame: 0 = +v, 90 = +u); DP_LOCAL(n) names them. Pads 0 .. nwp-1 are the wing's waypoints, a chain whose first joins the
+ * nearest stock waypoint in the wing's seam room. */
 
-#define DP_MP(n) (0x4400 + (n))
+typedef struct { s16 u, v, h, yaw; } DpWPad;
+
+enum { DP_PROP_PLAIN, DP_PROP_CONSOLE };
+typedef struct { s16 pad; s16 model; u8 kind; s16 scale; } DpProp;   /* scale: 256 = 1 (0 = 256) */
 
 typedef struct
 {
-    s16 u, v;
-    s16 yaw;        /* facing in the frame, degrees: 0 = +v (deeper in), 90 = +u */
-} DpDesignPad;
+    u32 part;
+    const DpWPad *pads; s32 npads;
+    s32 nwp;
+    const DpGuard *guards; s32 nguards;
+    const DpPickup *pickups; s32 npickups;
+    const DpProp *props; s32 nprops;
+    u8 patrolPath; u16 patrolAi; u8 *patrolAiBytes; const s8 *patrolSeq; s32 npatrol;
+} DpWingSetup;
 
-static const DpDesignPad sMotorPads[] = {
+/* -- the motor pool (slice 2) -- */
+static const DpWPad sMotorPads[] = {
     /* 0-6: waypoints, the shutter to the barracks */
-    { 450, 140, 0 }, { 520, 590, 270 }, { -150, 590, 270 }, { -800, 1200, 0 }, { -900, 1860, 0 }, { -900, 2200, 0 },
-    { -900, 2600, 180 },
+    { 450, 140, 0, 0 }, { 520, 590, 0, 270 }, { -150, 590, 0, 270 }, { -800, 1200, 0, 0 }, { -900, 1860, 0, 0 }, { -900, 2200, 0, 0 },
+    { -900, 2600, 0, 180 },
     /* 7-10: guards */
-    { -380, 1050, 120 }, { -1450, 1600, 150 }, { -1250, 2700, 160 }, { -500, 2450, 220 },
+    { -380, 1050, 0, 120 }, { -1450, 1600, 0, 150 }, { -1250, 2700, 0, 160 }, { -500, 2450, 0, 220 },
     /* 11-13: pickups in the barracks */
-    { -1400, 2820, 0 }, { -420, 2820, 0 }, { -420, 2120, 0 },
+    { -1400, 2820, 0, 0 }, { -420, 2820, 0, 0 }, { -420, 2120, 0, 0 },
     /* 14-25: props: the second truck, drums, crates, lockers, a table */
-    { -1050, 1250, 0 }, { -1610, 560, 0 }, { -1610, 680, 0 }, { -1500, 600, 0 }, { -1620, 1900, 90 }, { -250, 1920, 90 },
-    { -1430, 2850, 180 }, { -1270, 2850, 180 }, { -1110, 2850, 180 }, { -900, 2420, 0 }, { -780, 2440, 270 }, { -1020, 2440, 90 },
+    { -1050, 1250, 0, 0 }, { -1610, 560, 0, 0 }, { -1610, 680, 0, 0 }, { -1500, 600, 0, 0 }, { -1620, 1900, 0, 90 }, { -250, 1920, 0, 90 },
+    { -1430, 2850, 0, 180 }, { -1270, 2850, 0, 180 }, { -1110, 2850, 0, 180 }, { -900, 2420, 0, 0 }, { -780, 2440, 0, 270 }, { -1020, 2440, 0, 90 },
 };
-
-/* waypoints: pads DP_MP(0..6), a chain; W0 joins the nearest stock waypoint in the shutter's room */
-#define DP_NMWP 7
 
 static const DpGuard sMotorGuards[] = {
     /* the bay: two idle guards by the truck and at the back, one walking between the bay and the barracks */
-    { DP_MP(7), 0x0002, 7, 120 },
-    { DP_MP(8), 0x0002, 7, 121 },
-    { DP_MP(2), 0x0484, 7, 122 },
+    { DP_LOCAL(7), 0x0002, 7, 120 },
+    { DP_LOCAL(8), 0x0002, 7, 121 },
+    { DP_LOCAL(2), 0x0484, 7, 122 },
     /* the barracks: an armoured sergeant (Dam's own ai_11: more health, armour, kneels to fire) and a guard */
-    { DP_MP(9), 0x040c, 14, 123 },
-    { DP_MP(10), 0x0002, 22, 124 },
+    { DP_LOCAL(9), 0x040c, 14, 123 },
+    { DP_LOCAL(10), 0x0002, 22, 124 },
 };
 
 static const DpPickup sMotorPickups[] = {
-    { DP_PICK_ARMOUR, DP_MP(11), 0 },  /* the locker's prize: body armour */
-    { DP_PICK_WEAPON, DP_MP(12), 7 },  /* and two KF7s (ammo) */
-    { DP_PICK_WEAPON, DP_MP(13), 7 },
+    { DP_PICK_ARMOUR, DP_LOCAL(11), 0 },  /* the locker's prize: body armour */
+    { DP_PICK_WEAPON, DP_LOCAL(12), 7 },  /* and two KF7s (ammo) */
+    { DP_PICK_WEAPON, DP_LOCAL(13), 7 },
 };
-
-typedef struct
-{
-    s16 pad;
-    s16 model;
-} DpProp;
 
 static const DpProp sMotorProps[] = {
-    { DP_MP(14), PROP_MILTRUCK },
-    { DP_MP(15), PROP_OIL_DRUM1 }, { DP_MP(16), PROP_OIL_DRUM2 }, { DP_MP(17), PROP_OIL_DRUM7 },
-    { DP_MP(18), PROP_METAL_CRATE1 }, { DP_MP(19), PROP_AMMO_CRATE1 },
-    { DP_MP(20), PROP_LOCKER3 }, { DP_MP(21), PROP_LOCKER4 }, { DP_MP(22), PROP_LOCKER3 },
-    { DP_MP(23), PROP_WOODEN_TABLE1 }, { DP_MP(24), PROP_METAL_CHAIR1 }, { DP_MP(25), PROP_METAL_CHAIR1 },
+    { DP_LOCAL(14), PROP_MILTRUCK },
+    { DP_LOCAL(15), PROP_OIL_DRUM1 }, { DP_LOCAL(16), PROP_OIL_DRUM2 }, { DP_LOCAL(17), PROP_OIL_DRUM7 },
+    { DP_LOCAL(18), PROP_METAL_CRATE1 }, { DP_LOCAL(19), PROP_AMMO_CRATE1 },
+    { DP_LOCAL(20), PROP_LOCKER3 }, { DP_LOCAL(21), PROP_LOCKER4 }, { DP_LOCAL(22), PROP_LOCKER3 },
+    { DP_LOCAL(23), PROP_WOODEN_TABLE1 }, { DP_LOCAL(24), PROP_METAL_CHAIR1 }, { DP_LOCAL(25), PROP_METAL_CHAIR1 },
 };
 
-#define DP_DOOR 281         /* the start shutter */
-#define DP_DOOR_KEY 0x80    /* its stock key bits (no Dam object carries them) */
-#define DP_KEY_CHR 6        /* the stock guard by the truck at the start gets the key */
-
 static u8 sAiPatrol12[] = { DP_AI_PATROL(12) };
+static const s8 sMotorPatrol[] = { 2, 3, 4, 5, 6, 5, 4, 3 };
 
-extern s32 portDamPlusMotorPoolReady(void);
-extern void portDamPlusDesignToWorld(f32 u, f32 v, f32 h, f32 out[3]);
-extern StandTile *portDamPlusTileAt(f32 u, f32 v);
+static const DpWingSetup sMotorSetup = {
+    DP_MOTORPOOL, sMotorPads, ARRAYCOUNT(sMotorPads), 7, sMotorGuards, ARRAYCOUNT(sMotorGuards),
+    sMotorPickups, ARRAYCOUNT(sMotorPickups), sMotorProps, ARRAYCOUNT(sMotorProps),
+    12, 0x0484, sAiPatrol12, sMotorPatrol, ARRAYCOUNT(sMotorPatrol),
+};
+
+/* -- concept 5: the comms annex (frame: port_damplus_wings.c; u along the yard's west wall, v into the cliff) -- */
+static const DpWPad sCommsPads[] = {
+    /* 0-5: waypoints: the tunnel, the radio room, the radio room by the stair opening, the stair foot, the blockhouse, the deck */
+    { 130, 200, 0, 0 }, { 150, 820, 0, 0 }, { 470, 1030, 0, 90 }, { 690, 1030, 0, 180 }, { 690, 270, 440, 180 }, { 660, -100, 440, 180 },
+    /* 6-9: guards: the operator at the console, a guard in the radio room, the deck sentry, one in the tunnel */
+    { -120, 960, 0, 0 }, { 420, 700, 0, 230 }, { 480, -170, 440, 180 }, { 60, 430, 0, 180 },
+    /* 10: the comms console against the radio room's back wall; 11-13: radio units and a tuning console; 14: the dish on the deck */
+    { -150, 1070, 0, 180 }, { 80, 1080, 0, 180 }, { 260, 1080, 0, 180 }, { 450, 600, 0, 200 }, { 820, -120, 440, 200 },
+    /* 15-16: pickups: body armour on the deck, a KF7 in the radio room */
+    { 420, 90, 440, 0 }, { -200, 600, 0, 0 },
+};
+
+static const DpGuard sCommsGuards[] = {
+    { DP_LOCAL(6), 0x0002, 7, 130 },
+    { DP_LOCAL(7), 0x0002, 22, 131 },
+    { DP_LOCAL(8), 0x0002, 41, 132 },
+    { DP_LOCAL(9), 0x0002, 7, 133 },
+    { DP_LOCAL(1), 0x0485, 7, 134 },      /* walks the radio room - stair - deck round */
+};
+
+static const DpProp sCommsProps[] = {
+    { DP_LOCAL(10), PROP_CONSOLE1, DP_PROP_CONSOLE },
+    { DP_LOCAL(11), PROP_RADIO_UNIT2 }, { DP_LOCAL(12), PROP_RADIO_UNIT3 }, { DP_LOCAL(13), PROP_TUNING_CONSOLE1 },
+    { DP_LOCAL(14), PROP_SATDISH, DP_PROP_PLAIN, 64 },
+};
+
+static const DpPickup sCommsPickups[] = {
+    { DP_PICK_ARMOUR, DP_LOCAL(15), 0 },
+    { DP_PICK_WEAPON, DP_LOCAL(16), 7 },
+};
+
+static u8 sAiPatrol13[] = { DP_AI_PATROL(13) };
+static const s8 sCommsPatrol[] = { 1, 2, 3, 4, 5, 4, 3, 2 };
+
+static const DpWingSetup sCommsSetup = {
+    DP_COMMS, sCommsPads, ARRAYCOUNT(sCommsPads), 6, sCommsGuards, ARRAYCOUNT(sCommsGuards),
+    sCommsPickups, ARRAYCOUNT(sCommsPickups), sCommsProps, ARRAYCOUNT(sCommsProps),
+    13, 0x0485, sAiPatrol13, sCommsPatrol, ARRAYCOUNT(sCommsPatrol),
+};
+
+static const DpWingSetup *const sWingSetups[] = { &sMotorSetup, &sCommsSetup };
+
+/* -- the comms console's reward ------------------------------------------------------------------------------------------- */
+#define DP_COMMS_TAG 20               /* our tag id for the console (stock tags are 0-18) */
+#define DP_COMMS_CALL_FLAG0 0x00010000 /* stage flag set by reinforcement call k: 0x10000 << k (stock Dam uses 0x100-0x2000) */
+#define DP_COMMS_CALLS 6
+#define DP_COMMS_GAP60 1200           /* 20 s between calls */
+
+/* Our replacement for background list 0x1002 (stock ai_22: once the alarm sounds, two tries at spawning a guard at pad 116 on
+ * list 0x040f, then idle). Ours: while the comms console stands and the alarm sounds, a call every 20 s, six calls; each call
+ * spawns at pad 116 like ai_22 does (the first call twice, as ai_22 does) and sets its own stage flag. Once the console is
+ * destroyed, no more calls. Bytes: big-endian arguments, as the ROM's lists are. */
+#define DPB_SPAWN116(lbl) 0xBD, 0x25, 0xff, 0x00, 0x74, 0x04, 0x0f, 0x00, 0x00, 0x00, 0x00, (lbl)
+#define DPB_FLAG(f) 0x9A, (u8) ((f) >> 24), (u8) ((f) >> 16), (u8) ((f) >> 8), (u8) (f)
+#define DPB_CONSOLE_OK(lbl) 0x5B, DP_COMMS_TAG, (lbl), 0x00, 0x7f, 0x02, (lbl)   /* if standing goto lbl; else goto_next idle */
+#define DPB_CALL(k, L) \
+    DPB_CONSOLE_OK(L + 0), \
+    0xF3, 0x7f,                                         /* the bungee is under way: idle */ \
+    DPB_SPAWN116(L + 1), 0x02, L + 1, \
+    DPB_FLAG(DP_COMMS_CALL_FLAG0 << (k)), \
+    0xAE,                                               /* local timer: reset and start */ \
+    0x02, L + 2, 0x03,                                  /* wait: sleep */ \
+    DPB_CONSOLE_OK(L + 3), \
+    0xB4, 0x00, (u8) (DP_COMMS_GAP60 >> 8), (u8) DP_COMMS_GAP60, L + 4, 0x01, L + 2, \
+    0x02, L + 4, \
+    0x02, L + 5, 0x37, L + 6, 0x03, 0x01, L + 5, 0x02, L + 6   /* then wait for the alarm (again) */
+
+static u8 sAiComms[] = {
+    0x02, 0x00, 0x03, 0x37, 0x01, 0x01, 0x00, 0x02, 0x01,      /* label 0: sleep until the alarm sounds */
+    DPB_CONSOLE_OK(0x08), 0xF3, 0x7f, DPB_SPAWN116(0x09), 0x02, 0x09, 0x03,   /* the first call's extra spawn, as ai_22's pair */
+    DPB_CALL(0, 0x10), DPB_CALL(1, 0x18), DPB_CALL(2, 0x20), DPB_CALL(3, 0x28), DPB_CALL(4, 0x30), DPB_CALL(5, 0x38),
+    0x02, 0x7f, 0x03, 0x01, 0x7f, 0x04,                         /* idle for good */
+};
 
 /* --------------------------------------------------------------------------------------------------------------------------- */
 
@@ -275,13 +367,19 @@ static s32 sStockPads;   /* stock pad count of the stage being loaded */
 static u32 *sOursFrom, *sOursTo;       /* our appended propdef records (this stage load), for portDamPlusVerify */
 static ObjectRecord *sKeyRec;
 static DoorRecord *sDoorRec;
+static ObjectRecord *sConsoleRec;
+static s32 sConsoleIdx;
 static s32 sNightPadsOn; /* how many night pads were appended (0 when slice 1 is off) */
+static s32 sWingPadBase[8];
+static s32 sWingOn[8];
+static s32 sCurWing;     /* the wing whose DP_LOCAL pads are meant */
+static u32 sCallsSeen;   /* comms reinforcement calls already logged */
 
 static s32 dpPadIndex(s16 p)
 {
-    if (p >= DP_MP(0))
+    if (p >= DP_LOCAL(0))
     {
-        return sStockPads + sNightPadsOn + (p - DP_MP(0));
+        return sWingPadBase[sCurWing] + (p - DP_LOCAL(0));
     }
     return (p >= DP_NEW(0)) ? sStockPads + (p - DP_NEW(0)) : p;
 }
@@ -297,8 +395,8 @@ static s32 dpCountPads(PadRecord *pads)
     return n;
 }
 
-static char sPadNames[64][8];
-static u8 sPadOk[64];
+static char sPadNames[128][8];
+static u8 sPadOk[128];
 
 static void dpPadBasics(PadRecord *out, s32 i, f32 yawx, f32 yawz)
 {
@@ -306,8 +404,8 @@ static void dpPadBasics(PadRecord *out, s32 i, f32 yawx, f32 yawz)
     out->up.f[1] = 1.0f;
     out->look.f[0] = yawx;
     out->look.f[2] = yawz;
-    snprintf(sPadNames[i & 63], sizeof(sPadNames[0]), "qdp%d", i);
-    out->plink = sPadNames[i & 63];
+    snprintf(sPadNames[i & 127], sizeof(sPadNames[0]), "qdp%d", i);
+    out->plink = sPadNames[i & 127];
 }
 
 /* New pad i at anchor + offset: same height as the anchor, floor tile found by walking the stan from the anchor's tile. */
@@ -338,15 +436,15 @@ static s32 dpMakePad(PadRecord *out, PadRecord *all, const DpPad *spec, s32 i)
     return tile != NULL;
 }
 
-/* A motor-pool pad: a design point, its tile is ours (looked up in the design frame). */
-static s32 dpMakeDesignPad(PadRecord *out, const DpDesignPad *spec, s32 i)
+/* A wing pad: a design point; its tile is ours (looked up in the design frame). */
+static s32 dpMakeWingPad(PadRecord *out, u32 part, const DpWPad *spec, s32 i)
 {
     f32 w[3], w2[3];
     f32 yaw = spec->yaw * (M_PI / 180.0f);
     f32 dx, dz, l;
 
-    portDamPlusDesignToWorld(spec->u, spec->v, 51.0f, w);   /* stock pads sit ~51 units above their floor */
-    portDamPlusDesignToWorld(spec->u + 100.0f * sinf(yaw), spec->v + 100.0f * cosf(yaw), 51.0f, w2);
+    portDamPlusWingToWorld(part, spec->u, spec->v, spec->h + 51.0f, w);   /* stock pads sit ~51 units above their floor */
+    portDamPlusWingToWorld(part, spec->u + 100.0f * sinf(yaw), spec->v + 100.0f * cosf(yaw), spec->h + 51.0f, w2);
     dx = w2[0] - w[0];
     dz = w2[2] - w[2];
     l = sqrtf(dx * dx + dz * dz);
@@ -354,19 +452,19 @@ static s32 dpMakeDesignPad(PadRecord *out, const DpDesignPad *spec, s32 i)
     out->pos.f[0] = w[0];
     out->pos.f[1] = w[1];
     out->pos.f[2] = w[2];
-    out->stan = portDamPlusTileAt(spec->u, spec->v);
+    out->stan = portDamPlusWingTileAt(part, spec->u, spec->v, spec->h);
     if (out->stan == NULL)
     {
-        printf("ge: dam+: motor-pool pad %d (%d, %d) is on no tile\n", i, spec->u, spec->v);
+        printf("ge: dam+: wing 0x%x pad %d (%d, %d, %d) is on no tile\n", part, i, spec->u, spec->v, spec->h);
     }
     return out->stan != NULL;
 }
 
 static s32 dpPadOk(s16 p)
 {
-    if (p >= DP_MP(0))
+    if (p >= DP_LOCAL(0))
     {
-        return sPadOk[sNightPadsOn + (p - DP_MP(0))];
+        return sPadOk[sWingPadBase[sCurWing] - sStockPads + (p - DP_LOCAL(0))];
     }
     if (p >= DP_NEW(0))
     {
@@ -415,6 +513,28 @@ static PropDefHeaderRecord *dpFindGun(PropDefHeaderRecord *defs, s32 chrnum)
             && ((ObjectRecord *) p)->pad == chrnum)
         {
             return p;
+        }
+    }
+    return NULL;
+}
+
+/* the object a stock tag (by id) points at, or NULL */
+static PropDefHeaderRecord *dpFindTagged(PropDefHeaderRecord *defs, s32 tagid)
+{
+    PropDefHeaderRecord *p;
+    s32 idx = 0;
+
+    for (p = defs; p->type != PROPDEF_END; p = DP_NEXT(p), idx++)
+    {
+        if (p->type == PROPDEF_TAG && ((TagObjectRecord *) p)->ID == tagid)
+        {
+            s32 target = idx + ((TagObjectRecord *) p)->OffsetToObj, j = 0;
+            PropDefHeaderRecord *q;
+
+            for (q = defs; q->type != PROPDEF_END; q = DP_NEXT(q), j++)
+            {
+                if (j == target) return q;
+            }
         }
     }
     return NULL;
@@ -499,7 +619,7 @@ static s32 dpEmitPickups(u32 **w, PropDefHeaderRecord *defs, const DpPickup *k, 
 /* AI lists, patrol paths, waypoints: copies of the stock tables with ours after them */
 static void dpAddAiLists(const DpAiList *add, s32 nadd)
 {
-    s32 n = 0;
+    s32 n = 0, i;
     AIListRecord *al;
 
     while (g_CurrentSetup.ailists != NULL && g_CurrentSetup.ailists[n].ailist != NULL)
@@ -511,14 +631,10 @@ static void dpAddAiLists(const DpAiList *add, s32 nadd)
     {
         memcpy(al, g_CurrentSetup.ailists, n * sizeof(AIListRecord));
     }
-    memcpy(al + n, add, 0);
+    for (i = 0; i < nadd; i++)
     {
-        s32 i;
-        for (i = 0; i < nadd; i++)
-        {
-            al[n + i].ailist = (AIRecord *) add[i].list;
-            al[n + i].ID = add[i].id;
-        }
+        al[n + i].ailist = (AIRecord *) add[i].list;
+        al[n + i].ID = add[i].id;
     }
     memset(&al[n + nadd], 0, sizeof(AIListRecord));
     g_CurrentSetup.ailists = al;
@@ -574,18 +690,18 @@ static s32 *dpListPlus(const s32 *stock, s32 extra)
     return out;
 }
 
-/* the motor pool's waypoints (a chain over DP_MP(0..6)) and its own group, joined to the nearest stock waypoint in the
- * shutter's room; returns the first new waypoint id, -1 if there is no graph to join */
-static s32 dpAddMotorWaypoints(s32 seamroom)
+/* a wing's waypoints (a chain over its first nwp pads) and its own group, joined to the nearest stock waypoint in the seam
+ * room; returns the first new waypoint id, -1 if there is no graph to join */
+static s32 dpAddWingWaypoints(const DpWingSetup *ws, s32 seamroom)
 {
-    s32 nw = 0, ng = 0, i, best = -1;
+    s32 nw = 0, ng = 0, i, best = -1, nwp = ws->nwp;
     f32 bestd = 1e30f;
     waypoint *wp;
     waygroup *wg;
     s32 *members, *gnb;
-    PadRecord *w0 = &g_CurrentSetup.pads[dpPadIndex(DP_MP(0))];
+    PadRecord *w0 = &g_CurrentSetup.pads[dpPadIndex(DP_LOCAL(0))];
 
-    if (g_CurrentSetup.pathwaypoints == NULL || g_CurrentSetup.waypointgroups == NULL)
+    if (g_CurrentSetup.pathwaypoints == NULL || g_CurrentSetup.waypointgroups == NULL || nwp <= 0)
     {
         return -1;
     }
@@ -614,29 +730,29 @@ static s32 dpAddMotorWaypoints(s32 seamroom)
     {
         return -1;
     }
-    wp = mempAllocBytesInBank((nw + DP_NMWP + 1) * sizeof(waypoint), MEMPOOL_STAGE);
+    wp = mempAllocBytesInBank((nw + nwp + 1) * sizeof(waypoint), MEMPOOL_STAGE);
     memcpy(wp, g_CurrentSetup.pathwaypoints, nw * sizeof(waypoint));
     wg = mempAllocBytesInBank((ng + 2) * sizeof(waygroup), MEMPOOL_STAGE);
     memcpy(wg, g_CurrentSetup.waypointgroups, ng * sizeof(waygroup));
-    members = mempAllocBytesInBank((DP_NMWP + 1) * sizeof(s32), MEMPOOL_STAGE);
-    for (i = 0; i < DP_NMWP; i++)
+    members = mempAllocBytesInBank((nwp + 1) * sizeof(s32), MEMPOOL_STAGE);
+    for (i = 0; i < nwp; i++)
     {
         s32 *nb = mempAllocBytesInBank(4 * sizeof(s32), MEMPOOL_STAGE);
         s32 k = 0;
 
         if (i == 0) nb[k++] = best;
         if (i > 0) nb[k++] = nw + i - 1;
-        if (i < DP_NMWP - 1) nb[k++] = nw + i + 1;
+        if (i < nwp - 1) nb[k++] = nw + i + 1;
         nb[k] = -1;
-        wp[nw + i].padID = dpPadIndex(DP_MP(i));
+        wp[nw + i].padID = dpPadIndex(DP_LOCAL(i));
         wp[nw + i].neighbours = nb;
         wp[nw + i].groupNum = ng;
         wp[nw + i].dist = 0;
         members[i] = nw + i;
     }
-    members[DP_NMWP] = -1;
-    memset(&wp[nw + DP_NMWP], 0, sizeof(waypoint));
-    wp[nw + DP_NMWP].padID = -1;
+    members[nwp] = -1;
+    memset(&wp[nw + nwp], 0, sizeof(waypoint));
+    wp[nw + nwp].padID = -1;
     /* the stock waypoint and its group learn about ours (new arrays; the stock ones are untouched) */
     wp[best].neighbours = dpListPlus(wp[best].neighbours, nw);
     gnb = mempAllocBytesInBank(2 * sizeof(s32), MEMPOOL_STAGE);
@@ -649,9 +765,34 @@ static s32 dpAddMotorWaypoints(s32 seamroom)
     memset(&wg[ng + 1], 0, sizeof(waygroup));
     g_CurrentSetup.pathwaypoints = wp;
     g_CurrentSetup.waypointgroups = wg;
-    printf("ge: dam+: motor pool: waypoints %d-%d (group %d) joined to stock waypoint %d (pad %d)\n", nw, nw + DP_NMWP - 1, ng, best,
-           wp[best].padID);
+    printf("ge: dam+: wing 0x%x: waypoints %d-%d (group %d) joined to stock waypoint %d (pad %d)\n", ws->part, nw, nw + nwp - 1, ng,
+           best, wp[best].padID);
     return nw;
+}
+
+/* our list in place of a stock one (by id): in the AI-list table, and in the background chr already running it */
+static void dpReplaceAiList(u16 id, u8 *list)
+{
+    s32 i;
+    AIRecord *old = NULL;
+
+    for (i = 0; g_CurrentSetup.ailists != NULL && g_CurrentSetup.ailists[i].ailist != NULL; i++)
+    {
+        if (g_CurrentSetup.ailists[i].ID == id)
+        {
+            old = g_CurrentSetup.ailists[i].ailist;
+            g_CurrentSetup.ailists[i].ailist = (AIRecord *) list;
+        }
+    }
+    for (i = 0; old != NULL && g_ActiveChrs != NULL && i < g_ActiveChrsCount; i++)
+    {
+        if (g_ActiveChrs[i].ailist == old)
+        {
+            g_ActiveChrs[i].ailist = (AIRecord *) list;
+            g_ActiveChrs[i].aioffset = 0;
+        }
+    }
+    printf("ge: dam+: list 0x%04x replaced%s\n", id, old ? "" : " (NOT FOUND)");
 }
 
 /* The setup hook: proplvreset2 at "PD rejoins here" (prop.c), after every stock pointer is promoted and the pads are scaled
@@ -659,68 +800,92 @@ static s32 dpAddMotorWaypoints(s32 seamroom)
 void portDamPlusSetup(s32 stageId)
 {
     PadRecord *pads;
-    s32 npads, nnew, nmotor, i, ok;
+    s32 npads, nnew, nwingpads = 0, i, ok, wi;
     PropDefHeaderRecord *defs = g_CurrentSetup.propDefs;
     PropDefHeaderRecord *p;
     u32 stockwords, extrawords;
     u32 *newdefs, *w;
-    s32 nguards = 0, npick = 0, nprops = 0, motor;
+    s32 nguards = 0, npick = 0, nprops = 0, anywing = 0;
     s32 night;
 
     night = (sParts & DP_NIGHT) != 0;
-    motor = (sParts & DP_MOTORPOOL) && portDamPlusMotorPoolReady();
-    if (stageId != LEVELID_DAM || (!night && !motor) || defs == NULL || g_CurrentSetup.pads == NULL)
+    for (wi = 0; wi < (s32) ARRAYCOUNT(sWingSetups); wi++)
+    {
+        sWingOn[wi] = (sParts & sWingSetups[wi]->part) && portDamPlusWingReady(sWingSetups[wi]->part);
+        anywing |= sWingOn[wi];
+    }
+    sConsoleRec = NULL;
+    sConsoleIdx = -1;
+    sCallsSeen = 0;
+    if (stageId != LEVELID_DAM || (!night && !anywing) || defs == NULL || g_CurrentSetup.pads == NULL)
     {
         sOursFrom = sOursTo = NULL;
         return;
     }
 
-    /* pads: stock, then night pads, then motor-pool pads */
+    /* pads: stock, then night pads, then each wing's pads */
     sStockPads = npads = dpCountPads(g_CurrentSetup.pads);
     nnew = night ? ARRAYCOUNT(sNightPads) : 0;
-    nmotor = motor ? ARRAYCOUNT(sMotorPads) : 0;
     sNightPadsOn = nnew;
-    pads = mempAllocBytesInBank((npads + nnew + nmotor + 1) * sizeof(PadRecord), MEMPOOL_STAGE);
+    for (wi = 0; wi < (s32) ARRAYCOUNT(sWingSetups); wi++)
+    {
+        sWingPadBase[wi] = npads + nnew + nwingpads;
+        if (sWingOn[wi])
+        {
+            nwingpads += sWingSetups[wi]->npads;
+        }
+    }
+    pads = mempAllocBytesInBank((npads + nnew + nwingpads + 1) * sizeof(PadRecord), MEMPOOL_STAGE);
     memcpy(pads, g_CurrentSetup.pads, npads * sizeof(PadRecord));
     for (i = 0; i < nnew; i++)
     {
         sPadOk[i] = dpMakePad(&pads[npads + i], pads, &sNightPads[i], i);
     }
-    for (i = 0; i < nmotor; i++)
+    for (wi = 0; wi < (s32) ARRAYCOUNT(sWingSetups); wi++)
     {
-        sPadOk[nnew + i] = dpMakeDesignPad(&pads[npads + nnew + i], &sMotorPads[i], nnew + i);
+        const DpWingSetup *ws = sWingSetups[wi];
+
+        if (!sWingOn[wi]) continue;
+        for (i = 0; i < ws->npads; i++)
+        {
+            s32 k = sWingPadBase[wi] - npads + i;
+            sPadOk[k & 127] = dpMakeWingPad(&pads[npads + k], ws->part, &ws->pads[i], k);
+        }
     }
-    memset(&pads[npads + nnew + nmotor], 0, sizeof(PadRecord));
+    memset(&pads[npads + nnew + nwingpads], 0, sizeof(PadRecord));
     g_CurrentSetup.pads = pads;
 
-    /* AI lists and patrol paths */
+    /* AI lists, patrol paths, waypoints */
     if (night)
     {
         dpAddAiLists(sNightAi, ARRAYCOUNT(sNightAi));
         dpAddPaths(sNightPaths, ARRAYCOUNT(sNightPaths));
     }
-    if (motor)
+    for (wi = 0; wi < (s32) ARRAYCOUNT(sWingSetups); wi++)
     {
-        extern s32 portDamPlusSeamRoom(void);
-        s32 w0 = dpAddMotorWaypoints(portDamPlusSeamRoom());
-        if (w0 >= 0)
-        {
-            static DpAiList ai12[1];
-            static DpPath path12[1];
-            s32 *wps = mempAllocBytesInBank(9 * sizeof(s32), MEMPOOL_STAGE);
-            s32 seq[8] = { 2, 3, 4, 5, 6, 5, 4, 3 };
+        const DpWingSetup *ws = sWingSetups[wi];
+        s32 w0;
 
-            for (i = 0; i < 8; i++)
+        if (!sWingOn[wi]) continue;
+        sCurWing = wi;
+        w0 = dpAddWingWaypoints(ws, portDamPlusWingSeamRoom(ws->part, 0));
+        if (w0 >= 0 && ws->npatrol > 0)
+        {
+            DpAiList *al = mempAllocBytesInBank(sizeof(DpAiList), MEMPOOL_STAGE);
+            DpPath *pth = mempAllocBytesInBank(sizeof(DpPath), MEMPOOL_STAGE);
+            s32 *wps = mempAllocBytesInBank((ws->npatrol + 1) * sizeof(s32), MEMPOOL_STAGE);
+
+            for (i = 0; i < ws->npatrol; i++)
             {
-                wps[i] = w0 + seq[i];
+                wps[i] = w0 + ws->patrolSeq[i];
             }
-            wps[8] = -1;
-            ai12[0].list = sAiPatrol12;
-            ai12[0].id = 0x0484;
-            path12[0].waypoints = wps;
-            path12[0].id = 12;
-            dpAddAiLists(ai12, 1);
-            dpAddPaths(path12, 1);
+            wps[ws->npatrol] = -1;
+            al->list = ws->patrolAiBytes;
+            al->id = ws->patrolAi;
+            pth->waypoints = wps;
+            pth->id = ws->patrolPath;
+            dpAddAiLists(al, 1);
+            dpAddPaths(pth, 1);
         }
     }
 
@@ -730,8 +895,11 @@ void portDamPlusSetup(s32 stageId)
     {
         stockwords += sizepropdef(p);
     }
-    extrawords = (ARRAYCOUNT(sNightGuards) + ARRAYCOUNT(sMotorGuards)) * (0x22 * 4 + 16)
-               + (ARRAYCOUNT(sNightPickups) + ARRAYCOUNT(sMotorPickups) + ARRAYCOUNT(sMotorProps) + 2) * 0x40;
+    extrawords = (ARRAYCOUNT(sNightGuards) + 16) * (0x22 * 4 + 16) + (ARRAYCOUNT(sNightPickups) + 64) * 0x40;
+    for (wi = 0; wi < (s32) ARRAYCOUNT(sWingSetups); wi++)
+    {
+        extrawords += sWingSetups[wi]->nguards * (0x22 * 4 + 16) + (sWingSetups[wi]->npickups + sWingSetups[wi]->nprops + 4) * 0x40;
+    }
     newdefs = mempAllocBytesInBank((stockwords + extrawords + 1) * 4, MEMPOOL_STAGE);
     memcpy(newdefs, defs, stockwords * 4);
     w = newdefs + stockwords;
@@ -744,56 +912,102 @@ void portDamPlusSetup(s32 stageId)
         nguards += dpEmitGuards(&w, defs, sNightGuards, ARRAYCOUNT(sNightGuards));
         npick += dpEmitPickups(&w, defs, sNightPickups, ARRAYCOUNT(sNightPickups));
     }
-    if (motor)
+    for (wi = 0; wi < (s32) ARRAYCOUNT(sWingSetups); wi++)
     {
-        PropDefHeaderRecord *door = defs, *tprop = dpFindType(defs, PROPDEF_PROP);
+        const DpWingSetup *ws = sWingSetups[wi];
+        PropDefHeaderRecord *tprop = dpFindType(defs, PROPDEF_PROP);
 
-        nguards += dpEmitGuards(&w, defs, sMotorGuards, ARRAYCOUNT(sMotorGuards));
-        npick += dpEmitPickups(&w, defs, sMotorPickups, ARRAYCOUNT(sMotorPickups));
-        for (i = 0; tprop != NULL && i < (s32) ARRAYCOUNT(sMotorProps); i++)
+        if (!sWingOn[wi]) continue;
+        sCurWing = wi;
+        nguards += dpEmitGuards(&w, defs, ws->guards, ws->nguards);
+        npick += dpEmitPickups(&w, defs, ws->pickups, ws->npickups);
+        for (i = 0; tprop != NULL && i < ws->nprops; i++)
         {
+            const DpProp *pr = &ws->props[i];
             ObjectRecord *o;
 
-            if (!dpPadOk(sMotorProps[i].pad))
+            if (!dpPadOk(pr->pad))
             {
                 continue;
             }
-            o = (ObjectRecord *) dpEmit(&w, tprop);
-            o->extrascale = 256;
-            o->obj = sMotorProps[i].model;
-            o->pad = dpPadIndex(sMotorProps[i].pad);
-            o->flags = 0;
-            o->flags2 = 0;
-            o->prop = NULL;
-            o->model = NULL;
+            if (pr->kind == DP_PROP_CONSOLE)
+            {
+                /* a destructible console: the record of the data-backup mainframe (stock tag 6) with our model, tagged 20 */
+                PropDefHeaderRecord *tm = dpFindTagged(defs, 6);
+                TagObjectRecord *tag;
+
+                if (tm == NULL)
+                {
+                    printf("ge: dam+: no stock tag 6 object to make the console from\n");
+                    continue;
+                }
+                tag = (TagObjectRecord *) dpEmit(&w, dpFindType(defs, PROPDEF_TAG));
+                tag->ID = DP_COMMS_TAG;
+                tag->OffsetToObj = 1;               /* the record right after it */
+                tag->NextTag = NULL;
+                tag->TaggedObject = NULL;
+                o = (ObjectRecord *) dpEmit(&w, tm);
+                o->obj = pr->model;
+                o->pad = dpPadIndex(pr->pad);
+                o->prop = NULL;
+                o->model = NULL;
+                sConsoleRec = o;
+                {
+                    u32 *q;
+                    s32 idx = 0;
+                    for (q = newdefs; q < (u32 *) o; q += sizepropdef((PropDefHeaderRecord *) q)) idx++;
+                    sConsoleIdx = idx;
+                }
+                printf("ge: dam+: comms console: object %d (model %d), tag %d\n", sConsoleIdx, pr->model, DP_COMMS_TAG);
+            }
+            else
+            {
+                o = (ObjectRecord *) dpEmit(&w, tprop);
+                o->extrascale = pr->scale ? pr->scale : 256;
+                o->obj = pr->model;
+                o->pad = dpPadIndex(pr->pad);
+                o->flags = 0;
+                o->flags2 = 0;
+                o->prop = NULL;
+                o->model = NULL;
+            }
             nprops++;
         }
-        /* the shutter: culls the motor pool while it is shut (it used to leave its area always visible), and its key is on the
-         * guard by the truck */
-        for (i = 0; i < DP_DOOR && door->type != PROPDEF_END; i++)
+        if (ws->part == DP_MOTORPOOL)
         {
-            door = DP_NEXT(door);
-        }
-        if (door->type == PROPDEF_DOOR)
-        {
-            ObjectRecord *d = (ObjectRecord *) door;
-            ObjectRecord *k = (ObjectRecord *) ((u32 *) newdefs + ((u32 *) door - (u32 *) defs));
-            KeyRecord *key = (KeyRecord *) w;
-            ObjectRecord *ko = (ObjectRecord *) key;
+            /* the shutter: culls the motor pool while it is shut (it used to leave its area always visible), and its key is on
+             * the guard by the truck */
+            PropDefHeaderRecord *door = defs;
 
-            k->flags = (d->flags & ~PROPFLAG_NO_PORTAL_CLOSE) | PROPFLAG_CULL_BEHIND_DOOR;
-            memset(key, 0, sizeof(KeyRecord));
-            ko->extrascale = 256;
-            ko->type = PROPDEF_KEY;
-            ko->obj = PROP_SWIPE_CARD2;
-            ko->pad = DP_KEY_CHR;
-            ko->flags = PROPFLAG_ASSIGNEDTOCHR;
-            *(s32 *) &ko->damage = 1000 << 16;   /* the raw setup form: domakedefaultobj converts it */
-            key->keyflags = ((DoorRecord *) door)->keyflags ? ((DoorRecord *) door)->keyflags : DP_DOOR_KEY;
-            w += sizepropdef((PropDefHeaderRecord *) key);
-            sKeyRec = ko;
-            sDoorRec = (DoorRecord *) k;
-            printf("ge: dam+: door %d: culls the motor pool when shut; its key (0x%x) is on chr %d\n", DP_DOOR, key->keyflags, DP_KEY_CHR);
+            for (i = 0; i < 281 && door->type != PROPDEF_END; i++)
+            {
+                door = DP_NEXT(door);
+            }
+            if (door->type == PROPDEF_DOOR)
+            {
+                ObjectRecord *d = (ObjectRecord *) door;
+                ObjectRecord *k = (ObjectRecord *) ((u32 *) newdefs + ((u32 *) door - (u32 *) defs));
+                KeyRecord *key = (KeyRecord *) w;
+                ObjectRecord *ko = (ObjectRecord *) key;
+
+                k->flags = (d->flags & ~PROPFLAG_NO_PORTAL_CLOSE) | PROPFLAG_CULL_BEHIND_DOOR;
+                memset(key, 0, sizeof(KeyRecord));
+                ko->extrascale = 256;
+                ko->type = PROPDEF_KEY;
+                ko->obj = PROP_SWIPE_CARD2;
+                ko->pad = 6;
+                ko->flags = PROPFLAG_ASSIGNEDTOCHR;
+                *(s32 *) &ko->damage = 1000 << 16;   /* the raw setup form: domakedefaultobj converts it */
+                key->keyflags = ((DoorRecord *) door)->keyflags ? ((DoorRecord *) door)->keyflags : 0x80;
+                w += sizepropdef((PropDefHeaderRecord *) key);
+                sKeyRec = ko;
+                sDoorRec = (DoorRecord *) k;
+                printf("ge: dam+: door 281: culls the motor pool when shut; its key (0x%x) is on chr 6\n", key->keyflags);
+            }
+        }
+        if (ws->part == DP_COMMS && sConsoleRec != NULL)
+        {
+            dpReplaceAiList(0x1002, sAiComms);
         }
     }
 
@@ -804,7 +1018,7 @@ void portDamPlusSetup(s32 stageId)
 
     ok = (u32) (w - newdefs) <= stockwords + extrawords + 1;
     printf("ge: dam+: setup: %d pads, %d guards, %d pickups, %d props appended (%u + %u propdef words)%s\n",
-           nnew + nmotor, nguards, npick, nprops, stockwords, (u32) (w - newdefs) - stockwords - 1, ok ? "" : " OVERFLOW");
+           nnew + nwingpads, nguards, npick, nprops, stockwords, (u32) (w - newdefs) - stockwords - 1, ok ? "" : " OVERFLOW");
     fflush(stdout);
 }
 
@@ -815,7 +1029,7 @@ void portDamPlusVerify(void)
     u32 *w;
     s32 guards = 0, guardsLive = 0, objs = 0, objsLive = 0;
 
-    if (sOursFrom == NULL || sOursTo == NULL || !(sParts & (DP_NIGHT | DP_MOTORPOOL)))
+    if (sOursFrom == NULL || sOursTo == NULL || sParts == 0)
     {
         return;
     }
@@ -828,7 +1042,7 @@ void portDamPlusVerify(void)
             guards++;
             guardsLive += ((GuardRecord *) p)->Data != NULL;
         }
-        else
+        else if (p->type != PROPDEF_TAG)
         {
             objs++;
             objsLive += ((ObjectRecord *) p)->prop != NULL;
@@ -837,18 +1051,94 @@ void portDamPlusVerify(void)
     printf("ge: dam+: verify: guards %d/%d spawned, objects %d/%d live", guardsLive, guards, objsLive, objs);
     if (sKeyRec != NULL)
     {
-        ChrRecord *c = chrFindByLiteralId(DP_KEY_CHR);
+        ChrRecord *c = chrFindByLiteralId(6);
 
         printf(", shutter key %s chr %d", (sKeyRec->prop != NULL && c != NULL && c->prop != NULL && sKeyRec->prop->parent == c->prop)
-               ? "held by" : "NOT on", DP_KEY_CHR);
+               ? "held by" : "NOT on", 6);
     }
     if (sDoorRec != NULL)
     {
         printf(", shutter portal %d", sDoorRec->portalNumber);
     }
+    if (sConsoleRec != NULL)
+    {
+        printf(", comms console %s (tagged %d)", sConsoleRec->prop != NULL ? "live" : "NOT LIVE",
+               (sConsoleRec->runtime_bitflags & RUNTIMEBITFLAG_TAGGED) != 0);
+    }
     printf("\n");
     fflush(stdout);
     sOursFrom = sOursTo = NULL;
+}
+
+/* ---- per tick (lvlTick, after chrpropTick) ------------------------------------------------------------------------------------ */
+/* GE_DAMPLUS_TEST=comms[:alarm_s:destroy_s] (tests only): sound the alarm at alarm_s (and every 10 s after, so it keeps sounding)
+ * and shoot the comms console at destroy_s through the stock damage path; the calls are logged either way. */
+static void dpCommsTick(void)
+{
+    static const char *test;
+    static s32 alarmAt = 5, destroyAt = 60, parsed;
+    f32 t = g_GlobalTimer / 60.0f;
+    s32 k;
+
+    if (!parsed)
+    {
+        parsed = 1;
+        test = getenv("GE_DAMPLUS_TEST");
+        if (test != NULL && strncmp(test, "comms", 5) == 0)
+        {
+            sscanf(test + 5, ":%d:%d", &alarmAt, &destroyAt);
+        }
+        else
+        {
+            test = NULL;
+        }
+    }
+    for (k = 0; k < DP_COMMS_CALLS; k++)
+    {
+        u32 f = (u32) DP_COMMS_CALL_FLAG0 << k;
+        if ((objectiveregisters1 & f) && !(sCallsSeen & f))
+        {
+            sCallsSeen |= f;
+            printf("ge: dam+: comms: reinforcement call %d at %.1f s (alarm %s, console %s)\n", k + 1, t, alarmIsActive() ? "on" : "off",
+                   (sConsoleRec != NULL && sConsoleRec->prop != NULL && objIsHealthy(sConsoleRec)) ? "standing" : "destroyed");
+            fflush(stdout);
+        }
+    }
+    if (test != NULL && sConsoleRec != NULL)
+    {
+        static s32 lastAlarm = -100, destroyed;
+
+        if (t >= alarmAt && t - lastAlarm >= 10.0f)
+        {
+            lastAlarm = (s32) t;
+            if (!alarmIsActive())
+            {
+                alarmActivate();
+                printf("ge: dam+: test: alarm on at %.1f s\n", t);
+            }
+        }
+        if (!destroyed && t >= destroyAt && sConsoleRec->prop != NULL)
+        {
+            coord3d pos = sConsoleRec->prop->pos;
+
+            destroyed = 1;
+            objApplyDamage(sConsoleRec, 1000.0f, &pos, ITEM_WPPK, 0);
+            printf("ge: dam+: test: console shot at %.1f s: %s\n", t, objIsHealthy(sConsoleRec) ? "still standing" : "destroyed");
+            fflush(stdout);
+        }
+    }
+}
+
+void portDamPlusTick(void)
+{
+    if (sParts == 0 || g_ClockTimer <= 0)
+    {
+        return;
+    }
+    if (sConsoleRec != NULL)
+    {
+        dpCommsTick();
+    }
 }
 
 #endif

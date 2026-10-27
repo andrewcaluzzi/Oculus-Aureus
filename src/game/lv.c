@@ -2135,6 +2135,12 @@ void lvlTick(void)
         update_broken_windows();
         explosionUpdateFlyingParticles();
         chrpropTick();
+#ifndef TARGET_N64
+        {   /* Dam+ (port_damplus.c): the comms console's reinforcement log, its test triggers, the island boat */
+            extern void portDamPlusTick(void);
+            portDamPlusTick();
+        }
+#endif
         reset_all_music_slots();
         langTick();
 
