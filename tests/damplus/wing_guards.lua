@@ -3,11 +3,13 @@
 -- "DPGUARDS RESULT pass|fail".
 local EXPECT = {
   -- motor pool (slice 2)
-  [120] = { 137 }, [121] = { 137 }, [122] = { 137 }, [123] = { 138 }, [124] = { 138 },
+  [120] = { 137 }, [121] = { 137 }, [122] = { 137, 138 }, [123] = { 138 }, [124] = { 138 },
   -- comms annex (concept 5): operator, radio-room guard, deck sentry, tunnel guard, the patrol
-  [130] = { 139 }, [131] = { 139 }, [132] = { 140 }, [133] = { 139 }, [134] = { 139 },
+  [130] = { 139 }, [131] = { 139 }, [132] = { 140 }, [133] = { 139 }, [134] = { 139, 140 },
   -- west gallery (concept 2): by the hatch, the hall walkway's ends, the vestibule, the patrol
-  [140] = { 143 }, [141] = { 142, 143 }, [142] = { 142 }, [143] = { 141 }, [144] = { 141 },
+  [140] = { 143 }, [141] = { 142, 143 }, [142] = { 142 }, [143] = { 141 }, [144] = { 141, 142, 143 },
+  -- spillway (concept 4): the balcony's two ends, the lower landing
+  [150] = { 145 }, [151] = { 145 }, [152] = { 145 },
 }
 local PATROLS = { [122] = {}, [134] = {}, [144] = {} }
 local t, fails, checked, done = 0, 0, false, false

@@ -244,11 +244,82 @@ static const DpWing sGalleryWing = {
 #undef GB
 #undef GC
 
+/* ===========================================================================================================================
+ * Concept 4: the spillway balcony. Frame: a 160 x 185 doorway in room 91's south wall (the big underground chamber under the
+ * bungee platform; one 668-long stock edge, the wall 188 high), u east along the wall, v south towards the downstream face,
+ * h from y -642. The face is only ~120 behind the wall here but recedes eastwards (v 122 at u 0, 260 at u 1000, 316 at
+ * u 1400), so the shaft runs east inside the dam: a landing, a 31-degree stair dropping 780 (to y -1422, about 14 m below the
+ * crest), a lower landing, a short passage out through the face (cut in room 64, the face redrawn around it in room 145) onto a
+ * 1200-long balcony along the face with parapets: the gorge below, the bungee platform up to the west. */
+static const DpSeam sSpillSeams[] = {
+    { SEAM_INSERT, 91, 180, -3424, -642, 160, 1, 0, 0 },
+};
+
+#define SA DP_ROOM_SPILL_A
+#define SB DP_ROOM_SPILL_B
+static const DpPiece sSpillPieces[] = {
+    /* room 144: the doorway, a landing, the stair down to the east */
+    { SA, 4, 0, { DP_SEAM(0, 0), DP_SEAM(0, 1), 160, 0 }, { 0, 0, 8, 8 }, { O, W, O, W }, { 0 }, 185, M_UGFLOOR, M_UGWALL, M_UGCEIL, 0 },
+    { SA, 5, 0, { 0, 160, 230, 230, 0 }, { 8, 8, 8, 115, 115 }, { O, W, O, W, W }, { 0 }, 260, M_UGFLOOR, M_UGWALL, M_UGCEIL, 0 },
+    { SA, 4, 0, { 1530, 1530, 230, 230 }, { 8, 115, 115, 8 }, { O, W, O, W }, { 0 }, 260, M_UGFLOOR, M_UGWALL, M_UGCEIL, PF_STEPS,
+      { -780, -780, 0, 0 } },
+    /* room 145: the lower landing, the passage out through the face, the balcony */
+    { SB, 6, 0, { 1530, 1730, 1730, 1710, 1550, 1530 }, { 8, 8, 115, 115, 115, 115 }, { W, W, W, O, W, O }, { 0 }, 260,
+      M_UGFLOOR, M_UGWALL, M_UGCEIL, 0, { -780, -780, -780, -780, -780, -780 } },
+    { SB, 4, 0, { 1550, 1710, 1710, 1550 }, { 115, 115, 386, 362 }, { O, W, O, W }, { 0 }, 230, M_CONCFLOOR, M_DAMFACE, M_DAMFACE, 0,
+      { -780, -780, -780, -780 } },
+    { SB, 6, 0, { 900, 1550, 1710, 2100, 2062, 862 }, { 265, 362, 386, 445, 702, 522 }, { O, O, O, R, R, R }, { 0, 0, 0, 100, 100, 100 },
+      0, M_DAMFACE, M_DAMFACE, M_DAMFACE, PF_NOCEIL | PF_OUTDOOR | PF_SLAB, { -780, -780, -780, -780, -780, -780 } },
+};
+
+static const DpLamp sSpillLamps[] = {
+    { 110, 60, 250, 400, 190, 225, 205, SA }, { 880, 60, -130, 600, 190, 225, 205, SA }, { 1630, 60, -530, 450, 190, 225, 205, SB },
+    { 1630, 250, -560, 300, 160, 175, 200, SB },
+};
+
+static const DpFixture sSpillFixtures[] = {
+    { 60, 60, 120, 260, M_UGLAMP, SA }, { 1570, 60, 120, -520, M_UGLAMP, SB },
+};
+
+static const DpCut sSpillCuts[] = {
+    /* room 91's south wall, for the doorway (redrawn around it in room 144; its stain decal on that half is dropped) */
+    { 91, SA, 0, 160, -20, 20, -20, 185, 50, -1, 0 },
+    /* the downstream face, for the passage (the face's huge triangles are redrawn around the hole in room 145) */
+    { 64, SB, 1550, 1710, 250, 420, -800, -550, 60, -1, 0 },
+};
+
+static const DpPortalSpec sSpillPortals[] = {
+    { 91, SA, 0, 0, 160, 0, 0, 185 },                   /* 0: the doorway */
+    { SA, SB, 1530, 8, 1530, 115, -780, -520 },         /* 1: the stair foot */
+};
+
+static const DpVis sSpillVis[] = {
+    /* room 91 and its neighbours draw room 144 (it carries 91's redrawn wall) */
+    { 89, 93, DP_VIS_FORCE, 1, { SA } },
+    /* everywhere the downstream face can be seen from draws room 145 (the redrawn face, the balcony) */
+    { 51, 68, DP_VIS_FORCE, 1, { SB } },
+    { 72, 80, DP_VIS_FORCE, 1, { SB } },
+    /* the balcony sees what the bungee platform sees: the face, the crest, the towers, the gorge and the mountains */
+    { SB, SB, DP_VIS_FORCE, 57, { 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 72, 73, 74, 75, 76, 77,
+      78, 79, 80, 1, 2, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 25, 26, 27, 28, 29, 30, 31, 32, 33 } },
+};
+
+static const DpWing sSpillWing = {
+    DP_SPILL, "spillway", DP_ROOM_SPILL_A, 2,
+    sSpillSeams, ARRAYCOUNT(sSpillSeams), sSpillPieces, ARRAYCOUNT(sSpillPieces), sSpillLamps, ARRAYCOUNT(sSpillLamps),
+    sSpillFixtures, ARRAYCOUNT(sSpillFixtures), NULL, 0, sSpillCuts, ARRAYCOUNT(sSpillCuts),
+    sSpillPortals, ARRAYCOUNT(sSpillPortals), sSpillVis, ARRAYCOUNT(sSpillVis),
+    { 0.14f, 0.17f, 0.16f },
+};
+#undef SA
+#undef SB
+
 /* =========================================================================================================================== */
 const DpWing *const g_DpWings[] = {
     &sMotorWing,
     &sCommsWing,
     &sGalleryWing,
+    &sSpillWing,
 };
 const s32 g_DpNumWings = ARRAYCOUNT(g_DpWings);
 

@@ -368,10 +368,43 @@ static const DpWingSetup sGallerySetup = {
     14, 0x0486, sAiPatrol14, sGalleryPatrol, ARRAYCOUNT(sGalleryPatrol), 1,
 };
 
-static const DpWingSetup *const sWingSetups[] = { &sMotorSetup, &sCommsSetup, &sGallerySetup };
+/* -- concept 4: the spillway balcony (frame: port_damplus_wings.c; u east along room 91's south wall, v towards the face) -- */
+static const DpWPad sSpillPads[] = {
+    /* 0-5: waypoints: the landing, the stair, the lower landing, the passage, the balcony, its east end */
+    { 80, 60, 0, 90 }, { 880, 60, -390, 90 }, { 1630, 60, -780, 180 }, { 1630, 250, -780, 0 }, { 1500, 470, -780, 0 },
+    { 1900, 540, -780, 0 },
+    /* 6-8: guards: the balcony's west end, its east end, the lower landing */
+    { 1050, 420, -780, 30 }, { 1950, 560, -780, 300 }, { 1690, 70, -780, 270 },
+    /* 9: the valve station against the face; 10: body armour on the balcony */
+    { 1250, 350, -780, 0 }, { 1150, 470, -780, 0 },
+};
+
+static const DpGuard sSpillGuards[] = {
+    { DP_LOCAL(6), 0x0002, 41, 150 },
+    { DP_LOCAL(7), 0x0002, 41, 151 },
+    { DP_LOCAL(8), 0x0002, 7, 152 },
+};
+
+static const DpPickup sSpillPickups[] = {
+    { DP_PICK_ARMOUR, DP_LOCAL(10), 0 },
+};
+
+static const DpProp sSpillProps[] = {
+    { DP_LOCAL(9), PROP_CONSOLE_SEVD, DP_PROP_CONSOLE },
+};
+
+static const DpWingSetup sSpillSetup = {
+    DP_SPILL, sSpillPads, ARRAYCOUNT(sSpillPads), 6, sSpillGuards, ARRAYCOUNT(sSpillGuards),
+    sSpillPickups, ARRAYCOUNT(sSpillPickups), sSpillProps, ARRAYCOUNT(sSpillProps),
+    0, 0, NULL, NULL, 0, 0,
+};
+
+static const DpWingSetup *const sWingSetups[] = { &sMotorSetup, &sCommsSetup, &sGallerySetup, &sSpillSetup };
 
 /* -- the comms console's reward ------------------------------------------------------------------------------------------- */
 #define DP_COMMS_TAG 20               /* our tag id for the console (stock tags are 0-18) */
+#define DP_VALVE_TAG 21               /* the spillway valve station */
+#define DP_VALVE_FLAG 0x01000000      /* stage flag: the spillway was opened (objective-neutral) */
 #define DP_COMMS_CALL_FLAG0 0x00010000 /* stage flag set by reinforcement call k: 0x10000 << k (stock Dam uses 0x100-0x2000) */
 #define DP_COMMS_CALLS 6
 #define DP_COMMS_GAP60 1200           /* 20 s between calls */
@@ -409,6 +442,8 @@ static u32 *sOursFrom, *sOursTo;       /* our appended propdef records (this sta
 static ObjectRecord *sKeyRec;
 static DoorRecord *sDoorRec;
 static ObjectRecord *sConsoleRec;
+static ObjectRecord *sValveRec;      /* the spillway's valve station */
+static s32 sValveOpen;
 static s32 sConsoleIdx;
 static s32 sNightPadsOn; /* how many night pads were appended (0 when slice 1 is off) */
 static s32 sWingPadBase[8];
@@ -899,6 +934,8 @@ void portDamPlusSetup(s32 stageId)
         anywing |= sWingOn[wi];
     }
     sConsoleRec = NULL;
+    sValveRec = NULL;
+    sValveOpen = 0;
     sConsoleIdx = -1;
     sCallsSeen = 0;
     if (stageId != LEVELID_DAM || (!night && !anywing) || defs == NULL || g_CurrentSetup.pads == NULL)
@@ -1026,7 +1063,7 @@ void portDamPlusSetup(s32 stageId)
                     continue;
                 }
                 tag = (TagObjectRecord *) dpEmit(&w, dpFindType(defs, PROPDEF_TAG));
-                tag->ID = DP_COMMS_TAG;
+                tag->ID = (ws->part == DP_SPILL) ? DP_VALVE_TAG : DP_COMMS_TAG;
                 tag->OffsetToObj = 1;               /* the record right after it */
                 tag->NextTag = NULL;
                 tag->TaggedObject = NULL;
@@ -1035,14 +1072,22 @@ void portDamPlusSetup(s32 stageId)
                 o->pad = dpPadIndex(pr->pad);
                 o->prop = NULL;
                 o->model = NULL;
-                sConsoleRec = o;
+                if (ws->part == DP_SPILL)
                 {
-                    u32 *q;
-                    s32 idx = 0;
-                    for (q = newdefs; q < (u32 *) o; q += sizepropdef((PropDefHeaderRecord *) q)) idx++;
-                    sConsoleIdx = idx;
+                    sValveRec = o;
+                    printf("ge: dam+: spillway valve station: model %d, tag %d\n", pr->model, DP_VALVE_TAG);
                 }
-                printf("ge: dam+: comms console: object %d (model %d), tag %d\n", sConsoleIdx, pr->model, DP_COMMS_TAG);
+                else
+                {
+                    sConsoleRec = o;
+                    {
+                        u32 *q;
+                        s32 idx = 0;
+                        for (q = newdefs; q < (u32 *) o; q += sizepropdef((PropDefHeaderRecord *) q)) idx++;
+                        sConsoleIdx = idx;
+                    }
+                    printf("ge: dam+: comms console: object %d (model %d), tag %d\n", sConsoleIdx, pr->model, DP_COMMS_TAG);
+                }
             }
             else
             {
@@ -1149,6 +1194,10 @@ void portDamPlusVerify(void)
         printf(", comms console %s (tagged %d)", sConsoleRec->prop != NULL ? "live" : "NOT LIVE",
                (sConsoleRec->runtime_bitflags & RUNTIMEBITFLAG_TAGGED) != 0);
     }
+    if (sValveRec != NULL)
+    {
+        printf(", valve station %s (tagged %d)", sValveRec->prop != NULL ? "live" : "NOT LIVE", (sValveRec->runtime_bitflags & RUNTIMEBITFLAG_TAGGED) != 0);
+    }
     printf("\n");
     fflush(stdout);
     sOursFrom = sOursTo = NULL;
@@ -1213,6 +1262,30 @@ static void dpCommsTick(void)
     }
 }
 
+/* the spillway valve: Bond presses B at the station (the stock activation flag on the object). The spillway "opens": a hydraulic
+ * clunk and the rush of water (presentation sounds only), and a stage flag no stock script reads. Once. */
+static void dpValveTick(void)
+{
+    extern int portGameSfxPlay(int sfx, float vol, float pitch, float delay, float pan);
+
+    if (sValveRec == NULL || sValveRec->prop == NULL || !(sValveRec->runtime_bitflags & RUNTIMEBITFLAG_ACTIVATED))
+    {
+        return;
+    }
+    sValveRec->runtime_bitflags &= ~RUNTIMEBITFLAG_ACTIVATED;
+    if (sValveOpen)
+    {
+        return;
+    }
+    sValveOpen = 1;
+    objectiveregisters1 |= DP_VALVE_FLAG;
+    portGameSfxPlay(219, 1.0f, 0.8f, 0.0f, 0.0f);    /* 219_DOOR_HYDRAL_OPEN */
+    portGameSfxPlay(102, 1.0f, 0.6f, 0.5f, 0.0f);    /* 102_GAS_HISS: the spillway running */
+    portGameSfxPlay(102, 0.8f, 0.5f, 2.0f, 0.0f);
+    printf("ge: dam+: spillway opened at %.1f s\n", g_GlobalTimer / 60.0f);
+    fflush(stdout);
+}
+
 void portDamPlusTick(void)
 {
     if (sParts == 0 || g_ClockTimer <= 0)
@@ -1223,6 +1296,7 @@ void portDamPlusTick(void)
     {
         dpCommsTick();
     }
+    dpValveTick();
 }
 
 #endif
