@@ -838,6 +838,11 @@ static int benchExit(lua_State *L)
  *   crowd.cheer(seconds [, fraction])   that share of the impostors (1) raise their arms for about `seconds`, rippling */
 extern int portCrowdSet(const float *xyz, int n, const char *const *skins, int nskins);
 extern void portCrowdCheer(float secs, float frac);
+extern int portLuaBenchHide(lua_State *L);   /* port_luavm_perfcat.c: bench.hide, crowd.lod */
+extern int portLuaCrowdLod(lua_State *L);
+extern int portLuaBenchSummary(lua_State *L);
+extern int portLuaBenchShot(lua_State *L);
+extern int portLuaCrowdBatch(lua_State *L);
 
 static int crowdImpostors(lua_State *L)
 {
@@ -1231,9 +1236,10 @@ void portLuaArenaRegister(lua_State *L)
 
     static const luaL_Reg benchLib[] = { { "run_start", benchRunStart }, { "note", benchNote }, { "begin", benchBegin },
         { "tag", benchTag }, { "pools", benchPools }, { "finish", benchFinish }, { "look", benchLook }, { "sweep", benchSweep }, { "sweep_off", benchSweepOff }, { "last", benchLast }, { "exit", benchExit },
+        { "hide", portLuaBenchHide }, { "summary", portLuaBenchSummary }, { "shot", portLuaBenchShot },   /* port_luavm_perfcat.c */
         { NULL, NULL } };
 
-    static const luaL_Reg crowdLib[] = { { "impostors", crowdImpostors }, { "cheer", crowdCheer }, { NULL, NULL } };
+    static const luaL_Reg crowdLib[] = { { "impostors", crowdImpostors }, { "cheer", crowdCheer }, { "lod", portLuaCrowdLod }, { "batch", portLuaCrowdBatch }, { NULL, NULL } };
     static const luaL_Reg soundLib[] = { { "play_file", soundPlayFile }, { "play_any", soundPlayAny }, { "variants", soundVariants },
         { "file_exists", soundExists }, { "stop", soundStop }, { "playing", soundPlaying }, { "play_sfx", soundPlaySfx },
         { "sfx_burst", soundSfxBurst }, { "sfx_names", soundSfxNames }, { "stop_sfx", soundStopSfx }, { "sfx_playing", soundSfxPlaying },

@@ -31,6 +31,12 @@
 --                 armour_chance (0.25), after other waves; replaces the old armour gift
 --   crowd_impostors  (PC) flat camera-facing pictures of the crowd skins on the spare seats behind the real spectators (1000; 0 = none):
 --                 no chr slots, no sim cost, one draw call. crowd.cheer() raises their arms (wave clear, boss down)
+--   crowd_lod     (PC, presentation only) real spectators farther than this from the camera are drawn as impostors of their own skin
+--                 and pose (arms up while they cheer) in one more batched draw; they stay real chrs for the sim (reactions, the crowd
+--                 favour, shots at the crowd). 0 = always real models. GE_CROWD_LOD=<units> overrides. Needs crowd_impostors > 0 (the atlas)
+--   chr_batch     (PC, presentation only) true: the opaque triangles of spectators, corpses and live enemies are drawn once per draw
+--                 state for the whole view instead of a draw per limb of every chr (thousands of draws at wave 20); the z-buffer
+--                 orders them, so the picture is the same. false = the old way. GE_CHR_BATCH=0/1 overrides
 --   crowd         real spectators in the stands, front rows first (150; crowd_real is the same setting); they appear crowd_rate a second (200: the mode ticks 4 times a second, so 50 a tick),
 --                 so a big crowd does not hitch the start. The stage needs the chr slots: GE_COLOSSEUM_SLOTS=<n> (default 600) on a PC that can take 1000+
 --   reactions     the crowd cheers and boos (true; false = only the old wave-clear / boss reactions, no sounds). REACT below has, per
@@ -74,6 +80,8 @@ local S = {
   supplies    = true,
   crowd       = 150,
   crowd_impostors = 1000,
+  crowd_lod   = 2500,     -- (PC, presentation) a real spectator farther than this from the camera is drawn as an impostor (0 = never)
+  chr_batch   = true,     -- (PC, presentation) spectators, corpses and fighters drawn once per draw state, not a draw per limb
   crowd_rate  = 200,
 
   -- crowd reactions (presentation: the impostors and the sounds; the real spectators' animations follow the same sim events)
@@ -1330,7 +1338,9 @@ on("stage_start", function(stage)
     crowd_pads = front_seats(seats, crowd_count())
     for _, p in ipairs(crowd_pads) do seats_planned[p] = true end
     local nimp = (S.crowd_impostors or 0) > 0 and impostors_set(S.crowd_impostors) or 0
-    print(string.format("ge: arena: crowd %d of %d seats, %d impostors", #crowd_pads, #seats, nimp))
+    local lod = IMPOSTORS and IMPOSTORS.lod and IMPOSTORS.lod(nimp > 0 and S.crowd_lod or 0) or 0   -- (PC, presentation) far spectators as impostors
+    if IMPOSTORS and IMPOSTORS.batch then IMPOSTORS.batch(S.chr_batch and true or false) end        -- (PC, presentation) the chr batch
+    print(string.format("ge: arena: crowd %d of %d seats, %d impostors, real spectators beyond %d drawn as impostors", #crowd_pads, #seats, nimp, lod))
     if SOUND and S.reactions then   -- load the crowd recordings now (none is fine), so the first cheer does not read the disk
       local parts = {}
       for _, n in ipairs(SOUND_NAMES) do sound_have[n] = SOUND.variants(n); parts[#parts + 1] = n .. " " .. sound_have[n] end

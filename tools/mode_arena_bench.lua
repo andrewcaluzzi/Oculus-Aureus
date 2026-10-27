@@ -14,19 +14,34 @@
 -- 25 / 50 / 100 / 200 live soldiers (the arena "chase" behaviour: they walk, path and shoot at the invulnerable Bond, who never fires).
 -- The live count is topped up all through each phase. The report adds how many were attacking / moving, and a sim cost per live enemy
 -- ((sim avg - the L0 sim avg) / live).
+--
+-- Late-wave variant (GE_BENCH_LATE=1, the "Arena Benchmark (Late Waves).bat" launcher): the state of waves 15-20 - the default crowd
+-- (150 real spectators in the front rows + 1000 impostors), 150 corpses, 40 live enemies chasing and shooting Bond - then 8 s phases
+-- that each drop one category from the display list (bench.hide: the props are still built, so the game runs the same), giving the
+-- cost of each on this machine's GPU: ALL (as shipped), LOD OFF (every real spectator a full model: the build before crowd_lod),
+-- then without spectators / impostors / corpses / live enemies, and the level alone. About a minute after the spawns settle.
+-- The report adds the render-thread ms, draw batches and triangles of every category per phase, and a closing summary table.
 local LIVE = BENCH_LIVE and true or false
+local LATE = (BENCH_LATE or mode.env_flag("GE_BENCH_LATE")) and not LIVE
+if LATE then
+  ARENA_SETTINGS = {
+    start_delay = 100000, supplies = false, ammo_every = 0, pickup_mode = "none",
+    corpse_keep = -1, corpse_limit = 100000,   -- the crowd and the impostors stay at the arena's defaults
+  }
+else
 ARENA_SETTINGS = {
   start_delay = 100000,      -- no waves: this mode only spawns what the phases ask for
   supplies = false, ammo_every = 0, pickup_mode = "none",
   crowd = LIVE and 0 or 100, crowd_impostors = 0,
   corpse_keep = LIVE and 4 or -1, corpse_limit = LIVE and 40 or 100000,
 }
+end
 include("arena")
 
 local REACT_EVERY = mode.env_flag("GE_BENCH_REACT") and 3 or nil   -- seconds between forced crowd reactions while measuring
 local react_acc, react_i = 0, 0
-local MEASURE_S  = 30        -- seconds measured per phase
-local SEGMENT_S  = 7.5       -- seconds per view segment (24 deg/s = a half turn)
+local MEASURE_S  = LATE and 8 or 30   -- seconds measured per phase
+local SEGMENT_S  = LATE and 4 or 7.5  -- seconds per view segment (24 deg/s = a half turn)
 local TURN_RATE  = 24        -- degrees a second
 local PITCH_STANDS, PITCH_FLOOR = 16, -40
 
@@ -47,6 +62,21 @@ if LIVE then
     { name = "L200", crowd = 0, corpses = 0, live = 200, settle = 12 },
   }
 end
+if LATE then
+  local C, K, L = 150, 150, 40
+  PH = {
+    { name = "ALL",       crowd = C, corpses = K, live = L, settle = 4, imp = 1000 },
+    { name = "BEFORE (lod 0, batch off)", crowd = C, corpses = K, live = L, settle = 1, lod = 0, batch = false },
+    { name = "BATCH OFF", crowd = C, corpses = K, live = L, settle = 1, batch = false },
+    { name = "LOD OFF",   crowd = C, corpses = K, live = L, settle = 1, lod = 0 },
+    { name = "-SPECT",    crowd = C, corpses = K, live = L, settle = 1, hide = { "spectators" } },
+    { name = "-IMP",      crowd = C, corpses = K, live = L, settle = 1, hide = { "impostors" } },
+    { name = "-CORPSES",  crowd = C, corpses = K, live = L, settle = 1, hide = { "corpses" } },
+    { name = "-LIVE",     crowd = C, corpses = K, live = L, settle = 1, hide = { "live" } },
+    { name = "LEVEL",     crowd = C, corpses = K, live = L, settle = 1, hide = { "spectators", "impostors", "corpses", "live", "objects", "fx" } },
+  }
+end
+local lod_default, batch_default                    -- crowd.lod / crowd.batch as the arena set them (LATE)
 
 local bt, pi, st, st_t = 0, 0, "start", 0          -- bench clock, phase index, step, seconds in the step
 local corpses_made = 0
@@ -77,7 +107,16 @@ local function start_phase(n)
   pi, st, st_t = n, "prep", 0   -- (corpses_made and live_made are totals: a phase only adds what the last did not have)
   local p = PH[n]
   ARENA_HOOKS.crowd_set(p.crowd)
-  p.imp_n = ARENA_HOOKS.impostors(p.imp or 0)
+  if not LATE or p.imp then p.imp_n = ARENA_HOOKS.impostors(p.imp or 0) else p.imp_n = PH[1].imp_n end
+  if LATE and crowd and crowd.lod then   -- the phase's category toggles (presentation only)
+    if lod_default == nil then lod_default = crowd.lod() end
+    crowd.lod(p.lod or lod_default)
+    if crowd.batch then
+      if batch_default == nil then batch_default = crowd.batch() end
+      if p.batch == nil then crowd.batch(batch_default) else crowd.batch(p.batch) end
+    end
+    if bench.hide then bench.hide(p.hide or {}) end
+  end
   say(string.format("BENCHMARK %s/%d: CROWD %d  CORPSES %d  LIVE %d  IMPOSTORS %d", p.name, #PH, p.crowd, p.corpses, p.live, p.imp_n))
   print(string.format("ge: bench: phase %s: preparing (crowd %d, corpses %d, live %d)", p.name, p.crowd, p.corpses, p.live))
   bench.sweep(TURN_RATE, PITCH_FLOOR)
@@ -130,7 +169,7 @@ on("tick", function(dt)
     if st == "start" then
       if bt < 1 then return end   -- let the stage and the arena's own start-up settle
       bench.run_start()
-      note((LIVE and "preset arena-bench-live: " or "preset arena-bench: ") .. #PH .. " phases x " .. MEASURE_S .. " s, view sweep " .. TURN_RATE .. " deg/s")
+      note((LIVE and "preset arena-bench-live: " or LATE and "preset arena-bench late waves: " or "preset arena-bench: ") .. #PH .. " phases x " .. MEASURE_S .. " s, view sweep " .. TURN_RATE .. " deg/s")
       local pad = middle_pad()
       if pad then bond.warp(0, pad) end
       start_phase(1)
@@ -157,6 +196,7 @@ on("tick", function(dt)
         st, st_t = "measure", 0
         seg_t, seg_i = 0, 0
         eng_att, eng_mov, eng_oth, eng_n, eng_acc = 0, 0, 0, 0, 0
+        if LATE then bench.look(0, 0, PITCH_STANDS) end   -- every phase sweeps the same arc
         bench.begin()
         bench.tag(1)
         bench.sweep(TURN_RATE, PITCH_STANDS)
@@ -201,6 +241,8 @@ on("tick", function(dt)
           bench.note("")
           bench.note("== Summary ==")
           for _, s in ipairs(summary) do bench.note("  " .. s) end
+          if bench.summary then bench.summary() end
+          if LATE and bench.hide then bench.hide({}) end
           bench.note("Report written to Data/Logs/arena_bench.txt - paste it back. (The 'ge: sys:' lines above describe this machine.)")
           st = "end"; st_t = 0
         end

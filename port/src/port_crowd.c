@@ -41,6 +41,7 @@ static s32 sWaited;                      /* frames spent waiting for the skins' 
 static f32 sBox[3];
 static unsigned long long sT0;
 static u32 sRng = 0x9e3779b9u;
+static s32 sFarN;                        /* far real spectators listed this view pass (portCrowdFarAdd, below) */
 
 static f32 rnd(void)                     /* presentation RNG (xorshift), never the sim's */
 {
@@ -71,6 +72,12 @@ void portCrowdStageLoaded(void)
     sWant = 0;
     sWaited = 0;
     sVersion++;
+    {   /* the far-spectator list and the arena's render settings start over (the mode sets them again) */
+        extern void portPerfStageReset(void);   /* port_perfcat.c */
+
+        sFarN = 0;
+        portPerfStageReset();
+    }
 }
 
 /* crowd.impostors: xyz = n seat positions (x, y, z each); skins = names as spawn.chr takes them. Returns the count. */
@@ -309,14 +316,86 @@ Gfx *portCrowdCapture(Gfx *gdl)
     return gdl;
 }
 
+/* ---- far real spectators (port_perfcat.c): a spectator past crowd.lod() from the camera is built as usual, then its commands are
+ * dropped and it joins this list, drawn as an impostor of its own skin and pose in a second batched draw after the static one.
+ * Static memory, not the frame pool: how many join depends on the local camera, and the frame pool must allocate the same on
+ * every machine. A ring of lists, as the render thread may still be drawing the last frame's while this one is built. */
+#define FAR_MAX   512
+#define FAR_RING  8
+static CrowdImpostor sFar[FAR_RING][FAR_MAX];
+static CrowdFrame sFarFrame[FAR_RING];
+static s32 sFarRing;
+static u32 sFarSerial = 1;                        /* bumped by every portCrowdDraw (one per view pass) */
+static struct { s32 chrnum; u32 serial; } sFarMark[1024];
+
+unsigned portCrowdPasses(void)
+{
+    return sFarSerial;
+}
+
+int portCrowdFarReady(void)
+{
+    return sN > 0 && sModel[0] != NULL && sSkinN > 0 && portModeActive();
+}
+
+static s32 skinOf(const ChrRecord *chr)
+{
+    s32 k, body = -1;
+
+    for (k = 0; k < sSkinN; k++)
+    {
+        if (sBody[k] == chr->bodynum)
+        {
+            if (sHead[k] < 0 || sHead[k] == chr->headnum)
+            {
+                return k;
+            }
+            if (body < 0)
+            {
+                body = k;   /* same body, another head: close enough at this distance */
+            }
+        }
+    }
+    return body;
+}
+
+int portCrowdFarAdd(const ChrRecord *chr, int cheer)
+{
+    CrowdImpostor *c;
+    s32 k;
+
+    if (chr == NULL || chr->prop == NULL || sFarN >= FAR_MAX || (k = skinOf(chr)) < 0)
+    {
+        return 0;
+    }
+    c = &sFar[sFarRing][sFarN++];
+    c->x = chr->prop->pos.x;
+    c->y = chr->ground;
+    c->z = chr->prop->pos.z;
+    c->skin = (f32)k;
+    c->t0 = cheer ? -1.0f : 0.0f;
+    c->t1 = cheer ? 1.0e9f : 0.0f;
+    sFarMark[(u32)chr->chrnum & 1023].chrnum = (s32)chr->chrnum;
+    sFarMark[(u32)chr->chrnum & 1023].serial = sFarSerial;
+    return 1;
+}
+
+int portCrowdFarHas(const ChrRecord *chr)
+{
+    return chr != NULL && sFarMark[(u32)chr->chrnum & 1023].chrnum == (s32)chr->chrnum &&
+           sFarMark[(u32)chr->chrnum & 1023].serial == sFarSerial;
+}
+
 /* before the world-end marker (lv.c): one batched draw of every impostor, depth-tested against the scene */
 Gfx *portCrowdDraw(Gfx *gdl)
 {
     Mtxf *cam, *proj;
     CrowdFrame *f;
     f32 rx, rz, l;
-    s32 i, j;
+    s32 i, j, farN = sFarN;
 
+    sFarN = 0;
+    sFarSerial++;
     if (sN == 0 || sModel[0] == NULL || !portModeActive())
     {
         return gdl;
@@ -350,9 +429,24 @@ Gfx *portCrowdDraw(Gfx *gdl)
     f->box[1] = sBox[1];
     f->box[2] = sBox[2];
     f->tint[0] = f->tint[1] = f->tint[2] = f->tint[3] = 0.0f;
+    f->slot = 0;
     gdl->words.w0 = ((uintptr_t)G_CROWD_EXT << 24) | CROWD_DRAW;
     gdl->words.w1 = (uintptr_t)f;
     gdl++;
+    if (farN > 0)
+    {   /* the far real spectators: same view, their own list, re-sent every frame (slot 1) */
+        CrowdFrame *g = &sFarFrame[sFarRing];
+
+        *g = *f;
+        g->imp = sFar[sFarRing];
+        g->n = farN;
+        g->now = 0.0f;   /* t0 / t1 of each entry say the pose outright (-1 .. 1e9 = arms up) */
+        g->slot = 1;
+        gdl->words.w0 = ((uintptr_t)G_CROWD_EXT << 24) | CROWD_DRAW;
+        gdl->words.w1 = (uintptr_t)g;
+        gdl++;
+        sFarRing = (sFarRing + 1) % FAR_RING;
+    }
     return gdl;
 }
 

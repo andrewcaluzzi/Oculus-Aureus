@@ -27,6 +27,8 @@ typedef struct {
     float now;
     float box[3];                 /* quad half width, bottom (from the seat), height */
     float tint[4];                /* rgb blended in by a, like a chr's shade */
+    int slot;                     /* 0 = the stand impostors (cached by version), 1 = the far real spectators (port_perfcat.c),
+                                   * a fresh list every frame */
 } CrowdFrame;
 
 #endif
