@@ -88,6 +88,60 @@ static const DpPiece sPieces[] = {
       { E_WALL, E_OPEN, E_WALL, E_WALL, E_WALL, E_WALL }, { 0 }, 330, M_UGFLOOR, M_UGWALL, M_UGCEIL },
 };
 
+/* the barracks with an opening in its back wall, used instead of the last piece when test rooms hang off it */
+static const DpPiece sBarracksOpen = { DP_ROOM_BARRACKS, 8, 4, { -1500, -1000, -800, -300, -300, -800, -1000, -1500 },
+    { 2040, 2040, 2040, 2040, 2900, 2900, 2900, 2900 }, { E_WALL, E_OPEN, E_WALL, E_WALL, E_WALL, E_OPEN, E_WALL, E_WALL }, { 0 }, 330,
+    M_UGFLOOR, M_UGWALL, M_UGCEIL };
+
+/* GE_DAMPLUS_TESTROOMS=N (tests only, slice 3: the raised room and portal limits): N more box rooms, ids 139.., chained off the
+ * barracks' back wall, one portal each. With the motor pool, Dam then has 136 + 2 + N rooms: N = 10 fills ids up to 148, the
+ * most MAXROOMCOUNT 150 allows (the end entry is 149), and takes the portals to 206 (PORTMAX was 200). */
+#define DP_MAXROOMS 12
+#define DP_TESTROOM_DEPTH 400
+static DpPiece sWork[ARRAYCOUNT(sPieces) + DP_MAXROOMS];
+static s32 sNWork;
+static s32 sNRooms;                 /* our rooms this load: 137 .. 136 + sNRooms */
+
+static void dpWorkPieces(s32 ntest)
+{
+    s32 i;
+
+    sNWork = ARRAYCOUNT(sPieces);
+    memcpy(sWork, sPieces, sizeof(sPieces));
+    sNRooms = 2;
+    if (ntest <= 0)
+    {
+        return;
+    }
+    if (ntest > DP_MAXROOMS - 2)
+    {
+        ntest = DP_MAXROOMS - 2;
+    }
+    sWork[sNWork - 1] = sBarracksOpen;
+    for (i = 0; i < ntest; i++)
+    {
+        DpPiece *p = &sWork[sNWork++];
+        s16 v0 = 2900 + DP_TESTROOM_DEPTH * i, v1 = v0 + DP_TESTROOM_DEPTH;
+
+        memset(p, 0, sizeof(*p));
+        p->room = DP_ROOM_BARRACKS + 1 + i;
+        p->n = 4;
+        p->u[0] = -1000; p->v[0] = v0;
+        p->u[1] = -800;  p->v[1] = v0;
+        p->u[2] = -800;  p->v[2] = v1;
+        p->u[3] = -1000; p->v[3] = v1;
+        p->edge[0] = E_OPEN;
+        p->edge[1] = E_WALL;
+        p->edge[2] = (i < ntest - 1) ? E_OPEN : E_WALL;
+        p->edge[3] = E_WALL;
+        p->height = 230;
+        p->floor = M_UGFLOOR;
+        p->wall = M_UGWALL;
+        p->ceil = M_UGCEIL;
+    }
+    sNRooms = 2 + ntest;
+}
+
 /* materials: Dam texture numbers, the C0 command word stock rooms use with them, st units per FILE unit (measured off stock
  * rooms' own mapping density), and a base colour */
 static const struct { u16 tex; u32 c0; f32 st; u8 r, g, b; } sMats[M_COUNT] = {
@@ -144,9 +198,9 @@ static struct
     u8 tileRoom[256];
     f32 tileUV[256][3][2];      /* each tile's corners in the design frame (world), for pad -> tile lookups */
     /* our bg */
-    u32 *vtx[2], *gdl[2];
-    s32 vtxBytes[2], gdlBytes[2];
-    bg_portal_entry *portal[2];
+    u32 *vtx[DP_MAXROOMS], *gdl[DP_MAXROOMS];
+    s32 vtxBytes[DP_MAXROOMS], gdlBytes[DP_MAXROOMS];
+    bg_portal_entry *portal[DP_MAXROOMS];   /* portal k joins room 136+k (135 for k = 0) to room 137+k */
     f32 doorH;                  /* shutter opening height (world) */
 } S;
 
@@ -371,32 +425,44 @@ static s32 dpBuildTris(DpTri *out, s32 max)
 {
     s32 n = 0, pi;
 
-    for (pi = 0; pi < (s32) ARRAYCOUNT(sPieces); pi++)
+    for (pi = 0; pi < sNWork; pi++)
     {
-        const DpPiece *p = &sPieces[pi];
+        const DpPiece *p = &sWork[pi];
         s32 k;
+        f32 cu = 0.0f, cv = 0.0f, cf[3];
+        s16 cpt[3];
 
+        /* fan from the polygon's centroid (our own point, inside a convex piece): every polygon edge is then the edge of a
+         * triangle with area, even with several vertices along one side (doorways, openings) */
         for (k = 0; k < p->n; k++)
         {
-            s32 a = (p->root + 1 + k) % p->n, b = (p->root + 2 + k) % p->n;
-            s32 idx[3] = { p->root, a, b };
+            cu += dpU(p->u[k]) / p->n;
+            cv += (f32) p->v[k] / p->n;
+        }
+        dpFile(cu, cv, 0.0f, cf);
+        cpt[0] = (s16) lroundf(cf[0]);
+        cpt[1] = S.seam[0][1];
+        cpt[2] = (s16) lroundf(cf[2]);
+        for (k = 0; k < p->n; k++)
+        {
+            s32 a = k, b = (k + 1) % p->n;
             s32 j;
             f32 cr;
 
-            if (a == p->root || b == p->root)
-            {
-                continue;
-            }
             if (n >= max)
             {
                 return n;
             }
-            for (j = 0; j < 3; j++)
-            {
-                dpStanPoint(p, idx[j], out[n].p[j]);
-                out[n].uv[j][0] = dpU(p->u[idx[j]]);
-                out[n].uv[j][1] = p->v[idx[j]];
-            }
+            memcpy(out[n].p[0], cpt, sizeof(cpt));
+            out[n].uv[0][0] = cu;
+            out[n].uv[0][1] = cv;
+            dpStanPoint(p, a, out[n].p[1]);
+            out[n].uv[1][0] = dpU(p->u[a]);
+            out[n].uv[1][1] = p->v[a];
+            dpStanPoint(p, b, out[n].p[2]);
+            out[n].uv[2][0] = dpU(p->u[b]);
+            out[n].uv[2][1] = p->v[b];
+            (void) j;
             out[n].room = p->room;
             /* stock tiles wind clockwise seen from above (negative cross in x,z): match it */
             cr = (f32) (out[n].p[1][0] - out[n].p[0][0]) * (out[n].p[2][2] - out[n].p[0][2])
@@ -542,8 +608,8 @@ static s32 dpBuildStan(void *prefixv)
     S.stanBlock = blk;
     S.first = first;
     S.nTiles = ntri;
-    printf("ge: dam+: stan: %d tiles appended to %u bytes of stock tiles (rooms %d, %d), numbered from p%d\n", ntri, stockbytes,
-           DP_ROOM_BAY, DP_ROOM_BARRACKS, maxnum + 100);
+    printf("ge: dam+: stan: %d tiles appended to %u bytes of stock tiles (rooms %d-%d), numbered from p%d\n", ntri, stockbytes,
+           DP_ROOM_BAY, DP_ROOM_BAY + sNRooms - 1, maxnum + 100);
     return 1;
 }
 
@@ -748,9 +814,9 @@ static void dpBuildRoomGeo(u8 room)
     s32 pi, k, f;
     f32 cu, cv;
 
-    for (pi = 0; pi < (s32) ARRAYCOUNT(sPieces); pi++)
+    for (pi = 0; pi < sNWork; pi++)
     {
-        const DpPiece *p = &sPieces[pi];
+        const DpPiece *p = &sWork[pi];
 
         if (p->room != room)
         {
@@ -1026,6 +1092,10 @@ void portDamPlusStan(f32 levelscale)
         return;
     }
     S.ls = levelscale;
+    {
+        const char *e = getenv("GE_DAMPLUS_TESTROOMS");
+        dpWorkPieces(e != NULL ? atoi(e) : 0);
+    }
     if (!dpDoorPad(P, Up, &ulo, &uhi, &height))
     {
         return;
@@ -1078,12 +1148,23 @@ void portDamPlusStan(f32 levelscale)
     {
         return;
     }
-    if (!dpBuildRoomData(0, DP_ROOM_BAY) || !dpBuildRoomData(1, DP_ROOM_BARRACKS))
     {
-        return;
+        s32 i;
+
+        for (i = 0; i < sNRooms; i++)
+        {
+            if (!dpBuildRoomData(i, DP_ROOM_BAY + i))
+            {
+                return;
+            }
+        }
+        S.portal[0] = dpPortal(0.0f, S.W, 0.0f, fmaxf(S.doorH, 300.0f));
+        S.portal[1] = dpPortal(-1000.0f, -800.0f, 2000.0f, 230.0f);
+        for (i = 2; i < sNRooms; i++)
+        {
+            S.portal[i] = dpPortal(-1000.0f, -800.0f, 2900.0f + DP_TESTROOM_DEPTH * (i - 2), 230.0f);
+        }
     }
-    S.portal[0] = dpPortal(0.0f, S.W, 0.0f, fmaxf(S.doorH, 300.0f));
-    S.portal[1] = dpPortal(-1000.0f, -800.0f, 2000.0f, 230.0f);
     /* the extended stan goes live: the stock loader's own two steps on our block */
     stanDetermineEOF(S.stanBlock, 0, S.stanBlock);
     stanLoadFile(S.stanBlock);
@@ -1097,26 +1178,34 @@ void portDamPlusBgRooms(void)
     bg_room_data *rt;
     bg_portal_data_entry *pt;
     s32 i, np;
-    s32 ids[2] = { DP_ROOM_BAY, DP_ROOM_BARRACKS };
 
     if (!S.ok)
     {
         return;
     }
-    if (nstock != DP_ROOM_BAY || DP_ROOM_BARRACKS + 2 >= MAXROOMCOUNT)
+    if (nstock != DP_ROOM_BAY || nstock + sNRooms >= MAXROOMCOUNT)
     {
-        printf("ge: dam+: the stock bg has %d room entries, not %d - motor pool off (stan already extended: rooms 137/138 have no "
-               "gfx)\n", nstock, DP_ROOM_BAY);
+        printf("ge: dam+: the stock bg has %d room entries (want %d), %d more do not fit MAXROOMCOUNT %d - motor pool off "
+               "(its stan is already in: those rooms have no gfx)\n", nstock, DP_ROOM_BAY, sNRooms, MAXROOMCOUNT);
         S.ok = 0;
         return;
     }
-    rt = mempAllocBytesInBank((nstock + 4) * sizeof(bg_room_data), MEMPOOL_STAGE);
-    memset(rt, 0, (nstock + 4) * sizeof(bg_room_data));
-    memcpy(rt, ptr_bgdata_room_fileposition_list, nstock * sizeof(bg_room_data));
-    rt[nstock + 2] = ptr_bgdata_room_fileposition_list[nstock];   /* the end entry moves past ours */
-    for (i = 0; i < 2; i++)
+    for (np = 0; g_BgPortals[np].offset_portal != NULL; np++)
     {
-        s32 r = ids[i];
+    }
+    if (np + sNRooms >= PORTMAX)
+    {
+        printf("ge: dam+: %d stock portals + %d do not fit PORTMAX %d - motor pool off\n", np, sNRooms, PORTMAX);
+        S.ok = 0;
+        return;
+    }
+    rt = mempAllocBytesInBank((nstock + sNRooms + 2) * sizeof(bg_room_data), MEMPOOL_STAGE);
+    memset(rt, 0, (nstock + sNRooms + 2) * sizeof(bg_room_data));
+    memcpy(rt, ptr_bgdata_room_fileposition_list, nstock * sizeof(bg_room_data));
+    rt[nstock + sNRooms] = ptr_bgdata_room_fileposition_list[nstock];   /* the end entry moves past ours */
+    for (i = 0; i < sNRooms; i++)
+    {
+        s32 r = DP_ROOM_BAY + i;
 
         rt[r].pPointTableBin = S.vtx[i];
         rt[r].pPriMappingBin = S.gdl[i];
@@ -1132,27 +1221,20 @@ void portDamPlusBgRooms(void)
         g_BgRoomInfo[r].cur_room_totalsize = -1;
     }
     ptr_bgdata_room_fileposition_list = rt;
-    g_MaxNumRooms = nstock + 2;
+    g_MaxNumRooms = nstock + sNRooms;
 
-    for (np = 0; g_BgPortals[np].offset_portal != NULL; np++)
-    {
-    }
-    if (np + 2 >= PORTMAX)
-    {
-        printf("ge: dam+: %d stock portals: no room for 2 more under PORTMAX %d\n", np, PORTMAX);
-    }
-    pt = mempAllocBytesInBank((np + 3) * sizeof(bg_portal_data_entry), MEMPOOL_STAGE);
-    memset(pt, 0, (np + 3) * sizeof(bg_portal_data_entry));
+    pt = mempAllocBytesInBank((np + sNRooms + 1) * sizeof(bg_portal_data_entry), MEMPOOL_STAGE);
+    memset(pt, 0, (np + sNRooms + 1) * sizeof(bg_portal_data_entry));
     memcpy(pt, g_BgPortals, np * sizeof(bg_portal_data_entry));
-    pt[np].offset_portal = S.portal[0];
-    pt[np].connectedRoom1 = (u8) S.seamRoom;
-    pt[np].connectedRoom2 = DP_ROOM_BAY;
-    pt[np + 1].offset_portal = S.portal[1];
-    pt[np + 1].connectedRoom1 = DP_ROOM_BAY;
-    pt[np + 1].connectedRoom2 = DP_ROOM_BARRACKS;
+    for (i = 0; i < sNRooms; i++)
+    {
+        pt[np + i].offset_portal = S.portal[i];
+        pt[np + i].connectedRoom1 = (u8) ((i == 0) ? S.seamRoom : DP_ROOM_BAY + i - 1);
+        pt[np + i].connectedRoom2 = (u8) (DP_ROOM_BAY + i);
+    }
     g_BgPortals = pt;
-    printf("ge: dam+: bg: rooms %d, %d added (%d room entries), portals %d (%d<->%d) and %d (%d<->%d)\n", DP_ROOM_BAY,
-           DP_ROOM_BARRACKS, g_MaxNumRooms, np, S.seamRoom, DP_ROOM_BAY, np + 1, DP_ROOM_BAY, DP_ROOM_BARRACKS);
+    printf("ge: dam+: bg: rooms %d-%d added (%d room entries), portals %d-%d (%d<->%d first)\n", DP_ROOM_BAY, DP_ROOM_BAY + sNRooms - 1,
+           g_MaxNumRooms, np, np + sNRooms - 1, S.seamRoom, DP_ROOM_BAY);
     fflush(stdout);
 }
 
