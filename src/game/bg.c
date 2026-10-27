@@ -1109,7 +1109,14 @@ void load_bg_file(LEVEL_INDEX levelid)
     }
  
     lightFixtureInitTables();
- 
+
+#ifndef TARGET_N64
+    {
+        extern void portDamPlusStageBegin(s32 stage);
+        portDamPlusStageBegin(levelid); /* Dam+ (port_damplus.c): decide once per stage load, before any of its hooks */
+    }
+#endif
+
 #ifdef TARGET_N64
     ptr_bg_data = (s32)header;
     obLoadBGFileBytesAtOffset(levelinfotable[levelentry_index].bg_seg_filename, (u8 *) ptr_bg_data, 0, 0x40);

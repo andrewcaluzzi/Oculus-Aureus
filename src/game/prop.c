@@ -2251,6 +2251,13 @@ void proplvreset2(enum LEVELID stageId)
 
         // PD rejoins here
 
+#ifndef TARGET_N64
+        {
+            extern void portDamPlusSetup(s32 stageId);
+            portDamPlusSetup(stageId); /* Dam+ (port_damplus.c): append pads, guards, pickups, patrols; stock records untouched */
+        }
+#endif
+
         if (withchrs)
         {
             alloc_init_GUARDdata_entries(load_proptype(PROPDEF_GUARD));
