@@ -354,9 +354,9 @@ void lvlMusicPlayStageTrackOrRandom(void)
  **/
 #ifndef TARGET_N64
 #include <stdio.h> /* goto-harness progress prints */
-/* GE_CHEATS=invuln,invis,guns,turbo,rockets,dualzmg - activate cheats
+/* GE_CHEATS=invuln,invis,guns,ammo,turbo,rockets,dualzmg - activate cheats
  * shortly after each stage load (needs the player fully spawned). "guns" =
- * all weapons + infinite ammo. "rockets" = Enemy
+ * all weapons + infinite ammo; "ammo" = infinite ammo only. "rockets" = Enemy
  * Rockets (every armed guard's weapon becomes a rocket launcher; see
  * true_enemy_rockets in midas.ini for the missing-break fix to this cheat).
  * Uses the cheat menu's own activation entry point so flags, side effects
@@ -452,6 +452,10 @@ static void portCheatTick(void)
     if (portStrHas(e, "guns"))
     {
         portCheatOnAll(CHEAT_ALLGUNS);
+        portCheatOnAll(CHEAT_INFINITE_AMMO);
+    }
+    if (portStrHas(e, "ammo"))
+    {
         portCheatOnAll(CHEAT_INFINITE_AMMO);
     }
     if (portStrHas(e, "turbo"))

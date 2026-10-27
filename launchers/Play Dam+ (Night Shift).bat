@@ -12,4 +12,7 @@ set GE_STAGE=dam
 set GE_SKIPINTRO=1
 set GE_DIFF=2
 set GE_DAMPLUS=night
+rem Cheats: turbo Bond, invincibility, infinite ammo. To play without them, delete the GE_CHEATS line below
+rem (or remove any of its words: invuln, turbo, ammo).
+set GE_CHEATS=invuln,turbo,ammo
 start "" "%~dp0ProjectMidas.exe"
