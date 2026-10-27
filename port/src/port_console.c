@@ -893,13 +893,15 @@ static void conExecute(char *line)
     {
         extern void portLuaTestKey(const char *name);
 
-        if (arg1 != NULL && (conStrEqI(arg1, "next") || conStrEqI(arg1, "next+") || conStrEqI(arg1, "back") || conStrEqI(arg1, "back+")))
+        if (arg1 != NULL && (conStrEqI(arg1, "next") || conStrEqI(arg1, "next+") || conStrEqI(arg1, "back") || conStrEqI(arg1, "back+") ||
+                             conStrEqI(arg1, "callout") || conStrEqI(arg1, "callout+")))
         {
             portLuaTestKey(arg1);
         }
         else
         {
-            portConPrintf(0, "usage: arena next|next+|back|back+   (+ = stack on the live enemies; needs test_keys or GE_ARENA_TESTKEYS=1)\n");
+            portConPrintf(0, "usage: arena next|next+|back|back+|callout|callout+   (+ = stack on the live enemies / previous callout; "
+                             "needs test_keys or GE_ARENA_TESTKEYS=1)\n");
         }
     }
     else if (conStrEqI(cmd, "lua_reload"))
@@ -1505,6 +1507,397 @@ static Gfx *ngLabel(Gfx *gdl, s32 x, s32 y, const char *left, u32 lcol, const ch
     return gdl;
 }
 
+/* ---- arena pickup markers (drop A7; v2 drop A8, settings marker_* in the arena script) ---------------------------------------------
+ * AC's playtest: the A7 beacons over every pickup got messy and slow with knife throwers and uncollected drops. v2: the good stuff (centre
+ * ammo box, armour, crowd gifts) gets a small diamond + a short label "AMMO 12m", fades out marker_fade seconds after it appears and comes
+ * back within marker_near; dropped guns get a faint dot only within marker_drop_near (or nothing); thrown knives nothing by default; markers
+ * that land within marker_merge px of each other on screen become one with a count; off-screen edge diamonds only for the good stuff. The
+ * cost is fixed: at most PORT_MARKER_MAX projections and marker_max groups drawn. Drawn in the console's 2D space from the list the sim
+ * published (port_arenamode.c); presentation only. The projection is the player's own: view-to-world rows give view-space x right, y up and
+ * z toward the viewer (the camera looks down -z), c_scalex/y the pixels-per-slope of the 3D viewport. */
+#include "port_arenamarkers.h"
+#include "game/matrixmath.h"
+#include "game/player.h"
+
+typedef struct { f32 sx, sy; f32 dist; s32 inview; s32 edge; } PmPoint;
+
+/* world point -> console-space (conSpaceW x 480) position; inview = inside the screen and in front; else sx,sy is clamped to the edge */
+static s32 pmProject(const struct player *pl, f32 wx, f32 wy, f32 wz, PmPoint *o)
+{
+    const Mtxf *m = pl->viewtoworldmtxf;
+    f32 dx, dy, dz, vx, vy, vz, u, v;
+    const f32 margin = 22.0f;
+
+    dx = wx - m->m[3][0];
+    dy = wy - m->m[3][1];
+    dz = wz - m->m[3][2];
+    vx = m->m[0][0] * dx + m->m[0][1] * dy + m->m[0][2] * dz;
+    vy = m->m[1][0] * dx + m->m[1][1] * dy + m->m[1][2] * dz;
+    vz = m->m[2][0] * dx + m->m[2][1] * dy + m->m[2][2] * dz;
+    o->dist = sqrtf(dx * dx + dy * dy + dz * dz);
+    o->inview = 0;
+    if (vz < -20.0f)
+    {
+        const f32 cx = pl->c_screenleft + pl->c_halfwidth;
+        const f32 cy = pl->c_screentop + pl->c_halfheight;
+        const f32 px = cx + (vx / -vz) * pl->c_recipscalex;
+        const f32 py = cy - (vy / -vz) * pl->c_recipscaley;
+
+        u = (px - pl->c_screenleft) / pl->c_screenwidth;
+        v = (py - pl->c_screentop) / pl->c_screenheight;
+        if (u > 0.04f && u < 0.96f && v > 0.06f && v < 0.94f)
+        {
+            o->sx = u * (f32) conSpaceW;
+            o->sy = v * (f32) conSpaceH;
+            o->inview = 1;
+            return 1;
+        }
+    }
+    {   /* off screen or behind: the screen-edge point in the direction of the pickup */
+        f32 ax = vx, ay = -vy, t, hw = 0.5f * (f32) conSpaceW - margin, hh = 0.5f * (f32) conSpaceH - margin;
+        f32 tx, ty;
+
+        if (ax * ax + ay * ay < 1.0f)
+        {
+            ax = 0.0f;
+            ay = 1.0f;
+        }
+        tx = (ax != 0.0f) ? hw / (ax < 0.0f ? -ax : ax) : 1e30f;
+        ty = (ay != 0.0f) ? hh / (ay < 0.0f ? -ay : ay) : 1e30f;
+        t = tx < ty ? tx : ty;
+        o->sx = 0.5f * (f32) conSpaceW + ax * t;
+        o->sy = 0.5f * (f32) conSpaceH + ay * t;
+    }
+    return 0;
+}
+
+typedef struct { f32 sx, sy, dist, a; s32 inview, kind, count, same, good; } PmGroup;
+
+static f32 pmClamp01(f32 v) { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); }
+
+static u32 pmAlpha(u32 rgba, f32 a) { return (rgba & 0xFFFFFF00u) | (u32) (pmClamp01(a) * 255.0f); }
+
+/* a small diamond of half-size r centred on (x, y): one 2 px rect per row pair */
+static Gfx *pmDiamond(Gfx *gdl, s32 x, s32 y, s32 r, u32 rgba)
+{
+    s32 dy;
+
+    for (dy = -r; dy <= r; dy += 2)
+    {
+        const s32 w = r - (dy < 0 ? -dy : dy);
+
+        gdl = ngRect(gdl, x - w, y + dy, x + w + 1, y + dy + 2, rgba);
+    }
+    return gdl;
+}
+
+/* marker colours by kind (PORT_MK_*): the shape, and the slightly lighter label */
+static u32 pmColour(s32 kind, s32 label)
+{
+    switch (kind)
+    {
+        case PORT_MK_AMMO:   return label ? 0xFFE878FFu : 0xFFE040FFu;
+        case PORT_MK_ARMOUR: return label ? 0x80F4FFFFu : 0x40F0FFFFu;
+        case PORT_MK_GIFT:   return label ? 0xFF98F0FFu : 0xFF70E8FFu;
+        case PORT_MK_ITEM:   return label ? 0xFFB060FFu : 0xFF9020FFu;
+        default:             return 0xE8D8B0FFu;   /* drops: a pale sand-white dot */
+    }
+}
+
+/* the A7 look (a beacon + box over EVERY pickup, nothing fades or merges): marker_style = "a7", for before/after shots */
+static Gfx *portPickupMarkersRenderA7(Gfx *gdl, const PortPickupMarker *mk, s32 n)
+{
+    PmPoint foot[PORT_MARKER_MAX], top[PORT_MARKER_MAX];
+    char txt[PORT_MARKER_MAX][20];
+    const struct player *pl = g_CurrentPlayer;
+    s32 i;
+
+    if (n <= 0 || pl == NULL || pl->viewtoworldmtxf == NULL || pl->c_screenwidth < 1.0f || pl->c_screenheight < 1.0f ||
+        dynGetFreeGfx2(gdl) < NG_RESERVE_TEXT + 1500)
+    {
+        return gdl;
+    }
+    gdl = conSpaceBegin(gdl);
+    for (i = 0; i < n; i++)
+    {
+        pmProject(pl, mk[i].x, mk[i].y, mk[i].z, &foot[i]);
+        pmProject(pl, mk[i].x, mk[i].y + 260.0f, mk[i].z, &top[i]);
+        snprintf(txt[i], sizeof(txt[0]), "%s %dm", mk[i].label, (s32) (foot[i].dist / 100.0f + 0.5f));
+    }
+    /* pass 1: rects */
+    ngHavePrim = 0;
+    gDPSetRenderMode(gdl++, G_RM_XLU_SURF, G_RM_XLU_SURF2);
+    gDPSetCombineMode(gdl++, G_CC_PRIMITIVE, G_CC_PRIMITIVE);
+    for (i = 0; i < n; i++)
+    {
+        const u32 c = mk[i].rgba;
+        const u32 faint = (c & 0xFFFFFF00u) | 0x90u;
+
+        if (dynGetFreeGfx2(gdl) < NG_RESERVE_TEXT)
+        {
+            break;
+        }
+        if (foot[i].inview)
+        {   /* the beacon: a thin bar from the foot to the head, a box on top */
+            f32 y0 = top[i].sy, y1 = foot[i].sy;
+
+            if (y1 - y0 < 14.0f)
+            {
+                y0 = y1 - 14.0f;
+            }
+            gdl = ngRect(gdl, (s32) foot[i].sx - 1, (s32) y0, (s32) foot[i].sx + 2, (s32) y1, faint);
+            gdl = ngRect(gdl, (s32) foot[i].sx - 7, (s32) y0 - 12, (s32) foot[i].sx + 7, (s32) y0 + 2, 0x000000C0u);
+            gdl = ngRect(gdl, (s32) foot[i].sx - 5, (s32) y0 - 10, (s32) foot[i].sx + 5, (s32) y0, c);
+        }
+        else
+        {   /* the edge marker */
+            gdl = ngRect(gdl, (s32) foot[i].sx - 8, (s32) foot[i].sy - 8, (s32) foot[i].sx + 8, (s32) foot[i].sy + 8, 0x000000C0u);
+            gdl = ngRect(gdl, (s32) foot[i].sx - 6, (s32) foot[i].sy - 6, (s32) foot[i].sx + 6, (s32) foot[i].sy + 6, c);
+        }
+    }
+    gDPSetCombineLERP(gdl++, 0, 0, 0, PRIMITIVE, TEXEL0, 0, PRIMITIVE, 0, 0, 0, 0, PRIMITIVE, TEXEL0, 0, PRIMITIVE, 0);
+    /* pass 2: labels */
+    for (i = 0; i < n; i++)
+    {
+        s32 tw = conTextWidth(txt[i]);
+        s32 lx, ly;
+
+        if (foot[i].inview)
+        {
+            f32 y0 = top[i].sy, y1 = foot[i].sy;
+
+            if (y1 - y0 < 14.0f)
+            {
+                y0 = y1 - 14.0f;
+            }
+            lx = (s32) foot[i].sx - tw / 2;
+            ly = (s32) y0 - 26;
+        }
+        else
+        {
+            lx = (s32) foot[i].sx - tw / 2;
+            ly = (s32) foot[i].sy + 10;
+            if (foot[i].sy > 0.5f * (f32) conSpaceH)
+            {
+                ly = (s32) foot[i].sy - 24;
+            }
+        }
+        if (lx < 2) { lx = 2; }
+        if (lx + tw > conSpaceW - 2) { lx = conSpaceW - 2 - tw; }
+        gdl = conDrawRow(gdl, lx, ly, txt[i], mk[i].rgba);
+    }
+    return conSpaceEnd(gdl);
+}
+
+static Gfx *portPickupMarkersRender(Gfx *gdl)
+{
+    extern s32 g_GlobalTimer;
+    PortPickupMarker mk[PORT_MARKER_MAX];
+    PortMarkerStyle st;
+    PmGroup cand[PORT_MARKER_MAX], grp[PORT_MARKER_MAX];
+    const struct player *pl = g_CurrentPlayer;
+    s32 n, i, j, nc = 0, ng = 0;
+
+    n = portArenaMarkers(mk, PORT_MARKER_MAX, &st);
+    if (st.legacy)
+    {
+        return portPickupMarkersRenderA7(gdl, mk, n);
+    }
+    if (n <= 0 || pl == NULL || pl->viewtoworldmtxf == NULL || pl->c_screenwidth < 1.0f || pl->c_screenheight < 1.0f ||
+        dynGetFreeGfx2(gdl) < NG_RESERVE_TEXT + 1500)
+    {
+        return gdl;
+    }
+    for (i = 0; i < n; i++)
+    {   /* what is worth drawing, and how strongly */
+        const s32 good = PORT_MK_GOOD(mk[i].kind);
+        PmPoint pt;
+        f32 a;
+
+        pmProject(pl, mk[i].x, mk[i].y + (good ? 70.0f : 20.0f), mk[i].z, &pt);
+        if (good)
+        {
+            const f32 age = (f32) ((s32) g_GlobalTimer - mk[i].born) / 60.0f;
+            const f32 at = st.fade <= 0.0f ? 1.0f : pmClamp01((st.fade - age) / 1.5f);   /* full, then gone over the last 1.5 s */
+            const f32 an = st.nearDist > 0.0f ? pmClamp01((st.nearDist - pt.dist) / (st.nearDist * 0.25f)) : 0.0f;
+
+            a = at > an ? at : an;
+            if (!pt.inview && !st.edge)
+            {
+                continue;
+            }
+        }
+        else
+        {
+            const s32 mode = mk[i].kind == PORT_MK_KNIFE ? st.knives : st.drops;
+
+            if (mode == 0 || !pt.inview)
+            {
+                continue;   /* no edge arrows for drops */
+            }
+            a = mode == 2 ? 1.0f : (st.dropNear > 0.0f ? pmClamp01((st.dropNear - pt.dist) / (st.dropNear * 0.3f)) : 0.0f);
+        }
+        if (a < 0.03f)
+        {
+            continue;
+        }
+        cand[nc].sx = pt.sx;
+        cand[nc].sy = pt.sy;
+        cand[nc].dist = pt.dist;
+        cand[nc].a = a;
+        cand[nc].inview = pt.inview;
+        cand[nc].kind = mk[i].kind;
+        cand[nc].count = 1;
+        cand[nc].same = 1;
+        cand[nc].good = good;
+        nc++;
+    }
+    for (i = 1; i < nc; i++)
+    {   /* the good stuff first, then nearest first: they lead their groups and win the draw budget */
+        PmGroup t = cand[i];
+
+        for (j = i - 1; j >= 0 && (cand[j].good < t.good || (cand[j].good == t.good && cand[j].dist > t.dist)); j--)
+        {
+            cand[j + 1] = cand[j];
+        }
+        cand[j + 1] = t;
+    }
+    for (i = 0; i < nc; i++)
+    {   /* merge markers that overlap on screen (same class, both in view or both on the edge) */
+        for (j = 0; j < ng; j++)
+        {
+            const f32 dx = cand[i].sx - grp[j].sx, dy = cand[i].sy - grp[j].sy;
+
+            if (grp[j].good == cand[i].good && grp[j].inview == cand[i].inview && dx * dx + dy * dy < st.merge * st.merge)
+            {
+                grp[j].count++;
+                if (grp[j].kind != cand[i].kind)
+                {
+                    grp[j].same = 0;
+                }
+                if (cand[i].a > grp[j].a)
+                {
+                    grp[j].a = cand[i].a;
+                }
+                break;
+            }
+        }
+        if (j == ng && ng < st.maxGroups)
+        {
+            grp[ng++] = cand[i];
+        }
+    }
+    {   /* GE_MARKERLOG=1 (test): what the overlay draws, once a second */
+        static s32 want = -1, last;
+
+        if (want < 0)
+        {
+            const char *e = getenv("GE_MARKERLOG");
+
+            want = e != NULL && e[0] != '\0' && e[0] != '0';
+        }
+        if (want && (s32) g_GlobalTimer - last >= 60)
+        {
+            s32 drawnItems = 0;
+
+            last = (s32) g_GlobalTimer;
+            for (i = 0; i < ng; i++)
+            {
+                drawnItems += grp[i].count;
+            }
+            printf("ge: markers: t=%d published %d, candidates %d, groups drawn %d (covering %d)\n", (int) g_GlobalTimer, (int) n, (int) nc, (int) ng,
+                   (int) drawnItems);
+            fflush(stdout);
+        }
+    }
+    if (ng == 0)
+    {
+        return gdl;
+    }
+    gdl = conSpaceBegin(gdl);
+    /* pass 1: the diamonds and dots (a faint dark diamond behind each one so it reads on the sand) */
+    ngHavePrim = 0;
+    gDPSetRenderMode(gdl++, G_RM_XLU_SURF, G_RM_XLU_SURF2);
+    gDPSetCombineMode(gdl++, G_CC_PRIMITIVE, G_CC_PRIMITIVE);
+    for (i = 0; i < ng; i++)
+    {
+        const s32 x = (s32) grp[i].sx, y = (s32) grp[i].sy;
+
+        if (dynGetFreeGfx2(gdl) < NG_RESERVE_TEXT)
+        {
+            break;
+        }
+        if (grp[i].good)
+        {
+            gdl = pmDiamond(gdl, x, y, 6, pmAlpha(0x00000000u, grp[i].a * 0.35f));
+            gdl = pmDiamond(gdl, x, y, 4, pmAlpha(pmColour(grp[i].kind, 0), grp[i].a * 0.85f));
+        }
+        else
+        {   /* a drop: a small faint dot */
+            gdl = ngRect(gdl, x - 2, y - 2, x + 2, y + 2, pmAlpha(pmColour(grp[i].kind, 0), grp[i].a * 0.55f));
+        }
+    }
+    gDPSetCombineLERP(gdl++, 0, 0, 0, PRIMITIVE, TEXEL0, 0, PRIMITIVE, 0, 0, 0, 0, PRIMITIVE, TEXEL0, 0, PRIMITIVE, 0);
+    /* pass 2: short labels: "AMMO 12m", merged "AMMO x2 12m" / "AMMO +1 12m"; a merged dot gets only its count */
+    for (i = 0; i < ng; i++)
+    {
+        char txt[24];
+        const char *lab = "";
+        s32 tw, lx, ly, k;
+
+        if (dynGetFreeGfx2(gdl) < NG_RESERVE_TEXT)
+        {
+            break;
+        }
+        for (k = 0; k < n; k++)
+        {   /* the label text of the group's kind */
+            if (mk[k].kind == grp[i].kind)
+            {
+                lab = mk[k].label;
+                break;
+            }
+        }
+        if (!grp[i].good)
+        {
+            if (grp[i].count < 2)
+            {
+                continue;
+            }
+            snprintf(txt, sizeof(txt), "%d", (int) grp[i].count);
+        }
+        else if (grp[i].count > 1)
+        {
+            snprintf(txt, sizeof(txt), grp[i].same ? "%s x%d %dm" : "%s +%d %dm", lab, (int) (grp[i].same ? grp[i].count : grp[i].count - 1),
+                     (int) (grp[i].dist / 100.0f + 0.5f));
+        }
+        else
+        {
+            snprintf(txt, sizeof(txt), "%s %dm", lab, (int) (grp[i].dist / 100.0f + 0.5f));
+        }
+        tw = conTextWidth(txt);
+        if (!grp[i].good)
+        {
+            lx = (s32) grp[i].sx + 4;
+            ly = (s32) grp[i].sy - 6;
+        }
+        else if (grp[i].inview)
+        {
+            lx = (s32) grp[i].sx - tw / 2;
+            ly = (s32) grp[i].sy - 19;
+        }
+        else
+        {   /* beside the edge diamond, toward the middle of the screen */
+            lx = (grp[i].sx > 0.5f * (f32) conSpaceW) ? (s32) grp[i].sx - 9 - tw : (s32) grp[i].sx + 9;
+            ly = (s32) grp[i].sy - 5;
+        }
+        if (lx < 2) { lx = 2; }
+        if (lx + tw > conSpaceW - 2) { lx = conSpaceW - 2 - tw; }
+        if (ly < 2) { ly = 2; }
+        gdl = conDrawRow(gdl, lx, ly, txt, pmAlpha(pmColour(grp[i].kind, 1), grp[i].a * (grp[i].good ? 0.80f : 0.55f)));
+    }
+    return conSpaceEnd(gdl);
+}
+
 static Gfx *portNetGraphRender(Gfx *gdl)
 {
     const s32 level = portNetGraphLevel();
@@ -1895,6 +2288,7 @@ Gfx *portConRender(Gfx *gdl)
     }
 
     gdl = portNetGraphRender(gdl);   /* job 6: net_graph 1-3 (a no-op at 0) */
+    gdl = portPickupMarkersRender(gdl);   /* arena (drop A7): pickup markers (a no-op unless pickup_markers is on) */
 
     if (portModeActive())
     {   /* PORT: mode HUD: 1-3 lines, copied out of the sim's buffer before drawing */
@@ -1913,6 +2307,16 @@ Gfx *portConRender(Gfx *gdl)
                 n++;
             }
         }
+        {   /* the arena's own HUD (port_arenahud.c) draws the wave panel and the callouts instead of the plain rows */
+            extern int portArenaHudActive(void);
+            extern Gfx *portArenaHudRender(Gfx *gdl);
+
+            if (portArenaHudActive())
+            {
+                gdl = portArenaHudRender(gdl);
+                n = 0;
+            }
+        }
         if (n > 0)
         {
             gdl = conSpaceBegin(gdl);
@@ -1926,6 +2330,11 @@ Gfx *portConRender(Gfx *gdl)
             extern Gfx *portIntelRender(Gfx *gdl);
 
             gdl = portIntelRender(gdl);
+        }
+        {   /* the arena's start menu and post-game, over the HUD (port_arenamenu_draw.c) */
+            extern Gfx *portArenaMenuRender(Gfx *gdl);
+
+            gdl = portArenaMenuRender(gdl);
         }
     }
     {   /* heist: the DEBRIEF panel, on every screen until dismissed (port_debrief.c) */

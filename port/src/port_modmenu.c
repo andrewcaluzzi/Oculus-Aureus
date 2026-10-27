@@ -86,7 +86,7 @@ static void scanModes(void)
         {
             memcpy(base, e->d_name, l - 4);
             base[l - 4] = '\0';
-            if (nameOk(base))
+            if (nameOk(base) && base[0] != '_')   /* "_name.lua" = a module other modes include(), not a mode (arena A7) */
             {
                 memcpy(sModes[sModeN++], base, l - 3);
             }

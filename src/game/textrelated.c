@@ -266,19 +266,30 @@ void portTextScale(f32 scale)
     port_text_scale = (scale > 0.0f) ? scale : 1.0f;
 }
 
+/* PORT: an extra horizontal factor on top of portTextScale (port_hudstyle.c: a card-flip "spin" squashes the glyphs in x). 1.0 = off;
+ * every caller that sets it puts it back to 1.0, so the stock text never sees it. */
+static f32 port_text_sx = 1.0f;
+
+void portTextSquashX(f32 sx)
+{
+    port_text_sx = (sx > 0.02f) ? sx : 0.02f;
+}
+
+static f32 portTextScaleX(void) { return port_text_scale * port_text_sx; }
+
 /* Scaled letter spacing is rounded (gap to nearest pixel, advance rounded up)
  * rather than truncated, so scaled text keeps its gaps and never overlaps; both
  * are exact at 1.0. */
 static s32 portTextScaledGap(s32 kerningOffsetMinus1)
 {
-    const f32 g = (f32) kerningOffsetMinus1 * port_text_scale;
+    const f32 g = (f32) kerningOffsetMinus1 * portTextScaleX();
 
     return (s32) ((g < 0.0f) ? g - 0.5f : g + 0.5f);
 }
 
 static s32 portTextScaledAdvance(s32 width)
 {
-    return ((s32) (width * 4 * port_text_scale) + 3) >> 2;
+    return ((s32) (width * 4 * portTextScaleX()) + 3) >> 2;
 }
 #endif
 
@@ -429,18 +440,19 @@ Gfx *textRenderGlyph(Gfx *gdl, s32 *x, s32 *y, struct fontchar *curchar, struct 
                             // B4000000 --------:
                             // B3000000 04000400:
 #ifndef TARGET_N64
-                            if (port_text_scale != 1.0f)
-                            {   /* PORT: scaled glyph - the rect shrinks, the texel step grows */
-                                s32 sw = (s32) (curchar->width * 4 * port_text_scale);
+                            if (port_text_scale != 1.0f || port_text_sx != 1.0f)
+                            {   /* PORT: scaled glyph - the rect shrinks, the texel step grows (x may be squashed further) */
+                                s32 sw = (s32) (curchar->width * 4 * portTextScaleX());
                                 s32 sb = (s32) (curchar->baseline * 4 * port_text_scale);
                                 s32 sh = (s32) (curchar->height * 4 * port_text_scale);
                                 s32 step = (s32) (0x400 / port_text_scale);
+                                s32 stepx = (s32) (0x400 / portTextScaleX());
                                 gSPTextureRectangle(gdl++,
                                     (*x * 4) + text_x,
                                     (drawY * 4) + sb + text_y,
                                     (*x * 4) + sw + text_x,
                                     (drawY * 4) + sb + sh + text_y,
-                                    G_TX_RENDERTILE, text_s, text_t, step, step);
+                                    G_TX_RENDERTILE, text_s, text_t, stepx, step);
                             }
                             else
 #endif
@@ -551,7 +563,7 @@ Gfx *textRender(Gfx *gdl, s32 *x, s32 *y, char *text,
 #endif
 		    ) {
 #ifndef TARGET_N64
-			*x += (s32) (SPACE_WIDTH * port_text_scale); /* PORT: the space follows portTextScale */
+			*x += (s32) (SPACE_WIDTH * portTextScaleX()); /* PORT: the space follows portTextScale (and the squash) */
 #else
 			*x += 5;
 #endif
@@ -917,7 +929,7 @@ void textMeasure(s32 *textheight, s32 *textwidth, char *text, struct fontchar *f
             // Space
             if (text[1] != '\n') {
 #ifndef TARGET_N64
-                *textwidth += (s32) (SPACE_WIDTH * port_text_scale); /* matches what textRender adds */
+                *textwidth += (s32) (SPACE_WIDTH * portTextScaleX()); /* matches what textRender adds */
 #else
                 *textwidth += SPACE_WIDTH;
 #endif
@@ -999,7 +1011,14 @@ void textWrap(s32 wrapwidth, char *src, char *dst, struct fontchar *chars, struc
 		v1 = 0;
 
         // Read one word into the curword buffer.
+#ifndef TARGET_N64
+        /* PORT: stop at sizeof(curword) - 2 (the 2-byte step below can add one more, then the terminator): stock text has no word near
+         * that long, so it wraps exactly as before; a longer run from a mode (Lua) is cut there instead of overflowing the stack. 0x7F
+         * has no glyph (chars[] is 0x21..0x7E). */
+        while (*src > ' ' && *src != 0x7F && wordlen < (s32) sizeof(curword) - 2)
+#else
         while (*src > ' ')
+#endif
         {
             curword[wordlen] = *src;
 			v1 += chars[*src - 0x21].width;

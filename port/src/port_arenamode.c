@@ -13,6 +13,8 @@
 #include <bondconstants.h>
 #include <bondaicommands.h>
 #include "game/chr.h"
+#include "game/lv.h"
+#include "game/stan.h"
 #include "game/chrai.h"
 #include "game/chraction.h"
 #include "game/player.h"
@@ -49,7 +51,7 @@ extern s32 get_max_ammo_for_type(s32 type);
 #define SIGHT_DEFAULT           15000.0f  /* A5: chr->visionrange in world units (the Colosseum is 9000 across) */
 
 /* per arena chr: its knife numbers and whether it has fired yet (first-shot range log) */
-typedef struct { s32 chrnum; u8 enemy, knifer, fired, spectator, stockroute, headshot; f32 knifeRange, knifeCooldown, engage; } ArenaInfo;
+typedef struct { s32 chrnum; u8 enemy, knifer, fired, spectator, stockroute, headshot; f32 knifeRange, knifeCooldown, engage; f32 keepDist; s32 keepUntil; } ArenaInfo;
 static ArenaInfo sInfo[INFO_N];
 
 static ArenaInfo *infoGet(s32 chrnum)
@@ -256,6 +258,33 @@ int portLuaGameChrHeadshot(int chrnum)
     ArenaInfo *a = (chrnum >= ARENA_CHRNUM0) ? infoGet((s32)chrnum) : NULL;
 
     return a != NULL && a->headshot;
+}
+
+/* a spectator the arena mode seated in the stands (invincible, no autoaim, no shadow: the flags portLuaGameSpawnChr gives only the crowd);
+ * chr.c skips the movement collision test for these (drop A7) */
+s32 portArenaChrCrowd(const ChrRecord *chr)
+{
+    const u32 mask = CHRFLAG_INVINCIBLE | CHRFLAG_NO_AUTOAIM | CHRFLAG_NO_SHADOW;
+    ArenaInfo *a;
+
+    static s32 off = -1;
+
+    if (chr == NULL || (s32)chr->chrnum < ARENA_CHRNUM0 || (chr->chrflags & mask) != mask || !portModeActive())
+    {
+        return 0;
+    }
+    if (off < 0)
+    {   /* GE_ARENA_CROWDCOLLIDE=1: the A6 behaviour (every spectator runs the movement collision test), for before/after timings */
+        const char *e = getenv("GE_ARENA_CROWDCOLLIDE");
+
+        off = (e != NULL && e[0] != '\0' && e[0] != '0') ? 1 : 0;
+    }
+    if (off)
+    {
+        return 0;
+    }
+    a = infoGet((s32)chr->chrnum);
+    return a != NULL && a->spectator;   /* the fork marks the crowd itself (PORTLUA_BEH_SPECTATOR); heist civilians are not pinned */
 }
 
 /* GE_ARENA_OLDAI=1: the drop A4 enemy AI (run to 9 m, then fight; waypoint routes only), for before/after measurements on the same binary */
@@ -489,6 +518,10 @@ int portLuaGameSpawnChr(int pad, const PortLuaChrSpec *s)
     {   /* the stock alarm raiser: on sight / hearing it runs to padpreset1 and sounds the alarm, then runs at Bond */
         d.ailistid = GAILIST_SIMPLE_GUARD_ALARM_RAISER;
     }
+    else if (s->knives && s->knifeKeep > 0.0f && !legacyAI() && (s->behaviour == PORTLUA_BEH_CHASE || s->behaviour == PORTLUA_BEH_RUSH))
+    {   /* drop A7: a knife thrower that holds its distance (m_ArenaKnifeKeep) instead of the engage list's closing runs */
+        d.ailistid = GAILIST_ARENA_KNIFE_KEEP;
+    }
     d.maxdamage = (s->health > 0.0f) ? 4.0f * s->health : 0.0f;
     d.chrnum = sNextNum;
     gPortSpawnExtraFlags = s->sunglasses ? 1 : 0;   /* SPAWN_SUNGLASSES */
@@ -566,6 +599,12 @@ int portLuaGameSpawnChr(int pad, const PortLuaChrSpec *s)
         a->knifeRange = s->knifeRange > 0.0f ? s->knifeRange : KNIFE_RANGE_DEFAULT;
         a->knifeCooldown = s->knifeCooldown > 0.0f ? s->knifeCooldown : KNIFE_COOLDOWN_DEFAULT;
         a->engage = s->engage > 0.0f ? s->engage : rangeOf(rangeClass(w, s->knives ? 6000.0f : 0.0f));
+        a->keepDist = (d.ailistid == GAILIST_ARENA_KNIFE_KEEP) ? s->knifeKeep : 0.0f;
+    }
+    {   /* port_arenacrowd.c: the guns it holds are "its own" (crowd favour, THEIR OWN GUN); after sInfo, which makes it an enemy */
+        extern void portArenaNoteHeld(const ChrRecord *chr);
+
+        portArenaNoteHeld(chr);
     }
     /* sight: chr->visionrange is in 100-unit steps (chrCheckTargetInSight, IFISeeBond); the init default is 250 (25000 units), the
      * stock Dam guards have 100. The A5 engage lists use IFICouldSeeBond (a stan ray, no range) so this only matters for IFISeeBond. */
@@ -1127,7 +1166,8 @@ extern void matrix_4x4_set_identity(Mtxf *m);
 #define ITEM_N     12
 #define ITEM_MARK  0x4000   /* WeaponObjRecord.timer is an s16: marker 0x4000 + a 14-bit serial */
 
-typedef struct { u8 used, armour; s32 serial; ObjectRecord *obj; PropRecord *prop; s32 ammo, item; } ArenaItem;
+/* mk / mklabel / born: the pickup marker's kind (PORT_MK_*), its label and the tick it appeared (drop A8; presentation data, set by the sim) */
+typedef struct { u8 used, armour; s32 serial; ObjectRecord *obj; PropRecord *prop; s32 ammo, item; s32 mk; char mklabel[8]; s32 born; } ArenaItem;
 static ArenaItem sItems[ITEM_N];
 /* Records are NOT tied to the sItems slot: spawn.item_remove only flags the old object REMOVE, and the object tick frees it
  * later, so a spawn in the same tick (the "replaced" centre drop) that wiped the same record left that old prop ticking with
@@ -1316,6 +1356,10 @@ int portLuaGameItemSpawn(int pad, const char *what, int ammo, float amount, int 
         sItems[slot].prop = o->prop;
     }
     sItems[slot].used = 1;
+    sItems[slot].mk = box ? 0 : (armour ? 1 : 3);   /* PORT_MK_AMMO / ARMOUR / ITEM; spawn.item_marker may change it (a gift) */
+    memset(sItems[slot].mklabel, 0, sizeof(sItems[slot].mklabel));
+    strncpy(sItems[slot].mklabel, box ? "AMMO" : (armour ? "ARMOUR" : "GUN"), sizeof(sItems[slot].mklabel) - 1);
+    sItems[slot].born = (s32)g_GlobalTimer;
     armour = armour || box;   /* from here: a non-weapon item (record-based, no timer marker) */
     sItems[slot].armour = (u8)armour;
     sItems[slot].serial = sItemSerial;
@@ -1416,6 +1460,307 @@ void portLuaGameBondWalkStop(void)
 {
     g_PortGotoActive = 0;
     g_PortGotoStickX = g_PortGotoStickY = 0;
+}
+
+/* ---- drop A7: knife throwers that keep their distance ----------------------------------------------------------------------------
+ * m_ArenaKnifeKeep (chraidata.c) fires from where it stands while Bond is 25-35 m away; closer than that it runs the command
+ * TRYRunFromBond (removed_animation_routine_27, a stub in the stock game): portArenaKnifeRetreat picks a pit pad about keepDist from
+ * Bond (the nearest one to the chr, so the move is short), plots a run there and marks the chr as "keeping away" for a few seconds so the
+ * arena's follow-Bond re-plot (chraction.c chrlvTickGoPos) does not turn it round. No sim RNG: a private LCG picks among the best pads. */
+static u32 sKeepRng = 0x2545F491u;
+
+s32 portArenaKeepAway(const ChrRecord *chr)
+{
+    ArenaInfo *a = (chr != NULL) ? infoGet((s32)chr->chrnum) : NULL;
+
+    return a != NULL && a->keepDist > 0.0f && (s32)g_GlobalTimer < a->keepUntil;
+}
+
+s32 portArenaKnifeRetreat(ChrRecord *self)
+{
+    ArenaInfo *a = (self != NULL) ? infoGet((s32)self->chrnum) : NULL;
+    PropRecord *bp;
+    s32 n, i, k, tries, pass;
+    s32 bestPad[3] = { -1, -1, -1 };
+    f32 bestScore[3] = { 1e30f, 1e30f, 1e30f };
+    f32 eyeH;
+
+    if (a == NULL || a->keepDist <= 0.0f || legacyAI() || self->prop == NULL)
+    {
+        return 0;
+    }
+    bp = getCurrentPlayerProp();
+    if (bp == NULL)
+    {
+        return 0;
+    }
+    n = (s32)portPadCount();
+    eyeH = self->chrheight - 20.0f;
+    for (pass = 0; pass < 2 && bestPad[0] < 0; pass++)   /* pass 1 widens the distance band when nothing in sight of Bond fits */
+    for (i = 0; i < n; i++)
+    {
+        coord3d p;
+        StandTile *pst = NULL;
+        f32 db, dc, dx, dz, err, score, pang;
+
+        if (!portPadPos(i, &p) || p.y > 1.0f || p.x > 4300.0f || p.x < -4300.0f || p.z > 4300.0f || p.z < -4300.0f)
+        {
+            continue;   /* not a pit pad (the stands are raised, the gates are outside +-4300) */
+        }
+        dx = p.x - bp->pos.x;
+        dz = p.z - bp->pos.z;
+        db = sqrtf(dx * dx + dz * dz);
+        err = db - a->keepDist;
+        if (pass == 0 ? (err < -500.0f || err > 600.0f) : (err < -900.0f || err > 1500.0f))
+        {
+            continue;   /* wants 2800 .. 3900 from Bond for keepDist 3300 (pass 1: 2100 .. 4500) */
+        }
+        {   /* the spot must see Bond (the same ray chrCanSeeBond uses), or the chr backs off only to run back in */
+            coord3d pp;
+
+            if (!portPadStan(i, &pp, &pst, &pang) || pst == NULL ||
+                !stanTestLineUnobstructed(&pst, p.x, p.z, bp->pos.x, bp->pos.z, CDTYPE_OBJS | CDTYPE_DOORS | CDTYPE_PATHBLOCKER | CDTYPE_AIOPAQUE, eyeH, eyeH, 0.0f, 1.0f) ||
+                pst != bp->stan)
+            {
+                continue;
+            }
+        }
+        dx = p.x - self->prop->pos.x;
+        dz = p.z - self->prop->pos.z;
+        dc = sqrtf(dx * dx + dz * dz);
+        if (dc < 400.0f)
+        {
+            continue;   /* a real move, not a shuffle on the spot */
+        }
+        score = dc + 0.5f * (err < 0.0f ? -err : err);
+        for (k = 0; k < 3; k++)
+        {
+            if (score < bestScore[k])
+            {
+                s32 m;
+
+                for (m = 2; m > k; m--)
+                {
+                    bestScore[m] = bestScore[m - 1];
+                    bestPad[m] = bestPad[m - 1];
+                }
+                bestScore[k] = score;
+                bestPad[k] = i;
+                break;
+            }
+        }
+    }
+    sKeepRng = sKeepRng * 1664525u + 1013904223u;
+    for (tries = 0; tries < 3; tries++)
+    {
+        s32 pad = bestPad[(tries + (s32)((sKeepRng >> 16) % 3u)) % 3];
+
+        if (pad >= 0 && chrGoToPad(self, pad, SPEED_RUN))
+        {
+            static s32 logged;
+
+            a->keepUntil = (s32)g_GlobalTimer + 60 * 9;
+            if (logged < 400)
+            {
+                coord3d pp;
+                f32 ddx, ddz;
+
+                logged++;
+                portPadPos(pad, &pp);
+                ddx = bp->pos.x - self->prop->pos.x;
+                ddz = bp->pos.z - self->prop->pos.z;
+                portConLogf("ge: arena: KNIFE KEEP chr %d backs off from %.0f to pad %d, %.0f from Bond\n", (int)self->chrnum, sqrtf(ddx * ddx + ddz * ddz), (int)pad,
+                            sqrtf((pp.x - bp->pos.x) * (pp.x - bp->pos.x) + (pp.z - bp->pos.z) * (pp.z - bp->pos.z)));
+            }
+            return 1;
+        }
+    }
+    {
+        static s32 failLogged;
+
+        if (failLogged < 100)
+        {
+            failLogged++;
+            portConLogf("ge: arena: KNIFE KEEP chr %d: no retreat spot (best pad %d)\n", (int)self->chrnum, (int)bestPad[0]);
+        }
+    }
+    return 0;
+}
+
+/* ---- drop A7: pickup markers (v2: drop A8) ------------------------------------------------------------------------------------
+ * portLuaGameMarkerSync (the mode script's tick) copies the live pickups into sMarkPub: the arena items (ammo box, armour, crowd gifts,
+ * script-placed guns) and every loose dropped weapon / thrown knife, each with the tick it first appeared (the fade-out clock). The console
+ * overlay (port_console.c) decides what to draw from the style (spawn.markers(on, {...})). Presentation only: nothing in the sim reads it. */
+#include "port_arenamarkers.h"
+#include "port_arena_a8.h"
+
+static s32 sMarkersOn;
+static s32 sMarkPubN;
+static PortPickupMarker sMarkPub[PORT_MARKER_MAX];
+static PortMarkerStyle sMarkStyle = { 8.0f, 1500.0f, 1, 0, 1000.0f, 26.0f, 1, 10, 0 };
+static const PropRecord *sWeapSeen[MAX_WEAPON_SLOTS];   /* the prop a weapon slot held when it was last published loose */
+static s32 sWeapBorn[MAX_WEAPON_SLOTS];
+
+void portLuaGameMarkers(int on)
+{
+    sMarkersOn = on ? 1 : 0;
+    if (!sMarkersOn)
+    {
+        sMarkPubN = 0;
+    }
+}
+
+void portLuaGameMarkerStyle(float fade, float nearD, int drops, int knives, float dropNear, float merge, int edge, int maxGroups, int legacy)
+{
+    sMarkStyle.legacy = legacy ? 1 : 0;
+    sMarkStyle.fade = fade < 0.0f ? 0.0f : fade;
+    sMarkStyle.nearDist = nearD < 0.0f ? 0.0f : nearD;
+    sMarkStyle.drops = drops < 0 ? 0 : (drops > 2 ? 2 : drops);
+    sMarkStyle.knives = knives < 0 ? 0 : (knives > 2 ? 2 : knives);
+    sMarkStyle.dropNear = dropNear < 0.0f ? 0.0f : dropNear;
+    sMarkStyle.merge = merge < 0.0f ? 0.0f : merge;
+    sMarkStyle.edge = edge ? 1 : 0;
+    sMarkStyle.maxGroups = maxGroups < 1 ? 1 : (maxGroups > PORT_MARKER_MAX ? PORT_MARKER_MAX : maxGroups);
+}
+
+/* spawn.item_marker(h, kind, label): what an item's marker looks like (a crowd gift is "gift"); 1 = set */
+int portLuaGameItemMarker(int handle, int kind, const char *label)
+{
+    ArenaItem *it;
+
+    if (!portModeActive() || !itemAlive(handle) || kind < PORT_MK_AMMO || kind > PORT_MK_ITEM)
+    {
+        return 0;
+    }
+    it = &sItems[handle & 15];
+    it->mk = kind;
+    if (label != NULL)
+    {
+        memset(it->mklabel, 0, sizeof(it->mklabel));
+        strncpy(it->mklabel, label, sizeof(it->mklabel) - 1);
+    }
+    return 1;
+}
+
+static void markerAdd(s32 *n, const PropRecord *prop, s32 kind, const char *label, s32 born)
+{
+    static const u32 col[6] = { 0xFFE040FFu, 0x40F0FFFFu, 0xFF70E8FFu, 0xFF9020FFu, 0xE0A060FFu, 0xC8C8C8FFu };
+    PortPickupMarker *m;
+
+    if (*n >= PORT_MARKER_MAX || prop == NULL)
+    {
+        return;
+    }
+    m = &sMarkPub[*n];
+    m->x = prop->pos.x;
+    m->y = prop->pos.y;
+    m->z = prop->pos.z;
+    m->kind = kind;
+    m->rgba = col[kind >= 0 && kind < 6 ? kind : 3];
+    m->born = born;
+    memset(m->label, 0, sizeof(m->label));
+    strncpy(m->label, label, sizeof(m->label) - 1);
+    (*n)++;
+}
+
+void portLuaGameMarkerSync(void)
+{
+    s32 i, n = 0;
+
+    if (!sMarkersOn || !portModeActive())
+    {
+        sMarkPubN = 0;
+        return;
+    }
+    for (i = 0; i < ITEM_N; i++)
+    {   /* the arena items first (the good stuff): ammo box, armour, gifts, script-placed guns */
+        const ArenaItem *it = &sItems[i];
+
+        if (it->used && itemAlive((it->serial << 4) | i))
+        {
+            markerAdd(&n, it->prop, it->mk, it->mklabel, it->born);
+        }
+    }
+    for (i = 0; i < MAX_WEAPON_SLOTS; i++)
+    {   /* dropped guns and thrown knives (not the arena items, handled above) */
+        const WeaponObjRecord *w = &g_WeaponSlots[i];
+
+        if (slotIsLoose(w) && !itemMarked(w))
+        {
+            s32 knife = w->weaponnum == ITEM_KNIFE || w->weaponnum == ITEM_THROWKNIFE;
+
+            if (sWeapSeen[i] != w->prop)
+            {   /* a new drop in this slot: its clock starts now */
+                sWeapSeen[i] = w->prop;
+                sWeapBorn[i] = (s32)g_GlobalTimer;
+            }
+            markerAdd(&n, w->prop, knife ? PORT_MK_KNIFE : PORT_MK_GUN, knife ? "KNIFE" : "GUN", sWeapBorn[i]);
+        }
+        else
+        {
+            sWeapSeen[i] = NULL;
+        }
+    }
+    sMarkPubN = n;
+}
+
+int portArenaMarkers(PortPickupMarker *out, int max, PortMarkerStyle *style)
+{
+    int n = sMarkersOn ? sMarkPubN : 0;
+
+    if (n > max)
+    {
+        n = max;
+    }
+    if (n > 0)
+    {
+        memcpy(out, sMarkPub, (size_t)n * sizeof(PortPickupMarker));
+    }
+    if (style != NULL)
+    {
+        *style = sMarkStyle;
+    }
+    return n;
+}
+
+/* ---- drop A8 (crowd favour): small lookups for port_arenacrowd.c -------------------------------------------------------------- */
+
+/* the spawn.weapons() name of an item id ("fist", "knife" for the melee ones), NULL = not one of ours */
+const char *portArenaWeaponName(s32 item)
+{
+    s32 i;
+
+    if (item == ITEM_FIST)
+    {
+        return "fist";
+    }
+    if (item == ITEM_KNIFE || item == ITEM_THROWKNIFE)
+    {
+        return "knife";
+    }
+    for (i = 0; i < (s32)(sizeof(sWeapons) / sizeof(sWeapons[0])); i++)
+    {
+        if (sWeapons[i].item == item)
+        {
+            return sWeapons[i].name;
+        }
+    }
+    return NULL;
+}
+
+s32 portArenaWeaponItem(const char *name)
+{
+    const ArenaWeapon *w = findWeapon(name);
+
+    return w != NULL ? w->item : -1;
+}
+
+/* an arena spectator (seated by the mode, not an enemy), whatever GE_ARENA_CROWDCOLLIDE says */
+s32 portArenaChrSpectator(const ChrRecord *chr)
+{
+    ArenaInfo *a = (chr != NULL && (s32)chr->chrnum >= ARENA_CHRNUM0) ? infoGet((s32)chr->chrnum) : NULL;
+
+    return a != NULL && !a->enemy && portModeActive();
 }
 
 #endif /* TARGET_N64 */

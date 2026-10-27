@@ -6,12 +6,29 @@ A wave-survival mode in a generated gladiator pit. The map is a C data set built
 
 | Launcher | What it does |
 | --- | --- |
-| `Play Arena.bat` | `GE_MODE=arena`: 20 waves, a boss every 5, then the mission is won. |
+| `Play Arena.bat` | `GE_MODE=arena-menu`: the arena's start menu (see Start menu and post-game). |
 | `Play Arena (Endless).bat` | `GE_MODE=arena-endless`: waves keep coming and keep getting harder; your wave, kills and time are logged when you fall (`ge: arena: OVER wave ...`). |
-
+| `Play Arena (Chaos).bat` | `GE_MODE=arena-chaos`: 20 waves with wave mutators and affix elites on (see Wave mutators, Affix elites). |
+| `Play Arena (Chaos Endless).bat` | `GE_MODE=arena-chaos-endless`: endless, mutators and elites on. |
+| `Play Arena (Co-op).bat` | `GE_COOP=1 GE_MODE=arena-coop`: two Bonds, you and the arena bot (see Co-op). |
+| `Play Arena (Co-op Chaos).bat` | `GE_COOP=1 GE_MODE=arena-coop-chaos`: co-op with mutators and elites. |
 | `Play Arena (Test Keys).bat` | `GE_MODE=arena` with the wave-jump test keys (below) and `GE_CHEATS=invuln,guns`. |
 
-All set `GE_STAGE=colosseum GE_SKIPINTRO=1` too. To make your own variant, copy `Data/Scripts/modes/arena-endless.lua` (three lines: it sets `ARENA_SETTINGS`, then `include("arena")`) and run it with `GE_MODE=<your file name>`. For example `ARENA_SETTINGS = { waves = 10, boss_every = 3, crowd = 30 }`. Add `GE_CHEATS=invuln` to watch without dying.
+All set `GE_STAGE=colosseum GE_SKIPINTRO=1` too. The preset launchers skip the start menu and start their preset at once; when the run ends they come back to the post-game like a run started from the menu (Retry starts the same preset again; New assignment opens the menu on that preset). `GE_MODE=arena` on its own is the classic 20 waves.
+
+## Start menu and post-game
+
+Launching `Play Arena.bat` loads the Colosseum as a LOBBY (mode `arena-menu`, `tools/mode_arena_menu.lua`): the crowd fills the stands, the camera turns slowly from the middle of the pit, nobody fights, and the menu is drawn over it. Everything is Bond-themed (MI6 briefing, Q Branch, the debrief); every word is in the shared theme table, `ARENA_THEME.menu` in `tools/arena_theme.lua` (the medals are its `medals`), except the settings rows' own labels and help lines, which sit beside their values in `tools/arena_menu_defs.lua`.
+
+- **The briefing (main page):** seven operations (presets) with their best wave or fastest clear and medal at the current difficulty (`arena_scores.ini`, solo only): OPERATION COLOSSEUM (20 waves), TOMORROW NEVER DIES (endless), SPECTRE PROTOCOL (20 waves with mutators and affix elites), CASINO ROYALE (endless chaos), QUANTUM OF SOLACE (10 waves, a boss every 3), DOUBLE-O SECTION (co-op with the arena bot), DOUBLE-O VS SPECTRE (co-op chaos). The difficulty (TRAINEE, FIELD AGENT = the arena as built, DOUBLE-O, SUICIDE MISSION), Q BRANCH (every setting), RETURN TO MI6 (the title menus) and BEGIN MISSION. The mission dossier on the right sums up the settings and the bests.
+- **Q Branch (advanced page):** pacing (10 / 20 / 30 waves, endless), boss waves, difficulty, get ready, breather; wave mutators, affix elites, chaos intensity (mild, normal, wild, max), whacky effects; players (solo, a 00 partner played by the arena bot), the co-op downed rule; enemies at once, knife throwers' distance, bodies; loadout (scavenger, supplied, stocked), healing (per kill, gifts, both), centre drops; crowd size, back rows (impostors), crowd favour, crowd screams; pickup markers, dropped-gun dots. Changing a scored setting turns the operation into an UNSANCTIONED OPERATION with its own best scores (`custom_<pacing>`). Each row's effect on `ARENA_SETTINGS` is `ARENA_MENU_DEFS.settings` in `tools/arena_menu_defs.lua`.
+- **The debrief (post-game):** MISSION COMPLETE or AGENT DOWN, the wave, the medal and any new best, then wave reached, confirmed kills, mission time, accuracy, headshots, best multi-kill, best streak, the crowd's peak favour, hits taken (and elites and mutators in chaos), and kills per wave as bars (gold a boss wave, purple a mutator wave, red the wave you fell in). AGAIN, 007? starts the same run again (same mode, settings and players), NEW ASSIGNMENT goes back to the briefing with the run's settings, RETURN TO MI6 goes to the title menus.
+- **Controls:** up / down (stick, D-pad, W / S, the wheel) move, left / right change a setting (and jump between the lists and BEGIN MISSION), fire, A or Enter select, B, Escape or the use key go back. The mouse points (the highlight follows it) and clicks; a right click goes back or steps a setting backwards.
+- **Remembered:** the last choices are in `Data/Saves/arena_menu.ini` (one `setting=CHOICE` line each, plus `preset=`), written when a run starts. Delete it for the defaults. `GE_ARENAMENU_FILE=<path>` uses another file, `GE_NOMENUSAVE=1` never writes it.
+- **How it works:** a run is a fresh load of the Colosseum, exactly as a launcher starts one. BEGIN MISSION and AGAIN, 007? end the lobby stage and hand the next stage its mode, `ARENA_SETTINGS` (as a Lua table constructor), co-op and chr slots through `port/src/port_arenamenu.c`; `front.c` sees the hand-off where the stock mission report would open and loads the Colosseum again instead. In the run, `tools/arena_flow.lua` (included at the top of `mode_arena.lua`) applies those settings, keeps the stats, and arms the debrief: when the run ends (death, the win after 4 s of cheering, or an abort from the watch, which goes back to the briefing) the lobby loads again. The menu itself is sim state (the crew's synchronized buttons through `plan.hold` / `plan.input`, a `ui_tick` event every game tick); the drawing (`port/src/port_arenamenu_draw.c`, on the shared HUD helpers `port_hudstyle.c`) is presentation.
+- **Off:** in netplay (the host's menus choose the next stage there; the menu flow is solo and local co-op only), in the benchmark presets, in automated runs (`GE_FRAMES`, `GE_PLAYERBOT`, `GE_INPUTPLAY`) unless `GE_ARENA_MENU=1`, and with `ARENA_SETTINGS.postgame = false`. Then a run ends on the stock report as before.
+- **For mutator scripts:** the WHACKY EFFECTS row sets `ARENA_SETTINGS.whacky` = `false` (off) or an intensity `1` (mild), `2` (normal), `3` (wild).
+- **Test:** `tests/arena_menu/run.sh` (the menu, a win, Retry, a fall, New assignment, Quit; 13 checks), `shots.sh` (its screenshots to JPG), `oracle.sh` (dam1 / facility1). To make your own variant, copy `Data/Scripts/modes/arena-endless.lua` (three lines: it sets `ARENA_SETTINGS`, then `include("arena")`) and run it with `GE_MODE=<your file name>`. For example `ARENA_SETTINGS = { waves = 10, boss_every = 3, crowd = 30 }`. Add `GE_CHEATS=invuln` to watch without dying.
 
 ## The map
 
@@ -19,9 +36,9 @@ An octagonal pit 9000 units across with a 350-unit wall, four gates (E, N, W, S)
 
 ## How a wave runs
 
-GET READY (`start_delay`), then wave 1. Enemies pour out of the gates two per quarter second, up to `max_alive` at once (the rest of the wave trickles in as they die). A wave is cleared when the queue is empty and none are alive. Then comes a breather (`breather` seconds) and the next wave. Corpses vanish 4 seconds after death to keep chr slots free. The HUD shows `WAVE 4/20  THE KNIFE SISTERS` on line 1, kills / enemies left / time on line 2 and announcements on line 3. In fixed mode the last wave ends with `mission.win`; if Bond dies, the stock mission-failed screen takes over.
+GET READY (`start_delay`), then wave 1. Enemies pour out of the gates two per quarter second, up to `max_alive` at once (the rest of the wave trickles in as they die). A wave is cleared when the queue is empty and none are alive. Then comes a breather (`breather` seconds) and the next wave. Every body stays (see Big crowds and keeping every body). The HUD shows `WAVE 4/20  THE KNIFE SISTERS` (plus `+ <MUTATOR>`) on line 1, kills / enemies left / time (plus `ELITES n`) on line 2, announcements on line 3 and the crowd favour on line 4. In fixed mode the last wave ends with `mission.win`; if Bond dies, the stock mission-failed screen takes over.
 
-Enemies fight from range, not just in melee: they open fire as soon as they can see you within their weapon's effective range (rifles 6000 units, SMGs and shotguns 3500, pistols 2500) and run straight at you across the open floor when out of range.
+Enemies fight from range, not just in melee: they open fire as soon as they can see you within their weapon's effective range (rifles 6000 units, SMGs and shotguns 3500, pistols 2500) and run straight at you across the open floor when out of range. Knife throwers keep their distance (`knife_keep`, `knife_keep_dist` 3300): while they see you 28-38 m away they stand, kneel, sidestep and throw; closer than 28 m they run back to a pit pad that still sees you (AI list `m_ArenaKnifeKeep`); `knife_keep = false` or `GE_ARENA_OLDAI=1` gives the old closing runs.
 
 ### Wave types
 
@@ -60,7 +77,70 @@ Boss health is multiplied by `boss_hp_mult` (2.5) and given armour worth `boss_a
 - **Centre ammo box.** Every `ammo_every` seconds (40) one real MP ammo box with PP7, KF7 and shotgun rounds (`ammo_rounds`) appears on a random pad near the middle of the pit. At most `ammo_max_center` (3) lie uncollected (a new one replaces the oldest), and each disappears after `ammo_ttl` (90). It is an ammo box, not a gun: it never rotates through weapons. Note that solo play doubles box ammo.
 - **Centre armour.** One body-armour pickup after every boss wave, and with `armour_chance` (0.25) after other waves, gone after `armour_ttl` (120 s).
 - **Health per kill.** No health between waves; each kill heals the Bond who got it, by a fraction of a full bar set per tier in `health_per_kill` (3% light and normal, 4% armoured, 6% heavy, 25% for a boss).
-- **The crowd.** `crowd` (150) harmless, invincible spectators fill the front rows during GET READY, with impostors behind them (see The impostor crowd). They fidget on their own timers, look startled when a boss arrives, and cheer and boo what happens in the pit (see Crowd reactions). Each costs a little frame time; lower `crowd` on a weaker machine. Zero removes them.
+- **The crowd.** `crowd` (150) harmless, invincible spectators fill the front rows during GET READY, with impostors behind them (see The impostor crowd). They fidget on their own timers, look startled when a boss arrives, and cheer and boo what happens in the pit (see Crowd reactions). Each costs a little frame time; lower `crowd` on a weaker machine. Zero removes them. A spectator is pinned to its seat (no movement collision test: about 80% of the crowd's sim cost was that test for chrs that never move; `GE_ARENA_CROWDCOLLIDE=1` restores it), and spectators added later never share a spot (`seat_gap`, 240 units).
+
+## Pickup markers
+
+`pickup_markers` (true): the good pickups (centre ammo box yellow, armour cyan, crowd and sponsor gifts pink, a gun placed by `spawn.item` orange) get a small diamond and a short label (`AMMO 12m`); dropped guns within `marker_drop_near` (10 m) get a faint dot; thrown knives nothing. A marker fades out `marker_fade` (8) seconds after its pickup appeared and comes back within `marker_near` (15 m). Markers close together on screen merge (`AMMO x3 12m`); at most `marker_max` (10) groups are drawn, good stuff and nearest first; off-screen good stuff gets a diamond on the screen edge. Presentation only: the sim publishes the live items (`port_arenamode.c`) and the console draws them (`port_console.c`); nothing in the sim or the netplay hash reads them. Settings live in `_arena_polish.lua` (`marker_fade`, `marker_near`, `marker_drops` "near" / false / "always", `marker_knives`, `marker_drop_near`, `marker_merge`, `marker_edge`, `marker_max`, `marker_style` "v2" or "a7" for the old beacons); `GE_MARKERLOG=1` logs the counts once a second.
+
+## Crowd favour
+
+A meter from 0 to 100 (start 50) on HUD line 4, with tiers HATED (0-19), RESTLESS, WATCHING, ROARING, ADORED (80-100). It drifts back to 50 at 0.25 a second, but never up while HATED. The module is `_arena_crowd.lua` (`tools/mode_arena_crowd.lua`); the C side (`port/src/port_arenacrowd.c`) records where each shot hit, with what and from how far, and who owns each explosion.
+
+- **Gains, per kill:** headshot 3 (+1 per 15 m, at most +3); long shot 3 (30 m+); multi-kill (a 2nd kill within 2 s 3, then +2 each); streak (kills without being hurt, from the 3rd); close call 5 (under 20% health); bare hands or knife 5; THEIR OWN GUN 1 (the killing gun is the very gun model the victim carried, in either hand, even after it was knocked out of its hand; not merely the same ammo, and not Bond's start kit or a gift); BOOM (one blast, 2+ kills); DISARMED 4; REVENGE 3; GIANT SLAYER 10 (a boss), ELITE SLAIN 4, +6 WITH A PISTOL; CLEAN WAVE 6 (nobody hurt, at least one kill).
+- **Losses:** HIT -1 (at most one per 0.4 s); CAMPING -2 (within 400 units for 10 s while enemies are alive, then every 5 s); SPRAY AND PRAY -3 (30 shots without a hit); SHOT THE CROWD -8 (and the spectators nearby panic).
+- **Effects:** ROARING and up: a gift lands near a Bond every 25 s (a small ammo box or armour; real pickups). ADORED: a sponsor gift in the centre (Golden Gun, rockets, full armour, or 15 s of double damage; never while a mutator runs). HATED, once a wave: an extra pack of rushers now, or a shortened breather and a bigger next wave (`hated_penalty` "pack", "elite" or "off"). The emperor's thumb at the last boss kill of a boss wave: favour 60+ heals every Bond and gives a gift, under 40 skips the breather.
+- **Presentation:** reactions ripple out from the stand nearest the action; the tier changes the spectators' fidgets; a few stock sounds by id (`arena.sfx`). This runs next to the cheers and boos below (Crowd reactions): both set animations on the same spectator records, so a later one replaces an earlier one, and the WAV / scream sounds are untouched.
+- **Settings:** `crowd` may be a table: `crowd = { count = 150, favour = true, points = {...}, drift = ..., hated_penalty = "pack", ... }` (partial tables merge; every default is `ARENA_CROWD.DEFAULTS` at the top of the module). Off: `crowd = { favour = false }` or `crowd_favour = false`. One shared favour in co-op and netplay; it is sim state (Lua heap, the session RNG, real pickups).
+- **Disarm:** a shot to a held gun knocks it out (`spawn.disarm`, the stock game only chips it) and the enemy goes for you with its fists; `disarm_drop = false` keeps only the points.
+
+## The HUD and the callouts
+
+`hud_style` (true): the arena draws its own HUD (`port/src/port_arenahud.c`, with the shared helpers in `port/src/port_hudstyle.c`; stock fonts only) in place of the plain mode rows. The wave panel sits in the top-left corner (`hud_scale`, 0.5 of the console font by default; `hud_anchor` "top_left" or "top_right"; `hud_margin` units from the edges): WAVE and the number big (it pops and the frame flashes when the wave changes), the wave's name and phase, the mutator as a purple tag, KILLS / LEFT / time / ELITES, the crowd favour as a bar in the tier's colour with the last toast, and this machine's message line as a strip below (co-op DOWN / REVIVING text included). At the upper centre, the callouts: kill chains (TWIN STRIKE, TRIPLE CROWN, QUAD FURY, BLOODBATH, MASSACRE, CARNAGE xN) and streaks without being hurt (THE CROWD STIRS at 5, CHAMPION OF THE PIT 10, BLOODED 15, UNBROKEN 20, IMMORTAL 25, LEGEND OF THE ARENA 30 and every 5 after), STREAK BROKEN AT n: big outlined text that pops in, pulses and fades, bigger and hotter with the tier; the newest replaces the one showing. Crowd settings `callouts`, `chain_names`, `chain_more`, `streak_names`, `streak_broken`. The mode still writes the HUD rows (tests read them); `hud_style = false` shows them as before.
+
+## Wave mutators
+
+`mutators` (false; on in the chaos presets): from wave `mutator_from` (3) a wave may roll one mutator (`mutator_chance` 0.30, +0.02 a wave, at most 0.60; bosses only with `mutator_bosses`). It ends with its wave and the module checks that every changed setting is back (log `reset ok`). KNIVES ONLY (every enemy throws knives and fires no bullet), PAINTBALL, ONE-HIT KILLS, TURBO, LOW VISIBILITY (fog at 2600 units; the generated floor is not fogged), BIG HEADS, IRON SKIN (enemy health 200), BOTTOMLESS CLIPS (infinite ammo, half as many enemies again). `mutator_list`, `mutator_pick` ("random" or "cycle"), `mutator_fog_far`. Module `_arena_mutators.lua`; C side `port/src/port_arenafx.c`.
+
+## Affix elites
+
+`elites` (false; on in the chaos presets): from wave `affix_from` (3) an ordinary enemy (never a boss) may roll 1 or 2 affixes (`affix_chance` 0.04 +0.012 a wave, at most 0.25): armoured, swift, knives, explosive (its corpse blows up after 0.7 s), regen (5% a second), marksman. Elites have 1.3x health and armour, are drawn 1.15x bigger, are counted on HUD line 2 and announced when they die. Module `_arena_elites.lua`.
+
+## Whacky
+
+`GE_MODE=arena-whacky` (Windows: `Play Arena (Whacky).bat`; `Play Arena (Whacky Test Keys).bat` adds invincibility, all guns and the keys below). Nearly every wave from wave 2 rolls a mutator (`mutator_chance` 0.70 +0.03 a wave, at most 0.95, bosses too) from the Whacky set and the A7 set; affix elites glow in their affix's colour (armoured steel, swift yellow, knives green, explosive orange, regen pink, marksman red; two affixes pulse between both), Baron Samedi comes in gold, and after every boss wave the crowd throws Bond the NICK NACK LAUNCHER. The names are Bond-themed and live in `ARENA_THEME.whacky` (`tools/arena_theme.lua`):
+
+| Key | Shown as | What it does |
+|---|---|---|
+| ghost | SPECTRE | enemies are translucent ghosts that flicker, now and then nearly invisible |
+| chameleon | ADAPTIVE CAMOUFLAGE | every enemy cycles through the colours |
+| shadow | NIGHTFIRE | near-black enemies, a little faster |
+| glass | ICE PALACE | glassy, shimmering; one shot kills them, they do 2.5x damage |
+| giants | TINY BOND | the Tiny Bond cheat, and the enemies are 1.3x bigger |
+| fastfwd / slowmo | TURBO MODE / SLOW ANIMATION | the Fast / Slow Animation cheats (1.9x / 0.5x; slow-mo brings 40% more enemies) |
+| rockets | LITTLE NELLIE | every third enemy carries a rocket launcher (low accuracy) |
+| double | DOUBLE AGENT | Bond gets a 2x cheat pair (rockets, grenade launchers, RC-P90s or lasers); 50% more enemies |
+| glitch | GOLDENEYE EMP | Line Mode bursts of 2 s every 6-12 s; the enemies' colours race |
+| swap | Q'S WRISTWATCH | every 10 s the speed flips between 1.9x and 0.5x |
+| crowd | Q-BRANCH AIRDROP | every 14 s the crowd throws a gift near Bond (a gun, armour, or the launcher) |
+| minions | NICK NACK LAUNCHER | Bond gets a rocket launcher whose rockets each hatch 3 tiny turbo knife throwers on his side |
+| mayhem | NICK NACK'S REVENGE | hostile tiny knife throwers burst in near Bond every 9 s |
+
+**The NICK NACK LAUNCHER** (a Q-branch prototype): while armed (`whacky.launcher`), each of Bond's rockets bursts where it explodes into 3 chrs at 0.25 scale (collision box scaled too) running at 3x animation speed, which hunt the nearest enemy in sight and throw real knives. They are invincible for 2.5 s while they hatch from the blast, have 0.3 of a guard's health, last 15 s and then fade out; at most 12 live (a new one fades the oldest). They are never arena enemies: they do not count towards the wave or the kills, but a wave enemy they kill counts as a kill, with a NICK NACK STRIKES callout. Settings: `minion_shots` (10), `minion_count` (3), `minion_scale` (0.25), `minion_life` (15), `minion_health` (0.3), `minion_cap` (12), `minion_hostile` (false), `whacky_fx`, `whacky_reward`, `crowd_throw_every` (14).
+
+Test keys (`test_keys` or `GE_ARENA_TESTKEYS=1`; solo only): F5 / F6 the next / previous effect NOW on the live enemies, F7 effect off, F8 the launcher with 20 rockets. Module `_arena_whacky.lua`; C side `port/src/port_chrfx.c` (presentation) and `port/src/port_whacky.c` (sim). Tests: `tests/arena_whacky/` (`run.sh`, `whacky-fx.lua` one effect per run with `GE_WFX_<NAME>=1`, `whacky-minion.lua` fire / hatch / kill / despawn, `oracle.sh`).
+
+## Best scores and medals
+
+Solo only: `arena_scores.ini` next to `midas.ini` keeps, per pacing (`endless_` or `fixed<waves>_`), the best wave, kills, time (endless: the longest; fixed: the fastest clear), medal, runs and clears. Medals: endless by the wave reached (5 / 10 / 20 / 30 = BRONZE / SILVER / GOLD / PLATINUM); fixed by the waves cleared (a quarter, half, all; all within 75 s a wave = PLATINUM). GET READY shows the best; the end HUD and the report page show the medal and any new best. `scores = false` turns it off; `GE_SCOREFILE=<path>` and `GE_NOSCORESAVE=1` are for tests. Module `_arena_scores.lua`, store `port/src/port_arenascores.c` (Lua has no io). The report-page lines (`arena.debrief`) are printable ASCII only, and a run of more than 29 characters without a space is broken (the stock word wrap has a 32-byte word buffer).
+
+## Co-op
+
+`GE_COOP=1` with `arena-coop` (or `ARENA_SETTINGS.coop = true`): two Bonds. Locally the second one is the arena bot: the co-op puppet Bond driven through the same pad and look input a person uses (`port/src/port_arenacoop.c`), so it collides, autoaims, reloads, cycles weapons and walks over pickups like a player. It targets the nearest visible enemy, strafes, loots better guns, fetches the centre ammo and armour when low, falls back when hurt, and revives you. In netplay the second Bond is a person and the bot is never used.
+
+- **Down and revive:** a Bond whose health runs out goes DOWN while another is up (kneeling, no damage, the enemies ignore him). A partner standing within `coop_revive_radius` (170) for `coop_revive` (3 s) brings him back with `coop_revive_health` (0.35) and `coop_revive_grace` (2 s). After `coop_bleed` (30 s) he bleeds out: `coop_bleedout` "wave" (back at the start when the wave is cleared), "run" or "end". The last Bond standing dies for real, and the run ends.
+- **Waves for two:** `coop_count_mult` 1.5 (bosses are not doubled), `coop_alive_mult` 1.35, `coop_hp_mult` 1.2, `coop_boss_hp_mult` 1.5.
+- The rules are sim state (hashed for netplay only while on); the Colosseum gets 40 more spare object model slots so the centre pickups still fit with two Bonds' guns.
 
 ## Settings
 
@@ -86,6 +166,10 @@ Set them by editing table `S` at the top of `arena.lua`, or in a preset file wit
 | `knife_range`, `knife_cooldown`, `sight` | 4500, 1.2, 15000 | knife throwers' range and cooldown (seconds); how far every enemy sees (units) |
 | `boss_hp_mult`, `boss_armour`, `boss_cycle_mult` | 2.5, 0.5, 0.35 | boss toughness |
 | `elite_from`, `elite_share0`, `elite_share_inc`, `elite_share_max` | 8, 0.25, 0.05, 0.75 | elite troops |
+| `pickup_markers`, `knife_keep`, `knife_keep_dist`, `seat_gap` | true, true, 3300, 240 | markers, knife throwers' distance, spectator spacing (`_arena_polish.lua`) |
+| `mutators`, `elites`, `scores` | false, false, true | wave mutators, affix elites, best scores (the chaos presets turn the first two on) |
+| `coop` and `coop_*` | off | co-op rules and waves for two (the co-op presets) |
+| `crowd_favour` / `crowd = {...}` | on | the crowd favour (see Crowd favour) |
 | `turbo_from`, `turbo_share0`, `turbo_share_inc`, `turbo_share_max`, `turbo_lo`, `turbo_hi0`, `turbo_hi_inc`, `turbo_hi_max`, `turbo_knife_from`, `turbo_knife_lo`, `turbo_knife_hi` | see file | turbo enemies and the turbo knife wave |
 
 Below `S` are the tables `TIERS` (health and armour multipliers), `TIER_MIX` (which tier mix applies from which wave), `ELITES` (the elite bodies and `ELITE_GUNS_*`), the skin pools and `TITLES`. Per-wave-type counts and base health are in the `mk_*` functions.
@@ -183,4 +267,6 @@ What it found (perf on the Linux build): 98% of the sim was every chr's per-fram
 
 The mode relies on the Lua spawning API (`spawn.chr`, `spawn.item`, `spawn.anim`, `bond.give`, `bond.heal`; see `lua.md`) and on C-side additions that are active only for arena enemies: AI lists with ranged fire and direct routes, a bigger model hit-entry pool, per-chr knife throwing, and a weapon pool that protects drops near Bond. The stock game, the attract demos and the rest of the port are not affected; the demo oracle in `tests/baseline/` verifies this.
 
-Arena soak and scenario scripts are in `tests/arena_a5/` and `tests/arena_a6/`; copy a preset into `Data/Scripts/modes/` and run it with `GE_MODE=<preset>` (see the scripts).
+Arena soak and scenario scripts are in `tests/arena_a5/`, `tests/arena_a6/`, `tests/arena_crowd/`, `tests/arena_test/`, `tests/arena_a7/` (polish, mutators, elites, scores, co-op; `merge_sweep.sh polish|mut|coop` runs them in three lanes) and `tests/arena_a8/` (crowd favour and markers; `run.sh`); copy a preset into `Data/Scripts/modes/` and run it with `GE_MODE=<preset>` (see the scripts). Run them on a real `Xvfb :99` with `GE_FIXEDTICK=1`; netplay (`coop-net`, `merge-coopchaos-net`, `a8-net` through `tests/net_modes.sh`) alone.
+
+The A7 / A8 work was built on the lab line (`arena-a7`) and ported onto heist for arena-v0.3; their test hooks are in the `test` table (`test.hurt`, `test.shoot`, `test.coop_down`, `test.coop_kill`; `lua.md`).

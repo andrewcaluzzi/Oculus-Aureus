@@ -1,8 +1,10 @@
 /* port_netstats.c - the frame/network sample ring and its one-second window (netplay job 6). Pure apart from the clock in
  * portNetStatsMark and the ini/env read in portNetGraphLevel. Render only: the sim never reads any of it. */
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "port_netstats.h"
+
 
 extern unsigned long long portProfNow(void);                                   /* pcsched.c: monotonic microseconds */
 __attribute__((weak)) int portVideoNetGraphCfg(void) { return 0; }             /* video.c: [display] net_graph */
@@ -68,6 +70,19 @@ void portNetStatsPush(const PortNetStatSample *s, unsigned long long nowUs)
         sSec.waited = sWinWaited;
         sSec.resends = sWinResends;
         sSec.valid = 1;
+        {   /* GE_PERFLOG=1 (drop A7): one line a second with the frame split, for headless frame-time runs */
+            static int perfLog = -1;
+
+            if (perfLog < 0)
+            {
+                perfLog = getenv("GE_PERFLOG") != NULL;
+            }
+            if (perfLog)
+            {
+                printf("ge: perf: %.1f fps, sim avg %.2f max %.2f ms, render avg %.2f max %.2f ms (%u frames)\n", (double) sSec.fps, (double) sSec.simAvg,
+                            (double) sSec.simMax, (double) sSec.renderAvg, (double) sSec.renderMax, sSec.frames);
+            }
+        }
         sWinStart = nowUs;
         sInB = sOutB = sInP = sOutP = sSimSum = sRenSum = sWaitSum = 0.0;
         sSimMax = sRenMax = sWaitMax = 0.0f;

@@ -21,6 +21,7 @@
 #include "lua.h"
 #include "lauxlib.h"
 #include "../include/port_lua.h"
+#include "../include/port_arena_a8.h"
 
 static void needStage(lua_State *L, const char *api)
 {
@@ -123,6 +124,9 @@ static int arenaSpawnChr(lua_State *L)
         lua_pop(L, 1);
         lua_getfield(L, 2, "knife_cooldown");
         if (!lua_isnil(L, -1)) s.knifeCooldown = (float) luaL_checknumber(L, -1);
+        lua_pop(L, 1);
+        lua_getfield(L, 2, "knife_keep");
+        if (!lua_isnil(L, -1)) s.knifeKeep = (float) luaL_checknumber(L, -1);
         lua_pop(L, 1);
         lua_getfield(L, 2, "sight");
         if (!lua_isnil(L, -1)) s.sight = (float) luaL_checknumber(L, -1);
@@ -346,6 +350,239 @@ static int arenaSpawnItemRemove(lua_State *L)
     needStage(L, "spawn.item_remove");
     lua_pushboolean(L, h >= PORT_HEIST_LOOT_HANDLE ? portHeistLootRemove(h) : portLuaGameItemRemove(h));
     return 1;
+}
+
+/* drop A7: spawn.markers(on): pickup markers on screen (presentation only); spawn.marker_sync(): republish the marker list (call ~10x/s) */
+static float optField(lua_State *L, int t, const char *k, float d)
+{
+    float v = d;
+
+    lua_getfield(L, t, k);
+    if (lua_isboolean(L, -1)) v = lua_toboolean(L, -1) ? 1.0f : 0.0f;
+    else if (!lua_isnil(L, -1)) v = (float) luaL_checknumber(L, -1);
+    lua_pop(L, 1);
+    return v;
+}
+
+/* drop mode for markers v2: false / "off" = none, "near" = a dot close up, true / "always" = always a dot */
+static int optDropMode(lua_State *L, int t, const char *k, int d)
+{
+    int v = d;
+
+    lua_getfield(L, t, k);
+    if (lua_isboolean(L, -1)) v = lua_toboolean(L, -1) ? 2 : 0;
+    else if (lua_type(L, -1) == LUA_TSTRING)
+    {
+        const char *s = lua_tostring(L, -1);
+
+        v = (strcmp(s, "near") == 0) ? 1 : ((strcmp(s, "always") == 0 || strcmp(s, "on") == 0) ? 2 : 0);
+    }
+    lua_pop(L, 1);
+    return v;
+}
+
+/* spawn.markers(on [, {fade=, near=, drops=, knives=, drop_near=, merge=, edge=, max=, legacy=}]): drop A8 markers v2 (port_arenamarkers.h) */
+static int arenaSpawnMarkers(lua_State *L)
+{
+    needStage(L, "spawn.markers");
+    portLuaGameMarkers(lua_toboolean(L, 1));
+    if (lua_istable(L, 2))
+    {
+        portLuaGameMarkerStyle(optField(L, 2, "fade", 8.0f), optField(L, 2, "near", 1500.0f), optDropMode(L, 2, "drops", 1),
+                               optDropMode(L, 2, "knives", 0), optField(L, 2, "drop_near", 1000.0f), optField(L, 2, "merge", 26.0f),
+                               optField(L, 2, "edge", 1.0f) != 0.0f, (int) optField(L, 2, "max", 10.0f), optField(L, 2, "legacy", 0.0f) != 0.0f);
+    }
+    return 0;
+}
+
+/* spawn.item_marker(h, kind [, label]): kind "ammo" | "armour" | "gift" | "item"; the label is at most 7 characters */
+static int arenaSpawnItemMarker(lua_State *L)
+{
+    static const char *const kinds[] = { "ammo", "armour", "gift", "item", NULL };
+
+    needStage(L, "spawn.item_marker");
+    lua_pushboolean(L, portLuaGameItemMarker((int) luaL_checkinteger(L, 1), luaL_checkoption(L, 2, NULL, kinds), luaL_optstring(L, 3, NULL)));
+    return 1;
+}
+
+/* spawn.last_hit(chr) -> part, weapon, player, dist, age, blast  (nil when no Bond ever hit it). See port_arena_a8.h */
+static int arenaSpawnLastHit(lua_State *L)
+{
+    const char *part, *weapon;
+    int player, blast;
+    float dist, age;
+
+    needStage(L, "spawn.last_hit");
+    if (!portLuaGameLastHit((int) luaL_checkinteger(L, 1), &part, &weapon, &player, &dist, &age, &blast)) return 0;
+    lua_pushstring(L, part);
+    if (weapon) lua_pushstring(L, weapon); else lua_pushnil(L);
+    if (player >= 0) lua_pushinteger(L, player); else lua_pushnil(L);
+    lua_pushnumber(L, dist);
+    lua_pushnumber(L, age);
+    lua_pushinteger(L, blast);
+    return 6;
+}
+
+/* spawn.hit_events() -> { {kind="disarm"|"crowd", chr=, player=}, ... } since the last call (then the queue is empty), lost count */
+static int arenaSpawnHitEvents(lua_State *L)
+{
+    int kind[32], chr[32], player[32], n, i;
+
+    needStage(L, "spawn.hit_events");
+    n = portLuaGameHitEvents(kind, chr, player, 32);
+    lua_createtable(L, n, 0);
+    for (i = 0; i < n; i++)
+    {
+        lua_createtable(L, 0, 3);
+        lua_pushstring(L, kind[i] == 1 ? "disarm" : "crowd");
+        lua_setfield(L, -2, "kind");
+        lua_pushinteger(L, chr[i]);
+        lua_setfield(L, -2, "chr");
+        lua_pushinteger(L, player[i]);
+        lua_setfield(L, -2, "player");
+        lua_rawseti(L, -2, i + 1);
+    }
+    lua_pushinteger(L, portLuaGameHitEventsLost());
+    return 2;
+}
+
+/* spawn.owned_guns(chr) -> the names of the guns the arena enemy held (one per hand, kept after a disarm or its death drop), nothing
+ * when none is known. The crowd's THEIR OWN GUN compares the killing shot's gun with these. */
+static int arenaSpawnOwnedGuns(lua_State *L)
+{
+    const char *g1, *g2;
+    int n;
+
+    needStage(L, "spawn.owned_guns");
+    n = portLuaGameOwnedGuns((int) luaL_checkinteger(L, 1), &g1, &g2);
+    if (n >= 1) lua_pushstring(L, g1);
+    if (n >= 2) lua_pushstring(L, g2);
+    return n;
+}
+
+static int arenaSpawnDisarm(lua_State *L)
+{
+    needStage(L, "spawn.disarm");
+    lua_pushboolean(L, portLuaGameChrDisarm((int) luaL_checkinteger(L, 1)));
+    return 1;
+}
+
+/* test.shoot(chr, part, weapon [, player]): test hook, a real shot landing on the chr (handles_shot_actors) fired by that Bond */
+static int arenaSpawnShoot(lua_State *L)
+{
+    int r;
+
+    needStage(L, "test.shoot");
+    r = portLuaGameChrShoot((int) luaL_checkinteger(L, 1), luaL_optstring(L, 2, "body"), luaL_optstring(L, 3, "pp7"), (int) luaL_optinteger(L, 4, 0));
+    if (r < 0) return luaL_error(L, "test.shoot: unknown weapon '%s'", luaL_optstring(L, 3, "pp7"));
+    lua_pushboolean(L, r);
+    return 1;
+}
+
+/* bond.shots(p) -> shots fired, shots that hit a chr (nil: no such Bond) */
+static int arenaBondShots(lua_State *L)
+{
+    int fired, hits;
+
+    needStage(L, "bond.shots");
+    if (!portLuaGameBondShots((int) luaL_checkinteger(L, 1), &fired, &hits)) return 0;
+    lua_pushinteger(L, fired);
+    lua_pushinteger(L, hits);
+    return 2;
+}
+
+/* arena.sfx(id [, pitch]) -> bool: a stock sound effect by id (bondconstants.h *_SFX; 160 BING, 54 EVIL_LAUGH ...) */
+static int arenaSfx(lua_State *L)
+{
+    needStage(L, "arena.sfx");
+    lua_pushboolean(L, portLuaGameSfx((int) luaL_checkinteger(L, 1), (float) luaL_optnumber(L, 2, 0.0)));
+    return 1;
+}
+
+/* ---- the arena HUD (port/src/port_arenahud.c, presentation): arena.hud(on), arena.panel{...}, arena.callout(text, level [, sub [, secs]]) */
+extern void portArenaHudOn(int on);
+extern void portArenaHudPanel(int wave, int waves, const char *title, const char *mutator, int kills, int left, int elites, const char *time,
+                              int phase, int crowd, int tier, const char *tierName, const char *toast, int dbl);
+extern void portArenaHudCallout(const char *text, int level, const char *sub, float life);
+extern void portArenaHudPanelWords(const char *phaseLabel, const char *idleTitle, const char *idleSub);
+
+static int arenaHud(lua_State *L)
+{
+    portArenaHudOn(lua_toboolean(L, 1));
+    return 0;
+}
+
+/* arena.hud_layout(scale [, anchor "top_left" | "top_right" [, margin]]): the wave panel's size (1 = the console font's size), corner and
+ * gap to the screen edges (console units) */
+extern void portArenaHudLayout(float scale, int anchor, int margin);
+
+static int arenaHudLayout(lua_State *L)
+{
+    static const char *const anchors[] = { "top_left", "top_right", NULL };
+
+    portArenaHudLayout((float) luaL_optnumber(L, 1, 0.65), luaL_checkoption(L, 2, "top_left", anchors), (int) luaL_optinteger(L, 3, 4));
+    return 0;
+}
+
+static int fieldInt(lua_State *L, const char *k, int d)
+{
+    int v;
+
+    lua_getfield(L, 1, k);
+    v = lua_isnumber(L, -1) ? (int) lua_tointeger(L, -1) : d;
+    lua_pop(L, 1);
+    return v;
+}
+
+/* the strings are copied (bounded) before the next field is read: lua_tostring's pointer lives while the value is on the stack */
+static void fieldStr(lua_State *L, const char *k, char *out, size_t n)
+{
+    lua_getfield(L, 1, k);
+    snprintf(out, n, "%s", lua_type(L, -1) == LUA_TSTRING ? lua_tostring(L, -1) : "");
+    lua_pop(L, 1);
+}
+
+/* arena.panel{wave, waves, title, mutator, kills, left, elites, time, phase = "delay"|"fight"|"breather"|"over", crowd (0..100, -1 off),
+ * tier (1..5), tier_name, toast, double_secs} */
+static int arenaPanel(lua_State *L)
+{
+    static const char *const phases[] = { "delay", "fight", "breather", "over", NULL };
+    char title[40], mutator[32], time[12], tierName[24], toast[48], phase[12];
+    int ph = 0, i;
+
+    luaL_checktype(L, 1, LUA_TTABLE);
+    fieldStr(L, "title", title, sizeof(title));
+    fieldStr(L, "mutator", mutator, sizeof(mutator));
+    fieldStr(L, "time", time, sizeof(time));
+    fieldStr(L, "tier_name", tierName, sizeof(tierName));
+    fieldStr(L, "toast", toast, sizeof(toast));
+    fieldStr(L, "phase", phase, sizeof(phase));
+    for (i = 0; phases[i] != NULL; i++) if (strcmp(phase, phases[i]) == 0) ph = i;
+    portArenaHudPanel(fieldInt(L, "wave", 0), fieldInt(L, "waves", 0), title, mutator, fieldInt(L, "kills", 0), fieldInt(L, "left", -1),
+                      fieldInt(L, "elites", 0), time, ph, fieldInt(L, "crowd", -1), fieldInt(L, "tier", 3), tierName, toast,
+                      fieldInt(L, "double_secs", 0));
+    {   /* the theme's words: phase_label, idle_title, idle_sub (empty = the built-in ones) */
+        char phaseLabel[20], idleTitle[24], idleSub[32];
+
+        fieldStr(L, "phase_label", phaseLabel, sizeof(phaseLabel));
+        fieldStr(L, "idle_title", idleTitle, sizeof(idleTitle));
+        fieldStr(L, "idle_sub", idleSub, sizeof(idleSub));
+        portArenaHudPanelWords(phaseLabel, idleTitle, idleSub);
+    }
+    return 0;
+}
+
+static int arenaCallout(lua_State *L)
+{
+    portArenaHudCallout(luaL_checkstring(L, 1), (int) luaL_optinteger(L, 2, 1), luaL_optstring(L, 3, NULL), (float) luaL_optnumber(L, 4, 0.0));
+    return 0;
+}
+
+static int arenaSpawnMarkerSync(lua_State *L)
+{
+    needStage(L, "spawn.marker_sync");
+    portLuaGameMarkerSync();
+    return 0;
 }
 
 /* spawn.item_pos(h) -> x, z (nil when gone) */
@@ -801,6 +1038,175 @@ static void addTo(lua_State *L, const char *lib, const luaL_Reg *reg)
     lua_pop(L, 1);
 }
 
+/* ---- drop A7: mutators, elite affixes, scores (port_arenafx.c, port_arenascores.c) ----
+ *   spawn.knife_only(chr [, on]) -> bool     spawn.scale(chr, factor) -> bool     spawn.heal(chr, frac) -> bool   test.hurt(chr, frac)
+ *   spawn.health(chr) -> fraction of health left, armour (x the base 4), damage, maxdamage   (nil when gone)
+ *   spawn.explode(chr [, kind]) -> bool   kind "small" | "medium" (default) | "grenade" | an EXPLOSION_DEF number
+ *   arena.fog(far [, r, g, b]) -> bool (far <= 0: the level's own sky);  arena.fog() -> the current far distance (0 = none)
+ *   arena.debrief({ lines }) -> the report page's lines on the Colosseum (8 at most; nil / {} clears)
+ *   scores.get(key) -> number | nil;  scores.set(key, v) -> bool;  scores.all() -> { key = v };  scores.enabled();  scores.path() */
+#include "../include/port_arena_a7.h"
+
+static int arenaSpawnKnifeOnly(lua_State *L)
+{
+    needStage(L, "spawn.knife_only");
+    lua_pushboolean(L, portLuaGameChrKnifeOnly((int) luaL_checkinteger(L, 1), lua_isnone(L, 2) ? 1 : lua_toboolean(L, 2)));
+    return 1;
+}
+
+static int arenaSpawnScale(lua_State *L)
+{
+    needStage(L, "spawn.scale");
+    lua_pushboolean(L, portLuaGameChrScale((int) luaL_checkinteger(L, 1), (float) luaL_checknumber(L, 2)));
+    return 1;
+}
+
+static int arenaSpawnHeal(lua_State *L)
+{
+    needStage(L, "spawn.heal");
+    lua_pushboolean(L, portLuaGameChrHeal((int) luaL_checkinteger(L, 1), (float) luaL_checknumber(L, 2)));
+    return 1;
+}
+
+/* test.hurt(chr, frac) -> bool: test hook, a wound of frac of full health that never kills (armour is ignored) */
+static int arenaSpawnHurt(lua_State *L)
+{
+    float f;
+
+    needStage(L, "test.hurt");
+    f = (float) luaL_checknumber(L, 2);
+    lua_pushboolean(L, portLuaGameChrHeal((int) luaL_checkinteger(L, 1), f > 0.0f ? -f : f));
+    return 1;
+}
+
+static int arenaSpawnHealth(lua_State *L)
+{
+    float dmg, maxd;
+
+    needStage(L, "spawn.health");
+    if (!portLuaGameChrHealth((int) luaL_checkinteger(L, 1), &dmg, &maxd) || maxd <= 0.0f) return 0;
+    lua_pushnumber(L, dmg > 0.0f ? 1.0 - (double) dmg / maxd : 1.0);
+    lua_pushnumber(L, dmg < 0.0f ? -(double) dmg / 4.0 : 0.0);
+    lua_pushnumber(L, dmg);
+    lua_pushnumber(L, maxd);
+    return 4;
+}
+
+static int arenaSpawnExplode(lua_State *L)
+{
+    int kind = 12;   /* "medium": EXPLOSION_DEF_12, 320 damage range (the grenade is 13: 480) */
+
+    needStage(L, "spawn.explode");
+    if (lua_type(L, 2) == LUA_TSTRING)
+    {
+        static const char *const kinds[] = { "small", "medium", "grenade", NULL };
+        static const int ids[] = { 4, 12, 13 };
+
+        kind = ids[luaL_checkoption(L, 2, "medium", kinds)];
+    }
+    else if (!lua_isnoneornil(L, 2))
+    {
+        kind = (int) luaL_checkinteger(L, 2);
+    }
+    portArenaBlastForce(lua_isnoneornil(L, 3) ? -1 : (int) luaL_checkinteger(L, 3));   /* drop A8: credit the blast to that Bond (tests) */
+    lua_pushboolean(L, portLuaGameExplode((int) luaL_checkinteger(L, 1), kind));
+    portArenaBlastForce(-1);
+    return 1;
+}
+
+static int arenaFog(lua_State *L)
+{
+    needStage(L, "arena.fog");
+    if (lua_isnoneornil(L, 1))
+    {
+        lua_pushnumber(L, portLuaGameFogGet());
+        return 1;
+    }
+    lua_pushboolean(L, portLuaGameFog((float) luaL_checknumber(L, 1), (int) luaL_optinteger(L, 2, 0x70), (int) luaL_optinteger(L, 3, 0x70),
+                                      (int) luaL_optinteger(L, 4, 0x78)));
+    return 1;
+}
+
+static int arenaDebrief(lua_State *L)
+{
+    int k, n = 0;
+
+    portArenaDebriefClear();
+    if (lua_istable(L, 1))
+    {
+        for (k = 1; k <= 8; k++)
+        {
+            lua_rawgeti(L, 1, k);
+            if (lua_type(L, -1) == LUA_TSTRING)
+            {
+                portArenaDebriefSet(n++, lua_tostring(L, -1));
+            }
+            lua_pop(L, 1);
+        }
+    }
+    lua_pushinteger(L, n);
+    return 1;
+}
+
+static int scoresGet(lua_State *L)
+{
+    double v;
+
+    if (!portArenaScoreGet(luaL_checkstring(L, 1), &v)) return 0;
+    lua_pushnumber(L, v);
+    return 1;
+}
+
+static int scoresSet(lua_State *L)
+{
+    lua_pushboolean(L, portArenaScoreSet(luaL_checkstring(L, 1), luaL_checknumber(L, 2)));
+    return 1;
+}
+
+static int scoresAll(lua_State *L)
+{
+    int k, n = portArenaScoreCount();
+    double v;
+    const char *key;
+
+    lua_createtable(L, 0, n);
+    for (k = 0; (key = portArenaScoreKey(k, &v)) != NULL; k++)
+    {
+        lua_pushnumber(L, v);
+        lua_setfield(L, -2, key);
+    }
+    return 1;
+}
+
+static int scoresEnabled(lua_State *L)
+{
+    lua_pushboolean(L, portArenaScoresEnabled());
+    return 1;
+}
+
+static int scoresPath(lua_State *L)
+{
+    lua_pushstring(L, portArenaScoresPath());
+    return 1;
+}
+
+static void portLuaArenaRegisterA7(lua_State *L)
+{
+    static const luaL_Reg spawnA7[] = { { "knife_only", arenaSpawnKnifeOnly }, { "scale", arenaSpawnScale }, { "heal", arenaSpawnHeal },
+        { "health", arenaSpawnHealth }, { "explode", arenaSpawnExplode }, { NULL, NULL } };
+    static const luaL_Reg testA7[] = { { "hurt", arenaSpawnHurt }, { NULL, NULL } };   /* test hooks (modding/lua.md "The test table") */
+    static const luaL_Reg arenaLib[] = { { "fog", arenaFog }, { "debrief", arenaDebrief }, { NULL, NULL } };
+    static const luaL_Reg scoresLib[] = { { "get", scoresGet }, { "set", scoresSet }, { "all", scoresAll }, { "enabled", scoresEnabled },
+        { "path", scoresPath }, { NULL, NULL } };
+
+    addTo(L, "spawn", spawnA7);
+    addTo(L, "test", testA7);
+    luaL_newlib(L, arenaLib);
+    lua_setglobal(L, "arena");
+    luaL_newlib(L, scoresLib);
+    lua_setglobal(L, "scores");
+}
+
 void portLuaArenaRegister(lua_State *L)
 {
     static const luaL_Reg spawnAdd[] = { { "chr", arenaSpawnChr }, { "remove", arenaSpawnRemove },
@@ -813,6 +1219,14 @@ void portLuaArenaRegister(lua_State *L)
         { "vitals", arenaBondVitals }, { "warp", arenaBondWarp }, { "give_ammo", arenaBondGiveAmmo }, { "ammo", arenaBondAmmo }, { NULL, NULL } };
     /* test hooks (modding/lua.md "The test table") */
     static const luaL_Reg testAdd[] = { { "take_drop", arenaBondTakeDrop }, { "walk", arenaBondWalk }, { "walk_stop", arenaBondWalkStop },
+        { NULL, NULL } };
+
+    static const luaL_Reg polishAdd[] = { { "markers", arenaSpawnMarkers }, { "marker_sync", arenaSpawnMarkerSync }, { NULL, NULL } };   /* drop A7 */
+    static const luaL_Reg spawnA8[] = { { "item_marker", arenaSpawnItemMarker }, { "last_hit", arenaSpawnLastHit },   /* drop A8 */
+        { "hit_events", arenaSpawnHitEvents }, { "disarm", arenaSpawnDisarm }, { "owned_guns", arenaSpawnOwnedGuns }, { NULL, NULL } };
+    static const luaL_Reg testA8[] = { { "shoot", arenaSpawnShoot }, { NULL, NULL } };   /* test hook */
+    static const luaL_Reg bondA8[] = { { "shots", arenaBondShots }, { NULL, NULL } };
+    static const luaL_Reg arenaA8[] = { { "sfx", arenaSfx }, { "hud", arenaHud }, { "hud_layout", arenaHudLayout }, { "panel", arenaPanel }, { "callout", arenaCallout },
         { NULL, NULL } };
 
     static const luaL_Reg benchLib[] = { { "run_start", benchRunStart }, { "note", benchNote }, { "begin", benchBegin },
@@ -832,6 +1246,12 @@ void portLuaArenaRegister(lua_State *L)
     luaL_newlib(L, soundLib);
     lua_setglobal(L, "sound");
     addTo(L, "spawn", spawnAdd);
+    addTo(L, "spawn", polishAdd);
+    addTo(L, "spawn", spawnA8);
+    addTo(L, "test", testA8);
     addTo(L, "bond", bondAdd);
     addTo(L, "test", testAdd);
+    addTo(L, "bond", bondA8);
+    portLuaArenaRegisterA7(L);
+    addTo(L, "arena", arenaA8);   /* after A7 made the `arena` table */
 }

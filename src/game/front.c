@@ -16842,8 +16842,31 @@ Gfx *print_objectives_and_status_to_menu(Gfx *DL, s32 arg1, u8 *arg2, s32 arg3)
 
 #ifndef TARGET_N64
     if (selected_stage == LEVELID_EAR || selected_stage == LEVELID_LEE)
-    {
-        return DL;   /* PORT: the Colosseum and the generated level borrow Surface's briefing: no "power down the dish" objectives */
+    {   /* PORT: the Colosseum and the generated level borrow Surface's briefing: no "power down the dish" objectives. On the
+         * Colosseum's report page (arg3) the arena mode's result lines go there instead (A7: wave, kills, time, medal, NEW BEST;
+         * port_arenascores.c). */
+        extern const char *portArenaDebriefLine(int k);
+        const char *ln;
+        char line[80];
+
+        if (arg3 != 0 && selected_stage == LEVELID_EAR)
+        {
+            for (i = 0; (ln = portArenaDebriefLine(i)) != NULL; i++)
+            {
+                strcpy((u8*)arg2, "a.\n");
+                sp94 = 0;
+                sp90 = 0;
+                textMeasure(&sp94, &sp90, (u8*)arg2, ptrFontZurichBoldChars, ptrFontZurichBold, 0);
+                sp8C = 0x37;
+                sp88 = (sp94 * var_fp) + arg1;
+                strcpy(line, ln);       /* at most 63 chars (port_arenascores.c) */
+                strcat(line, "\n");     /* the line count below counts the newlines, as the stock objective texts end in one */
+                textWrap(0x140, (s8*)line, (s8*)arg2, ptrFontZurichBoldChars, ptrFontZurichBold);
+                DL = frontPrintText(DL, &sp8C, &sp88, (s8*)arg2, ptrFontZurichBoldChars, ptrFontZurichBold, 0xFF, viGetX(), viGetY(), 0, 0);
+                var_fp += sub_GAME_7F0AC0E8(arg2);
+            }
+        }
+        return DL;
     }
 #endif
     for (i = 0; i < OBJECTIVES_MAX; i++)
@@ -17026,9 +17049,26 @@ void init_menu0B_runstage(void)
 //********************************************************************************************************
 //MISSION FAILED
 //********************************************************************************************************
+#ifndef TARGET_N64
+static s32 sArenaMenuSkip;   /* PORT: the arena's hand-off took this report screen over (port_arenamenu.c) */
+#endif
+
 void init_menu0C_missionfailed(void)
 {
 #ifndef TARGET_N64
+  { /* PORT: the arena's start menu / post-game (port_arenamenu.c): the run or the lobby armed the next stage, so instead of the
+     * report the Colosseum loads again at once (1), or "quit to title" goes to the Files screen (2). This is the first menu after a
+     * stage ends (MENU_RUN_STAGE's handler queued it when the stage launched). */
+    extern s32 portArenaMenuAfterStage(void);
+    const s32 am = portArenaMenuAfterStage();
+
+    sArenaMenuSkip = am != 0;
+    if (am != 0)
+    {
+      frontChangeMenu(am == 1 ? MENU_RUN_STAGE : MENU_FILE_SELECT, 1);
+      return;
+    }
+  }
   { /* PORT: mode: proof that a mode's mission.win/fail reached the stock report screen */
     extern int portModeEndResult(void);
     extern int printf(const char *, ...);
@@ -17063,6 +17103,12 @@ void update_menu0C_missionfailed(void) {
 
 void interface_menu0C_missionfailed(void)
 {
+#ifndef TARGET_N64
+    if (sArenaMenuSkip)
+    {
+        return;   /* (the arena's hand-off: the next stage is already queued) */
+    }
+#endif
     viSetFovY(FOV_Y_F);
     viSetAspect(ASPECT_RATIO_SD);
     viSetZRange(100.0f, 10000.0f);
@@ -17183,6 +17229,12 @@ Gfx * constructor_menu0C_missionfailed(Gfx *DL)
     DL = viFillScreen(DL);
     DL = viFillScreen(DL);
     #endif
+#ifndef TARGET_N64
+    if (sArenaMenuSkip)
+    {
+        return DL;   /* (the arena's hand-off: black for the one frame before the Colosseum loads) */
+    }
+#endif
     DL = frontSetupMenuBackground(DL);
     DL = microcode_constructor(DL);
     DL = print_current_solo_briefing_stage_name(DL, &stagename);

@@ -83,6 +83,10 @@ void portFactionReset(void)
     sNow = 0.0f;
     sLogAt = 0.0f;
     sRoster = FALSE;
+    {   /* arena Whacky (port_whacky.c): minions, launchers and the cheats it set go with the stage */
+        extern void portWhackyReset(void);
+        portWhackyReset();
+    }
     portEngageReset(&sEngage);
     portAttackReset(&sAttack);
     for (i = 0; i < FACTION_LOS_SLOTS; i++)
@@ -124,6 +128,36 @@ void portFactionSetChr(ChrRecord *chr, s32 faction)
         sTable[sCount].chrnum = chr->chrnum;
         sTable[sCount].faction = faction;
         sCount++;
+        return;
+    }
+    if (faction == PORT_FACTION_BOND || faction == PORT_FACTION_HOSTILE)
+    {   /* arena Whacky minions (port_whacky.c) arrive with the table already full of the crowd (HOSTAGE spectators): reuse the entry of
+         * a chr that is gone or dead, else take a spectator's (an invincible spectator then resolves as a vanilla neutral: nobody
+         * targets it either way). Only these factions evict, so nothing before Whacky changes. */
+        s32 hostage = -1;
+
+        for (i = 0; i < sCount; i++)
+        {
+            ChrRecord *c = chrFindByLiteralId(sTable[i].chrnum);
+
+            if (c == NULL || c->model == NULL || chrIsDead(c))
+            {
+                break;
+            }
+            if (hostage < 0 && sTable[i].faction == PORT_FACTION_HOSTAGE)
+            {
+                hostage = i;
+            }
+        }
+        if (i == sCount)
+        {
+            i = hostage;
+        }
+        if (i >= 0)
+        {
+            sTable[i].chrnum = chr->chrnum;
+            sTable[i].faction = faction;
+        }
     }
 }
 

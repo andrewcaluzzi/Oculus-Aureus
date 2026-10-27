@@ -165,6 +165,15 @@ s_explosiontype g_ExplosionTypes[] = {
 };
 #endif
 
+#ifndef TARGET_N64
+/* PORT: the number of entries in g_ExplosionTypes (both tables have 21: types 0..20), for code that takes an explosion type from outside
+ * the stock game (the arena's spawn.explode) and must bound it before explosionCreate indexes the table. */
+s32 portExplosionTypeCount(void)
+{
+    return (s32)(sizeof(g_ExplosionTypes) / sizeof(g_ExplosionTypes[0]));
+}
+#endif
+
 Gfx * g_ExplosionDisplayLists[] = {
     &globalDL_0x078,
     &globalDL_0x120,
@@ -349,6 +358,12 @@ explosionCreate(PropRecord *arg0, struct coord3d *target_pos, StandTile *target_
             sp40->prop = sp30;
             sp40->source = arg0;
             sp40->player = (s8) player;
+#ifndef TARGET_N64
+            { /* PORT (arena drop A8): whose explosion this slot holds (a Bond's own rocket / grenade), for the crowd favour */
+                extern void portArenaBlastCreated(s32 slot, PropRecord *source);
+                portArenaBlastCreated((s32) (sp40 - g_ExplosionBuffer), arg0);
+            }
+#endif
 
             if (arg4 != 0)
             {
@@ -648,6 +663,12 @@ void explosionInflictDamage(PropRecord *arg0, f32 horiz_range, f32 vert_range)
 
                         if (temp_s0->type == PROP_TYPE_CHR)
                         {
+#ifndef TARGET_N64
+                            { /* PORT (arena drop A8): which blast hurt an arena enemy last (explosive multi-kills) */
+                                extern void portArenaBlastHit(ChrRecord *chr, s32 slot);
+                                portArenaBlastHit(temp_s0->chr, (s32) (temp_s2 - g_ExplosionBuffer));
+                            }
+#endif
                             chrlvExplosionDamage(temp_s0->chr, &arg0->pos, minfrac, 1);
                         }
                         else

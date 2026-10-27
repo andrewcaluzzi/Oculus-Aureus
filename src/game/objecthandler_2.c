@@ -246,26 +246,33 @@ void sub_GAME_7F0762E0(ModelFileHeader *objheader, u8 *name, u8 *dst, struct tex
  * inside the model file, referenced by raw gsDPSetTextureImage(0x05xxxxxx), and
  * on PC those big-endian u32 words come out byte-reversed. Swap each texture
  * back to the N64 byte image ONCE per file (a registry stops a double swap on
- * repeat menu visits); length = W*H*(4<<RenderDepth)/8. */
+ * repeat menu visits); length = W*H*(4<<RenderDepth)/8. A ROM-served file
+ * (fresh) is a new copy on every load, converted to the compiled layout by
+ * romfileModelConvert, so it is swapped every time and never registered. */
+
+extern s32 romdataFileServed(s32 index); /* port/src/romdata.c */
 
 #define INLINE_TEX_SWAP_MAX 16
 
 static void *s_InlineTexSwapped[INLINE_TEX_SWAP_MAX];
 
-static void portSwapInlineTextures(struct ModelFileHeader *objheader, u8 *filedata)
+static void portSwapInlineTextures(struct ModelFileHeader *objheader, u8 *filedata, s32 fresh)
 {
     s32 i;
-    s32 slot;
+    s32 slot = INLINE_TEX_SWAP_MAX; /* fresh: no registry slot */
 
-    for (slot = 0; slot < INLINE_TEX_SWAP_MAX; slot++)
+    if (!fresh)
     {
-        if (s_InlineTexSwapped[slot] == filedata)
+        for (slot = 0; slot < INLINE_TEX_SWAP_MAX; slot++)
         {
-            return;
-        }
-        if (s_InlineTexSwapped[slot] == NULL)
-        {
-            break;
+            if (s_InlineTexSwapped[slot] == filedata)
+            {
+                return;
+            }
+            if (s_InlineTexSwapped[slot] == NULL)
+            {
+                break;
+            }
         }
     }
 
@@ -421,7 +428,7 @@ void load_object_fill_header(struct ModelFileHeader *objheader, u8 *name, u8* ds
             sub_GAME_7F075A90(objheader, (s32) filedata, (u32) filedata);
         }
     }
-    portSwapInlineTextures(objheader, filedata);
+    portSwapInlineTextures(objheader, filedata, romdataFileServed(fileGetIndex(name)));
     /* PORT: GE_COLAUDIT=1 proves the collision-vertex byte-order fixups
      * stayed exact across reloads of this shared compiled-in blob. */
     portModelCollisionAudit(objheader->RootNode, (const char *) name);

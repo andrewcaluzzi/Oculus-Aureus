@@ -3,7 +3,7 @@
 This is an **experimental fork** of [Project Midas](https://github.com/murkantor/Project-Midas), the PC port of the GoldenEye 007 decompilation. It adds:
 
 - **Lua scripting and a game-mode API.** An embedded Lua 5.5 lets scripts register events, spawn characters and pickups at runtime, draw HUD text, add zones and end the mission. See [modding/lua.md](modding/lua.md).
-- **The Colosseum arena** (headline feature). A generated gladiator pit on a cut multiplayer stage slot, with a crowd, and a wave-survival mode written entirely in Lua: waves of mixed enemies, a boss every 5 waves, an ammo-and-armour economy, 20 waves or endless. See [modding/arena.md](modding/arena.md).
+- **The Colosseum arena** (headline feature). A generated gladiator pit on a cut multiplayer stage slot, with a crowd, and a wave-survival mode written entirely in Lua: waves of mixed enemies, a boss every 5 waves, an ammo-and-armour economy, 20 waves or endless; a crowd that keeps a favour meter and rewards stylish kills; wave mutators and elite enemies (the "chaos" presets); local co-op with a bot partner and down-and-revive; best scores and medals. See [modding/arena.md](modding/arena.md).
 - Spawning, factions, AI lists and thrown knives for any character, a Mods menu page with a game-mode picker, choosable level music, a hostage-rescue example mode, and a flat test level ("Flatland").
 - **Experimental, off by default:** a second Bond (local co-op), lockstep netplay over UDP (ENet), and rollback snapshots. These work in the test setups they were built in but are not polished. See [Co-op and netplay](#co-op-and-netplay-experimental).
 
@@ -56,7 +56,7 @@ The build runs in Docker. Everything below runs in a Linux shell; on Windows use
 
 **PowerShell note:** PowerShell 5.1 splits `-DFOO=a.b` arguments at the dot, so quote every `"-D..."` argument if you run these from PowerShell.
 
-The build puts the scripts next to the exe: `Data/Scripts/example.lua` and `Data/Scripts/modes/{arena,arena-endless,hostage,hostage-flatland}.lua`. The Windows build also copies `Play Arena.bat` and `Play Arena (Endless).bat` from `launchers/` next to `ProjectMidas.exe`. Finally put your ROM at `build_win/Data/baserom.u.z64` (or `build_pc/Data/`). Copy the whole `build_win` folder to wherever you like to play.
+The build puts the scripts next to the exe: `Data/Scripts/example.lua` and `Data/Scripts/modes/` (the arena presets `arena`, `arena-endless`, `arena-chaos`, `arena-chaos-endless`, `arena-coop`, `arena-coop-chaos`, their `_arena_*` modules, and the other modes). The Windows build also copies the launchers from `launchers/` next to `ProjectMidas.exe`. Finally put your ROM at `build_win/Data/baserom.u.z64` (or `build_pc/Data/`). Copy the whole `build_win` folder to wherever you like to play.
 
 ## Play the arena
 
@@ -66,7 +66,7 @@ On Windows, double-click **`Play Arena.bat`** (20 waves, a boss every 5, then yo
 GE_STAGE=colosseum GE_SKIPINTRO=1 GE_MODE=arena ./ProjectMidas
 ```
 
-(`GE_MODE=arena-endless` for the endless one.) The game logs to `Data/Logs/ge_direct.log` on Windows. Settings (difficulty, enemy counts, pickups, ammo timers, health per kill, crowd size) are the settings block at the top of `Data/Scripts/modes/arena.lua`; the source is `tools/mode_arena.lua`. `modding/arena.md` lists them.
+(`GE_MODE=arena-endless` for the endless one; `arena-chaos` and `arena-chaos-endless` add wave mutators and elite enemies; `GE_COOP=1 GE_MODE=arena-coop` or `arena-coop-chaos` gives you a bot partner. Each has a `Play Arena (...).bat`.) The game logs to `Data/Logs/ge_direct.log` on Windows. Settings (difficulty, enemy counts, pickups, ammo timers, health per kill, crowd size) are the settings block at the top of `Data/Scripts/modes/arena.lua`; the source is `tools/mode_arena.lua`. `modding/arena.md` lists them.
 
 Handy while experimenting: `GE_CHEATS=invuln` (cannot die), `GE_CHEATS=invuln,guns`.
 

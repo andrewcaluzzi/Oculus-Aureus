@@ -1059,6 +1059,74 @@ u8 m_ArenaEngageMidRush[]    = { ARENA_ENGAGE(35, ARENA_FAR_RUSH, 255) };
 u8 m_ArenaEngageShortRush[]  = { ARENA_ENGAGE(25, ARENA_FAR_RUSH, 255) };
 
 /**
+    PORT: arena knife thrower that keeps its distance (drop A7). While Bond is in sight and between 28 m and 38 m away it stands,
+    kneels or sidesteps and throws (every shot of a knife thrower is a throw, port_modifier.c). Closer than 28 m it backs off:
+    TRYRunFromBond (a stub in the stock game, now port_arenamode.c portArenaKnifeRetreat) runs it to a pit pad about 33 m from Bond;
+    if there is nowhere to go it fires from where it is. Farther than 38 m, or Bond out of sight, it runs toward him until it
+    is within 36 m and sees him.
+    @return No Return
+ */
+u8 m_ArenaKnifeKeep[] = {
+    MyTimerStart()
+    Label(aeTop)
+        Yield()
+        IFICouldSeeBond(aeSee)
+        GotoNext(aeAdv)
+    Label(aeSee)
+        IFMyDistanceToBondGreaterThanMeter(38, aeAdv)
+        IFMyDistanceToBondLessThanMeter(28, aeClose)
+        SetNewRandom()
+        IFRandomGreaterThan(70, aeF1)
+        TRYSidestepping(aeFight)
+    Label(aeF1)
+        IFRandomGreaterThan(190, aeF2)
+        TRYFireAtBondKneeling(aeFight)
+    Label(aeF2)
+        TRYFireAtBond(aeFight)
+        GotoNext(aeFight)
+    Label(aeClose)                  /* too close: back off to the keep distance, else fire from here */
+        TRYRunFromBond(aeRunWait)
+        TRYFireAtBond(aeFight)
+        GotoNext(aeFight)
+    Label(aeFight)                  /* a burst / throw is on: let it run 1.5 s */
+        MyTimerStart()
+        DO(aeW0)
+            IFMyTimerGreaterThanSeconds(1, aeW0done)
+        LOOP(aeW0)
+    Label(aeW0done)
+        GotoFirst(aeTop)
+    Label(aeRunWait)                /* the retreat run: wait for it to end, at most 9 s */
+        MyTimerStart()
+        DO(aeW4)
+            IFImOnPatrolOrStopped(aeRunDone)
+            IFMyTimerGreaterThanSeconds(9, aeRunDone)
+        LOOP(aeW4)
+    Label(aeRunDone)
+        GotoFirst(aeTop)
+    Label(aeAdv)                    /* Bond not in sight, or too far: path toward him until he is within 36 m and in sight */
+        TRYRunToBond(aeGoing)
+        MyTimerStart()
+        DO(aeW3)
+            IFMyTimerGreaterThanSeconds(1, aeW3done)
+        LOOP(aeW3)
+    Label(aeW3done)
+        GotoFirst(aeTop)
+    Label(aeGoing)
+        MyTimerStart()
+        DO(aeW1)
+            IFImOnPatrolOrStopped(aeBack)
+            IFMyTimerGreaterThanSeconds(3, aeBack)
+            IFMyDistanceToBondLessThanMeter(36, aeChk)
+        LOOP(aeW1)
+    Label(aeChk)
+        IFICouldSeeBond(aeBack)
+        GotoFirst(aeW1)
+    Label(aeBack)
+        GotoFirst(aeTop)
+    EndList()
+};
+
+/**
     PORT: arena marksman. Holds position and, while Bond is in line of sight (at any range: IFICouldSeeBond ignores
     visionrange), fires bursts with TRYFireAtBond (the stock standing "fire at Bond" command m_StandardGuard / m_AttackBond
     use). If Bond has not been in sight for 4 s, the marksman runs toward Bond until he is in sight (or the run ends),
@@ -1140,6 +1208,7 @@ AIListRecord g_GlobalAILists[] = {
     {m_ArenaEngageLongRush     , GAILIST_ARENA_ENGAGE_LONG_RUSH},
     {m_ArenaEngageMidRush      , GAILIST_ARENA_ENGAGE_MID_RUSH},
     {m_ArenaEngageShortRush    , GAILIST_ARENA_ENGAGE_SHORT_RUSH},
+    {m_ArenaKnifeKeep          , GAILIST_ARENA_KNIFE_KEEP},
 #endif
     {NULL, 0}
 };

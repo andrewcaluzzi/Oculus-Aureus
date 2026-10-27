@@ -170,6 +170,9 @@ Registers a handler (at most 16 per event; an unknown event name raises and list
 | `guard_bark` | `(chr, kind, text)`: a guard says something (`kind`: `huh` `hey` `investigate` `lost` `found_body` `radio` `backup` `surrender`) |
 | `test_key` | `(name)`: a test hotkey, `"next"` (PageDown), `"back"` (PageUp), `"next+"`, `"back+"` (with Shift), or the console `arena <name>`. Never from the keyboard in co-op or netplay |
 | `draw_crosshair` | `(x, y, ctx)`: every frame the sight could show (not in netplay). Presentation only: draw with `ctx`, change nothing else. See "Crosshair styles" |
+| `ui_tick` | `(dt)`: every game tick (sim, like `tick` but without its 0.25 s step): for menus that must answer a key press at once (the arena's lobby). Keep the handler cheap |
+
+**`amenu` (the arena's start menu and post-game; `port/luavm/port_luavm_arenamenu.c`, modding/arena.md "Start menu and post-game"):** `amenu.launch{mode=, settings=, preset=, label=, lobby=, coop=, slots=}` ends this stage and loads the Colosseum again with that mode and `ARENA_SETTINGS` text (no mission report); `amenu.arm{...}` the same for when the stage ends by itself; `amenu.disarm()`; `amenu.quit()` ends the stage and goes to the Files screen; `amenu.current()` what this stage was launched with (nil = a plain launch); `amenu.retry([t])` the last run's own launch; `amenu.result([text])` the last run's result; `amenu.prefs()` / `amenu.save_prefs{...}` `Data/Saves/arena_menu.ini`; `amenu.view{...}` the menu to draw (presentation); `amenu.escape_back(on)` Escape is the board's BACK while the controls are held; `amenu.netplay()`. MODE tier.
 
 `damage`, `chr_spawned`, `item_pickup` and `objective_changed` also fire on an ordinary solo stage, not only in a mode, while a listener exists. The heist events (`alarm`, `cctv_spotted`, `use`, `gadget_used`) fire wherever the game does the thing, but a script only runs in a single-player mission.
 
@@ -205,6 +208,14 @@ Registers a handler (at most 16 per event; an unknown event name raises and list
 | `spawn.headshot(chr)` | True when the arena enemy's last damaging hit was to the head (ask in `chr_died`). |
 | `spawn.keep_bodies(on)` | Dead enemies stay (no stock fade-out and removal) until `spawn.remove`. |
 | `spawn.trim_drops(max [, keep_radius])` | Frees loose dropped weapons beyond `max`, oldest first, none within `keep_radius` (400) of a Bond. Returns how many it freed. |
+| `spawn.knife_only(chr [, on])` | Arena: the chr throws knives and fires no bullet (KNIVES ONLY). True when set. |
+| `spawn.scale(chr, factor)` | Draw the chr `factor` (0.5..2) times its size, as the Tiny Bond / DK cheats scale chrs. |
+| `spawn.heal(chr, frac)`, `spawn.health(chr)` | Heal wounds by `frac` of full health (not armour); `health_left, armour, damage, maxdamage` (armour in units of the base 4 damage), nothing when gone. |
+| `spawn.explode(chr [, kind [, p]])` | A stock explosion at the chr's feet: `kind` `"small"`, `"medium"` (default), `"grenade"`, or a type 1..20 (others are refused: false). `p` credits the blast to Bond `p` (the crowd favour). |
+| `spawn.disarm(chr)` | The guns the chr holds fall to the floor and it switches to the melee chase list. True when it held one. |
+| `spawn.last_hit(chr)` | The last hit a Bond's shot or blast landed on an arena enemy: `part, weapon, player, distance, age_seconds, blast_serial`, nothing when none. |
+| `spawn.owned_guns(chr)` | The names of the guns the arena enemy held (one per hand), kept after a disarm or its death drop; nothing when none is known. The crowd's THEIR OWN GUN compares the killing gun with these. |
+| `spawn.hit_events()` | `{ {kind = "disarm" | "crowd", chr =, player =}, ... }` since the last call (a 32-entry queue), then how many were lost. |
 | `spawn.hostage(pad)` | A hostage chrnum (max 16 a stage), or nil. |
 | `spawn.guard(pad [, {patrol = path_id, weapon = "ak47"}])` | A guard that holds position (max 40 a stage), or nil. Raises on an unknown weapon. |
 | `spawn.skins()`, `spawn.weapons()` | Arrays of the accepted names. `spawn.bodies()` returns two arrays: body names, head names. |
@@ -216,6 +227,8 @@ Registers a handler (at most 16 per event; an unknown event name raises and list
 ### Pickups
 
 `spawn.item(pad, item [, {ammo = , amount = }])` places a real pickup on the floor, collected by walking over it. Returns a handle, or nil when there was no room; raises on an unknown item or a pad with no floor. `item` is a name from `spawn.weapons()` (the pickup carries that gun and its ammo; `ammo` sets the rounds), `"armour"` (`amount` 0..1, default 1), or `"ammo"` (an MP ammo box; `ammo = {pp7 = 50, kf7 = 60, shotgun = 16}`). Solo play doubles box ammo. Then `spawn.item_alive(h)` (still on the floor), `spawn.item_remove(h)` (true if it took it), `spawn.item_pos(h)` (`x, z`, nothing when gone). Health has no stock pickup: use `bond.heal`.
+
+Markers (the arena, presentation only): `spawn.markers(on [, {fade, near, drops, knives, drop_near, merge, edge, max, legacy}])` turns the pickup markers on (modding/arena.md, Pickup markers); `spawn.marker_sync()` publishes the live pickups (call it a few times a second); `spawn.item_marker(h, "ammo" | "armour" | "gift" | "item" [, label])` sets an item's marker class and label (7 characters at most).
 
 Loot: `spawn.item(pad, "goldbar" | "money" [, {offset = {dx, dz}}])` places the stock beta pickup model (`PchrgoldbarZ` / `PchrmoneyZ`) as a plain prop, from its own pool of 160 (the 12 world pickups above and the 30 weapon slots are untouched). A living Bond within 90 units of it collects it: it goes, the stock ammo pickup sound plays and `item_pickup(3, id, 1, player)` fires (`objtype` 3 = `PROPDEF_PROP`, `id` 79 gold bar / 78 money). It never enters the inventory; the mode counts it. The handles (above 0x1000000) work with `spawn.item_alive / item_remove / item_pos`. It has no line-of-sight test: do not put it within 90 units of a wall you mean to keep Bond behind.
 
@@ -237,6 +250,7 @@ Loot: `spawn.item(pad, "goldbar" | "money" [, {offset = {dx, dz}}])` places the 
 | `bond.ammo(p, weapon)` | `carries, reserve`: whether he carries that weapon and the reserve ammo of its type; nothing when there is no such Bond or weapon. |
 | `bond.heal(p, health, armour)` | Adds, as fractions 0..1 of a full bar (either may be omitted: 0). |
 | `bond.vitals([p])` | `health, armour`, or nil. |
+| `bond.shots(p)` | `fired, hits`: the stock per-player shot counters. |
 | `bond.warp(p, pad [, dx, dz])` | Puts Bond `p` on a pad (plus an offset from its centre). True when moved. |
 | `bond.has_key(p, flags)`, `bond.keys(p)` | True when Bond `p` himself carries every bit of `flags`; the bitmask of all the key flags he carries. Never pooled, even in stock co-op. |
 | `bond.use_key(p)` | Inside a `use` handler: true when the press is the **use action** (the Port use bind), false for the B button (which is use *and* reload). |
@@ -625,8 +639,19 @@ end)
 
 - `bot.active()` (0 off, 1 driving, 2 watching), `bot.push(line)` (true, or `nil, message`: one plan step in the language of `modding/bot.md`), `bot.clear()`, `bot.step()` (`index, count`). A mode feeds the co-op player bot its plan.
 - `crowd.impostors({x, y, z, ...}, {skin, ...})` (`{}` removes them), `crowd.cheer(seconds [, fraction])`: the Colosseum's flat spectators, presentation only (modding/arena.md).
+- `arena.fog(far [, r, g, b])` (a grey fog with the far plane at `far`; `<= 0` = the level's own sky; `arena.fog()` reads the current far distance), `arena.debrief({lines})` (up to 8 lines on the Colosseum's report page; printable ASCII is kept and a run of 30+ characters without a space is broken; `{}` clears), `arena.sfx(id [, pitch])` (one stock sound effect by id), `arena.hud(on)` (the styled arena HUD in place of the plain mode-HUD rows), `arena.hud_layout(scale [, "top_left" | "top_right" [, margin]])` (the wave panel's size, 0.25..1.5 of the console font, corner and gap in console units), `arena.panel{wave, waves, title, mutator, kills, left, elites, time, phase = "delay" | "fight" | "breather" | "over", crowd (0..100, -1 off), tier (1..5), tier_name, toast, double_secs}` (the left wave panel), `arena.callout(text [, level [, sub [, secs]]])` (a centre callout, level 1..6; the newest replaces the last). All three are presentation (`port/src/port_arenahud.c`).
+- `scores.get(key)`, `scores.set(key, v)`, `scores.all()`, `scores.enabled()`, `scores.path()`: the arena's `arena_scores.ini` (solo only: in co-op and netplay get finds nothing and set does nothing).
+- `coop.rules{on, bleed, revive, radius, revive_health, grace, bleedout = "wave" | "run" | "end", debug}`, `coop.active()`, `coop.state(p)` (`"up" | "down" | "dead" | "out"`, seconds left, revive fraction), `coop.release(p)`, `coop.counts()` (`downs, revives, bleed_outs`), `coop.bot(on)` (local co-op only; false in netplay), `coop.bot_goal(p [, x, z])`, `coop.bot_info(p)` (`{target, act, ammo, weapon, shots}`): arena co-op (modding/arena.md, Co-op).
 - `bench.*` (`run_start`, `note`, `begin`, `tag`, `pools`, `finish`, `look`, `sweep`, `sweep_off`, `last`, `exit`): the arena frame-time benchmark (modding/arena.md, `tools/mode_arena_bench.lua`).
 - `simprof.phase(name)`, `simprof.count(key)`: only when `GE_PROFILE_SIM` is set (32-bit Linux builds); otherwise the table is nil (`tests/heist/run_simprof.sh`).
+
+### Arena Whacky: `chrfx.*` (presentation) and `whacky.*` (sim)
+
+`port/luavm/port_luavm_whacky.c`, `port/src/port_chrfx.c`, `port/src/port_whacky.c`; used by `tools/arena_whacky.lua` (modding/arena.md, Whacky).
+
+- `chrfx.set(chr, {tint = {r, g, b} | name, amount = 0..1, alpha = 0..1, anim = "none" | "cycle" | "pulse" | "pulse2" | "flicker" | "shimmer", speed = cycles a second, lo = 0..1, tint2 = {r, g, b} | name})`: a colour wash over the chr (composed into its stan colour, the blender's fog colour; `amount` 1 = solid colour) and translucency (`alpha` < 1 draws it in the translucent pass, the stock fade-out path). `pulse` swings the wash between `lo` x amount and amount, `pulse2` between `tint` and `tint2`, `cycle` turns the hue wheel, `flicker` is a ghost (alpha sways, now and then drops to `lo`), `shimmer` is glass. Names: gold black shadow white ghost glass red orange yellow green cyan blue purple pink steel. `chrfx.clear(chr)`, `chrfx.clear_all()`, `chrfx.count()`. Presentation only: the sim never reads it, and it may differ per machine. Bond's own hands and gun are never drawn through it.
+- `whacky.anim_rate([r])` (the Fast / Slow Animation cheats' global rate, 0.2..4, applied relative to each chr's own speed; reset at stage load), `whacky.linemode([on])` (the Line Mode cheat; returns the old state), `whacky.give_double(p, "rocket" | "grenade" | "rcp90" | "throwing_knife" | "knife" | "laser")` (a 2x cheat's pair, any Bond), `whacky.scale(chr, f)` (0.1..3: model and collision box).
+- The minion launcher: `whacky.launcher(p, shots [, {count = 3, scale = 0.25, life = 15, health = 0.3, anim = 3, hostile = false, cap = 12}])` arms Bond p: each of his next `shots` rockets bursts into `count` tiny turbo knife throwers on his side (or, `hostile`, against him), invincible for 2.5 s while they hatch, gone after `life` seconds (they fade out). `whacky.launcher_shots(p)`, `whacky.minions_at(p, x, z [, n])` (n minions at a floor point Bond p can walk to), `whacky.minions()` (chrnums), `whacky.is_minion(chr)`, `whacky.minion_stats()` (`spawned, expired`), `whacky.minions_fade()`. Minions have chrnums 28000..31999 (a `chr_died` killer in that range is a minion) and are never arena enemies. All `whacky.*` change the sim: call them from deterministic mode code.
 
 ### The test table
 
@@ -663,6 +688,9 @@ The global `test` holds the hooks a test needs and a mode must not use. They wor
 | `test.crosshair_draws()` | Frames a custom sight has drawn. |
 | `test.debrief_open()`, `test.debrief_record_info([difficulty])`, `test.debrief_path()` | Whether the panel is up; `new_best, runs, wins, best_payout, saved` for a difficulty (default 1); the records file's path. |
 | `test.chr_face(chr)` | The way a chr faces, degrees (-1000 none). |
+| `test.hurt(chr, frac)` | Arena: a wound of `frac` of full health that never kills (blasts always kill a chr). |
+| `test.shoot(chr, part, weapon [, p])` | Arena: a real shot by Bond `p` (default 0) landing on the chr's `part` through the stock hit path. Raises on an unknown weapon. |
+| `test.coop_down(p)`, `test.coop_kill(p)` | Arena co-op: put Bond `p` down now; a real death past the downed rule. |
 
 The heist mode's own test window is the `HEIST` global (`HEIST.force_jam()`, `HEIST.camera_switch(p)`, `HEIST.intel_lines(p)`, ...), with `HEIST_SETTINGS = { test = true }` for extra log lines.
 

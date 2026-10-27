@@ -213,13 +213,16 @@ endif()
 # object is stale.
 # Asset TU whose C defines the file symbol itself (stan/setup/brief/text):
 # localize everything else.
-# Every asset comes from the user's ROM except three inline-texture menu models
-# (PORT_ASSET_OBJS_KEEP); with GE_ROMDATA_FALLBACK=OFF the rest are dropped and
-# their weak file symbols resolve to NULL (ob_end.seg always lives in ob_seg.s).
+# Every stock asset comes from the user's ROM: with GE_ROMDATA_FALLBACK=OFF the
+# objects are dropped and their weak file symbols resolve to NULL (ob_end.seg
+# always lives in ob_seg.s). PORT_ASSET_KEEP_SYMS (PORT_ASSET_OBJS_KEEP) stays
+# compiled into every build, so it must name only data that is ours and tracked
+# in git, never an object built from the extracted cart
+# (tools/check_no_rom_data.py checks a build for that).
 # Flatland (lab): the generated test level (tools/gen_flatland.py -> port/flatland/) is
 # compiled in, since the ROM CRC gate serves stock data only. Its bg takes the cut slot's
 # bg_sho_all_p_seg symbol; the stan and setup are fetched by symbol (bg.c, prop.c).
-set(PORT_ASSET_KEEP_SYMS PlegalpageZ PnintendologoZ PgoldeneyelogoZ
+set(PORT_ASSET_KEEP_SYMS
     bg_sho_all_p_seg Tbg_flatland_all_p_stanZ UsetupflatlandZ
     bg_ear_all_p_seg Tbg_colosseum_all_p_stanZ UsetupcolosseumZ
     bg_lee_all_p_seg Tbg_levelgen_all_p_stanZ UsetuplevelgenZ)
@@ -358,11 +361,14 @@ else()
 endif()
 # segments.c .incbin's the raw image bank (texture wave); ramrom_data.c
 # .incbin's the gunbarrel swirl RLE blob and the 14 attract-demo
-# recordings. Give the assembler the include paths and re-assemble when
-# the blobs change.
+# recordings, both only under GE_ROMDATA_FALLBACK. Give the assembler the
+# include paths and (FALLBACK, below) re-assemble when the blobs change.
 set_source_files_properties(port/src/segments.c PROPERTIES
-    COMPILE_OPTIONS "-Wa,-I${CMAKE_SOURCE_DIR}/assets/images/combined;-Wa,-I${CMAKE_SOURCE_DIR}/assets/music"
-    OBJECT_DEPENDS "${CMAKE_SOURCE_DIR}/assets/images/combined/combined.bin;${CMAKE_SOURCE_DIR}/assets/music/sfx.ctl;${CMAKE_SOURCE_DIR}/assets/music/sfx.tbl;${CMAKE_SOURCE_DIR}/assets/music/instruments.ctl;${CMAKE_SOURCE_DIR}/assets/music/instruments.tbl;${CMAKE_SOURCE_DIR}/assets/music/music.sbk")
+    COMPILE_OPTIONS "-Wa,-I${CMAKE_SOURCE_DIR}/assets/images/combined;-Wa,-I${CMAKE_SOURCE_DIR}/assets/music")
+set(PORT_SEGMENTS_BLOBS
+    ${CMAKE_SOURCE_DIR}/assets/images/combined/combined.bin ${CMAKE_SOURCE_DIR}/assets/music/sfx.ctl
+    ${CMAKE_SOURCE_DIR}/assets/music/sfx.tbl ${CMAKE_SOURCE_DIR}/assets/music/instruments.ctl
+    ${CMAKE_SOURCE_DIR}/assets/music/instruments.tbl ${CMAKE_SOURCE_DIR}/assets/music/music.sbk)
 set(PORT_RAMROM_DEMO_BINS
     ramrom_Dam_1 ramrom_Dam_2 ramrom_Facility_1 ramrom_Facility_2
     ramrom_Facility_3 ramrom_Runway_1 ramrom_Runway_2 ramrom_BunkerI_1
@@ -371,8 +377,7 @@ set(PORT_RAMROM_DEMO_BINS
 list(TRANSFORM PORT_RAMROM_DEMO_BINS PREPEND ${CMAKE_SOURCE_DIR}/assets/ramrom/)
 list(TRANSFORM PORT_RAMROM_DEMO_BINS APPEND .bin)
 set_source_files_properties(port/src/ramrom_data.c PROPERTIES
-    COMPILE_OPTIONS "-Wa,-I${CMAKE_SOURCE_DIR}/assets"
-    OBJECT_DEPENDS "${CMAKE_SOURCE_DIR}/assets/ge007.u.2A4D50.usedby7F008DE4.bin;${PORT_RAMROM_DEMO_BINS}")
+    COMPILE_OPTIONS "-Wa,-I${CMAKE_SOURCE_DIR}/assets")
 # osViModeTable[42]: compile the repo's REAL table (fr.c/sched.c read
 # comRegs.hStart/width/xScale + fldRegs[].vStart/yScale/origin from it)
 # instead of transcribing data into the shim.
@@ -398,6 +403,9 @@ option(GE_ROMDATA_FALLBACK "Keep compiled-in copies of the ROM-served asset clas
 if(GE_ROMDATA_FALLBACK)
     set_source_files_properties(port/src/segments.c port/src/ramrom_data.c port/src/romdata.c port/src/animdata.c
         PROPERTIES COMPILE_DEFINITIONS GE_ROMDATA_FALLBACK=1)
+    set_source_files_properties(port/src/segments.c PROPERTIES OBJECT_DEPENDS "${PORT_SEGMENTS_BLOBS}")
+    set_source_files_properties(port/src/ramrom_data.c PROPERTIES
+        OBJECT_DEPENDS "${CMAKE_SOURCE_DIR}/assets/ge007.u.2A4D50.usedby7F008DE4.bin;${PORT_RAMROM_DEMO_BINS}")
     list(APPEND ASSET_LOOSE_SRC ${ASSET_LOOSE_FALLBACK_SRC})
 endif()
 
@@ -570,6 +578,40 @@ if(GE_VIDEO)
             ${CMAKE_SOURCE_DIR}/tools/mode_arena.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/arena.lua
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/tools/mode_arena_endless.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/arena-endless.lua
+        # arena drop A7: modules arena.lua includes (a leading "_" keeps them off the Game Mode list) and the "chaos" / "coop" presets
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/tools/arena_polish.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/_arena_polish.lua
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/tools/arena_coop.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/_arena_coop.lua
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/tools/mode_arena_mutators.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/_arena_mutators.lua
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/tools/mode_arena_elites.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/_arena_elites.lua
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/tools/mode_arena_scores.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/_arena_scores.lua
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/tools/mode_arena_crowd.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/_arena_crowd.lua
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/tools/arena_theme.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/_arena_theme.lua
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/tools/mode_arena_chaos.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/arena-chaos.lua
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/tools/mode_arena_chaos_endless.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/arena-chaos-endless.lua
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/tools/mode_arena_coop.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/arena-coop.lua
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/tools/mode_arena_coop_chaos.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/arena-coop-chaos.lua
+        # the arena's start menu and post-game: the lobby mode, its definitions, and the run side every arena run includes
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/tools/mode_arena_menu.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/arena-menu.lua
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/tools/arena_menu_defs.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/_arena_menu_defs.lua
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/tools/arena_flow.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/_arena_flow.lua
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/tools/arena_whacky.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/_arena_whacky.lua
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/tools/mode_arena_whacky.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/arena-whacky.lua
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/tools/mode_arena_bench.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/arena-bench.lua
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -641,6 +683,12 @@ if(GE_VIDEO)
                 "${CMAKE_SOURCE_DIR}/launchers/Play Arena.bat"
                 "${CMAKE_SOURCE_DIR}/launchers/Play Arena (Endless).bat"
                 "${CMAKE_SOURCE_DIR}/launchers/Play Arena (Test Keys).bat"
+                "${CMAKE_SOURCE_DIR}/launchers/Play Arena (Chaos).bat"
+                "${CMAKE_SOURCE_DIR}/launchers/Play Arena (Chaos Endless).bat"
+                "${CMAKE_SOURCE_DIR}/launchers/Play Arena (Co-op).bat"
+                "${CMAKE_SOURCE_DIR}/launchers/Play Arena (Co-op Chaos).bat"
+                "${CMAKE_SOURCE_DIR}/launchers/Play Arena (Whacky).bat"
+                "${CMAKE_SOURCE_DIR}/launchers/Play Arena (Whacky Test Keys).bat"
                 "${CMAKE_SOURCE_DIR}/launchers/Arena Benchmark.bat"
                 "${CMAKE_SOURCE_DIR}/launchers/Arena Benchmark (Live).bat"
                 "${CMAKE_SOURCE_DIR}/launchers/Play Heist.bat"

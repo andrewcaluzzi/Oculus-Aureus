@@ -406,6 +406,23 @@ s32 romfileModelConvert(u8 *data, u32 size, s32 numSwitches, s32 numtextures, co
         if (mark(&c, o, 12)) swap4run(data + o, 1);
     }
     walk(&c, rootoff);
+    /* Inline textures (TextureID 0x05xxxxxx: the legalpage, nintendologo and
+     * goldeneyelogo menu models) are texel blobs inside the file, which the
+     * compiled copy holds as u32 words. Swap them per word so the image
+     * matches it; portSwapInlineTextures (objecthandler_2.c) then makes the
+     * texels renderable for both. Length as there: W*H*(4<<RenderDepth)/8. */
+    for (i = 0; i < (u32) numtextures; i++) {
+        const u8 *t = data + (u32) numSwitches * 4 + i * 12;
+        u32 id = (u32) t[0] | ((u32) t[1] << 8) | ((u32) t[2] << 16) | ((u32) t[3] << 24); /* swapped above */
+        if ((id >> 24) == 0x05) {
+            u32 off = id & 0x00FFFFFFu;
+            u32 len = ((((u32) t[4] * t[5]) << t[8]) >> 1);
+            len = (len + 3) & ~3u;
+            if (len != 0 && mark(&c, off, len)) {
+                swap4run(data + off, len / 4);
+            }
+        }
+    }
 
     free(c.done);
 

@@ -1955,8 +1955,9 @@ static int inputFixedKeyDown(const SDL_KeyboardEvent *key)
         }
         return 1;
     }
-    if ((sc == SDL_SCANCODE_PAGEUP || sc == SDL_SCANCODE_PAGEDOWN) && !repeat)
-    {   /* Lua test hotkeys (modding/arena.md); they read this machine's keyboard, so never in co-op or netplay */
+    if ((sc == SDL_SCANCODE_PAGEUP || sc == SDL_SCANCODE_PAGEDOWN || sc == SDL_SCANCODE_HOME) && !repeat)
+    {   /* Lua test hotkeys (modding/arena.md); they read this machine's keyboard, so never in co-op or netplay.
+         * Home / Shift+Home: the arena's callout preview (the next / previous callout of every tier) */
         extern int portCoopActive(void);
         extern int portNetActive(void);
         extern void portLuaTestKey(const char *name);
@@ -1964,7 +1965,26 @@ static int inputFixedKeyDown(const SDL_KeyboardEvent *key)
 
         if (!portCoopActive() && !portNetActive())
         {
-            portLuaTestKey(sc == SDL_SCANCODE_PAGEDOWN ? (plus ? "next+" : "next") : (plus ? "back+" : "back"));
+            if (sc == SDL_SCANCODE_HOME)
+            {
+                portLuaTestKey(plus ? "callout+" : "callout");
+            }
+            else
+            {
+                portLuaTestKey(sc == SDL_SCANCODE_PAGEDOWN ? (plus ? "next+" : "next") : (plus ? "back+" : "back"));
+            }
+        }
+    }
+    if ((sc == SDL_SCANCODE_F5 || sc == SDL_SCANCODE_F6 || sc == SDL_SCANCODE_F7 || sc == SDL_SCANCODE_F8) && !repeat)
+    {   /* arena Whacky test keys (tools/arena_whacky.lua): F5/F6 next/previous effect, F7 effect off, F8 the minion launcher.
+         * Only a script listening on test_key sees them; not consumed (a bind on these keys still works) */
+        extern int portCoopActive(void);
+        extern int portNetActive(void);
+        extern void portLuaTestKey(const char *name);
+
+        if (!portCoopActive() && !portNetActive())
+        {
+            portLuaTestKey(sc == SDL_SCANCODE_F5 ? "wfx+" : (sc == SDL_SCANCODE_F6 ? "wfx-" : (sc == SDL_SCANCODE_F7 ? "woff" : "wgun")));
         }
     }
     return 0;

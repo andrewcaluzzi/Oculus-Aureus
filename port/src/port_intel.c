@@ -998,6 +998,11 @@ int portIntelMouse(s32 mx, s32 my, s32 winw, s32 winh, u32 mbuttons, s32 wheelUp
     static s32 lastx = -99999, lasty = -99999;
     u32 edge;
 
+    {   /* PORT: the arena's start menu / post-game (port_arenamenu_draw.c) has the pointer while it is up */
+        extern int portArenaMenuMouse(int mx, int my, int winw, int winh, unsigned int mbuttons, int wheelUp, int wheelDown);
+
+        if (portArenaMenuMouse(mx, my, winw, winh, mbuttons, wheelUp, wheelDown)) return 1;
+    }
     if (!sPlanOn || !sOpen || !portIntelAvailable() || winw <= 0 || winh <= 0 || sSc <= 0.0f)
     {
         sPrevMB = mbuttons;

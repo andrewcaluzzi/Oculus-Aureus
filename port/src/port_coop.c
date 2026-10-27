@@ -212,7 +212,8 @@ f32 portSimDisplayFovY(f32 fovy, s32 realViewY)
 
 extern void portConLogf(const char *fmt, ...);
 
-enum { PUP_IDLE, PUP_WALK, PUP_FOLLOW, PUP_SPIN, PUP_REPLAY };
+enum { PUP_IDLE, PUP_WALK, PUP_FOLLOW, PUP_SPIN, PUP_REPLAY, PUP_ARENA };   /* PUP_ARENA: the arena partner bot (port_arenacoop.c) */
+#include "port_arenacoop.h"
 static int sPupMode;
 /* Job 4: replay:<file> drives the puppet from a recorded stream (GE_COOP_REC=<file> records the local Bond).
  * Netplay job 2: GE_COOP_LOCAL=replay:<file> does the same for the local Bond. */
@@ -258,7 +259,7 @@ extern void portInputDigitalMoveLive(s32 *dx, s32 *dy); /* input_pc.c: the local
 
 static const char *pupName(void)
 {
-    return sPupMode == PUP_WALK ? "walk" : sPupMode == PUP_FOLLOW ? "follow" : sPupMode == PUP_REPLAY ? "replay" : "idle";
+    return sPupMode == PUP_WALK ? "walk" : sPupMode == PUP_FOLLOW ? "follow" : sPupMode == PUP_REPLAY ? "replay" : sPupMode == PUP_ARENA ? "arena" : "idle";
 }
 
 static int pupParse(const char *s)
@@ -275,7 +276,26 @@ static int pupParse(const char *s)
     if (s != NULL && strcmp(s, "follow") == 0) {
         return PUP_FOLLOW;
     }
+    if (s != NULL && strcmp(s, "arena") == 0) {
+        return PUP_ARENA;   /* the arena partner bot (port_arenacoop.c; also Lua coop.bot(true)) */
+    }
     return PUP_IDLE;
+}
+
+/* Lua coop.bot(on) (port_arenacoop.c): the puppet Bond becomes the arena partner bot, or idle again. Local co-op only: under
+ * netplay the records drive both Bonds and the puppet is never computed. Returns 1 if the puppet is now the bot. */
+int portCoopPuppetArena(int on)
+{
+    if (!sCoopOn || portNetActive()) {
+        return 0;   /* netplay: both Bonds are people (and a bot on one machine only would desync) */
+    }
+    if (on) {
+        sPupMode = PUP_ARENA;
+    } else if (sPupMode == PUP_ARENA) {
+        sPupMode = PUP_IDLE;
+    }
+    printf("ge: coop: puppet source %s\n", pupName());
+    return sPupMode == PUP_ARENA;
 }
 
 static void pupReset(void)
@@ -703,6 +723,18 @@ static void netTickDrive(void)
         rem.digX = rem.digY = 0;
         rem.flags = 0;
     }
+    if (portArenaCoopDowned(sLocal)) {   /* arena co-op: a downed Bond can look around, nothing more */
+        loc.buttons = 0;
+        loc.stickX = loc.stickY = 0;
+        loc.actions = 0;
+        loc.digX = loc.digY = 0;
+    }
+    if (portArenaCoopDowned(1 - sLocal)) {
+        rem.buttons = 0;
+        rem.stickX = rem.stickY = 0;
+        rem.actions = 0;
+        rem.digX = rem.digY = 0;
+    }
     sNetFlags[sLocal] = loc.flags;
     sNetFlags[1 - sLocal] = rem.flags;
     sLoc.button = loc.buttons;
@@ -811,6 +843,20 @@ static void pupCompute(int mode, struct player *me, struct player *tg, OSContPad
     *yaw = 0;
     *pitch = 0;
     if (me == NULL || me->bonddead || mode == PUP_IDLE || (me == pupPlayer(0) && sHeld[0]) || (me == pupPlayer(1) && sHeld[1])) {
+        return;
+    }
+    if (portArenaCoopDowned(me == pupPlayer(0) ? 0 : 1)) {   /* arena co-op: a downed Bond cannot act */
+        return;
+    }
+    if (mode == PUP_ARENA) {   /* the arena partner bot */
+        unsigned short b = 0;
+        signed char x = 0, y = 0;
+        int mi = (me == pupPlayer(0)) ? 0 : 1;
+
+        portArenaBotPad(mi, 1 - mi, &b, &x, &y, yaw, pitch);
+        out->button = b;
+        out->stick_x = x;
+        out->stick_y = y;
         return;
     }
     if (mode == PUP_REPLAY) {
@@ -934,11 +980,11 @@ void portCoopPadRoute(void *dp)
     data[o].button = sPup.button;
     data[o].stick_x = sPup.stick_x;
     data[o].stick_y = sPup.stick_y;
-    if (sHeld[l]) {   /* held at the exit: cannot act (netplay zeroes the record; this covers the live local pad) */
+    if (sHeld[l] || portArenaCoopDowned(l)) {   /* held at the exit (or downed in the arena): cannot act (netplay zeroes the record; this covers the live local pad) */
         data[l].button = 0;
         data[l].stick_x = data[l].stick_y = 0;
     }
-    if (sHeld[o]) {
+    if (sHeld[o] || portArenaCoopDowned(o)) {
         data[o].button = 0;
         data[o].stick_x = data[o].stick_y = 0;
     }
@@ -1248,7 +1294,11 @@ int portCoopNearestBond(const PropRecord *near)
     float x[4], y[4], z[4];
     int dead[4], has[4];
     int n = bondsGather(x, y, z, dead, has);
+    int k;
 
+    for (k = 0; k < n; k++) {   /* arena co-op: the enemies leave a downed Bond alone */
+        dead[k] |= portArenaCoopDowned(k);
+    }
     if (near == NULL) {
         return portCoopPickNearest(n, x, y, z, dead, has, x[0], y[0], z[0]);
     }
@@ -1718,6 +1768,7 @@ static void deathReset(void)
     sDeathCam = 0;
     sDeathTicks = 0;
     sRespawnFields = (e != NULL && atoi(e) > 0) ? atoi(e) : PORT_COOP_RESPAWN_FIELDS;
+    portArenaCoopReset();   /* arena co-op: downed / revive rules and the partner bot (port_arenacoop.c) */
 }
 
 /* The partner a dead Bond respawns next to (index, -1 if none): lowest living other Bond. Independent of the local view. */
@@ -1733,7 +1784,7 @@ int portCoopRespawnPartnerOf(int self)
 /* "Respawning in N" for the current pass's player: 0 unless this Bond is dead, waiting, and the other is alive. */
 int portCoopRespawnSecsFor(int p)
 {
-    if (!sCoopOn || p < 0 || p >= 4 || sDeadSince[p] == 0 || sOut[p] || portCoopAllDead()) {
+    if (!sCoopOn || p < 0 || p >= 4 || sDeadSince[p] == 0 || sOut[p] || portCoopAllDead() || portArenaCoopHeld(p)) {
         return 0;
     }
     return portCoopRespawnSecs(portCoopRespawnFieldsLeft(sDeadSince[p] - 1, sFieldNow, sRespawnFields));
@@ -2680,6 +2731,9 @@ void portCoopDeathTick(void)
             }
             continue;
         }
+        if (portArenaCoopHeld(i)) {   /* arena co-op: a bled-out Bond waits for the end of the wave (the mode releases him) */
+            continue;
+        }
         if (portCoopRespawnDue(left, portCoopAllDead())) {
             s32 saved = get_cur_playernum();
 
@@ -2701,6 +2755,7 @@ void portCoopDeathTick(void)
                    pupPlayer(1 - i) != NULL && pupPlayer(1 - i)->prop != NULL ? pupPlayer(1 - i)->prop->pos.y : 0.0f);
         }
     }
+    portArenaCoopTick();   /* arena co-op: bleed-out and revive timers (port_arenacoop.c; inert unless a mode turned the rules on) */
     if (!sDeathCam && portCoopAllDead() && portCoopAllDeathsDone()) {   /* everybody is down for good: the normal solo death camera, then mission failed */
         int last = 0;
         s32 saved = get_cur_playernum();
@@ -2923,6 +2978,15 @@ int portCoopStateHash(PortNetHashMsg *m, char *dump, int cap)
               fbits(q->prop->pos.x), fbits(q->prop->pos.y), fbits(q->prop->pos.z), fbits(q->bondhealth), fbits(q->bondarmour), fbits(q->vv_theta),
               fbits(q->vv_verta), fbits(q->crosshair_x_pos), fbits(q->crosshair_y_pos), fbits(q->guncrossdamp), fbits(q->speedtheta),
               fbits(q->speedverta), fbits(q->autoaimx), fbits(q->autoaimy), fbits(q->zoominfovy));
+    }
+    {   /* arena co-op: downed / held / revive timers (port_arenacoop.c; a constant when the rules are off) */
+        char line[160];
+        unsigned ah = portArenaCoopHash(line, sizeof(line));
+
+        if (line[0] != '\0') {   /* (rules off: nothing mixed in, so the hash of every other session is unchanged) */
+            h = hashU(h, ah);
+            dumpf(dump, cap, &n, "%s", line);
+        }
     }
     f[1] = h;
     /* 2 chrs: position, damage, action, flags of every chr slot that has a prop */

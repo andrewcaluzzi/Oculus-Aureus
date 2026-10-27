@@ -94,6 +94,8 @@ typedef struct PortLuaChrSpec {
     /* heist job 6: offset = spawn at (pad + offx, pad + offz) on the stan tile that point lands on (hasoff), so many chrs can share a pad */
     int hasoff;
     float offx, offz;
+    /* drop A7: knife_keep = distance (units) a knife thrower tries to hold from Bond (0 = off: it closes in as before) */
+    float knifeKeep;
 } PortLuaChrSpec;
 int         portLuaGameSpawnChr(int pad, const PortLuaChrSpec *spec);   /* chrnum, -1 failed, -2 bad skin, -3 bad weapon */
 int         portLuaGameChrKill(int chr, int head);                        /* test helper: lethal damage to an arena chr (head = count as a headshot); 1 = done */
@@ -112,6 +114,9 @@ int         portLuaGameItemPos(int handle, float *x, float *z);
 int         portLuaGameBondAmmo(int player, const char *name, int *has, int *ammo);   /* carries the gun?, reserve of its ammo type */
 float       portLuaGameBondWalk(int player, float x, float z);            /* test helper: steer Bond toward x, z with the real stick; distance, -1 = no Bond */
 void        portLuaGameBondWalkStop(void);
+/* drop A7 polish: spawn.markers(on) shows a screen marker on every pickup (centre ammo/armour, dropped guns); spawn.marker_sync() republishes the list */
+void        portLuaGameMarkers(int on);
+void        portLuaGameMarkerSync(void);
 int         portLuaGameChrRemove(int chr);                               /* 1 = flagged for removal */
 int         portLuaGameChrAlive(int chr);                                 /* 1 exists and not dead, 0 gone or dead */
 int         portLuaGameChrFree(void);                                     /* free chr slots */

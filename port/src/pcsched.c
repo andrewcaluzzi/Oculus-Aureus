@@ -684,13 +684,20 @@ void portPumpEvents(void)
 
     /* Bring-up harness: GE_FRAMES=n runs n frames then prints stats and
      * exits cleanly, so the prove-out is scriptable. Unset = run forever. */
+    /* GE_GFXFRAMES=n (test harness): the same, counted in submitted game
+     * frames, so a run on a busy machine (pumps without game frames) still
+     * plays the same length of game. */
+    static u32 gfxlimit;
+
     if (!framelimit_read)
     {
         const char *env = getenv("GE_FRAMES");
+        const char *genv = getenv("GE_GFXFRAMES");
         framelimit = (env != NULL) ? (u32) strtoul(env, NULL, 0) : 0;
+        gfxlimit = (genv != NULL) ? (u32) strtoul(genv, NULL, 0) : 0;
         framelimit_read = 1;
     }
-    if (framelimit != 0 && g_PortFramesPumped >= framelimit)
+    if ((framelimit != 0 && g_PortFramesPumped >= framelimit) || (gfxlimit != 0 && g_PortGfxTasksSubmitted >= gfxlimit))
     {
         printf("ge: frame limit reached: frames=%u gfxtasks=%u\n",
                g_PortFramesPumped, g_PortGfxTasksSubmitted);

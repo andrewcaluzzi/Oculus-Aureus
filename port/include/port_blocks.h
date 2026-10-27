@@ -42,7 +42,7 @@ s32  portZoneBondMask(s32 zone);                          /* bit p set = Bond p 
 const char *portZoneName(s32 zone);                       /* NULL if unused */
 
 /* ---- mode HUD: up to 3 lines of <= 63 chars, drawn by the console overlay only while portModeActive() ---- */
-#define PORT_HUD_LINES 3
+#define PORT_HUD_LINES 4   /* drop A8: a 4th line (the arena crowd favour) */
 /* Each line has an "all players" text and an optional per-player text (player 0..3). A machine draws the per-player text of ITS
  * Bond when there is one, else the all-players text. The HUD is never read by the sim. */
 void        portModeHudSet(s32 line, const char *text);   /* all players; NULL or "" clears the line */

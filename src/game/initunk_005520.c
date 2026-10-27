@@ -39,6 +39,11 @@ void modelmgrAllocateModelSlots(s32 numobjs)
         extern s32 portHeistExtraObjSlots(void);
         g_MaxModelSlots += portHeistExtraObjSlots();
     }
+    { /* PORT: arena (drop A7): the Colosseum has no setup objects, so every live enemy's gun, every drop and the centre pickups share the
+       * 30 spare object model slots; with two Bonds they ran out and the centre ammo box was skipped. More spare slots there. */
+        extern s32 portArenaExtraObjSlots(void);
+        g_MaxModelSlots += portArenaExtraObjSlots();
+    }
 #endif
 
     g_ModelSlots = mempAllocBytesInBank(g_MaxModelSlots * sizeof(struct ModelSlot), MEMPOOL_STAGE);

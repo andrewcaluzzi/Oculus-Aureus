@@ -1317,6 +1317,24 @@ StandTile *sub_GAME_7F01F614(ChrRecord *guard, StandTile *stan, coord3d *src, co
     }
 #endif
 
+#ifndef TARGET_N64
+    {   /* PORT: arena (drop A7): a spectator in the stands never moves. Its idle animations carry a little root motion (0.1 - 1 unit a
+         * tick) and the full collision test (stan line + volume, roomGetProps) for every one of 200 of them was about 80% of the crowd's
+         * tick cost. Pin it to where it stands: no test, same tile, same bookkeeping. */
+        extern s32 portArenaChrCrowd(const ChrRecord *chr);
+
+        if (portArenaChrCrowd(guard))
+        {
+            dst->x = src->x;
+            dst->z = src->z;
+            chrSetMoving(guard, 0);
+            guard->invalidmove = 0;
+            guard->lastmoveok60 = g_GlobalTimer;
+            return stan;
+        }
+    }
+#endif
+
     chrGetChrWidthHeight(guard->prop, &width, &height, &always_20);
     chrSetMoving(guard, 0);
     stanResetHits();
@@ -3098,6 +3116,12 @@ Gfx *chrRenderProp(PropRecord *prop, Gfx *gdl, s32 withalpha)
         f32 f = chrobjFogVisRangeRelated(prop, getinstsize(chrmodel)); //0-1
         chrfadealpha = (s32) (f * (f32) chrfadealpha);
     }
+#ifndef TARGET_N64
+    {   /* PORT: arena Whacky effects (port_chrfx.c, presentation): a translucent chr takes the stock fade path below */
+        extern s32 portChrFxAlpha(ChrRecord *chr, s32 alpha);
+        chrfadealpha = portChrFxAlpha(chr, chrfadealpha);
+    }
+#endif
 
     if ((chrfadealpha < 0xFF) || (chr->chrflags & CHRFLAG_00020000))
     {
@@ -3183,6 +3207,12 @@ Gfx *chrRenderProp(PropRecord *prop, Gfx *gdl, s32 withalpha)
             chrShade.g = chr->shadecol.g;
             chrShade.b = chr->shadecol.b;
             chrShade.a = chr->shadecol.a;
+#ifndef TARGET_N64
+            {   /* PORT: arena Whacky colour wash (port_chrfx.c, presentation), composed into the stan colour before the distance fog */
+                extern void portChrFxShade(ChrRecord *chr, struct rgba_s32 *shade);
+                portChrFxShade(chr, &chrShade);
+            }
+#endif
 
             lerp_rgba_s32_with_rgba_f32(&chrShade, spBC, &spC0);
 

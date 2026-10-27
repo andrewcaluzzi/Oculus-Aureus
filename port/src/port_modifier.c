@@ -821,7 +821,7 @@ int portModEnemyKnifeOwner(PropRecord *ownerprop)
 
 /* chrlvTriggerFireWeapon: TRUE = this shot became a thrown knife (the caller drops the shot). The target is the
  * chr the guard is engaged with (the bot), else Bond when the guard is attacking him and has seen him lately. */
-int portModEnemyKnife(ChrRecord *self)
+static int modEnemyKnifeThrow(ChrRecord *self)
 {
     PropRecord *tp;
     ChrRecord *eng;
@@ -938,6 +938,19 @@ int portModEnemyKnife(ChrRecord *self)
     }
     portConLogf("ge: mod: enemy_knives chr %d threw at %d dist %.0f\n", (int)self->chrnum, tid, d);
     return TRUE;
+}
+
+/* A7: an arena chr flagged knife-only (the KNIVES ONLY wave mutator, port_arenafx.c) never fires a bullet: a shot that does not
+ * become a knife is dropped too. */
+int portModEnemyKnife(ChrRecord *self)
+{
+    extern s32 portArenaChrKnifeOnly(const ChrRecord *chr);
+
+    if (modEnemyKnifeThrow(self))
+    {
+        return TRUE;
+    }
+    return self != NULL && portArenaChrKnifeOnly(self) && modSimOK();
 }
 
 /* ---- console ------------------------------------------------------------------------ */

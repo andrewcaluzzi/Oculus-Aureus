@@ -68,7 +68,10 @@ void portModeStageStart(int stage)
 
     if (stage != LEVELID_TITLE)
     {
+        extern void portArenaDebriefClear(void);   /* port_arenascores.c: the arena's report-page lines (A7) */
+
         sResult = 0;   /* the end screen (loaded as the title stage) still reads it */
+        portArenaDebriefClear();
     }
     sActive = 0;
     sKeepLocks = 0;

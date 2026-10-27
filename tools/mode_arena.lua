@@ -47,12 +47,19 @@
 --                 scream_volume (0.8) is their level. Needs nothing in Data/Sounds: the sounds are the game's own. GE_ARENA_SCREAMS=1 = true.
 --   corpse_keep   seconds before a dead enemy is removed: -1 (default) = keep every body; 4 = the stock fade-out; above 4 the bodies stay whole until then
 --   corpse_limit  when more than this many corpses are kept, the oldest go (400); also the oldest go first whenever chr slots run low, so a wave never starves
+--   pickup_markers / knife_keep / knife_keep_dist / seat_gap   (A7, tools/arena_polish.lua, included below) markers over pickups; knife
+--                 throwers that hold their distance; no two spectators on one spot
+--   crowd         (A8) may also be a table { count = 150, favour = true, ... }: count = the real spectators, the rest the crowd favour settings
+--                 (drop A8, _arena_crowd.lua: points, tiers, drift, gifts, the HATED penalty, the emperor's thumb). crowd = { favour = false }
+--                 or crowd_favour = false turns the favour off (on by default in every arena preset)
 --   first_wave    test hook: start at this wave;  debug_track / debug_clear_after: test hooks
 --   test_keys     true = the wave-jump hotkeys work (or set GE_ARENA_TESTKEYS=1): PageDown/PageUp = next/back wave and clear the
 --                 live enemies, with Shift = start it on top of them (never in co-op or netplay)
 --
 -- Per-Bond safe: it only reads bond.count/pos(p)/dead(p) and hands pickups to every Bond; math.random is the session's.
 
+-- the start menu and post-game (_arena_flow.lua): a run the menu or Retry started gets its settings into ARENA_SETTINGS here
+pcall(include, "_arena_flow")
 local S = {
   mode        = "fixed",
   waves       = 20,
@@ -161,11 +168,22 @@ local S = {
   turbo_knife_from = 14,         -- from this wave the Knife Sisters wave is the TURBO one
   turbo_knife_lo  = 1.60,
   turbo_knife_hi  = 1.80,
+
+  -- drop A7 (the rest of their settings, with defaults, are documented at the top of each module file)
+  mutators        = false,       -- wave mutators (_arena_mutators.lua): mutator_from / mutator_chance* / mutator_list / mutator_pick ...
+  elites          = false,       -- affix elites (_arena_elites.lua): affix_from / affix_chance* / affix_list / affix_hp / affix_scale ...
+  scores          = true,        -- best wave / kills / time and medals in arena_scores.ini (_arena_scores.lua); solo only
+  hud_style       = true,        -- the styled wave panel and the centre kill callouts (port_arenahud.c); false = the plain HUD rows
+  hud_scale       = 0.65,        -- the wave panel's size (1 = the console font's size; 0.25 .. 1.5)
+  hud_anchor      = "top_left",  -- its corner: "top_left" or "top_right"
+  hud_margin      = 4,           -- its gap to the screen edges, console units (the console space is 480 high)
 }
 local REACT_DEFAULT = S.REACT
 if type(ARENA_SETTINGS) == "table" then
   for k, v in pairs(ARENA_SETTINGS) do S[k] = v end
-  if ARENA_SETTINGS.crowd_real then S.crowd = ARENA_SETTINGS.crowd_real end
+  if ARENA_SETTINGS.crowd_real then   -- (A8: crowd may be the favour table; then crowd_real is its count)
+    if type(S.crowd) == "table" then S.crowd.count = ARENA_SETTINGS.crowd_real else S.crowd = ARENA_SETTINGS.crowd_real end
+  end
 end
 -- GE_ARENA_SCREAMS=1 turns the scream crowd on without editing a file (presentation only, so a per-machine switch is fine)
 if not S.crowd_screams and mode.env_flag("GE_ARENA_SCREAMS") then S.crowd_screams = true end
@@ -179,6 +197,35 @@ if S.REACT ~= REACT_DEFAULT then
     if type(mine[name]) == "table" then for k, v in pairs(mine[name]) do r[k] = v end end
     S.REACT[name] = r
   end
+end
+pcall(include, "_arena_theme")    -- the Bond theme: every player-facing name (arena_theme.lua -> ARENA_THEME); before the modules
+pcall(include, "_arena_polish")   -- drop A7: pickup markers, knife keep-distance, spectator seating (arena_polish.lua)
+
+-- drop A7 modules: separate files with small hooks below (search "A7")
+include("_arena_mutators")
+include("_arena_elites")
+include("_arena_scores")
+local MUT, ELI = ARENA_MUTATORS.new(S), ARENA_ELITES.new(S)
+local function a7(f, ...)   -- a module error is logged, never fatal to the arena's own handlers
+  local ok, r = pcall(f, ...)
+  if not ok then print("ge: arena: A7 error: " .. tostring(r)); return nil end
+  return r
+end
+-- Whacky (arena_whacky.lua): colour / alpha effects, the Whacky mutators, the minion launcher; its hooks are the WH.* calls
+pcall(include, "_arena_whacky")
+local WH = ARENA_WHACKY and a7(ARENA_WHACKY.new, S, MUT) or nil
+
+-- co-op (drop A7): ARENA_SETTINGS.coop loads arena_coop.lua (downed / revive, waves for two, the partner bot); its hooks are the CO.* calls
+local CO = nil
+if S.coop then include("_arena_coop"); CO = ARENA_COOP(S) end
+local function bond_ok(p) return bond.dead(p) == false and not (CO and CO.downed(p)) end   -- alive and not downed
+
+-- crowd favour (drop A8, _arena_crowd.lua): made below, once the wave state exists; its hooks are the CR.* calls
+include("_arena_crowd")
+local CR = nil
+local function crowd_count()   -- `crowd` is the spectator count, or the A8 table with count=
+  if type(S.crowd) == "table" then return S.crowd.count or 150 end   -- 150: the fork's default real crowd
+  return S.crowd or 0
 end
 
 -- toughness tiers: hp = x the type's base health, armour = extra stock armour in units of the base 4 damage (grows with the wave
@@ -232,6 +279,9 @@ local TITLES = {
   standard = "THE SOLDIERS", knife = "THE KNIFE SISTERS", swarm = "THE HORDE", ambush = "THE AMBUSH",
   sniper = "THE MARKSMEN", wild = "WILD CARD", tank = "IRON JAWS", turbo_knife = "THE TURBO KNIFE SISTERS",
 }
+if type(ARENA_THEME) == "table" and ARENA_THEME.waves then   -- the Bond theme (arena_theme.lua) names the waves
+  for k, v in pairs(ARENA_THEME.waves) do TITLES[k] = v end
+end
 
 -- pickups: one weapon per breather (cycled)
 local SUPPLY_GUNS = { { "ar33", "AR33", 120 }, { "shotgun", "SHOTGUN", 40 }, { "d5k", "D5K", 150 }, { "rcp90", "RC-P90", 200 },
@@ -301,20 +351,43 @@ end
 
 -- ----------------------------------------------------------------- HUD -----
 
+-- the styled wave panel (port_arenahud.c); the HUD rows below stay (tests and GE_MODEHUD_LOG read them; the panel shows line 3)
+local PANEL_WORDS = {}   -- the theme's words for the phases (delay / fight / breather) and the idle panel
+do
+  local pw = type(ARENA_THEME) == "table" and ARENA_THEME.panel or {}
+  PANEL_WORDS = { delay = pw.get_ready, fight = pw.fight, breather = pw.breather, idle_title = pw.idle_title, idle_sub = pw.idle_sub }
+end
+local function update_panel()
+  if not (S.hud_style and arena.panel) then return end
+  local crowd_v, tier, tier_name, toast, dbl = -1, 3, "", "", 0
+  if CR then
+    local ok, f, t, n, ts, d = pcall(CR.panel_info)   -- (not a7(): it passes on one return value)
+    if ok and f then crowd_v, tier, tier_name, toast, dbl = f, t, n, ts, d end
+  end
+  pcall(arena.panel, { wave = wave, waves = (S.mode == "fixed") and S.waves or 0, title = wave_title, mutator = MUT.title() or "",
+    kills = kills, left = alive_count() + (#queue - qi + 1), elites = a7(ELI.count) or 0, time = mmss(elapsed),
+    phase = ended and "over" or phase, crowd = crowd_v, tier = tier, tier_name = tier_name, toast = toast, double_secs = dbl,
+    phase_label = PANEL_WORDS[phase] or "", idle_title = PANEL_WORDS.idle_title or "", idle_sub = PANEL_WORDS.idle_sub or "" })
+end
+
 local function refresh_hud()
   if wave == 0 then
     hud.set(1, "COLOSSEUM")
   else
     local of = (S.mode == "fixed") and ("/" .. S.waves) or ""
-    hud.set(1, string.format("WAVE %d%s  %s", wave, of, wave_title))
+    local mt = MUT.title()   -- A7: the wave's mutator
+    hud.set(1, string.format("WAVE %d%s  %s%s", wave, of, wave_title, mt and ("  + " .. mt) or ""))
   end
   local left = alive_count() + (#queue - qi + 1)
   if phase == "fight" then
-    hud.set(2, string.format("KILLS %d   LEFT %d   TIME %s", kills, left, mmss(elapsed)))
+    local ne = a7(ELI.count) or 0   -- A7: live affix elites
+    hud.set(2, string.format("KILLS %d   LEFT %d   TIME %s%s", kills, left, mmss(elapsed), ne > 0 and ("   ELITES " .. ne) or ""))
   else
     hud.set(2, string.format("KILLS %d   TIME %s", kills, mmss(elapsed)))
   end
   hud.set(3, flash)
+  if CR then hud.set(4, a7(CR.hud) or "") end   -- A8: the crowd's mood and the last toast
+  update_panel()
 end
 
 local function say(text, secs)
@@ -373,7 +446,10 @@ local function crowd_set(n)
   for _, p in ipairs(seats_all) do if not seats_used[p] then free[#free + 1] = p end end
   local want = math.min(n - #crowd_pads, #free)
   if want > 0 then
-    for _, p in ipairs(choose_seats(free, want)) do crowd_pads[#crowd_pads + 1] = p; seats_planned[p] = true end
+    -- A7: real spectators never share a spot (ARENA_POLISH.choose_seats). The start crowd takes the front rows (front_seats), which
+    -- have no overlapping seats; the impostors keep the plain sample (flat pictures, and the gap check is n^2 over 1000 of them).
+    local pick_seats = ARENA_POLISH and ARENA_POLISH.choose_seats or choose_seats
+    for _, p in ipairs(pick_seats(free, want)) do crowd_pads[#crowd_pads + 1] = p; seats_planned[p] = true end
     crowd_logged = false
   end
   return #crowd_pads
@@ -434,7 +510,7 @@ local function crowd_tick()
       s.react = nil
       s.next = elapsed + 6 + math.random() * 8
     elseif elapsed >= s.next then
-      if spawn.anim(s.chr, pick(FIDGETS)) then s.next = elapsed + 5 + math.random() * 12
+      if spawn.anim(s.chr, pick((CR and a7(CR.fidgets)) or FIDGETS)) then s.next = elapsed + 5 + math.random() * 12
       else s.next = elapsed + 1 end
     end
   end
@@ -594,9 +670,13 @@ local function spawn_one(entry)
       spec.knife_range = spec.knife_range or S.knife_range            -- A5 combat defaults (a spec may override them)
       spec.knife_cooldown = spec.knife_cooldown or S.knife_cooldown
       spec.sight = spec.sight or S.sight
+      if ARENA_POLISH then ARENA_POLISH.tweak_spec(spec) end   -- A7: knife throwers keep their distance
       local c = spawn.chr(pad, spec)
       if c then
         E[#E + 1] = { chr = c, boss = entry.boss, born = elapsed, tier = spec._tier }
+        a7(MUT.spawned, c, spec, entry)   -- A7
+        a7(ELI.spawned, c, spec, entry)
+        if WH then a7(WH.spawned, c, spec, entry) end   -- Whacky: elite glow, the golden champion, the wave's colours
         return true
       end
     end
@@ -783,6 +863,9 @@ local BOSSES = {
                boss(w, m, 20, "jaws", "rcp90", 45, 60) }
     end },
 }
+if type(ARENA_THEME) == "table" and ARENA_THEME.bosses then   -- the Bond theme's boss-wave titles, in order
+  for i, b in ipairs(BOSSES) do if ARENA_THEME.bosses[i] then b.title = ARENA_THEME.bosses[i] end end
+end
 
 local function is_boss(w) return S.boss_every > 0 and w % S.boss_every == 0 end
 
@@ -842,6 +925,22 @@ local function design(w)
   end
   return title, q
 end
+
+-- A8: the crowd favour module, with the few pieces of the wave state it needs
+CR = ARENA_CROWD.new(S, {
+  crowd = crowd,                                        -- the spectators (filled in place as they spawn)
+  say = function(t, secs) say(t, secs) end,
+  wave = function() return wave end,
+  phase = function() return phase end,
+  alive = function() return alive_count() end,
+  bond_ok = bond_ok,
+  mutator_active = function() return MUT.title() ~= nil end,
+  extra_pack = function(n, q)                           -- the HATED penalty: n rushers from the gates farthest from Bond
+    q = q or queue
+    for i = 1, n do q[#q + 1] = { n = 900 + i, gates = "far", spec = soldier(math.max(1, wave), { beh = "rush" }) } end
+  end,
+})
+ARENA_CROWD.live = CR   -- test hook: presets reach the live module (CR.set, CR.tier, CR.sponsor ...)
 
 -- --------------------------------------------------------------- pickups ----
 
@@ -940,7 +1039,7 @@ local function kill_heal(victim, killer, e)
     local x, z = spawn.where(victim)
     local best, bd = nil, 1e18
     for q = 0, bond.count() - 1 do
-      if bond.dead(q) == false then
+      if bond_ok(q) then
         local bx, _, bz = bond.pos(q)
         local d = x and bx and ((bx - x) ^ 2 + (bz - z) ^ 2) or 0
         if d < bd then best, bd = q, d end
@@ -948,7 +1047,7 @@ local function kill_heal(victim, killer, e)
     end
     p = best
   end
-  if p == nil or bond.dead(p) ~= false then return end
+  if p == nil or not bond_ok(p) then return end
   local before = bond.vitals(p)
   bond.heal(p, amt, 0)
   local after = bond.vitals(p)
@@ -989,7 +1088,7 @@ local function give_supplies()
     g = SUPPLY_GUNS[supply_i]
   end
   for p = 0, bond.count() - 1 do
-    if bond.dead(p) == false then
+    if bond_ok(p) then
       if h > 0 or a > 0 then bond.heal(p, h, a) end
       if g then
         bond.give(p, g[1], g[3])
@@ -1014,10 +1113,23 @@ end
 local function start_wave(w)
   wave = w
   wave_title, queue = design(w)
+  if CO then CO.scale(queue, w) end
   qi = 1
   phase, phase_t = "fight", 0
-  say(string.format("WAVE %d: %s", w, wave_title), 6)
-  if is_boss(w) then crowd_react({ { "startled", 0.5 } }, 1.0) end
+  a7(CR.wave_start, w, queue, is_boss(w))   -- A8: before the mutator roll (double damage never overlaps one); may add the HATED pack
+  local mt = a7(MUT.wave_start, w, queue, is_boss(w))   -- A7: maybe a mutator, maybe some affix elites (both edit the queue's specs)
+  local ne = a7(ELI.wave_start, w, queue) or 0
+  say(string.format("WAVE %d: %s%s", w, wave_title, mt and (" - " .. mt) or ""), 6)
+  if ARENA_FLOW then a7(ARENA_FLOW.wave_start, w, wave_title, is_boss(w), mt, kills, elapsed) end   -- the post-game's per-wave rows
+  if mt or ne > 0 then print(string.format("ge: arena: wave %d A7: mutator %s, affix elites %d", w, mt or "none", ne)) end
+  if is_boss(w) then
+    crowd_react({ { "startled", 0.5 } }, 1.0)
+    if S.hud_style and arena.callout and type(ARENA_THEME) == "table" then   -- the boss's title card (the theme's boss_cards)
+      for i, b in ipairs(BOSSES) do
+        if b.title == wave_title then ARENA_THEME.callout(wave_title, 6, (ARENA_THEME.boss_cards or {})[i], 3.0) end
+      end
+    end
+  end
   local tiers, elites, turbos = { light = 0, normal = 0, armoured = 0, heavy = 0, boss = 0 }, 0, 0
   for _, e in ipairs(queue) do
     tiers[e.spec._tier] = tiers[e.spec._tier] + 1
@@ -1034,15 +1146,29 @@ local function finish(win)
   if ended then return end
   ended = true
   print(string.format("ge: arena: %s wave %d kills %d time %s", win and "WON" or "OVER", wave, kills, mmss(elapsed)))
+  a7(MUT.wave_end, "run over")   -- A7: no mutator outlives the run
+  local crowd_line = a7(CR.finish, win)   -- A8: double damage off, the summary
+  local sc = a7(ARENA_SCORES.finish, S, { win = win, wave = wave, kills = kills, time = elapsed,   -- A7: bests, medal, report page
+    extra = (ELI.made > 0 or MUT.rolled > 0) and string.format("Elites slain %d   Mutators %d", ELI.killed, MUT.rolled) or crowd_line })
+  -- the start menu's post-game (_arena_flow.lua): the run's stats; true = it ends the mission itself after the crowd's cheer
+  local flow_win = ARENA_FLOW and a7(ARENA_FLOW.finish, win, { wave = wave, kills = kills, time = elapsed, title = wave_title, sc = sc,
+    elites = ELI.killed, mutators = MUT.rolled, waves = (S.mode == "fixed") and S.waves or 0 })
   if win then
     say(string.format("ARENA CLEARED! KILLS %d  TIME %s", kills, mmss(elapsed)), 30)
-    mission.win(string.format("Arena cleared: %d kills in %s", kills, mmss(elapsed)))
+    if sc then a7(arena.debrief, sc.debrief) end   -- before mission.win: the report page is drawn right after
+    if not flow_win then mission.win(string.format("Arena cleared: %d kills in %s", kills, mmss(elapsed))) end
   else
     say(string.format("YOU FELL IN WAVE %d - KILLS %d", wave, kills), 30)
+    if sc then a7(arena.debrief, sc.debrief) end
+  end
+  if sc then   -- the HUD is not refreshed after the end, so these stay
+    hud.set(1, sc.hud1)
+    hud.set(2, sc.hud2)
   end
 end
 
 local function wave_cleared()
+  if ARENA_FLOW then a7(ARENA_FLOW.wave_cleared, wave, kills, elapsed) end   -- the post-game's per-wave rows
   print(string.format("ge: arena: wave %d cleared, kills %d, t=%s; economy: healed %.2f of a bar, centre items %d spawned / %d collected / %d expired",
     wave, kills, mmss(elapsed), healed_total, items_spawned, items_taken, items_expired))
   if pool_last then
@@ -1051,6 +1177,9 @@ local function wave_cleared()
   end
   if S.reactions then react("wave_clear")   -- the crowd cheers (a boss kill just before covers it)
   else crowd_react({ { "dance", 0.3 }, { "laugh", 0.3 }, { "surrender", 0.15 } }, 1.5); cheer(4, 0.8) end
+  a7(MUT.wave_end, "cleared")   -- A7: the mutator ends with its wave
+  a7(CR.wave_cleared, wave, is_boss(wave))   -- A8: the clean-wave bonus
+  if CO then CO.wave_cleared(wave) end
   if final_wave() then finish(true); return end
   phase, phase_t = "breather", 0
   local sup = give_supplies()
@@ -1089,8 +1218,18 @@ end
 
 local TEST_KEYS = { next = { 1, true }, back = { -1, true }, ["next+"] = { 1, false }, ["back+"] = { -1, false } }
 
+local preview_i = 0
 local function test_key(name)
   if not (S.test_keys or mode.env_flag("GE_ARENA_TESTKEYS")) then return end
+  if (name == "callout" or name == "callout+") and type(ARENA_THEME) == "table" and ARENA_THEME.preview_list then
+    -- the callout preview (Home / Shift+Home): every chain, streak, event and boss card in turn
+    local list = ARENA_THEME.preview_list()
+    preview_i = (preview_i + (name == "callout" and 1 or -1) - 1) % #list + 1
+    local e = list[preview_i]
+    ARENA_THEME.callout(e[1], e[2], string.format("%s   [%d/%d  L%d]", e[3] or "", preview_i, #list, e[2]))
+    print(string.format("ge: arena: TEST callout preview %d/%d: %s (level %d)", preview_i, #list, e[1], e[2]))
+    return
+  end
   local k = TEST_KEYS[name]
   if not k or phase == "delay" and wave == 0 and k[1] < 0 then return end
   local ok, err = pcall(test_jump, k[1], k[2])
@@ -1188,7 +1327,7 @@ on("stage_start", function(stage)
     seats_all = seats
     -- the stock game fades a dead chr out and removes it after 1.5 s: to keep bodies longer than the default 4 s (or for good) it must not
     spawn.keep_bodies(S.corpse_keep < 0 or S.corpse_keep > 4)
-    crowd_pads = front_seats(seats, S.crowd)
+    crowd_pads = front_seats(seats, crowd_count())
     for _, p in ipairs(crowd_pads) do seats_planned[p] = true end
     local nimp = (S.crowd_impostors or 0) > 0 and impostors_set(S.crowd_impostors) or 0
     print(string.format("ge: arena: crowd %d of %d seats, %d impostors", #crowd_pads, #seats, nimp))
@@ -1201,7 +1340,16 @@ on("stage_start", function(stage)
       print(string.format("ge: arena: crowd screams %s (game yells%s)", SOUND and SOUND.sfx_burst and "on" or "unavailable",
         S.crowd_screams == "only" and ", instead of the WAVs" or ""))
     end
-    say(string.format("GET READY - WAVE 1 IN %d", S.start_delay), S.start_delay)
+    if arena.hud then pcall(arena.hud, S.hud_style and true or false) end   -- the styled HUD (port_arenahud.c)
+    if arena.hud_layout then
+      local ok, err = pcall(arena.hud_layout, S.hud_scale or 0.65, S.hud_anchor or "top_left", S.hud_margin or 4)
+      if not ok then print("ge: arena: hud_layout: " .. tostring(err)) end
+    end
+    a7(arena.fog, 0)          -- A7: the Colosseum's own sky, and no report-page lines from an earlier run
+    a7(arena.debrief, {})
+    local best = a7(ARENA_SCORES.best_line, S)
+    say(string.format("GET READY - WAVE 1 IN %d%s", S.start_delay, best and ("   " .. best) or ""), S.start_delay)
+    if CO then CO.stage_start() end
   end)
   if not ok then print("ge: arena: setup error:", err); ended = true end
 end)
@@ -1211,8 +1359,16 @@ on("chr_died", function(victim, killer)
     if e.chr == victim and not e.dead_at then
       e.dead_at = elapsed
       kills = kills + 1
+      do   -- A8: the crowd judges the kill (before the kill heal: a close call is judged on the health he had)
+        local bl = 0
+        for _, x in ipairs(E) do if x.boss and not x.dead_at then bl = bl + 1 end end
+        for i = qi, #queue do if queue[i].boss then bl = bl + 1 end end
+        a7(CR.kill, victim, killer, e, ELI.live[victim] ~= nil, bl)
+      end
       local ok, err = pcall(kill_heal, victim, killer, e)
       if not ok then print("ge: arena: kill heal error:", err) end
+      local et = a7(ELI.died, victim, elapsed)   -- A7: an affix elite: announce it (and arm an explosive corpse)
+      if et then say(et, 3) end
       if e.boss then say("BOSS DOWN!", 4) end
       if S.reactions then
         local ok2, err2 = pcall(react_kill, victim, e.boss)
@@ -1249,6 +1405,11 @@ on("tick", function(dt)
     flash_t = flash_t - dt
     if flash_t <= 0 then flash = "" end
   end
+  a7(ELI.tick, dt, elapsed)   -- A7: regenerating elites, explosive corpses
+  a7(MUT.tick, dt)            -- a mutator with a clock (Whacky)
+  if WH then a7(WH.tick, dt, elapsed, phase, wave) end
+  a7(CR.tick, dt, elapsed, phase)   -- A8: the crowd's mood, its gifts and penalties
+  if CO then CO.tick(dt, phase) end
 
   -- safety net: an enemy that vanished without a death event counts as gone; corpses are removed after a while
   local keep_s = S.corpse_keep
@@ -1326,6 +1487,7 @@ on("tick", function(dt)
     if qi <= #queue and spawn.free() <= S.max_alive + 20 then
       for _ = 1, 6 do if not remove_oldest_corpse() then break end end
     end
+    if CO then cap = CO.cap(cap) end
     while qi <= #queue and alive_count() < cap and n < 2 and spawn.free() > 8 do
       local entry = queue[qi]
       if spawn_one(entry) then qi = qi + 1; n = n + 1; spawn_fail = 0
@@ -1340,7 +1502,7 @@ on("tick", function(dt)
     end
     if qi > #queue and alive_count() == 0 then wave_cleared() end
   elseif phase == "breather" then
-    if phase_t >= S.breather then start_wave(wave + 1) end
+    if phase_t >= (a7(CR.breather, S.breather) or S.breather) then start_wave(wave + 1) end   -- A8: the thumbs down / HATED cut it
   end
   hud_acc = hud_acc + dt
   if hud_acc >= 0.5 then hud_acc = 0; refresh_hud() end

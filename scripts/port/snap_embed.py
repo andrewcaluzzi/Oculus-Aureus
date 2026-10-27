@@ -32,6 +32,12 @@ SIM_PORT = {
     'port_gadgets.c',
     # the heist planning phase: the hold and the board's input events (sim; designs/bank-heist.md section 27)
     'port_planning.c',
+    'port_arenafx.c',   # arena A7: knife-only flags, the fog record
+    'port_arenacoop.c',   # arena co-op: downed / revive timers, the partner bot's memory (drop A7)
+    'port_arenacrowd.c',  # arena A8: last Bond hit per chr, blast owners, the held-gun / spectator hit queue (crowd favour)
+    'port_arenamenu.c',   # arena start menu / post-game: the hand-off to the next stage (its settings), the menu's preferences
+    'port_whacky.c',      # arena Whacky: minion launchers, the minions' brains, the anim-rate / line-mode flags it set
+
     # input latches the sim reads (held / edge / zoom state per pad); its live accumulators are excluded by portSnapLive()
     'joy_port.c',
     # the sim's own view of the sounds it starts (tokens, end times in sim fields): modding/snapshot-fidelity.md
@@ -57,11 +63,15 @@ PRES_PORT = {
     'port_probe.c', 'port_profiles.c', 'port_simcfg.c', 'port_simonly.c', 'port_snap.c', 'port_snapshot.c', 'port_snaptable.c', 'port_soundfile.c', 'port_textures.c',
     'port_watchpages.c', 'printf_port.c', 'raphnet.c', 'roc_hooks.c', 'romfile_bg.c', 'port_intel.c',
     'segments.c', 'sysstubs.c', 'ucode_dl_stubs.c', 'video.c',
+    'port_arenascores.c',   # arena A7: the best-scores file and the report-page text (never read by the sim)
+    'port_arenahud.c', 'port_hudstyle.c',   # the arena's wave panel and callouts, the shared HUD drawing helpers (presentation)
 }
+PRES_PORT |= {'port_arenamenu_draw.c'}   # the arena start menu / post-game drawing, its animation stamps, the mouse: presentation
 PRES_PORT |= {'port_arhud.c'}   # the AR overlay / diagnostics (marks, bubbles, toggles): presentation, never rewound
 PRES_PORT |= {'port_hidden.c'}  # GE_HIDDEN hidden-window switch (port/README-headless.md): process setting, never rewound
 PRES_PORT |= {'port_debrief.c'}   # the heist DEBRIEF panel (content, view, input capture): presentation, never rewound
 PRES_PORT |= {'port_crosshair.c'}   # crosshair styles, hit-marker timers, the sight's draw list: presentation, never rewound
+PRES_PORT |= {'port_chrfx.c'}   # arena Whacky per-chr colour wash / translucency: read only by chrRenderProp, never by the sim
 PRES_PORT |= {'port_cctvbody.c'}   # the solo Bond's body on a CCTV feed (its own heap buffers, posed and drawn only in the feed): presentation
 # src/*.c and src/game/*.c that are NOT sim state (audio, scheduler, VI, framebuffers, thread stacks, boot, profiling).
 PRES_SRC = {

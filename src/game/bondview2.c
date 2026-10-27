@@ -6834,6 +6834,7 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
         extern s32 portEscPressed(void); /* input_pc.c; weak 0 headless */
         extern s32 get_is_ramrom_flag(void);
         extern void portRamromEscapeExit(const char *reason); /* ramromreplay.c */
+        extern int portArenaMenuEscape(int p);                /* port_arenamenu.c */
 
         if (portSimEscPressed())   /* the local player's Escape key, or under lockstep the current player's record */
         {
@@ -6842,6 +6843,9 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
                  * press" exit can't see, and the watch must never open over a
                  * recording, so Escape skips the demo like any other key. */
                 portRamromEscapeExit("real input press (Escape key)");
+            }
+            else if (portArenaMenuEscape(get_cur_playernum()))
+            {   /* PORT: the arena's lobby (port_arenamenu.c) holds the controls: Escape is its board's BACK, not the watch */
             }
             else if (getPlayerCount() >= 2)
             {   /* With the MP menu up, send B to close it, because START there
@@ -13629,6 +13633,12 @@ void bondviewKillCurrentPlayer(void)
             trigger_solo_watch_menu(1);
         }
 
+#ifndef TARGET_N64
+        { /* PORT: arena co-op (drop A7): the Bond goes down instead of dying while a partner is up (port_arenacoop.c) */
+            extern int portArenaCoopDownInstead(int player);
+            if (portCoopActive() && portArenaCoopDownInstead(get_cur_playernum())) { return; }
+        }
+#endif
         g_CurrentPlayer->bonddead = 1;
 #ifndef TARGET_N64
         { /* PORT: coop: killed in action only when every Bond is dead; one dead Bond respawns (portCoopDeathTick) */
@@ -13720,6 +13730,10 @@ void record_damage_kills(f32 damage_amount, f32 vectorx, f32 vectorz, s32 player
     { /* PORT: coop (mission-end job): the ending is not gameplay: no damage, no death once it has started (shared sim state) */
         extern int portCoopEnding(void);
         if (portCoopEnding()) { return; }
+    }
+    { /* PORT: arena co-op (drop A7): a downed Bond, or one just revived, takes no damage (port_arenacoop.c) */
+        extern int portArenaCoopNoDamage(int player);
+        if (portCoopActive() && portArenaCoopNoDamage(get_cur_playernum())) { return; }
     }
 #endif
     f32 damage_dealt = g_playerPerm->handicap * damage_amount;

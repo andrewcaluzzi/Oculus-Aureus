@@ -11,7 +11,8 @@ end
 local TEST = { "heard", "fire_stats", "gadget_used", "face", "shot_noise", "slap", "obj_damage", "cctv_info", "press", "screenshot",
   "use", "hud_panel", "hud_line", "rooms_drawn", "take_drop", "walk", "walk_stop", "fire", "intel_count", "intel_show", "intel_view",
   "plan_input", "plan_mouse", "plan_count", "plan_tabs", "has_item", "crosshair_draws", "crosshair_hit", "debrief_open",
-  "debrief_record_info", "debrief_path", "grab", "chr_face", "freeze" }
+  "debrief_record_info", "debrief_path", "grab", "chr_face", "freeze",
+  "hurt", "shoot", "coop_down", "coop_kill" }   -- (the last four: arena A7 / A8)
 check("test is a table", type(test) == "table")
 for _, n in ipairs(TEST) do check("test." .. n, type(test[n]) == "function") end
 local count = 0
@@ -23,7 +24,10 @@ local GONE = { spawn = { "heard", "fire_stats" }, bond = { "test_gadget", "face"
   ko = { "test_slap" }, obj = { "test_damage" }, cover = { "test_act" }, cctv = { "render_info", "test_press", "test_shot", "test_use" },
   hud = { "panel_lines", "line" }, gadget = { "test_fire" }, intel = { "count", "test_show", "view" },
   plan = { "test_input", "test_mouse", "count", "tabs", "has" }, crosshair = { "draws", "test_hit" },
-  debrief = { "is_open", "record_info", "records_path" }, shield = { "grab", "face" }, diag = { "freeze" } }
+  debrief = { "is_open", "record_info", "records_path" }, shield = { "grab", "face" }, diag = { "freeze" },
+  coop = { "down", "kill" } }
+-- (arena A7 / A8 test hooks never lived elsewhere in the fork; spawn.hurt / spawn.shoot are the lab line's names)
+for _, n in ipairs({ "hurt", "shoot" }) do check("spawn." .. n .. " is not there", spawn[n] == nil) end
 for lib, names in pairs(GONE) do
   for _, n in ipairs(names) do check(lib .. "." .. n .. " is gone", _G[lib][n] == nil) end
 end
@@ -31,7 +35,15 @@ end
 -- production names that stay, or were renamed in place
 local KEEP = { cover = { "act", "blow", "suspicion" }, ai = { "trait_bribe", "trait_observe" }, bond = { "warp", "ammo" },
   spawn = { "kill" }, plan = { "view", "hit", "pointer", "strip" }, intel = { "briefing" }, shield = { "release", "last" },
-  diag = { "on", "off", "text" } }
+  diag = { "on", "off", "text" },
+  -- arena A7 / A8 production names
+  arena = { "fog", "debrief", "sfx", "hud", "hud_layout", "panel", "callout" }, scores = { "get", "set", "all", "enabled", "path" },
+  coop = { "rules", "active", "state", "release", "counts", "bot", "bot_goal", "bot_info" } }
+for _, n in ipairs({ "knife_only", "scale", "heal", "health", "explode", "markers", "marker_sync", "item_marker", "last_hit",
+    "hit_events", "disarm", "owned_guns" }) do
+  KEEP.spawn[#KEEP.spawn + 1] = n
+end
+KEEP.bond[#KEEP.bond + 1] = "shots"
 for lib, names in pairs(KEEP) do
   for _, n in ipairs(names) do check(lib .. "." .. n .. " is there", type(_G[lib][n]) == "function") end
 end

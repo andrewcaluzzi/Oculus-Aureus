@@ -95,6 +95,8 @@ extern s32 portHostageNotAGuard(ChrRecord *chr);    /* port_hostage.c: a live ho
 extern s32 portArenaChrIsEnemy(const ChrRecord *chr);   /* port_arenamode.c: an enemy spawned by the arena mode */
 extern s32 portArenaDirect(const ChrRecord *chr);       /* port_arenamode.c: an arena enemy that uses the A5 direct route / retarget (not with GE_ARENA_OLDAI=1) */
 extern void portArenaNoteShot(ChrRecord *chr);          /* port_arenamode.c: first-shot range log */
+extern s32 portArenaKeepAway(const ChrRecord *chr);     /* port_arenamode.c (drop A7): a knife thrower on a keep-distance retreat: do not re-plot toward Bond */
+extern s32 portArenaKnifeRetreat(ChrRecord *chr);       /* port_arenamode.c (drop A7): start the retreat run; 1 = started */
 /* PORT: the N64's "at most 10 guards recently saw Bond" throttle on path plotting (and the kneel in the go-to-position tick) is lifted in a game
  * mode: a 20-guard fight would otherwise freeze every walking chr, hostages included. Outside a mode it is the stock 10. */
 #define PORT_SEEN_BOND_CAP (portModeActive() ? 100000 : 10)
@@ -2616,6 +2618,12 @@ bool handles_shot_actors(ChrRecord *self, s32 hitpart, coord3d *vector, s32 weap
     // If the chr is invincible, make them flinch then we're done
     if (self->chrflags & CHRFLAG_INVINCIBLE)
     {
+#ifndef TARGET_N64
+        { /* PORT (arena drop A8): a Bond shot an arena spectator (crowd favour); a no-op elsewhere */
+            extern void portArenaCrowdShot(ChrRecord *chr, s32 isPlayer);
+            portArenaCrowdShot(self, isPlayer);
+        }
+#endif
         chrSetHiddenToRandom(self); //chrFlinchBody
         return FALSE;
     }
@@ -2739,6 +2747,10 @@ bool handles_shot_actors(ChrRecord *self, s32 hitpart, coord3d *vector, s32 weap
             { /* PORT: arena: the crowd cheers a headshot kill (port_arenamode.c; port-side bookkeeping, no sim state) */
                 extern void portArenaNoteHitPart(const ChrRecord *chr, s32 head);
                 portArenaNoteHitPart(self, hitpart == HIT_HEAD);
+            }
+            { /* PORT (arena drop A8): where a Bond's shot hit an arena enemy, with what, from how far (crowd favour); a no-op elsewhere */
+                extern void portArenaShotHit(ChrRecord *chr, s32 hitpart, s32 weaponid, s32 isPlayer);
+                portArenaShotHit(self, hitpart, weaponid, isPlayer);
             }
 #endif
 
@@ -9830,7 +9842,7 @@ void chrlvTickGoPos(ChrRecord *self)
     }
 
 #ifndef TARGET_N64
-    if ((self->act_gopos.waydata.age % 45) == 17 && portArenaDirect(self))
+    if ((self->act_gopos.waydata.age % 45) == 17 && portArenaDirect(self) && !portArenaKeepAway(self))
     { /* PORT: arena (drop A5): an arena enemy only ever runs to Bond, and the stock course keeps the position Bond had when it was
        * plotted, so a chaser ran to where Bond WAS and only then turned (the "paths somewhere else first" feel). Follow Bond: when he has
        * moved 250+ units from the course target, re-plot to his position (every 0.75 s at most; the plot keeps the chr's speed). */
@@ -10481,6 +10493,11 @@ void chrlvAllChrTick(void)
        * returns at once unless the bot is enabled in a solo, non-demo mission */
         extern void portBotTick(void);
         portBotTick();
+    }
+    { /* PORT: arena Whacky minion bursts and the minions' brains (port_whacky.c); returns at once when nothing is armed */
+        extern s32 g_ClockTimer;
+        extern void portWhackyTick(f32 dt);
+        portWhackyTick((f32)g_ClockTimer / 60.0f);
     }
     { /* PORT: mode: building-block events and zones; no-op unless a mode is active */
         extern void portBlocksTick(void);
@@ -11893,7 +11910,12 @@ bool check_if_actor_is_at_preset(ChrRecord *self, s32 padnum)
 */
 bool removed_animation_routine_27(ChrRecord *self)
 {
+#ifndef TARGET_N64
+    /* PORT: arena (drop A7): TRYRunFromBond, used only by m_ArenaKnifeKeep: a knife thrower backs off to about its keep distance */
+    return portArenaKnifeRetreat(self) ? TRUE : FALSE;
+#else
     return FALSE;
+#endif
 }
 
 

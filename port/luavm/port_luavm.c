@@ -482,6 +482,7 @@ static const luaL_Reg sWeaponLib[] = {
 #define LUA_EV_TICK       100         /* not on the C bus: driven by portLuaTick */
 #define LUA_EV_TESTKEY    101         /* likewise: queued by portLuaTestKey, delivered on the next game tick */
 #define LUA_EV_XHAIR      102         /* likewise: draw_crosshair, called by the sight's draw (port_luavm_crosshair.c) */
+#define LUA_EV_UITICK     103         /* likewise: ui_tick, every game tick (the arena lobby's menu: input without the 0.25 s lag) */
 #define LUA_TICK_PERIOD   15          /* clock ticks (60 = 1 s): the tick event fires every 0.25 s */
 #define LUA_MAX_HANDLERS  16          /* per event */
 #define LUA_HANDLERS_KEY  "midas_handlers"
@@ -515,13 +516,15 @@ static const struct { const char *name; int type; int nargs; } sEvents[] = {
     { "noise", PORT_EV_NOISE, 6 },               /* x, y, z, radius, kind ("slap" ...), source chr (port_luavm_ai.c pushes them) */
     { "guard_bark", PORT_EV_GUARD_BARK, 3 },     /* guard chr, kind ("huh" "hey" "investigate" "lost" ...), text */
     { "tick", LUA_EV_TICK, 1 },                  /* seconds since the last tick event */
-    { "test_key", LUA_EV_TESTKEY, 1 },           /* name of a test hotkey: "next" "back" "next+" "back+" (PageDown, PageUp, with Shift = +) */
+    { "test_key", LUA_EV_TESTKEY, 1 },           /* name of a test hotkey: "next" "back" "next+" "back+" (PageDown, PageUp, with Shift = +), "callout" "callout+" (Home) */
     { "draw_crosshair", LUA_EV_XHAIR, 3 },       /* x, y, ctx: every frame the sight could show (presentation; port_luavm_crosshair.c) */
+    { "ui_tick", LUA_EV_UITICK, 1 },             /* seconds since the last game tick: every game tick (sim; keep it cheap) */
 };
 #define LUA_EV_N ((int) (sizeof(sEvents) / sizeof(sEvents[0])))
 
 static unsigned char sHooked[PORT_EV_COUNT];
 static int sTickOn;
+static int sUiTickOn;
 static int sTickAccum;
 static int sTestKeyOn;
 static char sTestKeyQ[8][8];
@@ -558,7 +561,7 @@ static void portLuaDispatch(int type, int a, int b, int c, int d, double dt)
             lua_pop(L, 1);   /* a disabled handler */
             continue;
         }
-        if (type == LUA_EV_TICK)
+        if (type == LUA_EV_TICK || type == LUA_EV_UITICK)
         {
             lua_pushnumber(L, dt);
         }
@@ -634,6 +637,10 @@ void portLuaTick(int clockTicks)
             portLuaDispatch(LUA_EV_TESTKEY, 0, 0, 0, 0, 0.0);
         }
     }
+    if (sUiTickOn && sL != NULL && clockTicks > 0)
+    {
+        portLuaDispatch(LUA_EV_UITICK, 0, 0, 0, 0, clockTicks / 60.0);
+    }
     if (!sTickOn || sL == NULL)
     {
         return;
@@ -662,6 +669,7 @@ static void portLuaListenersClear(void)
         }
     }
     sTickOn = 0;
+    sUiTickOn = 0;
     sTickAccum = 0;
     sTestKeyOn = 0;
     sTestKeyN = 0;
@@ -718,6 +726,10 @@ static int portLuaOn(lua_State *L)
     else if (type == LUA_EV_TESTKEY)
     {
         sTestKeyOn = 1;
+    }
+    else if (type == LUA_EV_UITICK)
+    {
+        sUiTickOn = 1;
     }
     else if (type == LUA_EV_XHAIR)
     {
@@ -925,9 +937,9 @@ static int portLuaHudSet(lua_State *L)
     lua_Integer line = luaL_checkinteger(L, 1);
     int player = portLuaOptPlayer(L, 3);
 
-    if (line < 1 || line > 3)
+    if (line < 1 || line > 4)   /* drop A8: line 4 (PORT_HUD_LINES; the arena's crowd favour) */
     {
-        return luaL_error(L, "hud line must be 1..3");
+        return luaL_error(L, "hud line must be 1..4");
     }
     portLuaGameHudSet(player, (int) line - 1, lua_isnil(L, 2) ? NULL : luaL_checkstring(L, 2));
     return 0;
@@ -1832,6 +1844,21 @@ static lua_State *portLuaState(void)
         extern void portLuaPlanningRegister(lua_State *L);
 
         portLuaPlanningRegister(sL);
+    }
+    {   /* the arena's start menu and post-game: amenu.* (port_luavm_arenamenu.c) */
+        extern void portLuaArenaMenuRegister(lua_State *L);
+
+        portLuaArenaMenuRegister(sL);
+    }
+    {   /* arena co-op: the `coop` table (port_luavm_coop.c, drop A7) */
+        extern void portLuaCoopRegister(lua_State *L);
+
+        portLuaCoopRegister(sL);
+    }
+    {   /* arena Whacky: the `chrfx` (presentation) and `whacky` (sim) tables (port_luavm_whacky.c) */
+        extern void portLuaWhackyRegister(lua_State *L);
+
+        portLuaWhackyRegister(sL);
     }
     lua_pushcfunction(sL, portLuaOn);
     lua_setglobal(sL, "on");

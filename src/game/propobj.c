@@ -3545,6 +3545,12 @@ void chrobjWeaponTick(struct PropRecord* prop)
         {
             if (weapon->timer == 0)
             {
+#ifndef TARGET_N64
+                {   /* PORT: arena Whacky minion launcher (port_whacky.c): Bond's armed rockets burst into tiny allies; inert otherwise */
+                    extern void portWhackyRocketBoom(PropRecord *rocket);
+                    portWhackyRocketBoom(prop);
+                }
+#endif
                 propExplode(prop, (obj->flags2 & PROPFLAG2_DOOR_ALTCOORDSYSTEM) ? EXPLOSION_DEF_MASSIVE : EXPLOSION_DEF_STANDARD);
                 obj->runtime_bitflags |= RUNTIMEBITFLAG_REMOVE;
             }
