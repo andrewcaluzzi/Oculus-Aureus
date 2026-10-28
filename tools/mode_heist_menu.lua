@@ -341,15 +341,16 @@ end
 -- the lobby (start menu and debrief) plays GoldenEye's "Control elevator"; the run is a fresh stage load, so its own level music
 -- starts as usual (music.set is per stage and cleared at the next stage start)
 local LOBBY_MUSIC = "elevator_control"
+local LOBBY_MUSIC_VOL = 0.8   -- 0x6665, the level tracks' default (the elevator track's own default is a quiet 0x3FFF)
 if music and music.set then
-  local ok, err = pcall(music.set, LOBBY_MUSIC)
+  local ok, err = pcall(music.set, LOBBY_MUSIC, LOBBY_MUSIC_VOL)
   M.log("lobby music: set %s -> %s", LOBBY_MUSIC, tostring(ok and err or err))
 end
 
 on("stage_start", function()
   if music and music.play then   -- (should music.set have been refused or missed, start the track directly)
     local okc, curm = pcall(music.current)
-    if not (okc and curm == LOBBY_MUSIC) then M.log("lobby music: playing %s (was %s)", LOBBY_MUSIC, tostring(curm)); pcall(music.play, LOBBY_MUSIC) end
+    if not (okc and curm == LOBBY_MUSIC) then M.log("lobby music: playing %s (was %s)", LOBBY_MUSIC, tostring(curm)); pcall(music.play, LOBBY_MUSIC, LOBBY_MUSIC_VOL) end
   end
   plan.hold(true)
   ui.escape_back(true)
