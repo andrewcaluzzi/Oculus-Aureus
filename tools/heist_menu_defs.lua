@@ -4,7 +4,7 @@
 --            (any scored row off its default makes the records key "<job>_<d>_custom"); cheat = true: no records at all
 --   JOBS     the cards: id, lg (the generated level's name: levelgen.has / GE_LEVELGEN), the theme's name, place and blurb
 --   settings(M) -> HEIST_SETTINGS overrides, difficulty (0..3), env (GE_* for the run), cheat
---   record_key(job, difficulty, custom)   the bests' key in Data/Saves/heist_bests.ini
+--   record_key(job, difficulty, custom)   the bests' key in Data/Saves/ui/heist_bests.ini
 -- The words are HEIST_THEME's (tools/heist_theme.lua); only the rows' own labels and help lines are here, beside their values.
 
 if not HEIST_THEME then include("_heist_theme") end

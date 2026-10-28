@@ -11,7 +11,7 @@
 --
 -- Pages: MAIN (the job cards with their bests, the difficulty, Q BRANCH, BEGIN THE JOB), SETTINGS (Q BRANCH: every setting by group),
 -- DEBRIEF (the result, the stats, the objectives, the take, the commendations; AGAIN, NEW JOB, RETURN TO MI6). The choices are kept in
--- Data/Saves/heist_menu.ini, the bests per job and difficulty in Data/Saves/heist_bests.ini (ui.prefs: this machine's, solo only).
+-- Data/Saves/ui/heist_menu.ini, the bests per job and difficulty in Data/Saves/ui/heist_bests.ini (ui.prefs: this machine's, solo only).
 -- Test hooks: HEIST_MENU (the menu), GE_HEISTMENU_TEST=1 runs mode heist_flowtest instead of heist (tests/heist_menu).
 
 include("_ui_menu")
@@ -32,7 +32,7 @@ local here = D.job_here()
 local M
 local function job() return D.JOB_BY_ID[M.job] or here end
 
--- ---- the bests (Data/Saves/heist_bests.ini: <job>_<d>[_custom]_payout / _time / _rating / _runs / _wins) ----
+-- ---- the bests (Data/Saves/ui/heist_bests.ini: <job>_<d>[_custom]_payout / _time / _rating / _runs / _wins) ----
 local bests = ui and ui.prefs("heist_bests") or {}
 local function best(key)
   local b = { payout = tonumber(bests[key .. "_payout"]), time = tonumber(bests[key .. "_time"]), rating = bests[key .. "_rating"],

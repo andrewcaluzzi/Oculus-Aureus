@@ -13,7 +13,9 @@
  *                                     nil = a plain launch (a launcher, the Mods page)
  *   ui.retry([t]) -> t | nil          the last run's own launch (set by the run, read by the debrief)
  *   ui.result([text]) -> text         the last run's result (a Lua table constructor, set by the run)
- *   ui.prefs(name) -> {key = "value"} a named preference file (Data/Saves/<name>.ini; name: a-z 0-9 _); {} in netplay
+ *   ui.prefs(name) -> {key = "value"} a named preference file (Data/Saves/ui/<name>.ini; name: a-z 0-9 _, 1..32); {} in netplay
+ *   ui.save_prefs(...) -> false when a key or value was refused (keys A-Z a-z 0-9 _; values printable ASCII, no control characters)
+ *   SECURITY (scripts include mods): launch variables are an allowlist with value rules, the mode name is checked (port_uimenu.c)
  *   ui.save_prefs(name, {key = v})    replace it and write the file (values become strings)
  *   ui.view{...}                      the menu as it is now (presentation; port_uimenu_draw.c, tools/ui_menu.lua)
  *   ui.escape_back(on)                Escape is the board's BACK while the lobby holds the controls (not the watch)
