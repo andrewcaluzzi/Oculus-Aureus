@@ -2132,7 +2132,15 @@ void triggered_on_shot_hit(ChrRecord *self, coord3d *arg1, f32 arg2, s32 req_ani
 
         if (self->damage >= self->maxdamage)
         {
-            if (((arg2 < 1.5707964f) || (arg2 > 4.712389f)) && ((randomGetNext() % (u32)0x14) == 0))
+#ifndef TARGET_N64
+            {   /* PORT: heist knock-outs (port_heist.c): a knocked-out chr killed where it lies stays down (AC's playtest: it stood up to
+                 * play a death animation). It goes straight to ACT_DIE holding its lying pose; the drops below still happen. Anyone else: 0 */
+                extern int portHeistKoDies(ChrRecord *c);
+
+                if (portHeistKoDies(self)) another_flag = 1;
+            }
+#endif
+            if ((another_flag == 0) && ((arg2 < 1.5707964f) || (arg2 > 4.712389f)) && ((randomGetNext() % (u32)0x14) == 0))
             {
                 ft = getsubroty(model) + M_PI_F;
 
@@ -2886,6 +2894,18 @@ s32 chrlvExplosionDamage(ChrRecord *self, coord3d *arg1, f32 damage, s32 arg3)
             sp40 = 0;
         }
 
+#ifndef TARGET_N64
+        {   /* PORT: heist knock-outs (port_heist.c): a knocked-out chr killed by a blast (or spawn.kill) stays where it lies too: no
+             * blown-off-its-feet animation from standing, no fling */
+            extern int portHeistKoDies(ChrRecord *c);
+
+            if (portHeistKoDies(self))
+            {
+                self->fallspeed.f[0] = self->fallspeed.f[1] = self->fallspeed.f[2] = 0.0f;
+                goto port_ko_died;
+            }
+        }
+#endif
         t = (u32)randomGetNext() % (u32) explosion_animation_table[sp40].count;
         sp38 = &D_8002E648[
             explosion_animation_table[sp40].table[t]
@@ -2912,6 +2932,9 @@ s32 chrlvExplosionDamage(ChrRecord *self, coord3d *arg1, f32 damage, s32 arg3)
         {
             modelSetAnimEndFrame(self_model, sp38->anonymous_6);
         }
+#ifndef TARGET_N64
+port_ko_died:
+#endif
 
         if (arg3 != 0)
         {

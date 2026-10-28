@@ -300,6 +300,7 @@ M.log("lobby: %s, job %s on the %s level, %s", M.page, M.job, here.lg, cur and (
 -- the people behind the menu: a few staff and guards standing about, fidgeting (no AI to speak of: spectators)
 local FIDGETS = { "yawn", "scratch_leg", "adjust", "chat", "listen", "cough", "look" }
 local extras = {}
+M.extras = extras   -- (tests)
 local function people(room)
   if not (room and room.pads and spawn and spawn.chr) then return end
   local bodies = { { "St_Petersburg_Guard", "kf7" }, { "Civilian_1_Female", "none" }, { "Civilian_2", "none" }, { "St_Petersburg_Guard", "d5k" },
@@ -326,6 +327,17 @@ local function centre_pad(room)
   return bestp
 end
 
+-- the job is frozen behind the menu (AC's playtest 2026-10-28: sitting in the menu raised the alarm: the level's own cameras watched
+-- the idle Bond and the stock camera logic sounded it). Every camera off, a spot (should one happen) raises nothing, and no alarm
+-- stands; the people here are spectators (no AI list: they see nothing) and nothing of the heist runs. tests/heist_menu/run_idle.sh
+local function freeze()
+  if cctv then
+    if cctv.alarm_on_spot then pcall(cctv.alarm_on_spot, false) end
+    for _, cam in ipairs(cctv.list and cctv.list() or {}) do pcall(cctv.disable, cam) end
+  end
+  if alarm and alarm.active and alarm.active() then alarm.stop() end
+end
+
 on("stage_start", function()
   plan.hold(true)
   ui.escape_back(true)
@@ -339,6 +351,7 @@ on("stage_start", function()
     pcall(bond.equip, p, "fist")
   end
   people(room)
+  freeze()
   if bench and bench.sweep then bench.sweep(3, 8) end
   if M.page == "debrief" and result and (news.payout or news.time) then sfx(SFX.best) end
   M.show()
@@ -354,6 +367,7 @@ end)
 local t = 0
 on("tick", function(dt)
   t = t + dt
+  if alarm and alarm.active and alarm.active() then alarm.stop(); M.log("an alarm in the lobby: stopped") end
   for _, s in ipairs(extras) do
     if t >= s.next then
       if spawn.anim and spawn.anim(s.chr, FIDGETS[math.random(#FIDGETS)]) then s.next = t + 5 + math.random() * 10 else s.next = t + 2 end
