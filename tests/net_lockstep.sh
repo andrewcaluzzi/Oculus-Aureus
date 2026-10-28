@@ -130,6 +130,21 @@ fpcut() {   # <file> <tag-out>: strip the role-dependent columns, stop after the
 # instance get the same four player options; GE_NOINISAVE keeps the files as written here.
 HP=netbase_h
 GP=netbase_g
+
+# The input files must be there. The game does not stop on a missing GE_COOP_LOCAL / GE_COOP_P2 replay file: it logs
+# "cannot open the replay file" and that Bond stands still. Both machines then agree on an idle session, so every hash,
+# DESYNC, fingerprint and replay check passes and only the "the scripted input had its effect" checks fail (19 of them on
+# the v0.1 tree, 2026-10-28, whose tests/net held only the .awk generators). Stop here instead of running 40 phases on idle Bonds.
+missing=
+for f in recA.txt recB.txt recEA.txt recEB.txt recPA.txt recPB.txt recWA.txt recWB.txt recFA.txt recFB.txt; do
+    [ -s "$REC/$f" ] || missing="$missing $f"
+done
+if [ -n "$missing" ]; then
+    echo "FAIL 0 input files missing in $REC:$missing (tests/net holds them; REC= names another folder)"
+    echo "net_lockstep: 1 failed"
+    exit 1
+fi
+
 for pr in $HP $GP; do
     mkdir -p "$ROOT/Data/Profiles/$pr"
     printf '[input]\nlook_updown=1\nauto_aim=0\naim_control=0\nlook_ahead=1\n' > "$ROOT/Data/Profiles/$pr/midas.ini"
@@ -1050,7 +1065,9 @@ if echo " $PHASES " | grep -q ' 33 '; then
     litmax=$(python3 "$HERE/bmp_stat.py" $SH/shot_011*.bmp $SH/shot_012*.bmp $SH/shot_013*.bmp 2>/dev/null | awk '{ if ($7 > m) m = $7 } END { print m + 0 }')
     check "33 the dead Bond's (guest) view during the exit cutscene is not under the red overlay (red fraction $redmax) and shows the scene (lit $litmax)" "awk -v r=$redmax -v l=$litmax 'BEGIN { exit !(r < 0.05 && l > 0.5) }'"
     mkdir -p "$OUT/$TAG.cred/host" "$OUT/$TAG.cred/guest"
-    env BIN="$BIN" OUT="$OUT" STAGE=cuba HCWD="$OUT/$TAG.cred/host" GCWD="$OUT/$TAG.cred/guest" sh "$HERE/net_replay2.sh" "$TAG.cr" $((PORT + 262)) 1500 none GE_SHOT=150 GE_WINDOW=640x360 GE_MODS=invincible=1 GE_FRAMES=1800 > "$OUT/$TAG.cr.run.txt" 2>&1
+    # GE_FRAMES is the backstop only (GE_NET_STOP=1500 ends the run): 1500 ticks + ~240 frames before GO + every held frame.
+    # 1800 left ~60 frames for holds; a loaded machine holds 200+ and the run stopped near tick 1340 (2026-10-28).
+    env BIN="$BIN" OUT="$OUT" STAGE=cuba HCWD="$OUT/$TAG.cred/host" GCWD="$OUT/$TAG.cred/guest" sh "$HERE/net_replay2.sh" "$TAG.cr" $((PORT + 262)) 1500 none GE_SHOT=150 GE_WINDOW=640x360 GE_MODS=invincible=1 GE_FRAMES=2400 > "$OUT/$TAG.cr.run.txt" 2>&1
     CR=$OUT/$TAG.cred
     hl=$(python3 "$HERE/bmp_stat.py" $CR/host/shot_009*.bmp $CR/host/shot_010*.bmp $CR/host/shot_012*.bmp | awk '{ if ($7 > m) m = $7 } END { print m + 0 }')
     gl=$(python3 "$HERE/bmp_stat.py" $CR/guest/shot_009*.bmp $CR/guest/shot_010*.bmp $CR/guest/shot_012*.bmp | awk '{ if ($7 > m) m = $7 } END { print m + 0 }')
@@ -1314,6 +1331,8 @@ if echo " $PHASES " | grep -q ' 45 '; then
     (mnet "$TAG.h2" $((PORT + 466)) 200 G:GE_MODE=hostage)
     check "45 the guest's own GE_MODE=hostage is ignored: it runs the host's 'reset' (both machines print the same mode)" "grep -aq \"session game mode: 'reset' (the host's)\" $OUT/$TAG.h2.guest.log && ! grep -aq \"ge: mode: 'hostage'\" $OUT/$TAG.h2.guest.log && grep -q IDENTICAL $OUT/$TAG.h2.run.txt"
 fi
+
+check "every run found its input files (no 'cannot open the replay file' in this run's logs)" "! grep -alq 'cannot open the replay file' $OUT/$TAG.*.log $OUT/$TAG.*.txt"
 
 echo "net_lockstep: $FAILS failed"
 exit $FAILS
