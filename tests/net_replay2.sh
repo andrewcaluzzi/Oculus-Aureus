@@ -43,6 +43,14 @@ if [ -n "$LIVE" ]; then
 else
     HLOC="GE_COOP_LOCAL=replay:$DREC/${RECA:-recA.txt}"   # RECA / RECB name other input files (job 3b: recEA.txt / recEB.txt)
     GLOC="GE_COOP_LOCAL=replay:$DREC/${RECB:-recB.txt}"
+    # A missing file is not an error to the game: it logs "cannot open the replay file" and that Bond stands still, so both
+    # machines stay in sync and every hash check passes while the scripted input never happens. Refuse to run instead.
+    for f in "${RECA:-recA.txt}" "${RECB:-recB.txt}"; do
+        if [ ! -s "$REC/$f" ]; then
+            echo "$TAG: MISSING input file $REC/$f (see tests/README.md; REC= names another folder)"
+            exit 1
+        fi
+    done
 fi
 
 rm -f "$OUT/$TAG.host.fp" "$OUT/$TAG.guest.fp"
