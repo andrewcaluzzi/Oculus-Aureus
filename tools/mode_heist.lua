@@ -27,7 +27,14 @@
 -- generator, the same on both machines); the script reads only per-player state (bond.pos(p), bond.has_key(p, ...)), never the local player.
 
 include("heist_lib")
-include("levelgen_layout")                     -- LEVEL: the generated level's layout (include() works at the top level only)
+-- the start menu's run side (the generic menu layer; tools/heist_flow.lua): the launched settings into HEIST_SETTINGS, the debrief after
+pcall(include, "_ui_menu")
+pcall(include, "_heist_theme")
+pcall(include, "_heist_menu_defs")
+pcall(include, "_heist_flow")
+-- LEVEL: the generated level's layout (include() works at the top level only). The levelgen slot's level is chosen at load
+-- (port_levelgen_select.c, GE_LEVELGEN): the build's own is levelgen_layout.lua, another one levelgen_layout_<name>.lua
+if levelgen and levelgen.current() ~= levelgen.default() then include("levelgen_layout_" .. levelgen.current()) else include("levelgen_layout") end
 include("heist_bank_map")                      -- heist_bank_map(): the mode's tables from LEVEL by name
 include("heist_ai")                            -- HEIST_AI: the guards' hearing, awareness and barks (section 18)
 pcall(include, "heist_combat")                 -- HEIST_COMBAT: the LOUD route: cover, flanks, police and SWAT (section 24; optional)
@@ -1205,7 +1212,9 @@ local function finish(win, msg)
     cctv.view_off(p)
   end
   H.score = score
-  if H.debrief_end then local ok, e = pcall(H.debrief_end, win, msg, bonus, killed); if not ok then log("debrief failed: %s", tostring(e)) end end   -- (section 26)
+  local R
+  if H.debrief_end then local ok, e = pcall(H.debrief_end, win, msg, bonus, killed); if not ok then log("debrief failed: %s", tostring(e)) else R = e end end   -- (section 26)
+  if HEIST_FLOW and HEIST_FLOW.finish then local ok, e = pcall(HEIST_FLOW.finish, win, msg, R, BASE_JOB.name); if not ok then log("flow failed: %s", tostring(e)) end end
   if win then mission.win(string.format("Heist complete: %s (best %s)", money(score), money(HEIST_BEST)))
   else mission.fail(msg) end
 end

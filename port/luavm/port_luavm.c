@@ -1850,6 +1850,11 @@ static lua_State *portLuaState(void)
 
         portLuaArenaMenuRegister(sL);
     }
+    {   /* the generic mode menu layer: ui.* and levelgen.* (port_luavm_ui.c) */
+        extern void portLuaUiRegister(lua_State *L);
+
+        portLuaUiRegister(sL);
+    }
     {   /* arena co-op: the `coop` table (port_luavm_coop.c, drop A7) */
         extern void portLuaCoopRegister(lua_State *L);
 

@@ -307,7 +307,9 @@ function H.debrief_end(win, msg, bonus, killed)
     -- the best per difficulty (Data/Saves/heist_records.json): kept in C, this machine's; it fills the NEW BEST stamp and line itself
     -- and logs "HEIST RECORD {json}". Nothing of the file comes back here (the Lua arena is sim state).
     debrief.record{ difficulty = dif, win = win and true or false, payout = R.payout, time = R.time, rating = R.rating, result = R.result }
-    debrief.show(true)
+    -- (the start menu's flow, tools/heist_flow.lua, shows its own debrief in the lobby instead of this panel)
+    if not (HEIST_FLOW and HEIST_FLOW.panel and not HEIST_FLOW.panel()) then debrief.show(true) end
   end
+  R.medal_list = medals   -- (the flow's commendation chips: every one, earned or not)
   return R
 end

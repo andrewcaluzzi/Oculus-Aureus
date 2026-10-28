@@ -844,6 +844,19 @@ static Gfx *drawChrome(Gfx *g)
     s32 i, x;
     char buf[96];
 
+    if (sPlanOn)
+    {   /* the PLANNING board wears the menus' look (the generic menu layer, port_uimenu_draw.c: the Arena's): a dark plate, a gold
+         * rule, a dark paper with a faint gold grid; the job's own five pages keep the cork and the blueprint */
+        g = bfill(g, 6, 6, BW - 6, BH - 6, 0x0A0705F0u);
+        g = bfill(g, 6, 6, 9, BH - 6, 0xF0C040FFu);
+        g = bframe(g, 6, 6, BW - 6, BH - 6, 1, 0x6A5838C0u);
+        g = bfill(g, 14, 30, BW - 14, BH - 22, 0x141A2CFFu);
+        for (x = 14; x < BW - 14; x += 20) g = bfill(g, x, 30, x + 1, BH - 22, 0x6A583840u);
+        for (x = 30; x < BH - 22; x += 20) g = bfill(g, 14, x, BW - 14, x + 1, 0x6A583840u);
+        g = bframe(g, 18, 34, BW - 18, BH - 26, 1, 0xF0C04090u);
+    }
+    else
+    {
     g = bfill(g, 6, 6, BW - 6, BH - 6, 0x6B4A2CF4u);                        /* cork */
     for (i = 0; i < 40; i++)
     {   /* cork flecks (fixed, so the board does not shimmer) */
@@ -855,6 +868,7 @@ static Gfx *drawChrome(Gfx *g)
     for (x = 14; x < BW - 14; x += 20) g = bfill(g, x, 30, x + 1, BH - 22, 0x2A4C80A0u);
     for (x = 30; x < BH - 22; x += 20) g = bfill(g, 14, x, BW - 14, x + 1, 0x2A4C80A0u);
     g = bframe(g, 18, 34, BW - 18, BH - 26, 1, 0xD8E4F4C0u);
+    }
     /* tabs: index cards along the top (only the ones in play: the plan's while planning, the job's after) */
     {
         s32 lo, n;
@@ -868,10 +882,19 @@ static Gfx *drawChrome(Gfx *g)
             const int cur = (i == sPage);
             const int hov = sPlanOn && sHoverPage == i + 1 && sHoverRow == 0;
 
-            g = bfill(g, tx + 1, cur ? 8 : 12, tx + tw - 3, 30, cur ? 0xF2EBD0FFu : (hov ? 0xE8DCA8FFu : 0xB8B098FFu));
-            if (hov) g = bframe(g, tx + 1, cur ? 8 : 12, tx + tw - 3, 30, 2, 0xFFC020FFu);
+            if (sPlanOn)
+            {   /* the menus' tabs: a gold plate for the page in hand, dark ones with ink for the rest */
+                g = bfill(g, tx + 1, cur ? 8 : 12, tx + tw - 3, 30, cur ? 0xD8A838FFu : (hov ? 0x4A3412F0u : 0x1C140CF0u));
+                g = bframe(g, tx + 1, cur ? 8 : 12, tx + tw - 3, 30, 1, hov ? 0xFFE070FFu : 0x6A5838C0u);
+            }
+            else
+            {
+                g = bfill(g, tx + 1, cur ? 8 : 12, tx + tw - 3, 30, cur ? 0xF2EBD0FFu : (hov ? 0xE8DCA8FFu : 0xB8B098FFu));
+                if (hov) g = bframe(g, tx + 1, cur ? 8 : 12, tx + tw - 3, 30, 2, 0xFFC020FFu);
+            }
             snprintf(buf, sizeof(buf), "%d %s", i - lo + 1, sPageTitle[i]);
-            g = stext(g, X(tx + (n > 6 ? 3 : 6)), Y(cur ? 13 : 16), buf, cur ? 0x9A1010FFu : 0x404040FFu, n > 6 ? sSc * 0.72f : sSc, 0);
+            g = stext(g, X(tx + (n > 6 ? 3 : 6)), Y(cur ? 13 : 16), buf,
+                      sPlanOn ? (cur ? 0x1A1006FFu : 0xF4EEDCFFu) : (cur ? 0x9A1010FFu : 0x404040FFu), n > 6 ? sSc * 0.72f : sSc, 0);
         }
     }
     /* the floor list on the map page */
@@ -1002,6 +1025,11 @@ int portIntelMouse(s32 mx, s32 my, s32 winw, s32 winh, u32 mbuttons, s32 wheelUp
         extern int portArenaMenuMouse(int mx, int my, int winw, int winh, unsigned int mbuttons, int wheelUp, int wheelDown);
 
         if (portArenaMenuMouse(mx, my, winw, winh, mbuttons, wheelUp, wheelDown)) return 1;
+    }
+    {   /* PORT: likewise a mode's menus on the generic layer (port_uimenu_draw.c) */
+        extern int portUiMenuMouse(int mx, int my, int winw, int winh, unsigned int mbuttons, int wheelUp, int wheelDown);
+
+        if (portUiMenuMouse(mx, my, winw, winh, mbuttons, wheelUp, wheelDown)) return 1;
     }
     if (!sPlanOn || !sOpen || !portIntelAvailable() || winw <= 0 || winh <= 0 || sSc <= 0.0f)
     {
