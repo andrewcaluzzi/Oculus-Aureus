@@ -448,7 +448,8 @@ if cur and cur.lobby == "postgame" then
   result = D.parse(amenu.result())
   if result then M.screen = "postgame" end
 end
-pcall(music.set, "ELEVATOR_CONTROL")   -- lobby (start menu + post-game) music; cleared at the next stage start, so runs keep their own
+local LOBBY_MUSIC_VOL = 0.8   -- 0x6665, the level tracks' default (the elevator track's own default is a quiet 0x3FFF)
+pcall(music.set, "ELEVATOR_CONTROL", LOBBY_MUSIC_VOL)   -- lobby (start menu + post-game) music; cleared at the next stage start, so runs keep their own
 log("lobby: %s, preset %s, %s", M.screen, (D.preset_of(M.v) or { id = "custom" }).id, cur and ("after " .. (cur.label ~= "" and cur.label or "a run")) or "first boot")
 
 on("stage_start", function()
