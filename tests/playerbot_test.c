@@ -457,6 +457,16 @@ static void test_combat_geometry(void)
     CHECK(NEAR(plan.s[1].r, 400.0f, 0.01f) && plan.s[2].a == 0);
     CHECK(pblParsePlan("escort 0x408\n", &plan, err, sizeof(err)) == -1);
     CHECK(pblParsePlan("hunt ai\n", &plan, err, sizeof(err)) == -1);
+    /* tests-only scripted warps (Dam+ test plans): pad [dx dz], obj T [mindist], x y z */
+    CHECK(pblParsePlan("warp pad 330\nwarp pad 12 40 -20\nobj=0 warp obj 3\nwarp obj 5 250\nwarp 16166 -107 10844\n", &plan, err,
+                       sizeof(err)) == 5);
+    CHECK(plan.s[0].op == PBL_WARP && plan.s[0].b == 0 && plan.s[0].a == 330 && NEAR(plan.s[0].x, 0.0f, 0.01f));
+    CHECK(plan.s[1].b == 0 && plan.s[1].a == 12 && NEAR(plan.s[1].x, 40.0f, 0.01f) && NEAR(plan.s[1].z, -20.0f, 0.01f));
+    CHECK(plan.s[2].b == 1 && plan.s[2].a == 3 && plan.s[2].condObj == 0 && NEAR(plan.s[2].r, 150.0f, 0.01f));
+    CHECK(plan.s[3].b == 1 && plan.s[3].a == 5 && NEAR(plan.s[3].r, 250.0f, 0.01f));
+    CHECK(plan.s[4].b == 2 && NEAR(plan.s[4].x, 16166.0f, 0.5f) && NEAR(plan.s[4].y, -107.0f, 0.5f) && NEAR(plan.s[4].z, 10844.0f, 0.5f));
+    CHECK(pblParsePlan("warp pad\n", &plan, err, sizeof(err)) == -1);
+    CHECK(pblParsePlan("warp 1 2\n", &plan, err, sizeof(err)) == -1);
 }
 
 /* round 6: the speedrun route language (via, side=, fast) and the any-direction digital move */

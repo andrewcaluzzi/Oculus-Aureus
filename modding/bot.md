@@ -164,6 +164,7 @@ skipped once objective N is complete or not needed at this difficulty, `diff=A-B
 | `escort ai ID [dist]` | from here on, gotos wait (fighting) while that chr is more than dist (400) behind, and walk back to it after 4 s; `escort ai 0` stops |
 | `auto` | the generic objective handlers until none is left |
 | `exit` | stand still and tap A until the mission ends (end cut-scenes wait for a button) |
+| `warp pad N [dx dz]` / `warp obj T [mindist]` / `warp X Y Z` | **tests only**: move Bond at once (the hostage test teleport), to skip a walk the test is not about: to a pad (plus an offset), to the nearest pad in object T's room at least mindist (150) from it, or to the point via the nearest pad on that floor (within 150 in y). Not input, so a run with a warp does not replay (`REPLAY=0`); Dam+'s `tests/damplus/*.plan` use it |
 
 `tools/bot/objectives.py assets/obseg/setup/Usetup<stage>Z.c` (run it on your extracted setup) lists a stage's
 objectives, tags, and the AI lines that set each completion flag with the conditions before them - that is how the

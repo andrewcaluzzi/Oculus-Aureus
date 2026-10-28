@@ -1223,6 +1223,18 @@ void chraiDefaultWeaponFireHandler(s32 hand)
         }
     }
 
+#ifndef TARGET_N64
+    { /* diagnostic (GE_DUMP_BOND): a shot with no bg hit (into the void, or stopped by a prop it could not pass) */
+        extern char *getenv(const char *);
+        extern void portConLogf(const char *fmt, ...);   /* stderr, unbuffered: in order with the bot's lines */
+        static s32 dumpmiss = -1;
+        if (dumpmiss < 0) dumpmiss = getenv("GE_DUMP_BOND") != NULL;
+        if (dumpmiss && !gotbghit)
+        {
+            portConLogf("bgmiss: no bg hit (stan edge %d, prop hits %d)\n", (s32) hitbgstan, (s32) numhits);
+        }
+    }
+#endif
     if (gotbghit || hitbgstan)
     {
         finalpos = 0;
@@ -1254,15 +1266,18 @@ void chraiDefaultWeaponFireHandler(s32 hand)
                    * lands on - the F2.5 blue-floor hunt (shoot the floor,
                    * read its texnum). */
                     extern char *getenv(const char *);
-                    extern int printf(const char *, ...);
+                    extern void portConLogf(const char *fmt, ...);   /* stderr, unbuffered */
                     static s32 dump = -1;
                     if (dump < 0) dump = getenv("GE_DUMP_BOND") != NULL;
                     if (dump)
                     {
-                        printf("bghit: texnum=%d material=%d pos=(%.0f,%.0f,%.0f)\n",
+                        /* pos is the view-space point (besthitpos was moved to the screen matrix above: -z = distance),
+                         * world the world-space one, with the room the hit was found in */
+                        portConLogf("bghit: texnum=%d material=%d pos=(%.0f,%.0f,%.0f) world=(%.0f,%.0f,%.0f) room=%d\n",
                                bghit.texturenum,
                                (s32) g_Textures[bghit.texturenum].hitTexture,
-                               besthitpos.x, besthitpos.y, besthitpos.z);
+                               besthitpos.x, besthitpos.y, besthitpos.z,
+                               visiblehitpos.x, visiblehitpos.y, visiblehitpos.z, (s32) bestroom);
                     }
                 }
 #endif

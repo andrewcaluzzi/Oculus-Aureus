@@ -1,0 +1,29 @@
+# Dam at 00 Agent, all four objectives, for the player bot (tests/damplus/mission.sh). Plan language: modding/bot.md.
+# Objectives: 0 neutralise all alarms (tags 0-3), 1 install covert modem (item 0x2F = bug, on tag 5: monitor 290, room 114;
+# flag 0x100), 2 intercept data backup (after 0x100, B at a mainframe, tag 6 / 7, room 109: a countdown, then flag 0x400),
+# 3 bungee jump (room of pad 330: flag 0x1000, ai_24 runs the exit and the outro).
+# Everything the bot does at a target is pad input (aim, fire, equip, B). Between targets the plan uses scripted warps (`warp`,
+# tests only) where the bot's navigation stalls on stock Dam: it walks from the start to the valley alarm, then the tower bases
+# (one-way doors) and the underground (gate pairs) cost it hundreds of seconds or the whole run.
+# The valley alarm (tag 3, room 123, beside the door to room 114): `auto` alone stalls there (it fires at it from room 114
+# through the door, which keeps closing, and walks back and forth), so the plan walks to a spot in 123 with a clear line and
+# holds the trigger.
+name dam00
+obj=0 goto 14903 60 2362 40
+obj=0 face 15012 66 2376
+obj=0 press z 90
+obj=0 warp obj 0
+obj=0 destroy obj 0
+obj=0 warp obj 1
+obj=0 destroy obj 1
+obj=0 warp obj 2
+obj=0 destroy obj 2
+obj=0 auto
+obj=1 warp obj 5 250
+obj=1 gadget bug obj 5
+obj=2 warp obj 6 200
+obj=2 use obj 6
+obj=2 flag 0x400 7200
+warp pad 330
+goto pad 330 30
+exit

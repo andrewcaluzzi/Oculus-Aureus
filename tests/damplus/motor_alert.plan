@@ -1,0 +1,10 @@
+# Dam+ motor pool: alerted guards come out through the shutter (tests/damplus/motor_alert.sh). Plan language: modding/bot.md.
+# The bot takes the shutter key from chr 6 (the guard by the truck), opens the shutter (door 281) on its way in, walks up to
+# chr 120 in the vehicle bay without firing, so the motor-pool guards see Bond, then runs back out down the canyon (room 132)
+# and waits there: the guards' only way to him is their waypoint chain W0-W6 -> stock waypoint 8 (pad 321, room 135).
+name dpmotor
+key 0x80
+peace 1
+meet chr 120 300 60
+goto 17169 52 18103 80
+wait 600

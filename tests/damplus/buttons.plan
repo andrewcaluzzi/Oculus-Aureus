@@ -1,0 +1,19 @@
+# Dam+ B presses through the real input path (tests/damplus/buttons.sh): the player bot walks Bond up to each Dam+ console and
+# presses B there on player 1's pad (`use obj T`: walk up, face it, B three times). Plan language: modding/bot.md.
+# The long legs between are scripted warps (tests only) to a pad in the console's room some way off, so the last stretch is
+# walked: the pier from 400 back along the quay, the valve from 300 along the balcony.
+# Tags: 22 the launch call box on the west pier, 23 the one on the island quay, 21 the spillway valve station (port_damplus.h / .c).
+# Agent: the bungee is the only objective, so the run ends at the platform.
+name dpbuttons
+peace 1
+warp obj 22 400
+use obj 22
+wait 240
+use obj 23
+wait 240
+warp obj 21 300
+use obj 21
+wait 240
+warp pad 330
+goto pad 330 30
+exit

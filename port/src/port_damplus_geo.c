@@ -571,8 +571,9 @@ static s32 dpSeamInsert(DpFrame *f, s32 si, const DpSeam *s, StandTile *first)
 
             dpSetFrame(f, f->sp[0][0], ux / l, uz / l, bt);
         }
-        printf("ge: dam+: %s: seam %d: doorway %d wide in room %d's edge (%.0f long), at %d %d %d\n", f->w->name, si, (s32) s->width,
-               (s32) s->room, len / sLs, f->sp[si][0][0], f->sp[si][0][1], f->sp[si][0][2]);
+        printf("ge: dam+: %s: seam %d: doorway %d wide in room %d's edge (%.0f long), at %d %d %d to %d %d %d\n", f->w->name, si,
+               (s32) s->width, (s32) s->room, len / sLs, f->sp[si][0][0], f->sp[si][0][1], f->sp[si][0][2], f->sp[si][1][0],
+               f->sp[si][1][1], f->sp[si][1][2]);
     }
     return 1;
 }

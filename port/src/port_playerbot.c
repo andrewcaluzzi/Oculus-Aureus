@@ -4098,6 +4098,85 @@ static s32 stepRun(PblStep *s)
             return B.tick - B.stepTick > 90;
         case PBL_FACE:
             return fabsf(lookAt(s->x, s->y, s->z, 10.0f)) < 2.0f;
+        case PBL_WARP:
+        {   /* tests only: a scripted warp (port_hostage.c's test teleport), to skip a long walk; not input, so no replay */
+            extern void portTeleportBondToPad(PropRecord *bp, s32 pad, f32 offx, f32 offz);
+            extern s32 portPadCount(void);
+            s32 to = s->a;
+            f32 dx = s->x, dz = s->z;
+
+            if (s->b == 1)
+            {   /* the nearest pad in the object's room at least r from it */
+                ObjectRecord *o = objByTag(s->a);
+                s32 i, n = portPadCount(), room;
+                f32 best = 1.0e12f;
+
+                to = -1;
+                dx = dz = 0.0f;
+                if (o == NULL || o->prop == NULL || o->prop->stan == NULL)
+                {
+                    portConLogf("ge: playerbot: warp: obj %d has no prop on the floor\n", s->a);
+                    return 1;
+                }
+                room = (s32) o->prop->stan->room;
+                for (i = 0; i < n; i++)
+                {
+                    PadRecord *pr = &g_CurrentSetup.pads[i];
+                    f32 ex, ez, d;
+
+                    if (pr->stan == NULL || (s32) pr->stan->room != room) continue;
+                    ex = pr->pos.x - o->prop->pos.x;
+                    ez = pr->pos.z - o->prop->pos.z;
+                    d = ex * ex + ez * ez;
+                    if (d >= s->r * s->r && d < best)
+                    {
+                        best = d;
+                        to = i;
+                    }
+                }
+                if (to < 0)
+                {
+                    portConLogf("ge: playerbot: warp: no pad in room %d at least %.0f from obj %d\n", room, s->r, s->a);
+                    return 1;
+                }
+            }
+            else if (s->b == 2)
+            {   /* the pad nearest the point on about the same floor, then offset onto the point */
+                s32 i, n = portPadCount();
+                f32 best = 1.0e12f;
+
+                to = -1;
+                for (i = 0; i < n; i++)
+                {
+                    PadRecord *pr = &g_CurrentSetup.pads[i];
+                    f32 ex = pr->pos.x - s->x, ez = pr->pos.z - s->z, d = ex * ex + ez * ez;
+
+                    if (pr->stan == NULL || fabsf(pr->pos.y - s->y) > 150.0f) continue;
+                    if (d < best)
+                    {
+                        best = d;
+                        to = i;
+                    }
+                }
+                if (to < 0)
+                {
+                    portConLogf("ge: playerbot: warp: no pad near %.0f,%.0f,%.0f\n", s->x, s->y, s->z);
+                    return 1;
+                }
+                dx = s->x - g_CurrentSetup.pads[to].pos.x;
+                dz = s->z - g_CurrentSetup.pads[to].pos.z;
+            }
+            if (padGet(to) == NULL || padGet(to)->stan == NULL)
+            {
+                portConLogf("ge: playerbot: warp: pad %d has no floor\n", to);
+                return 1;
+            }
+            portTeleportBondToPad(p->prop, to, dx, dz);
+            navReset();
+            portConLogf("ge: playerbot: warp to pad %d: room %d pos %.0f,%.0f,%.0f\n", to, bondRoom(), p->prop->pos.x, p->prop->pos.y,
+                        p->prop->pos.z);
+            return 1;
+        }
         case PBL_LOOK:
             lookToward(p->vv_theta, (f32) s->a, 0.0f);
             return fabsf(p->vv_verta - (f32) s->a) < 1.5f;

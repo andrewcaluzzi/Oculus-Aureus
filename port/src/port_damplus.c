@@ -1368,10 +1368,13 @@ static void dpValveTick(void)
     }
     sValveOpen = 1;
     objectiveregisters1 |= DP_VALVE_FLAG;
-    portGameSfxPlay(219, 1.0f, 0.8f, 0.0f, 0.0f);    /* 219_DOOR_HYDRAL_OPEN */
-    portGameSfxPlay(102, 1.0f, 0.6f, 0.5f, 0.0f);    /* 102_GAS_HISS: the spillway running */
-    portGameSfxPlay(102, 0.8f, 0.5f, 2.0f, 0.0f);
-    printf("ge: dam+: spillway opened at %.1f s\n", g_GlobalTimer / 60.0f);
+    {   /* the handles (0 = dropped: no slot or no sound state) go in the log, so a test can tell the sounds were taken */
+        s32 h0 = portGameSfxPlay(219, 1.0f, 0.8f, 0.0f, 0.0f);    /* 219_DOOR_HYDRAL_OPEN */
+        s32 h1 = portGameSfxPlay(102, 1.0f, 0.6f, 0.5f, 0.0f);    /* 102_GAS_HISS: the spillway running */
+        s32 h2 = portGameSfxPlay(102, 0.8f, 0.5f, 2.0f, 0.0f);
+
+        printf("ge: dam+: spillway opened at %.1f s (sounds %d %d %d)\n", g_GlobalTimer / 60.0f, h0, h1, h2);
+    }
     fflush(stdout);
 }
 
@@ -1426,16 +1429,19 @@ static void dpBoatTick(void)
             timer = 0;
             currentPlayerAdjustFade(30.0f, 0, 0, 0, 1.0f);
             printf("ge: dam+: launch: casting off for the %s at %.1f s\n", toIsland ? "island" : "pier", t);
+            fflush(stdout);
         }
     }
     else if (phase == 1)
     {
         if (++timer >= 36)
         {
+            f32 black = g_playerPointers[0]->colourscreenfrac;   /* the fade out's progress: 1 = black */
+
             portTeleportBondToPad(g_playerPointers[0]->prop, dest, 0.0f, 0.0f);
             currentPlayerAdjustFade(40.0f, 0, 0, 0, 0.0f);
-            printf("ge: dam+: launch: Bond at the %s (pad %d, room %d) at %.1f s\n", toIsland ? "island" : "pier", dest,
-                   g_playerPointers[0]->prop->stan ? getTileRoom(g_playerPointers[0]->prop->stan) : -1, t);
+            printf("ge: dam+: launch: Bond at the %s (pad %d, room %d) at %.1f s, screen black %.2f\n", toIsland ? "island" : "pier", dest,
+                   g_playerPointers[0]->prop->stan ? getTileRoom(g_playerPointers[0]->prop->stan) : -1, t, black);
             fflush(stdout);
             phase = 2;
             timer = 0;
@@ -1443,6 +1449,8 @@ static void dpBoatTick(void)
     }
     else if (++timer >= 90)
     {
+        printf("ge: dam+: launch: ready again at %.1f s, screen black %.2f\n", t, g_playerPointers[0]->colourscreenfrac);
+        fflush(stdout);
         phase = 0;
     }
     sPierBox->runtime_bitflags &= ~RUNTIMEBITFLAG_ACTIVATED;
