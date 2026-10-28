@@ -338,7 +338,19 @@ local function freeze()
   if alarm and alarm.active and alarm.active() then alarm.stop() end
 end
 
+-- the lobby (start menu and debrief) plays GoldenEye's "Control elevator"; the run is a fresh stage load, so its own level music
+-- starts as usual (music.set is per stage and cleared at the next stage start)
+local LOBBY_MUSIC = "elevator_control"
+if music and music.set then
+  local ok, err = pcall(music.set, LOBBY_MUSIC)
+  M.log("lobby music: set %s -> %s", LOBBY_MUSIC, tostring(ok and err or err))
+end
+
 on("stage_start", function()
+  if music and music.play then   -- (should music.set have been refused or missed, start the track directly)
+    local okc, curm = pcall(music.current)
+    if not (okc and curm == LOBBY_MUSIC) then M.log("lobby music: playing %s (was %s)", LOBBY_MUSIC, tostring(curm)); pcall(music.play, LOBBY_MUSIC) end
+  end
   plan.hold(true)
   ui.escape_back(true)
   if crosshair and crosshair.hide then pcall(crosshair.hide, true) end
