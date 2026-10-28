@@ -16,6 +16,8 @@ SETUP
      Play Arena (Co-op Chaos).bat     co-op with mutators and elites
      Play Arena (Test Keys).bat       PageDown/PageUp jump waves; invincible, all guns
      Arena Benchmark.bat, Arena Benchmark (Live).bat   write Data\Logs\arena_bench.txt
+     Arena Benchmark (Late Waves).bat   a wave 15-20 scene, the render settings on and off;
+                                      writes Data\Logs\arena_bench.txt
 
 Enemies drop their guns; ammo boxes and body armour appear in the middle of the pit; every
 kill gives back a little health. The crowd keeps a favour meter (HUD line 4): stylish kills
