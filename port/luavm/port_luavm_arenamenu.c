@@ -143,6 +143,8 @@ static int lPrefs(lua_State *L)
 
 static int lSavePrefs(lua_State *L)
 {
+    int refused = 0, saved;
+
     luaL_checktype(L, 1, LUA_TTABLE);
     if (portNetActive()) { lua_pushboolean(L, 0); return 1; }
     portArenaMenuPrefClear();
@@ -151,13 +153,17 @@ static int lSavePrefs(lua_State *L)
     {   /* (the file's order is the table's; the reader does not care) */
         if (lua_type(L, -2) == LUA_TSTRING)
         {
-            const char *v = lua_isboolean(L, -1) ? (lua_toboolean(L, -1) ? "true" : "false") : lua_tostring(L, -1);
+            /* (a value is a string, a number or a boolean; anything else is refused) */
+            const int vt = lua_type(L, -1);
+            const char *v = vt == LUA_TBOOLEAN ? (lua_toboolean(L, -1) ? "true" : "false")
+                          : (vt == LUA_TSTRING || vt == LUA_TNUMBER) ? lua_tostring(L, -1) : NULL;
 
-            if (v != NULL) portArenaMenuPrefPut(lua_tostring(L, -2), v);
+            if (v == NULL || !portArenaMenuPrefPut(lua_tostring(L, -2), v)) refused++;
         }
         lua_pop(L, 1);
     }
-    lua_pushboolean(L, portArenaMenuPrefSave());
+    saved = portArenaMenuPrefSave();
+    lua_pushboolean(L, saved && refused == 0);   /* false when anything was refused (what was accepted is still written) */
     return 1;
 }
 

@@ -37,7 +37,7 @@ int  portArenaMenuEscape(int p);              /* bondview2.c */
 int  portArenaMenuPrefCount(void);
 const char *portArenaMenuPref(int k, const char **val);
 void portArenaMenuPrefClear(void);
-void portArenaMenuPrefPut(const char *key, const char *val);
+int  portArenaMenuPrefPut(const char *key, const char *val);   /* 0 = refused (key A-Z a-z 0-9 _, value printable ASCII) */
 int  portArenaMenuPrefSave(void);
 
 /* the view (port_arenamenu_draw.c, presentation) */

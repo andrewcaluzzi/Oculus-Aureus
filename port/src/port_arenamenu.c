@@ -74,11 +74,45 @@ void portArenaMenuLaunchSet(AmLaunch *dst, const char *mode, const char *setting
     dst->slots = slots;
 }
 
+/* SECURITY: mode scripts (third-party mods too) give the launch; its mode becomes the next stage's GE_MODE. It must be what the mode
+ * loader accepts (port_luavm.c portLuaModeScriptPath: letters, digits, _ and -), 1..31 characters, or empty (= the lobby). The
+ * other fields are clamped. 0 = refused (the launch is not armed) */
+static int modeOk(const char *m)
+{
+    size_t n = 0;
+
+    for (; *m != '\0'; m++, n++)
+    {
+        if (n >= 31 || !((*m >= 'a' && *m <= 'z') || (*m >= 'A' && *m <= 'Z') || (*m >= '0' && *m <= '9') || *m == '_' || *m == '-')) return 0;
+    }
+    return 1;
+}
+
+static int launchSanitize(AmLaunch *l)
+{
+    l->mode[sizeof(l->mode) - 1] = '\0';
+    if (!modeOk(l->mode))
+    {
+        portConLogf("ge: arenamenu: launch refused: mode name '%.40s' is not a mode\n", l->mode);
+        return 0;
+    }
+    if (l->coop < -1 || l->coop > 1) l->coop = -1;
+    if (l->slots < 0 || l->slots > 4000) l->slots = 0;   /* (GE_COLOSSEUM_SLOTS: the stage takes 240..4000) */
+    return 1;
+}
+
 /* amenu.arm: what to start when this stage ends (the run arms the post-game at its start and again at its end) */
 void portArenaMenuArm(const AmLaunch *next)
 {
+    AmLaunch t;
+
     if (portNetActive()) return;   /* netplay: the host's menus choose the next stage (port_net.c); not supported here yet */
-    sNext = *next;
+    t = *next;
+    if (!launchSanitize(&t))
+    {
+        return;   /* (whatever was armed before stays) */
+    }
+    sNext = t;
     sArmed = AM_ARM_LAUNCH;
 }
 
@@ -87,8 +121,15 @@ void portArenaMenuDisarm(void) { sArmed = AM_ARM_NONE; }
 /* amenu.launch: arm it and end this stage now (the shared mission end: solo or local co-op). 1 = the stage is ending */
 int portArenaMenuLaunchNow(const AmLaunch *next)
 {
+    AmLaunch t;
+
     if (portNetActive() || !portModeActive()) return 0;
-    portArenaMenuArm(next);
+    t = *next;
+    if (!launchSanitize(&t))
+    {
+        return 0;   /* a bad mode name: nothing is armed, the stage goes on */
+    }
+    portArenaMenuArm(&t);
     portBenchSweep(0, 0.0f, 0.0f);   /* the lobby's camera turn must not carry into the run */
     portArenaMenuViewOff();          /* ... nor the menu's hold on the mouse */
     portArenaMenuEscapeBack(0);
@@ -158,7 +199,12 @@ const AmLaunch *portArenaMenuCurrent(void)
     return (sCurEpoch == g_portCoopEpoch && portModeActive()) ? &sCur : NULL;
 }
 
-void portArenaMenuRetrySet(const AmLaunch *l) { sRetry = *l; sRetryOk = 1; }
+void portArenaMenuRetrySet(const AmLaunch *l)
+{
+    AmLaunch t = *l;
+
+    if (launchSanitize(&t)) { sRetry = t; sRetryOk = 1; }
+}
 const AmLaunch *portArenaMenuRetry(void) { return sRetryOk ? &sRetry : NULL; }
 
 void portArenaMenuResultSet(const char *text) { cpy(sResult, sizeof(sResult), text); }
@@ -189,15 +235,44 @@ static char sPrefK[PREF_N][PREF_KEY], sPrefV[PREF_N][PREF_VAL];
 static s32 sPrefN, sPrefLoaded;
 static char sPrefPath[1200];
 
+/* SECURITY: GE_ARENAMENU_FILE (tests) is read ONCE, when the process starts, before any script can run, and never again; nothing a
+ * script can do (the hand-off sets only GE_MODE / GE_COOP / GE_COLOSSEUM_SLOTS) can point the file somewhere else */
+static char sPrefEnv[1024];
+
+#if defined(__GNUC__)
+__attribute__((constructor))
+#endif
+static void prefEnvAtStartup(void)
+{
+    const char *e = getenv("GE_ARENAMENU_FILE");
+
+    if (e != NULL && e[0] != '\0' && strlen(e) < sizeof(sPrefEnv))
+    {
+        cpy(sPrefEnv, sizeof(sPrefEnv), e);
+    }
+}
+
 static const char *prefPath(void)
 {
     if (sPrefPath[0] == '\0')
     {
-        const char *e = getenv("GE_ARENAMENU_FILE");
-
-        cpy(sPrefPath, sizeof(sPrefPath), (e != NULL && e[0] != '\0') ? e : portRootPath("Data/Saves/arena_menu.ini"));
+        cpy(sPrefPath, sizeof(sPrefPath), sPrefEnv[0] != '\0' ? sPrefEnv : portRootPath("Data/Saves/arena_menu.ini"));
     }
     return sPrefPath;
+}
+
+/* SECURITY: a value is printable ASCII only (no CR, LF or any control character, so one value can never become another line of the
+ * file), shorter than PREF_VAL (a longer one would be cut, not stored as given) */
+static int valOk(const char *v)
+{
+    size_t n = 0;
+
+    if (v == NULL) return 0;
+    for (; *v != '\0'; v++, n++)
+    {
+        if (n >= PREF_VAL - 1 || (unsigned char) *v < 0x20 || (unsigned char) *v > 0x7E) return 0;
+    }
+    return 1;
 }
 
 static int keyOk(const char *k)
@@ -238,7 +313,7 @@ static void prefLoad(void)
         {
             if (*nl == '\r' || *nl == '\n') { *nl = '\0'; break; }
         }
-        if (keyOk(line))
+        if (keyOk(line) && valOk(eq + 1))
         {
             cpy(sPrefK[sPrefN], PREF_KEY, line);
             cpy(sPrefV[sPrefN], PREF_VAL, eq + 1);
@@ -261,20 +336,26 @@ const char *portArenaMenuPref(int k, const char **val)
 
 void portArenaMenuPrefClear(void) { prefLoad(); sPrefN = 0; }
 
-void portArenaMenuPrefPut(const char *key, const char *val)
+/* 1 = stored; 0 = refused (a bad key or value: nothing of it is kept) */
+int portArenaMenuPrefPut(const char *key, const char *val)
 {
     s32 i;
 
     prefLoad();
-    if (!keyOk(key)) return;
+    if (!keyOk(key) || !valOk(val))
+    {
+        portConLogf("ge: arenamenu: refused a preference: a bad key or value (key '%.31s')\n", key != NULL ? key : "");
+        return 0;
+    }
     for (i = 0; i < sPrefN; i++)
     {
-        if (strcmp(sPrefK[i], key) == 0) { cpy(sPrefV[i], PREF_VAL, val); return; }
+        if (strcmp(sPrefK[i], key) == 0) { cpy(sPrefV[i], PREF_VAL, val); return 1; }
     }
-    if (sPrefN >= PREF_N) return;
+    if (sPrefN >= PREF_N) return 0;
     cpy(sPrefK[sPrefN], PREF_KEY, key);
     cpy(sPrefV[sPrefN], PREF_VAL, val);
     sPrefN++;
+    return 1;
 }
 
 int portArenaMenuPrefSave(void)

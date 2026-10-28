@@ -229,6 +229,8 @@ function D.settings(v)
 end
 
 -- ---- a tiny serializer: numbers, booleans, strings, tables with string keys or a list part ----
+local RESERVED = {}
+for w in ("and break do else elseif end false for function goto if in local nil not or repeat return then true until while"):gmatch("%a+") do RESERVED[w] = true end
 local function ser(x)
   local t = type(x)
   if t == "number" then
@@ -241,15 +243,46 @@ local function ser(x)
     for i = 1, #x do parts[#parts + 1] = ser(x[i]) end
     for k in pairs(x) do if type(k) == "string" then keys[#keys + 1] = k end end
     table.sort(keys)
-    for _, k in ipairs(keys) do parts[#parts + 1] = k .. "=" .. ser(x[k]) end
+    for _, k in ipairs(keys) do   -- (a key that is not a plain name goes in brackets, so it reads back)
+      parts[#parts + 1] = ((k:match("^[%a_][%w_]*$") and not RESERVED[k]) and k or ("[" .. string.format("%q", k) .. "]")) .. "=" .. ser(x[k])
+    end
     return "{" .. table.concat(parts, ",") .. "}"
   end
   return "nil"
 end
 D.serialize = ser
 
+-- SECURITY: the text crosses stages (amenu.current().settings, amenu.result()) and any mode script can write it, mods included. An
+-- empty environment is not enough: the string metatable is still reachable (("x"):rep(1e9) builds a gigabyte string) and a
+-- function constructor can loop forever. So the text must be DATA: outside string literals no '(' (no call, no method on a
+-- literal), no ':' and no 'function', no long strings ([[ ]]: %q never writes them); at most 16 KB.
+local function data_only(text)
+  if #text > 16384 then return false end
+  local i, n = 1, #text
+  while i <= n do
+    local c = text:sub(i, i)
+    if c == '"' or c == "'" then   -- a string literal: skip it (escapes included)
+      i = i + 1
+      while i <= n and text:sub(i, i) ~= c do
+        if text:sub(i, i) == "\\" then i = i + 1 end
+        i = i + 1
+      end
+    elseif c == "[" and text:match("^%[=*%[", i) then return false
+    elseif c == "(" or c == ":" then return false
+    elseif c:match("[%a_]") then
+      local w = text:match("^[%w_]+", i)
+      if w == "function" then return false end
+      i = i + #w - 1
+    end
+    i = i + 1
+  end
+  return true
+end
+D.data_only = data_only
+
 function D.parse(text)
   if type(text) ~= "string" or text == "" then return nil end
+  if not data_only(text) then print("ge: arena: menu: refused a table text that is not plain data"); return nil end
   local f = load("return " .. text, "arena_menu", "t", {})
   if not f then return nil end
   local ok, r = pcall(f)
