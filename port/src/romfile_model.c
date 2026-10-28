@@ -423,6 +423,39 @@ s32 romfileModelConvert(u8 *data, u32 size, s32 numSwitches, s32 numtextures, co
             }
         }
     }
+    /* The words around the inline blobs that the walk never reaches, to the compiled u32 layout too: the 8-byte pair before each
+     * blob (B8000000 00000000, an ENDDL), and with MipMapTiles > 0 the mip levels after the base level, up to the next inline blob.
+     * Only these: swapping every unmarked word crashed. Proof: a GE_ROMDATA_FALLBACK=ON build with GE_ROMPROBE=1 reads
+     * "identical" for PlegalpageZ, PnintendologoZ and PgoldeneyelogoZ. */
+    for (i = 0; i < (u32) numtextures; i++) {
+        const u8 *t = data + (u32) numSwitches * 4 + i * 12;
+        u32 id = (u32) t[0] | ((u32) t[1] << 8) | ((u32) t[2] << 16) | ((u32) t[3] << 24);
+        if ((id >> 24) == 0x05) {
+            u32 off = id & 0x00FFFFFFu;
+            if (off >= 8 && mark(&c, off - 8, 8)) {
+                swap4run(data + off - 8, 2);
+            }
+        }
+    }
+    for (i = 0; i < (u32) numtextures; i++) {
+        const u8 *t = data + (u32) numSwitches * 4 + i * 12;
+        u32 id = (u32) t[0] | ((u32) t[1] << 8) | ((u32) t[2] << 16) | ((u32) t[3] << 24);
+        if ((id >> 24) == 0x05 && t[6] > 0) {
+            u32 off = id & 0x00FFFFFFu;
+            u32 len = (((((u32) t[4] * t[5]) << t[8]) >> 1) + 3) & ~3u;
+            u32 j, o, end = 0;
+
+            for (j = 0; j < (u32) numtextures; j++) {   /* the next inline blob after this one */
+                const u8 *u = data + (u32) numSwitches * 4 + j * 12;
+                u32 id2 = (u32) u[0] | ((u32) u[1] << 8) | ((u32) u[2] << 16) | ((u32) u[3] << 24);
+                u32 o2 = id2 & 0x00FFFFFFu;
+                if ((id2 >> 24) == 0x05 && o2 > off && (end == 0 || o2 < end)) end = o2;
+            }
+            for (o = off + len; o + 4 <= end; o += 4) {   /* per word: the next blob's pad is already done */
+                if (mark(&c, o, 4)) swap4run(data + o, 1);
+            }
+        }
+    }
 
     free(c.done);
 
