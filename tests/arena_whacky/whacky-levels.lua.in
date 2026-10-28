@@ -1,0 +1,16 @@
+-- The start menu's WHACKY EFFECTS row at each level: OFF / MILD / NORMAL / WILD (choice index @W@), with WAVE MUTATORS choice index @M@
+-- (1 OFF, 2 ON). The menu's own mapping (ARENA_MENU_DEFS.settings) builds ARENA_SETTINGS, so this covers row -> S.whacky -> mutator_list.
+-- Endless, no bosses, every enemy killed 2 s after it spawns. Check afterwards with tests/arena_whacky/levels.sh (it greps the log).
+-- Rendered per level by levels.sh (sed @W@ @M@) into Data/Scripts/modes/ovn-whacky-<W>-<M>.lua. Not shipped.
+include("_arena_menu_defs")
+local D = ARENA_MENU_DEFS
+local v = D.defaults()
+v.pacing = 4
+v.whacky = @W@
+v.mutators = @M@
+ARENA_SETTINGS = D.settings(v)
+local S = ARENA_SETTINGS
+print(string.format("ge: arena: WHACKYTEST settings whacky=%s mutators=%s", tostring(S.whacky), tostring(S.mutators)))
+S.boss_every = 0; S.breather = 2; S.start_delay = 1; S.crowd = 30; S.first_wave = 1; S.debug_kill = 2.0
+S.ammo_every = 0; S.armour_chance = 0
+include("arena")
