@@ -1133,6 +1133,23 @@ static int arenaFog(lua_State *L)
     return 1;
 }
 
+/* arena.rain(slip [, grip]) -> ok: the RAIN mutator (port_arenarain.c): slip = Bond's slide time constant in seconds at full rain
+ * (0 = stop: it rolls out), grip = the grenades' landed-slide friction (0.2 .. 1, default 0.5). arena.rain() -> the slip asked for */
+static int arenaRain(lua_State *L)
+{
+    extern int portLuaGameRain(float slip, float grip);
+    extern float portLuaGameRainGet(void);
+
+    needStage(L, "arena.rain");
+    if (lua_isnoneornil(L, 1))
+    {
+        lua_pushnumber(L, portLuaGameRainGet());
+        return 1;
+    }
+    lua_pushboolean(L, portLuaGameRain((float) luaL_checknumber(L, 1), (float) luaL_optnumber(L, 2, 0.5)));
+    return 1;
+}
+
 static int arenaDebrief(lua_State *L)
 {
     int k, n = 0;
@@ -1201,7 +1218,7 @@ static void portLuaArenaRegisterA7(lua_State *L)
     static const luaL_Reg spawnA7[] = { { "knife_only", arenaSpawnKnifeOnly }, { "scale", arenaSpawnScale }, { "heal", arenaSpawnHeal },
         { "health", arenaSpawnHealth }, { "explode", arenaSpawnExplode }, { NULL, NULL } };
     static const luaL_Reg testA7[] = { { "hurt", arenaSpawnHurt }, { NULL, NULL } };   /* test hooks (modding/lua.md "The test table") */
-    static const luaL_Reg arenaLib[] = { { "fog", arenaFog }, { "debrief", arenaDebrief }, { NULL, NULL } };
+    static const luaL_Reg arenaLib[] = { { "fog", arenaFog }, { "rain", arenaRain }, { "debrief", arenaDebrief }, { NULL, NULL } };
     static const luaL_Reg scoresLib[] = { { "get", scoresGet }, { "set", scoresSet }, { "all", scoresAll }, { "enabled", scoresEnabled },
         { "path", scoresPath }, { NULL, NULL } };
 

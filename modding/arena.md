@@ -100,7 +100,9 @@ A meter from 0 to 100 (start 50) on HUD line 4, with tiers HATED (0-19), RESTLES
 
 ## Wave mutators
 
-`mutators` (false; on in the chaos presets): from wave `mutator_from` (3) a wave may roll one mutator (`mutator_chance` 0.30, +0.02 a wave, at most 0.60; bosses only with `mutator_bosses`). It ends with its wave and the module checks that every changed setting is back (log `reset ok`). KNIVES ONLY (every enemy throws knives and fires no bullet), PAINTBALL, ONE-HIT KILLS, TURBO, LOW VISIBILITY (fog at 2600 units; the generated floor is not fogged), BIG HEADS, IRON SKIN (enemy health 200), BOTTOMLESS CLIPS (infinite ammo, half as many enemies again). `mutator_list`, `mutator_pick` ("random" or "cycle"), `mutator_fog_far`. Module `_arena_mutators.lua`; C side `port/src/port_arenafx.c`.
+`mutators` (false; on in the chaos presets): from wave `mutator_from` (3) a wave may roll one mutator (`mutator_chance` 0.30, +0.02 a wave, at most 0.60; bosses only with `mutator_bosses`). It ends with its wave and the module checks that every changed setting is back (log `reset ok`). KNIVES ONLY (every enemy throws knives and fires no bullet), PAINTBALL, ONE-HIT KILLS, TURBO, LOW VISIBILITY (Jungle-style fog, full at 2600 units), BIG HEADS, IRON SKIN (enemy health 200), BOTTOMLESS CLIPS (infinite ammo, half as many enemies again), THUNDERBALL (rain: everyone slips, see below). `mutator_list`, `mutator_pick` ("random" or "cycle"), `mutator_fog_far`. Module `_arena_mutators.lua`; C side `port/src/port_arenafx.c`, `port/src/port_arenarain.c`.
+
+THUNDERBALL (`rain`; AC: "everyone slips") rolls in and out over 1.5 s. Bond's walk (and the co-op partner's) follows the stick with a time constant (`rain_slip`, 0.25 s at full rain), so he overshoots, stops late and swings wide in turns; a wall stops the slide. Landed grenades slide further (`rain_grip` 0.5 on the slide friction; 1 = dry). The wave's enemies move and act at `rain_enemy_speed` (0.85) of their animation speed, and one who turns hard or stops short while running may slip (`rain_stumble` 0.35 a time, at most once in 3 s; a stock leg-hit or butt-hit reaction; the mode's seeded RNG, so netplay agrees). The sky goes overcast, the picture dims, slanted streaks fall around the camera and rings splash on the sand (`port/src/port_arenarain_draw.c`, presentation), the rain patters (quiet stock water splashes; there is no rain sound in the game) and the crowd sulks (`rain_mood` -8, a boo). Enemies do not truly slide (their movement is the animation's own); they stumble. Tests: `tests/arena_a8/rain.sh` (Bond's coast after the stick is let go, dry vs wet; slips; screenshots), `rain-hash.sh` (two local co-op runs, the same state hash), `rain-net.lua` (netplay, rain every wave).
 
 ## Affix elites
 
@@ -189,10 +191,11 @@ For testing, the wave can be jumped. They work when the setting `test_keys` is t
 | Shift+PageDown / Shift+PageUp | `arena next+` / `arena back+` | start the next / previous wave now and leave the live enemies and the queued spawns alone |
 | Home / Shift+Home | `arena callout` / `arena callout+` | show the next / previous kill callout of every tier |
 | End | `arena fog` | the LOW VISIBILITY fog on / off now (as the mutator sets it; it fades in and out over 1.5 s) |
+| Insert | `arena rain` | the THUNDERBALL rain mutator on / off now (all of it; slower enemies from the next spawns) |
 
 The LOW VISIBILITY fog (`mutator_fog_far`, 2600) is stock Jungle's fog curve: it thickens from about half that distance to full at it, and everything past it (stands, crowd, corpses) is drawn in the fog colour; the far plane is past the whole Colosseum, so nothing is cut off. `port/src/port_arenafx.c` (the fade), `port/src/port_roomfog.c` (the room's display lists are re-patched for fog when it starts and stops); the impostor crowd and the pickup markers fog with the same curve. Test: `tests/arena_a8/fog-look.sh` (screenshots before, during and after).
 
-The wave counter, titles, bosses and difficulty follow the wave you land on (it never goes below 1). In fixed mode, "next" past the last wave wins. A Lua mode can listen with `on("test_key", function(name) ... end)`; `name` is `"next"`, `"back"`, `"next+"`, `"back+"`, `"callout"`, `"callout+"` or `"fog"`.
+The wave counter, titles, bosses and difficulty follow the wave you land on (it never goes below 1). In fixed mode, "next" past the last wave wins. A Lua mode can listen with `on("test_key", function(name) ... end)`; `name` is `"next"`, `"back"`, `"next+"`, `"back+"`, `"callout"`, `"callout+"`, `"fog"` or `"rain"`.
 
 ## Big crowds and keeping every body
 

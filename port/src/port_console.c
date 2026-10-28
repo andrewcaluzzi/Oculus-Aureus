@@ -894,13 +894,14 @@ static void conExecute(char *line)
         extern void portLuaTestKey(const char *name);
 
         if (arg1 != NULL && (conStrEqI(arg1, "next") || conStrEqI(arg1, "next+") || conStrEqI(arg1, "back") || conStrEqI(arg1, "back+") ||
-                             conStrEqI(arg1, "callout") || conStrEqI(arg1, "callout+") || conStrEqI(arg1, "fog")))
+                             conStrEqI(arg1, "callout") || conStrEqI(arg1, "callout+") || conStrEqI(arg1, "fog") ||
+                             conStrEqI(arg1, "rain")))
         {
             portLuaTestKey(arg1);
         }
         else
         {
-            portConPrintf(0, "usage: arena next|next+|back|back+|callout|callout+|fog   (+ = stack on the live enemies / previous callout; "
+            portConPrintf(0, "usage: arena next|next+|back|back+|callout|callout+|fog|rain   (+ = stack on the live enemies / previous callout; "
                              "needs test_keys or GE_ARENA_TESTKEYS=1)\n");
         }
     }
@@ -2284,6 +2285,11 @@ Gfx *portConRender(Gfx *gdl)
 
     if (portModeActive())
     {
+        {   /* the arena's RAIN (port_arenarain_draw.c): the dim, the streaks and the splashes, under every HUD line */
+            extern Gfx *portArenaRainRender(Gfx *gdl);
+
+            gdl = portArenaRainRender(gdl);
+        }
         gdl = cctvOverlay(gdl);   /* heist: a camera feed's labels and static (under every other line) */
         gdl = hudPanel(gdl);
         gdl = coverEye(gdl);      /* heist: the disguise's eye */

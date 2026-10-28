@@ -622,9 +622,11 @@ void portLuaTick(int clockTicks)
     int i;
     extern void portBenchSweepTick(int clockTicks);   /* port_arenamode.c: the benchmark's camera sweep */
     extern void portArenaFogTick(int clockTicks);     /* port_arenafx.c: the arena fog's fade in / out */
+    extern void portArenaRainTick(int clockTicks);    /* port_arenarain.c: the rain's roll in / out */
 
     portBenchSweepTick(clockTicks);
     portArenaFogTick(clockTicks);
+    portArenaRainTick(clockTicks);
 
     if (sL != NULL && sTestKeyN > 0)
     {

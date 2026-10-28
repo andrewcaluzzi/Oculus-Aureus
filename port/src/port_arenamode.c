@@ -966,6 +966,11 @@ static const struct { const char *name; s32 anim, end; u8 flags; s32 start; } sA
      * character select starts it) are about 4 s */
     { "fists", ANIM_drop_weapon_and_show_fight_stance, 360, ANIM_IDLE_POSE_WHEN_COMPLETE, 248 },
     { "cross_arms", ANIM_holster_one_handed_weapon_and_cross_arms, -1, ANIM_IDLE_POSE_WHEN_COMPLETE },
+    /* the RAIN mutator's slips (a fighter that turns hard or stops short on the wet sand): the stock leg-hit and short butt-hit
+     * reactions read as a foot going out and a stumble; the AI takes the chr back when they end */
+    { "slip_left", ANIM_hit_left_leg, -1, 0 },
+    { "slip_right", ANIM_hit_right_leg, -1, 0 },
+    { "slip_fall", ANIM_hit_butt_short, -1, 0 },
 };
 
 /* an idle chr: standing, or a one-shot animation that has run out (it holds the idle pose); the fidget gate of spawn.anim */

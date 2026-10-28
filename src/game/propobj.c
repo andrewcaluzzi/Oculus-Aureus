@@ -5456,6 +5456,14 @@ s32 objTick(struct PropRecord *prop)
 							if (Rocket->unk94 > 0.0f)
 							{
 								temp_f12_5 = (Rocket->unk94 * g_GlobalTimerDelta) / sqrtf((Rocket->speed.f[0] * Rocket->speed.f[0]) + (Rocket->speed.f[2] * Rocket->speed.f[2]));
+#ifndef TARGET_N64
+								{   /* PORT: the arena's RAIN mutator: a wet floor, less grip (port_arenarain.c; exactly 1 when dry) */
+									extern f32 portArenaRainGrip(void);
+									const f32 grip = portArenaRainGrip();
+
+									if (grip < 1.0f) temp_f12_5 *= grip;
+								}
+#endif
 								if (temp_f12_5 >= 1.0f)
 								{
 									Rocket->speed.f[0] = 0.0f;
@@ -5469,8 +5477,28 @@ s32 objTick(struct PropRecord *prop)
 							}
 							else
 							{
+#ifndef TARGET_N64
+								{   /* PORT: the RAIN mutator: the friction's bite scaled by the grip (1 = stock, untouched) */
+									extern f32 portArenaRainGrip(void);
+									const f32 grip = portArenaRainGrip();
+
+									if (grip < 1.0f)
+									{
+										const f32 f = 1.0f - (1.0f - PROJECTILE_FRICTION_FACTOR) * grip;
+
+										Rocket->speed.f[0] *= f;
+										Rocket->speed.f[2] *= f;
+									}
+									else
+									{
+										Rocket->speed.f[0] *= PROJECTILE_FRICTION_FACTOR;
+										Rocket->speed.f[2] *= PROJECTILE_FRICTION_FACTOR;
+									}
+								}
+#else
 								Rocket->speed.f[0] *= PROJECTILE_FRICTION_FACTOR;
 								Rocket->speed.f[2] *= PROJECTILE_FRICTION_FACTOR;
+#endif
 							}
 						}
 					}

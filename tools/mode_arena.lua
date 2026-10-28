@@ -118,6 +118,7 @@ local S = {
     big_hit    = { level = 2, boo = true, secs = 2.0, real = 0.15, sound = "jeer",    vol = 0.55, cooldown = 4.0 },
     low_health = { level = 3, boo = true, secs = 3.0, real = 0.35, sound = "boo",     vol = 0.75, cooldown = 10.0 },
     bond_died  = { level = 6, boo = true, secs = 5.0, real = 0.85, sound = "boo_big", vol = 1.00, cooldown = 0, duck = 0.25 },
+    weather    = { level = 3, boo = true, secs = 3.0, real = 0.40, sound = "boo",     vol = 0.60, cooldown = 0 },   -- the rain starts
   },
 
   corpse_keep  = -1,
@@ -1251,6 +1252,14 @@ local function test_key(name)
     say(on and "TEST: FOG OFF" or "TEST: LOW VISIBILITY", 2)
     return
   end
+  if name == "rain" then
+    -- Insert: the RAIN mutator (THUNDERBALL) on / off now, the whole of it (slips, slower enemies from the next spawns, the crowd)
+    local on = MUT.name == "rain"
+    if on then MUT.wave_end("test key") else MUT.apply("rain", wave, {}) end
+    print(string.format("ge: arena: TEST rain %s", on and "off" or "on"))
+    say(on and "TEST: RAIN OFF" or "TEST: THUNDERBALL", 2)
+    return
+  end
   local k = TEST_KEYS[name]
   if not k or phase == "delay" and wave == 0 and k[1] < 0 then return end
   local ok, err = pcall(test_jump, k[1], k[2])
@@ -1268,6 +1277,11 @@ ARENA_HOOKS = {
   cheer = cheer,
   say = say,
   counts = function() return #crowd, corpse_n, alive_count(), crowd_fail, crowd_retry end,
+  live = function()   -- the live enemies' chrnums (the rain's slips)
+    local t = {}
+    for _, e in ipairs(E) do if not e.dead_at then t[#t + 1] = e.chr end end
+    return t
+  end,
   -- crowd reactions: react(trigger) fires one now (false = cooling down / held off); reactions() = trigger -> count, animations started;
   -- spectators() = the spectator records ({ chr=, last_react=, last_react_at= }; read only)
   react = react,

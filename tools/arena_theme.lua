@@ -136,6 +136,13 @@ ARENA_THEME = {
     swap_sub       = "Q'S WRISTWATCH",
     effect_off     = "Q-BRANCH: STAND DOWN",
   },
+
+  -- ---- the weather mutators (mode_arena_mutators.lua): the RAIN wave's title and its sub-line (Thunderball: the storm), the crowd's
+  -- toast when it starts
+  weather = {
+    rain  = { "THUNDERBALL", "RAIN ON THE SAND - EVERYONE SLIPS" },
+    crowd = "THEY HATE THE WEATHER",
+  },
 }
 
 -- ---- the start menu (the briefing, Q Branch) and the post-game (the debrief): tools/mode_arena_menu.lua, tools/arena_menu_defs.lua ----

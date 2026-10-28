@@ -11,8 +11,14 @@
 --   mutator_list      the names to pick from (default: all of DEFS below, in this order)
 --   mutator_pick      "random" (default; never the same one twice in a row) | "cycle" (the list in order: tests)
 --   mutator_fog_far   LOW VISIBILITY: how far one can see (2600 units; the pit is 9000 across)
+--   rain_slip         THUNDERBALL (rain, "everyone slips"): how long Bond's walk takes to catch up with the stick, in seconds at full
+--                     rain (0.25; 0 = no slip): he overshoots, stops late and swings wide (port_arenarain.c)
+--   rain_grip         ... the grenades' landed-slide friction (0.5: they slide about twice as far; 1 = dry)
+--   rain_enemy_speed  ... the wave's enemies move (and act) at this animation speed (0.85)
+--   rain_stumble      ... chance that an enemy who turns hard or stops short while running slips (0.35 a time; at most once in 3 s)
+--   rain_mood         ... the crowd's favour when it starts ("they hate the weather": -8)
 --
--- Names: knives, paintball, one_hit, turbo, fog, dk, tough, bottomless (see DEFS).
+-- Names: knives, paintball, one_hit, turbo, fog, dk, tough, bottomless, rain (see DEFS).
 
 ARENA_MUTATORS = {}
 
@@ -43,7 +49,70 @@ local DEFS = {
   -- infinite ammo for Bond, and half as many enemies again
   bottomless = { title = "BOTTOMLESS CLIPS", mods = { infinite_ammo = true }, extra = 0.5 },
 }
-local ORDER = { "knives", "paintball", "one_hit", "turbo", "fog", "dk", "tough", "bottomless" }
+
+-- THUNDERBALL (AC: "everyone slips"): rain. C (port_arenarain.c, arena.rain) rolls it in over 1.5 s: Bond's walk slips, grenades
+-- slide further, the sky goes overcast, the picture dims and the streaks fall (port_arenarain_draw.c). Here: the wave's enemies are
+-- slower (anim_speed), an enemy who turns hard or stops short while running may slip (a stock hit reaction, spawn.anim; the mode's
+-- seeded RNG, so the same on every machine), the crowd sulks, and the rain patters (stock water splashes).
+local RAIN_SLIPS = { "slip_left", "slip_right", "slip_fall" }
+local rain = { seen = {}, t = 0, slips = 0, patter = 0 }
+local function RS() return ARENA_MUTATORS.S or {} end
+local function weather_text() local w = ARENA_THEME and ARENA_THEME.weather or {} return w end
+DEFS.rain = {
+  title = (weather_text().rain or {})[1] or "THUNDERBALL",
+  spec = function(spec) spec.anim_speed = (spec.anim_speed or 1) * (RS().rain_enemy_speed or 0.85) end,
+  start = function()
+    local S = RS()
+    rain.seen, rain.t, rain.slips, rain.patter = {}, 0, 0, 0
+    arena.rain(S.rain_slip or 0.25, S.rain_grip or 0.5)
+    local W = weather_text()
+    if ARENA_THEME and ARENA_THEME.callout then pcall(ARENA_THEME.callout, (W.rain or {})[1] or "THUNDERBALL", 3, (W.rain or {})[2]) end
+    local CR = ARENA_CROWD and ARENA_CROWD.live
+    if CR and CR.mood then CR.mood(S.rain_mood or -8, W.crowd) end
+    if ARENA_HOOKS and ARENA_HOOKS.react then pcall(ARENA_HOOKS.react, "weather") end
+  end,
+  stop = function()
+    arena.rain(0)
+    print(string.format("ge: arena: RAIN over: %d slips", rain.slips))
+  end,
+  tick = function(dt)
+    local S = RS()
+    rain.t = rain.t + dt
+    if sound and sound.sfx_burst and rain.t >= rain.patter then   -- the patter: quiet stock water splashes, spread over the stereo field
+      rain.patter = rain.t + 1.6
+      pcall(sound.sfx_burst, { "HIT_BULLET_WATER" }, { 5, 9 }, { vol = { 0.04, 0.10 }, pitch = { 0.7, 1.5 }, gap = { 0.06, 0.28 }, pan = 1 })
+    end
+    local live = ARENA_HOOKS and ARENA_HOOKS.live and ARENA_HOOKS.live() or {}
+    local p = S.rain_stumble or 0.35
+    for _, c in ipairs(live) do
+      local x, z = spawn.where(c)
+      local st = rain.seen[c]
+      if x and st and dt > 0 then
+        local vx, vz = (x - st.x) / dt, (z - st.z) / dt
+        local sp = math.sqrt(vx * vx + vz * vz)
+        if st.sp and st.sp > 220 and rain.t - (st.last or -99) > 3 then
+          local turn = sp > 80 and (vx * st.vx + vz * st.vz) / (sp * st.sp) < 0.35   -- a turn of ~70 degrees or more
+          local stop = sp < st.sp * 0.3
+          if (turn or stop) and math.random() < p then
+            local anim = RAIN_SLIPS[math.random(#RAIN_SLIPS)]
+            if spawn.anim(c, anim, true) then
+              st.last = rain.t
+              rain.slips = rain.slips + 1
+              print(string.format("ge: arena: RAIN slip: chr %d %s (%s, speed %.0f -> %.0f)", c, anim, turn and "turn" or "stop", st.sp, sp))
+            end
+          end
+        end
+        st.vx, st.vz, st.sp = vx, vz, sp
+      end
+      if x then
+        st = st or {}
+        st.x, st.z = x, z
+        rain.seen[c] = st
+      end
+    end
+  end,
+}
+local ORDER = { "knives", "paintball", "one_hit", "turbo", "fog", "dk", "tough", "bottomless", "rain" }
 
 ARENA_MUTATORS.DEFS, ARENA_MUTATORS.ORDER = DEFS, ORDER
 
@@ -56,6 +125,7 @@ end
 local function modstr(v) return type(v) == "boolean" and tostring(v) or string.format("%d", v) end
 
 function ARENA_MUTATORS.new(S)
+  ARENA_MUTATORS.S = S   -- (the rain's settings)
   local M = { cur = nil, name = nil, saved = nil, last = nil, cycle_i = 0, rolled = 0, resets_ok = 0, resets_bad = 0 }
   local function chance(w)
     local c = (S.mutator_chance or 0.30) + (S.mutator_chance_inc or 0.02) * (w - (S.mutator_from or 3))
