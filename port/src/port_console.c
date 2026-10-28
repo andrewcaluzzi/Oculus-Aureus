@@ -894,13 +894,13 @@ static void conExecute(char *line)
         extern void portLuaTestKey(const char *name);
 
         if (arg1 != NULL && (conStrEqI(arg1, "next") || conStrEqI(arg1, "next+") || conStrEqI(arg1, "back") || conStrEqI(arg1, "back+") ||
-                             conStrEqI(arg1, "callout") || conStrEqI(arg1, "callout+")))
+                             conStrEqI(arg1, "callout") || conStrEqI(arg1, "callout+") || conStrEqI(arg1, "fog")))
         {
             portLuaTestKey(arg1);
         }
         else
         {
-            portConPrintf(0, "usage: arena next|next+|back|back+|callout|callout+   (+ = stack on the live enemies / previous callout; "
+            portConPrintf(0, "usage: arena next|next+|back|back+|callout|callout+|fog   (+ = stack on the live enemies / previous callout; "
                              "needs test_keys or GE_ARENA_TESTKEYS=1)\n");
         }
     }
@@ -1696,12 +1696,19 @@ static Gfx *portPickupMarkersRender(Gfx *gdl)
     PortMarkerStyle st;
     PmGroup cand[PORT_MARKER_MAX], grp[PORT_MARKER_MAX];
     const struct player *pl = g_CurrentPlayer;
-    s32 n, i, j, nc = 0, ng = 0;
+    s32 n, i, j, nc = 0, ng = 0, fogOn;
+    f32 fogA = 0.0f, fogB = 0.0f;
 
     n = portArenaMarkers(mk, PORT_MARKER_MAX, &st);
     if (st.legacy)
     {
         return portPickupMarkersRenderA7(gdl, mk, n);
+    }
+    {
+        extern s32 portFogCurve(f32 *a, f32 *b, f32 rgb[3]);   /* bgfog.c */
+        f32 rgb[3];
+
+        fogOn = portFogCurve(&fogA, &fogB, rgb);
     }
     if (n <= 0 || pl == NULL || pl->viewtoworldmtxf == NULL || pl->c_screenwidth < 1.0f || pl->c_screenheight < 1.0f ||
         dynGetFreeGfx2(gdl) < NG_RESERVE_TEXT + 1500)
@@ -1736,6 +1743,10 @@ static Gfx *portPickupMarkersRender(Gfx *gdl)
                 continue;   /* no edge arrows for drops */
             }
             a = mode == 2 ? 1.0f : (st.dropNear > 0.0f ? pmClamp01((st.dropNear - pt.dist) / (st.dropNear * 0.3f)) : 0.0f);
+        }
+        if (fogOn && pt.dist > 1.0f)
+        {   /* the arena fog (LOW VISIBILITY): a marker fades as the pickup does (the props' fog curve at its distance) */
+            a *= 1.0f - pmClamp01(fogA - fogB / pt.dist);
         }
         if (a < 0.03f)
         {

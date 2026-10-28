@@ -1955,9 +1955,9 @@ static int inputFixedKeyDown(const SDL_KeyboardEvent *key)
         }
         return 1;
     }
-    if ((sc == SDL_SCANCODE_PAGEUP || sc == SDL_SCANCODE_PAGEDOWN || sc == SDL_SCANCODE_HOME) && !repeat)
+    if ((sc == SDL_SCANCODE_PAGEUP || sc == SDL_SCANCODE_PAGEDOWN || sc == SDL_SCANCODE_HOME || sc == SDL_SCANCODE_END) && !repeat)
     {   /* Lua test hotkeys (modding/arena.md); they read this machine's keyboard, so never in co-op or netplay.
-         * Home / Shift+Home: the arena's callout preview (the next / previous callout of every tier) */
+         * Home / Shift+Home: the arena's callout preview (the next / previous callout of every tier); End: the LOW VISIBILITY fog on / off */
         extern int portCoopActive(void);
         extern int portNetActive(void);
         extern void portLuaTestKey(const char *name);
@@ -1968,6 +1968,10 @@ static int inputFixedKeyDown(const SDL_KeyboardEvent *key)
             if (sc == SDL_SCANCODE_HOME)
             {
                 portLuaTestKey(plus ? "callout+" : "callout");
+            }
+            else if (sc == SDL_SCANCODE_END)
+            {
+                portLuaTestKey("fog");
             }
             else
             {

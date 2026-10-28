@@ -187,8 +187,12 @@ For testing, the wave can be jumped. They work when the setting `test_keys` is t
 | --- | --- | --- |
 | PageDown / PageUp | `arena next` / `arena back` | remove the live enemies (no kills, drops or health) and start the next / previous wave now |
 | Shift+PageDown / Shift+PageUp | `arena next+` / `arena back+` | start the next / previous wave now and leave the live enemies and the queued spawns alone |
+| Home / Shift+Home | `arena callout` / `arena callout+` | show the next / previous kill callout of every tier |
+| End | `arena fog` | the LOW VISIBILITY fog on / off now (as the mutator sets it; it fades in and out over 1.5 s) |
 
-The wave counter, titles, bosses and difficulty follow the wave you land on (it never goes below 1). In fixed mode, "next" past the last wave wins. A Lua mode can listen with `on("test_key", function(name) ... end)`; `name` is `"next"`, `"back"`, `"next+"` or `"back+"`.
+The LOW VISIBILITY fog (`mutator_fog_far`, 2600) is stock Jungle's fog curve: it thickens from about half that distance to full at it, and everything past it (stands, crowd, corpses) is drawn in the fog colour; the far plane is past the whole Colosseum, so nothing is cut off. `port/src/port_arenafx.c` (the fade), `port/src/port_roomfog.c` (the room's display lists are re-patched for fog when it starts and stops); the impostor crowd and the pickup markers fog with the same curve. Test: `tests/arena_a8/fog-look.sh` (screenshots before, during and after).
+
+The wave counter, titles, bosses and difficulty follow the wave you land on (it never goes below 1). In fixed mode, "next" past the last wave wins. A Lua mode can listen with `on("test_key", function(name) ... end)`; `name` is `"next"`, `"back"`, `"next+"`, `"back+"`, `"callout"`, `"callout+"` or `"fog"`.
 
 ## Big crowds and keeping every body
 

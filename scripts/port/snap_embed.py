@@ -74,6 +74,7 @@ PRES_PORT |= {'port_crosshair.c'}   # crosshair styles, hit-marker timers, the s
 PRES_PORT |= {'port_chrfx.c'}   # arena Whacky per-chr colour wash / translucency: read only by chrRenderProp, never by the sim
 PRES_PORT |= {'port_cctvbody.c'}   # the solo Bond's body on a CCTV feed (its own heap buffers, posed and drawn only in the feed): presentation
 PRES_PORT |= {'port_perfcat.c'}   # render-cost tags, bench category toggles, far spectators as impostors: display-list contents only
+PRES_PORT |= {'port_roomfog.c'}   # which fog state each room's display lists were patched for (a wrong flag costs one idempotent re-patch)
 # src/*.c and src/game/*.c that are NOT sim state (audio, scheduler, VI, framebuffers, thread stacks, boot, profiling).
 PRES_SRC = {
     'audi.c', 'snd.c', 'music.c', 'mp_music.c', 'music_0D2720.c', 'sched.c', 'vi.c', 'pi.c', 'speed_graph.c', 'speedgraphrenderer.c',

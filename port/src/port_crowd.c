@@ -483,6 +483,11 @@ Gfx *portCrowdDraw(Gfx *gdl)
     f->box[1] = sBox[1];
     f->box[2] = sBox[2];
     f->tint[0] = f->tint[1] = f->tint[2] = f->tint[3] = 0.0f;
+    {   /* the arena fog (LOW VISIBILITY): the impostors fog like the real chrs and the stands around them */
+        extern s32 portFogCurve(f32 *a, f32 *b, f32 rgb[3]);
+
+        f->fog[3] = portFogCurve(&f->fogab[0], &f->fogab[1], f->fog) ? 1.0f : 0.0f;
+    }
     f->slot = 0;
     gdl->words.w0 = ((uintptr_t)G_CROWD_EXT << 24) | CROWD_DRAW;
     gdl->words.w1 = (uintptr_t)f;

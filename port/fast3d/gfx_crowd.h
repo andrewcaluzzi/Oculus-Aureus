@@ -35,6 +35,8 @@ typedef struct {
     float now;
     float box[3];                 /* quad half width, bottom (from the seat), height */
     float tint[4];                /* rgb blended in by a, like a chr's shade */
+    float fog[4];                 /* the world's fog: rgb, and a = 1 when on (bgfog.c portFogCurve) */
+    float fogab[2];               /* its curve: fog alpha = fogab[0] - fogab[1] / clip w, as the props are fogged */
     int slot;                     /* 0 = the stand impostors (cached by version), 1 = the far real spectators (port_perfcat.c),
                                    * a fresh list every frame */
 } CrowdFrame;

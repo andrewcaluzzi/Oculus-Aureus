@@ -170,7 +170,7 @@ static PropRecord *sDecProp;         /* Begin's bake decision for the prop it op
 static s32 sDecMode;                 /* 0 none, 1 capture asked, 2 drawn from its bake */
 static u32 sBakeCount[3];            /* the bench line: per view pass, corpses drawn normally / asked to bake / from bakes */
 extern int portCrowdBakedAdd(int slot, int serial);   /* port_crowd.c */
-extern float portLuaGameFogGet(void);                 /* arena.fog: > 0 = the arena fog is on */
+extern int portArenaFogDrawn(void);                   /* port_arenafx.c: the arena fog is drawn (fading in, full or fading out) */
 extern int portChrFxGet(int chrnum, void *out);       /* port_chrfx.c (Whacky): 1 = this chr has an effect */
 
 int portPerfBake(int on)
@@ -200,7 +200,7 @@ static s32 bakeDecide(ChrRecord *chr)
     s32 slot, done, now = (s32)g_GlobalTimer;
     u8 fx[64];
 
-    if (chr == NULL || chr->actiontype != ACT_DEAD || chr->model == NULL || portLuaGameFogGet() > 0.0f ||
+    if (chr == NULL || chr->actiontype != ACT_DEAD || chr->model == NULL || portArenaFogDrawn() ||
         portChrFxGet((s32)chr->chrnum, fx))
     {
         return 0;

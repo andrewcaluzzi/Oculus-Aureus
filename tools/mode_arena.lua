@@ -1243,6 +1243,14 @@ local function test_key(name)
     print(string.format("ge: arena: TEST callout preview %d/%d: %s (level %d)", preview_i, #list, e[1], e[2]))
     return
   end
+  if name == "fog" and arena and arena.fog then
+    -- End: the LOW VISIBILITY fog on / off now (as the mutator sets it), to look at it without waiting for the roll
+    local on = (arena.fog() or 0) > 0
+    arena.fog(on and 0 or (S.mutator_fog_far or 2600), 0x70, 0x70, 0x78)
+    print(string.format("ge: arena: TEST fog %s", on and "off" or "on"))
+    say(on and "TEST: FOG OFF" or "TEST: LOW VISIBILITY", 2)
+    return
+  end
   local k = TEST_KEYS[name]
   if not k or phase == "delay" and wave == 0 and k[1] < 0 then return end
   local ok, err = pcall(test_jump, k[1], k[2])

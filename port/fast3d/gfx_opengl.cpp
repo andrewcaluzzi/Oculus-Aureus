@@ -3105,6 +3105,7 @@ static void gfx_opengl_resolve_n64_aa(int fb_dst, int fb_src) {
 #include "gfx_crowd.h"
 static GLuint crowd_tex = 0, crowd_prog = 0, crowd_vaos[2] = { 0, 0 }, crowd_vbos[2] = { 0, 0 };   /* [1]: far real spectators */
 static GLint cu_mvp = -1, cu_fix = -1, cu_right = -1, cu_box = -1, cu_now = -1, cu_flip = -1, cu_tint = -1, cu_tex = -1;
+static GLint cu_fog = -1, cu_fogab = -1;   /* the arena fog (gfx_crowd.h CrowdFrame.fog / fogab) */
 static int crowd_vers[2] = { -1, -1 }, crowd_nverts[2] = { 0, 0 };
 static bool crowd_failed = false;
 static size_t crowd_saved_fb_id = 0;
@@ -3212,11 +3213,12 @@ static bool crowd_init(void) {
     std::string vs = std::string(hdr) +
         "in vec3 aPos;\nin vec2 aCorner;\nin vec3 aInfo;\n"
         "uniform mat4 uMvp;\nuniform vec2 uFix;\nuniform vec2 uRight;\nuniform vec3 uBox;\nuniform float uNow;\nuniform float uFlip;\n"
-        "out vec2 vUv;\n"
+        "out vec2 vUv;\nout float vW;\n"
         "void main() {\n"
         "    vec3 p = aPos + vec3(uRight.x, 0.0, uRight.y) * (aCorner.x * uBox.x);\n"
         "    p.y += uBox.y + aCorner.y * uBox.z;\n"
         "    vec4 c = uMvp * vec4(p, 1.0);\n"
+        "    vW = c.w;\n"
         "    c.x = c.x * uFix.x + uFix.y * c.w;\n"
         "    c.y *= uFlip;\n"
         "    float cell = aInfo.x + ((uNow >= aInfo.y && uNow < aInfo.z) ? 16.0 : 0.0);\n"
@@ -3225,11 +3227,13 @@ static bool crowd_init(void) {
         "    gl_Position = c;\n"
         "}\n";
     std::string fs = std::string(hdr) +
-        "in vec2 vUv;\nuniform sampler2D uTex;\nuniform vec4 uTint;\nout vec4 outColor;\n"
+        "in vec2 vUv;\nin float vW;\nuniform sampler2D uTex;\nuniform vec4 uTint;\nuniform vec4 uFog;\nuniform vec2 uFogAB;\nout vec4 outColor;\n"
         "void main() {\n"
         "    vec4 t = texture(uTex, vUv);\n"
         "    if (t.a < 0.5) discard;\n"
-        "    outColor = vec4(mix(t.rgb, uTint.rgb, uTint.a), 1.0);\n"
+        "    vec3 rgb = mix(t.rgb, uTint.rgb, uTint.a);\n"
+        "    if (uFog.a > 0.5) rgb = mix(rgb, uFog.rgb, clamp(uFogAB.x - uFogAB.y / max(vW, 0.001), 0.0, 1.0));\n"
+        "    outColor = vec4(rgb, 1.0);\n"
         "}\n";
     crowd_prog = vi_compile(vs.c_str(), fs.c_str());
     if (crowd_prog == 0) {
@@ -3244,6 +3248,8 @@ static bool crowd_init(void) {
     cu_flip = glGetUniformLocation(crowd_prog, "uFlip");
     cu_tint = glGetUniformLocation(crowd_prog, "uTint");
     cu_tex = glGetUniformLocation(crowd_prog, "uTex");
+    cu_fog = glGetUniformLocation(crowd_prog, "uFog");
+    cu_fogab = glGetUniformLocation(crowd_prog, "uFogAB");
     glGenVertexArrays(2, crowd_vaos);
     glGenBuffers(2, crowd_vbos);
     for (int s = 0; s < 2; s++) {
@@ -3294,6 +3300,8 @@ extern "C" void gfx_opengl_crowd_draw(const CrowdFrame* f, const float fix[2], i
     glUniform1f(cu_now, f->now);
     glUniform1f(cu_flip, invert_y ? -1.0f : 1.0f);
     glUniform4f(cu_tint, f->tint[0], f->tint[1], f->tint[2], f->tint[3]);
+    glUniform4f(cu_fog, f->fog[0], f->fog[1], f->fog[2], f->fog[3]);
+    glUniform2f(cu_fogab, f->fogab[0], f->fogab[1]);
     glUniform1i(cu_tex, 7);
     glActiveTexture(GL_TEXTURE7);
     glBindTexture(GL_TEXTURE_2D, crowd_tex);
