@@ -17,6 +17,14 @@
 --   rain_enemy_speed  ... the wave's enemies move (and act) at this animation speed (0.85)
 --   rain_stumble      ... chance that an enemy who turns hard or stops short while running slips (0.35 a time; at most once in 3 s)
 --   rain_mood         ... the crowd's favour when it starts ("they hate the weather": -8)
+--   rain_lightning    ... LIGHTNING while it rains (true): a flash, a bolt and a stock explosion near a character (an enemy or a Bond)
+--   rain_strike_min / rain_strike_max   ... seconds between strikes, a random time in between (2.0 .. 4.0: one every 3 s on average)
+--   rain_strike_bond  ... share of the strikes aimed at a Bond (0.35); the rest at a random live enemy (a Bond when there is none)
+--   rain_strike_near_min / rain_strike_near   ... how far from the character's feet it lands, units, any direction (100 .. 450;
+--                     walked along the floor: a wall or the pit's edge makes it shorter)
+--   rain_strike_fuse  ... seconds from the aim to the strike (0.6): the point is where the character WAS and it crackles meanwhile,
+--                     so whoever keeps moving gets clear and whoever stands still is in it
+--   rain_strike_blast ... the explosion: "small" | "medium" | "grenade" (default: a grenade's, 480-unit damage range) | "remote"
 --
 -- Names: knives, paintball, one_hit, turbo, fog, dk, tough, bottomless, rain (see DEFS).
 
@@ -53,17 +61,59 @@ local DEFS = {
 -- THUNDERBALL (AC: "everyone slips"): rain. C (port_arenarain.c, arena.rain) rolls it in over 1.5 s: Bond's walk slips, grenades
 -- slide further, the sky goes overcast, the picture dims and the streaks fall (port_arenarain_draw.c). Here: the wave's enemies are
 -- slower (anim_speed), an enemy who turns hard or stops short while running may slip (a stock hit reaction, spawn.anim; the mode's
--- seeded RNG, so the same on every machine), the crowd sulks, and the rain patters (stock water splashes).
+-- seeded RNG, so the same on every machine), the crowd sulks, the rain patters (stock water splashes), and lightning strikes near
+-- someone every few seconds (below).
 local RAIN_SLIPS = { "slip_left", "slip_right", "slip_fall" }
-local rain = { seen = {}, t = 0, slips = 0, patter = 0 }
+local rain = { seen = {}, t = 0, slips = 0, patter = 0, next_strike = 0, strikes = 0, at_bond = 0 }
 local function RS() return ARENA_MUTATORS.S or {} end
+
+-- LIGHTNING (AC: "a massive flash of light, a zap to the ground and an explosion. random spot in the map but close to a random
+-- character (inc Bond) so you have to keep moving"). The target, the direction and the distance come from the mode's seeded RNG
+-- (math.random, the same on every machine; the direction without trig: a point in the unit square kept inside the circle, scaled
+-- with sqrt, which is exact everywhere). arena.strike (port_arenarain.c) walks the point along the floor, holds it for the fuse and
+-- sets off a stock explosion there with no owner (it hurts Bond too); the flash, the bolt, the crackle and the thunder are drawn
+-- and played by port_arenarain_draw.c (presentation). prefer_bond: always at a Bond (the test key).
+local function strike_target(prefer_bond)
+  local bonds = {}
+  for p = 0, (bond.count() or 1) - 1 do if bond.dead(p) == false then bonds[#bonds + 1] = p end end
+  local live = ARENA_HOOKS and ARENA_HOOKS.live and ARENA_HOOKS.live() or {}
+  if #bonds > 0 and (prefer_bond or #live == 0 or math.random() < (RS().rain_strike_bond or 0.35)) then
+    local p = bonds[math.random(#bonds)]
+    return { bond = p }, "bond", p
+  end
+  if #live == 0 then return nil end
+  local c = live[math.random(#live)]
+  return c, "chr", c
+end
+
+function ARENA_MUTATORS.strike(prefer_bond)
+  local S = RS()
+  local who, kind, id = strike_target(prefer_bond)
+  if who == nil then return nil end
+  local dx, dz, d2 = 0, 0, 0
+  repeat dx, dz = math.random() * 2 - 1, math.random() * 2 - 1; d2 = dx * dx + dz * dz until d2 > 0.0025 and d2 <= 1
+  local lo, hi = S.rain_strike_near_min or 100, S.rain_strike_near or 450
+  local r = lo + (hi - lo) * math.random()
+  local d = math.sqrt(d2)
+  local x, _, z, serial = arena.strike(who, dx / d * r, dz / d * r, S.rain_strike_blast or "grenade", S.rain_strike_fuse or 0.6)
+  if not x then
+    print(string.format("ge: arena: RAIN lightning at %s %d refused", kind, id))
+    return nil
+  end
+  rain.strikes = rain.strikes + 1
+  if kind == "bond" then rain.at_bond = rain.at_bond + 1 end
+  print(string.format("ge: arena: RAIN lightning %d at %s %d: lands (%.0f, %.0f), %.0f units off", serial, kind, id, x, z, r))
+  return x, z
+end
 local function weather_text() local w = ARENA_THEME and ARENA_THEME.weather or {} return w end
 DEFS.rain = {
   title = (weather_text().rain or {})[1] or "THUNDERBALL",
   spec = function(spec) spec.anim_speed = (spec.anim_speed or 1) * (RS().rain_enemy_speed or 0.85) end,
   start = function()
     local S = RS()
-    rain.seen, rain.t, rain.slips, rain.patter = {}, 0, 0, 0
+    rain.seen, rain.t, rain.slips, rain.patter, rain.strikes, rain.at_bond = {}, 0, 0, 0, 0, 0
+    -- (the first strike once the rain has rolled in: 1.5 s, then the usual wait)
+    rain.next_strike = 1.5 + (S.rain_strike_min or 2.0) + ((S.rain_strike_max or 4.0) - (S.rain_strike_min or 2.0)) * math.random()
     arena.rain(S.rain_slip or 0.25, S.rain_grip or 0.5)
     local W = weather_text()
     if ARENA_THEME and ARENA_THEME.callout then pcall(ARENA_THEME.callout, (W.rain or {})[1] or "THUNDERBALL", 3, (W.rain or {})[2]) end
@@ -73,11 +123,16 @@ DEFS.rain = {
   end,
   stop = function()
     arena.rain(0)
-    print(string.format("ge: arena: RAIN over: %d slips", rain.slips))
+    print(string.format("ge: arena: RAIN over: %d slips, %d lightning strikes (%d at a Bond)", rain.slips, rain.strikes, rain.at_bond))
   end,
   tick = function(dt)
     local S = RS()
     rain.t = rain.t + dt
+    if S.rain_lightning ~= false and rain.t >= rain.next_strike then   -- LIGHTNING: the next strike, and the wait after it
+      local lo = S.rain_strike_min or 2.0
+      rain.next_strike = rain.t + lo + math.max(0, (S.rain_strike_max or 4.0) - lo) * math.random()
+      ARENA_MUTATORS.strike(false)
+    end
     if sound and sound.sfx_burst and rain.t >= rain.patter then   -- the patter: quiet stock water splashes, spread over the stereo field
       rain.patter = rain.t + 1.6
       pcall(sound.sfx_burst, { "HIT_BULLET_WATER" }, { 5, 9 }, { vol = { 0.04, 0.10 }, pitch = { 0.7, 1.5 }, gap = { 0.06, 0.28 }, pan = 1 })

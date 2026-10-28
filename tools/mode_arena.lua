@@ -64,7 +64,13 @@
 --                 or crowd_favour = false turns the favour off (on by default in every arena preset)
 --   first_wave    test hook: start at this wave;  debug_track / debug_clear_after: test hooks
 --   test_keys     true = the wave-jump hotkeys work (or set GE_ARENA_TESTKEYS=1): PageDown/PageUp = next/back wave and clear the
---                 live enemies, with Shift = start it on top of them (never in co-op or netplay)
+--                 live enemies, with Shift = start it on top of them (never in netplay); End = the fog, Insert = the THUNDERBALL rain,
+--                 Shift+Insert = a lightning strike near Bond now
+--   rain_lightning / rain_strike_min / rain_strike_max / rain_strike_bond / rain_strike_near_min / rain_strike_near /
+--   rain_strike_fuse / rain_strike_blast   THUNDERBALL's lightning (documented with the other rain_* settings at the top of
+--                 mode_arena_mutators.lua): while it rains, a strike every 2..4 s near a character (a Bond 35% of the time, else a
+--                 random live enemy), 100..450 units from his feet, landing 0.6 s after the aim (the point crackles meanwhile) as a
+--                 grenade's explosion with a full-screen flash, a bolt and thunder. Standing still gets you hit; keep moving
 --
 -- Per-Bond safe: it only reads bond.count/pos(p)/dead(p) and hands pickups to every Bond; math.random is the session's.
 
@@ -1233,7 +1239,8 @@ end
 local TEST_KEYS = { next = { 1, true }, back = { -1, true }, ["next+"] = { 1, false }, ["back+"] = { -1, false } }
 
 local preview_i = 0
-local ARENA_KEYS = { next = true, back = true, ["next+"] = true, ["back+"] = true, callout = true, ["callout+"] = true, fog = true, rain = true }
+local ARENA_KEYS = { next = true, back = true, ["next+"] = true, ["back+"] = true, callout = true, ["callout+"] = true, fog = true, rain = true,
+  strike = true }
 local keys_off_said = false
 local function test_key(name)
   if not (S.test_keys or mode.env_flag("GE_ARENA_TESTKEYS")) then
@@ -1268,6 +1275,12 @@ local function test_key(name)
     if on then MUT.wave_end("test key") else MUT.apply("rain", wave, {}) end
     print(string.format("ge: arena: TEST rain %s", on and "off" or "on"))
     say(on and "TEST: RAIN OFF" or "TEST: THUNDERBALL", 2)
+    return
+  end
+  if name == "strike" then
+    -- Shift+Insert: a THUNDERBALL lightning strike now, near Bond (rain or not): the crackle, then the flash, the bolt and the blast
+    local x, z = ARENA_MUTATORS.strike(true)
+    print(string.format("ge: arena: TEST strike %s", x and string.format("near Bond at (%.0f, %.0f)", x, z) or "refused"))
     return
   end
   local k = TEST_KEYS[name]

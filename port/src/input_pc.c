@@ -1979,7 +1979,7 @@ static int inputFixedKeyDown(const SDL_KeyboardEvent *key)
          * see them). Local co-op is one machine and one keyboard: they work there (v0.2: they used to be off in any co-op, so a
          * GE_COOP=1 left in a console by Play Arena (Co-op).bat, or a co-op run from the menu, silently turned them off).
          * Home / Shift+Home: the arena's callout preview (the next / previous callout of every tier); End: the LOW VISIBILITY fog on / off;
-         * Insert: the RAIN mutator on / off */
+         * Insert: the RAIN mutator on / off; Shift+Insert: a lightning strike near Bond */
         extern int portNetActive(void);
         extern void portLuaTestKey(const char *name);
         const int plus = (key->keysym.mod & KMOD_SHIFT) != 0;
@@ -2000,7 +2000,7 @@ static int inputFixedKeyDown(const SDL_KeyboardEvent *key)
             }
             else if (sc == SDL_SCANCODE_INSERT)
             {
-                portLuaTestKey("rain");
+                portLuaTestKey(plus ? "strike" : "rain");   /* Shift+Insert: a lightning strike near Bond now */
             }
             else
             {

@@ -14,7 +14,7 @@ SETUP
      Play Arena (Chaos Endless).bat   endless, with mutators and elites
      Play Arena (Co-op).bat           two Bonds: you and a bot partner
      Play Arena (Co-op Chaos).bat     co-op with mutators and elites
-     Play Arena (Test Keys).bat       PageDown/PageUp jump waves, Home callouts, End fog, Insert rain;
+     Play Arena (Test Keys).bat       PageDown/PageUp jump waves, Home callouts, End fog, Insert rain (Shift+Insert lightning);
                                       invincible, all guns
      Arena Benchmark.bat, Arena Benchmark (Live).bat   write Data\Logs\arena_bench.txt
      Arena Benchmark (Late Waves).bat   a wave 15-20 scene, the render settings on and off;

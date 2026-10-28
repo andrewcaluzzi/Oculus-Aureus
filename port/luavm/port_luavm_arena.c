@@ -1150,6 +1150,42 @@ static int arenaRain(lua_State *L)
     return 1;
 }
 
+/* arena.strike(who, dx, dz [, explosion [, fuse]]) -> x, y, z, serial | nil: the RAIN mutator's lightning (port_arenarain.c).
+ * who = a chrnum, or { bond = p } for Bond p; (dx, dz) = the offset from the character's feet (walked along the floor, shorter when a
+ * wall or an edge is in the way); explosion = "small" | "medium" | "grenade" (default) | "remote" or an EXPLOSION_DEF number;
+ * fuse = seconds before it lands (0.6). The flash and the bolt are drawn when it lands; the explosion hurts whoever stands there. */
+static int arenaStrike(lua_State *L)
+{
+    extern int portLuaGameStrike(int who, float dx, float dz, int kind, float fuseSecs, float *ox, float *oy, float *oz);
+    static const char *const kinds[] = { "small", "medium", "grenade", "remote", NULL };
+    static const int ids[] = { 4, 12, 13, 19 };
+    int who, kind = 13, serial;
+    float x, y, z;
+
+    needStage(L, "arena.strike");
+    if (lua_istable(L, 1))
+    {
+        lua_getfield(L, 1, "bond");
+        who = -1 - (int) luaL_checkinteger(L, -1);
+        lua_pop(L, 1);
+    }
+    else
+    {
+        who = (int) luaL_checkinteger(L, 1);
+        if (who < 0) return 0;
+    }
+    if (lua_type(L, 4) == LUA_TSTRING) kind = ids[luaL_checkoption(L, 4, "grenade", kinds)];
+    else if (!lua_isnoneornil(L, 4)) kind = (int) luaL_checkinteger(L, 4);
+    serial = portLuaGameStrike(who, (float) luaL_checknumber(L, 2), (float) luaL_checknumber(L, 3), kind, (float) luaL_optnumber(L, 5, 0.6),
+                               &x, &y, &z);
+    if (serial <= 0) return 0;
+    lua_pushnumber(L, x);
+    lua_pushnumber(L, y);
+    lua_pushnumber(L, z);
+    lua_pushinteger(L, serial);
+    return 4;
+}
+
 static int arenaDebrief(lua_State *L)
 {
     int k, n = 0;
@@ -1218,7 +1254,7 @@ static void portLuaArenaRegisterA7(lua_State *L)
     static const luaL_Reg spawnA7[] = { { "knife_only", arenaSpawnKnifeOnly }, { "scale", arenaSpawnScale }, { "heal", arenaSpawnHeal },
         { "health", arenaSpawnHealth }, { "explode", arenaSpawnExplode }, { NULL, NULL } };
     static const luaL_Reg testA7[] = { { "hurt", arenaSpawnHurt }, { NULL, NULL } };   /* test hooks (modding/lua.md "The test table") */
-    static const luaL_Reg arenaLib[] = { { "fog", arenaFog }, { "rain", arenaRain }, { "debrief", arenaDebrief }, { NULL, NULL } };
+    static const luaL_Reg arenaLib[] = { { "fog", arenaFog }, { "rain", arenaRain }, { "strike", arenaStrike }, { "debrief", arenaDebrief }, { NULL, NULL } };
     static const luaL_Reg scoresLib[] = { { "get", scoresGet }, { "set", scoresSet }, { "all", scoresAll }, { "enabled", scoresEnabled },
         { "path", scoresPath }, { NULL, NULL } };
 
