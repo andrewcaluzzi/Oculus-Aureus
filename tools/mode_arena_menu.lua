@@ -410,7 +410,9 @@ local function crowd_setup()
       k = k + step
     end
     pcall(crowd.impostors, xyz, CROWD_SKINS)
+    if crowd.lod then pcall(crowd.lod, 2500) end   -- as in a run (mode_arena.lua crowd_lod): far spectators drawn as impostors
   end
+  if crowd and crowd.batch then pcall(crowd.batch, true) end   -- as in a run (chr_batch)
   return cx
 end
 

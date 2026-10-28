@@ -505,10 +505,13 @@ static struct PortHwLoad g_PortHwLoad; /* the frame in progress (gfx_api.h) */
 /* ZMODE_DEC projection intercept + pull distance of the current decal state,
  * for the GL backend's decal clip (gfx_opengl_draw_triangles) */
 float gfx_ge_dec_b = 0.0f, gfx_ge_dec_d = 0.0f;
+#include "gfx_perfcat.inl" /* render cost by category (arena late-wave benchmark) */
 static void gfx_flush(void) {
     if (buf_vbo_len > 0) {
         roc_stat_draw_origin[ge_flush_origin & 15u]++;
+        PC_FLUSH_BEGIN();
         gfx_rapi->draw_triangles(buf_vbo, buf_vbo_len, buf_vbo_num_tris);
+        PC_FLUSH_END();
         buf_vbo_len = 0;
         buf_vbo_num_tris = 0;
         g_PortGfxDraws++;
@@ -960,6 +963,9 @@ static void gfx_dxlu_apply_state(const struct DXluState* s) {
     }
 }
 
+#include "gfx_chrbatch.inl" /* the arena's chr batch: marked chrs' opaque triangles drawn once per draw state */
+#include "gfx_corpsebake.inl" /* the arena's baked corpses: captured once, redrawn from world space */
+
 /* ---- plane pass (Newell) ------------------------------------------------
  * Tolerance in world units: vertices within it of a plane count as ON it
  * (coplanar surfaces, decals on their wall, float noise in the P-derived
@@ -1231,6 +1237,7 @@ static void gfx_dxlu_plane_pass(uint32_t nunits) {
 static unsigned long long dxlu_stat_sort_us, dxlu_stat_replay_us;
 static uint32_t dxlu_stat_frame_tris, dxlu_stat_frame_draws;
 static void gfx_dxlu_draw(void) {
+    pcb_replay(); /* the batched chrs are opaque: before anything translucent blends over them */
     if (dxlu_num_tris == 0) {
         return;
     }
@@ -1238,6 +1245,10 @@ static void gfx_dxlu_draw(void) {
     dxlu_stat_frame_tris += dxlu_num_tris;
 
     gfx_flush();
+    const uint8_t pc_saved = pc_cur;   /* the sort and its replay are the sorted-xlu category */
+    pc_switch(PERFCAT_XLU);
+    pc_buf = PERFCAT_XLU;
+    struct PcRestore { uint8_t c; ~PcRestore() { pc_switch(c); } } pc_restore{ pc_saved };
 
     /* 1. units: a group's members are contiguous in capture order */
     uint32_t nunits = 0;
@@ -3757,6 +3768,9 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
     bool roc_drop = false;
 
     ge_tris_submitted++;
+    if (pcb_n != 0 && (rdp.other_mode_l & ZMODE_DEC) == ZMODE_DEC) {
+        pcb_replay(); /* a decal z-compares against what is drawn: the batched surfaces first (before this tri sets its state) */
+    }
 
     /* deferred-XLU window is controlled ONLY by the explicit DL markers
      * (G_DXLU_NEWVIEW_EXT opens at bgLevelRender, G_DXLU_WORLDEND_EXT
@@ -3801,7 +3815,7 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
                             v3->x, v3->y, v3->z, v3->w);
                 }
             }
-            if (roc_capturing == nullptr) {
+            if (roc_capturing == nullptr && pkb_cur < 0) { /* (a corpse bake captures it too: gfx_corpsebake.inl) */
                 return;
             }
             roc_drop = true;
@@ -3836,7 +3850,7 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
             case G_CULL_FRONT:
                 if (cross <= 0) {
                     ge_tris_culled++;
-                    if (roc_capturing == nullptr) {
+                    if (roc_capturing == nullptr && pkb_cur < 0) { /* (a corpse bake captures it too: gfx_corpsebake.inl) */
                         return;
                     }
                     roc_drop = true;
@@ -3846,7 +3860,7 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
             case G_CULL_BACK:
                 if (cross >= 0) {
                     ge_tris_culled++;
-                    if (roc_capturing == nullptr) {
+                    if (roc_capturing == nullptr && pkb_cur < 0) { /* (a corpse bake captures it too: gfx_corpsebake.inl) */
                         return;
                     }
                     roc_drop = true;
@@ -3856,7 +3870,7 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
             case G_CULL_BOTH:
                 // Why is this even an option?
                 ge_tris_culled++;
-                if (roc_capturing == nullptr) {
+                if (roc_capturing == nullptr && pkb_cur < 0) { /* (a corpse bake captures it too: gfx_corpsebake.inl) */
                     return;
                 }
                 roc_drop = true;
@@ -4082,6 +4096,7 @@ ndcprobe_done:;
         prg = ts.prg; num_inputs = ts.num_inputs; clip_parameters = ts.clip_parameters;
         dec_pull = ts.dec_pull; dec_pull_b = ts.dec_pull_b;
     } else {
+    PC_OP_BEGIN(pc_rs0); /* bench: draw-state re-derivation time (gfx_perfcat.inl) */
     depth_test = ((rsp.geometry_mode & G_ZBUFFER) == G_ZBUFFER || (rdp.other_mode_l & G_ZS_PRIM) == G_ZS_PRIM) &&
                       ((rdp.other_mode_h & G_CYC_1CYCLE) == G_CYC_1CYCLE || (rdp.other_mode_h & G_CYC_2CYCLE) == G_CYC_2CYCLE);
     depth_update = (rdp.other_mode_l & Z_UPD) == Z_UPD;
@@ -4296,7 +4311,9 @@ ndcprobe_done:;
                         rdp.palette_fmt >> G_MDSFT_TEXTLUT);
             }
             if (rdp.textures_changed[i]) {
+                PC_OP_BEGIN(pc_tx0);
                 import_texture(i, tile, false); /* flushes itself, only when the binding really changes */
+                PC_OP_END(pc_tx0, 3, 1u);
                 rdp.textures_changed[i] = false;
             }
 
@@ -4619,6 +4636,7 @@ ndcprobe_done:;
     }
     ts.prg = prg; ts.num_inputs = num_inputs; ts.clip_parameters = clip_parameters;
     ts.dec_pull = dec_pull; ts.dec_pull_b = dec_pull_b;
+    PC_OP_END(pc_rs0, 2, 1u);
     } /* ts_recompute */
     const bool dxlu_capture = gfx_dxlu_enabled() && !dxlu_closed
         && use_alpha && depth_test && depth_compare && !depth_update
@@ -4963,6 +4981,10 @@ ndcprobe_done:;
                            dec_pull, dec_pull_b, ge_dec_pull, v_arr, dxlu_capture);
         }
     }
+    if (pkb_cur >= 0 && !pkb_bad) {
+        pkb_capture(roc_vstart, is_rect, prg, use_alpha, use_modulate, depth_test, depth_update, depth_compare, depth_source_prim,
+                    zmode, depth_mode, used_textures, use_fog, use_pixfog, roc_fog_ofs);
+    }
     if (roc_drop) {
         buf_vbo_len = roc_vstart; /* recorded above; not drawn this frame */
         return;
@@ -5116,6 +5138,7 @@ ndcprobe_done:;
                 dxlu_tris[dxlu_num_tris].nfloats = (uint16_t)nf;
                 dxlu_num_tris++;
                 roc_stat_tri_dxlu++;
+                pc_tris[pc_cur]++;
                 dxlu_vbo_len += nf;
             }
 
@@ -5125,6 +5148,15 @@ ndcprobe_done:;
         }
     }
 
+    if (pc_batch && !dxlu_closed && !is_rect && !fbActive && gfx_room_cache == 0 && roc_capturing == nullptr && depth_test
+        && depth_update && depth_compare && zmode != ZMODE_DEC && gfx_dxlu_enabled() && gfx_chr_batch_enabled()
+        && pcb_capture(dxlu_start, prg, use_alpha, use_modulate, depth_test, depth_update, depth_compare, depth_source_prim,
+                       zmode, depth_mode, used_textures)) {
+        buf_vbo_len = dxlu_start; /* drawn with its draw state's bucket (gfx_chrbatch.inl) */
+        return;
+    }
+    pc_buf = pc_cur;
+    pc_tris[pc_cur]++;
     if (++buf_vbo_num_tris == MAX_BUFFERED) {
         gfx_flush();
     }
@@ -7236,8 +7268,29 @@ static void gfx_crowd_cmd(uint32_t op, uintptr_t arg) {
                 rendering_state.scissor = rdp.scissor;
                 rdp.viewport_or_scissor_changed = false;
             }
-            gfx_opengl_crowd_draw((const CrowdFrame*) arg, fix, gfx_rapi->get_clip_parameters().invert_y);
+            {
+                const uint8_t pc_saved = pc_cur;
+                pc_switch(PERFCAT_IMPOSTOR);
+                gfx_opengl_crowd_draw((const CrowdFrame*) arg, fix, gfx_rapi->get_clip_parameters().invert_y);
+                if (arg != 0 && ((const CrowdFrame*) arg)->n > 0) {
+                    pc_draws[PERFCAT_IMPOSTOR]++;
+                    pc_tris[PERFCAT_IMPOSTOR] += 2u * (unsigned) ((const CrowdFrame*) arg)->n;
+                }
+                pc_switch(pc_saved);
+            }
             ge_state_serial++;   /* the next triangle re-derives its whole draw state */
+            break;
+        }
+        case CROWD_CORPSES: {   /* gfx_corpsebake.inl: bake this view's captures, draw the baked corpses */
+            float fix[2] = { 1.0f, 0.0f };
+            if (!fbActive && gfx_current_dimensions.aspect_ratio != 0.0f) {
+                fix[0] = rsp.aspect_scale / gfx_current_dimensions.aspect_ratio;
+                fix[1] = rsp.aspect_ofs * fix[0];
+            }
+            if (arg != 0) {
+                pkb_corpses((const CrowdCorpses*) arg, fix, gfx_rapi->get_clip_parameters().invert_y);
+            }
+            ge_state_serial++;
             break;
         }
     }
@@ -7406,6 +7459,13 @@ static void gfx_run_dl(Gfx* cmd) {
                     s_GeHudScale = (cmd->words.w1 & 0x00FFFFFFu) != 0x00FFFFFFu;
                     s_GeHudPivotX = (float) ((cmd->words.w1 >> 12) & 0xFFFu);
                     s_GeHudPivotY = (float) (cmd->words.w1 & 0xFFFu);
+                } else if ((cmd->words.w1 >> 24) == PERFCAT_MAGIC) {
+                    /* render cost category of the commands that follow (port_perfcat.c) */
+                    pkb_end(); /* a corpse capture ends with its prop */
+                    pc_switch(cmd->words.w1 & 0xFFu);
+                    pc_batch = (cmd->words.w1 & PERFCAT_FLAG_BATCH) != 0;
+                } else if ((cmd->words.w1 >> 24) == PKB_MAGIC) {
+                    pkb_begin(cmd->words.w1); /* capture this corpse for baking (gfx_corpsebake.inl) */
                 } else if ((cmd->words.w1 >> 24) == 0x59u) {
                     /* the next rect's edge fractions (bondwalk2.c portRectPreciseTag) */
                     for (int i = 0; i < 4; i++) {
@@ -7434,9 +7494,12 @@ static void gfx_run_dl(Gfx* cmd) {
             case (uint8_t)G_TEXTURE:
                 gfx_sp_texture(C1(16, 16), C1(0, 16), C0(11, 3), C0(8, 3), C0(0, 8));
                 break;
-            case G_VTX:
+            case G_VTX: {
+                PC_OP_BEGIN(pc_v0);
                 gfx_sp_vertex(C0(0, 16) / sizeof(Vtx), C0(16, 4), (const Vtx*)seg_addr(cmd->words.w1));
+                PC_OP_END(pc_v0, 0, (unsigned) (C0(0, 16) / sizeof(Vtx)));
                 break;
+            }
             case G_DL:
                 /* GE bring-up: ring-log every DL jump so the runaway fatal
                  * can name the parent that held a garbage pointer (the
@@ -7541,12 +7604,18 @@ static void gfx_run_dl(Gfx* cmd) {
                 s_GeHudAnchorFrac = (cmd->words.w1 & 0x01000000u) ? (float) ((cmd->words.w1 >> 16) & 0xFF) / 255.f : 1.f;
                 gfx_sp_extra_geometry_mode(~C0(0, 24), cmd->words.w1 & 0x0000FFFFu);
                 break;
-            case (uint8_t)G_TRI1:
+            case (uint8_t)G_TRI1: {
+                PC_OP_BEGIN(pc_t0);
                 gfx_sp_tri1(C1(16, 8) / 10, C1(8, 8) / 10, C1(0, 8) / 10, false);
+                PC_OP_END(pc_t0, 1, 1u);
                 break;
-            case (uint8_t)G_TRI4:
+            }
+            case (uint8_t)G_TRI4: {
+                PC_OP_BEGIN(pc_t0);
                 gfx_sp_tri4(cmd);
+                PC_OP_END(pc_t0, 1, 2u);
                 break;
+            }
             case (uint8_t)G_SETOTHERMODE_L:
                 gfx_sp_set_other_mode(C0(8, 8), C0(0, 8), cmd->words.w1);
                 break;
@@ -7697,6 +7766,7 @@ static void gfx_run_dl(Gfx* cmd) {
                 gfx_dp_set_color_image(C0(21, 3), C0(19, 2), C0(0, 11), seg_addr(cmd->words.w1));
                 break;
             case G_SETFB_EXT:
+                pcb_replay(); /* batched chrs belong to the framebuffer they were captured for */
                 gfx_flush();
                 if (cmd->words.w1) {
                     // don't care about noise here
@@ -7740,6 +7810,9 @@ static void gfx_run_dl(Gfx* cmd) {
                 break;
             case G_DXLU_NEWVIEW_EXT:
                 gfx_dxlu_new_view();
+                pc_switch(PERFCAT_LEVEL);
+                pc_batch = false;
+                pkb_view_reset();
                 break;
             case G_DXLU_GROUP_EXT:
                 gfx_dxlu_group(cmd->words.w1);
@@ -7771,6 +7844,8 @@ static void gfx_run_dl(Gfx* cmd) {
                  * and paint over the weapon. */
                 gfx_dxlu_draw();
                 dxlu_closed = true;
+                pc_switch(PERFCAT_GUNHUD);
+                pc_batch = false;
                 break;
             case G_RDPPIPESYNC:
             case G_RDPFULLSYNC:
@@ -7994,6 +8069,8 @@ extern "C" void gfx_run(Gfx* commands) {
     } ge_run_timer{ ge_run_t0 };
 
     ++num_dls;
+    pc_frame_begin();
+    pkb_view_reset();
     gfx_sp_reset();
     s_GeHudScale = false;   /* a bracket never outlives its frame */
     s_GeRectFracPending = false;
@@ -8031,7 +8108,9 @@ extern "C" void gfx_run(Gfx* commands) {
     ge_xbox_cmds = 0;
     if (ge_xbox_trace_dl) { portXboxTrace("dl: frame %u run begin (dl %p)", (unsigned)num_dls, (void*)commands); }
 #endif
+    pc_switch(PERFCAT_LEVEL);
     gfx_run_dl(commands);
+    pc_switch(PERFCAT_FRAME);
     roc_frame_stats((unsigned)num_dls);
 #ifdef GE_XBOX
     if (ge_xbox_trace_dl) { portXboxTrace("dl: frame %u run end, %u commands", (unsigned)num_dls, ge_xbox_cmds); }
@@ -8066,6 +8145,7 @@ extern "C" void gfx_run(Gfx* commands) {
     }
 
     gfx_rapi->end_frame();
+    pc_frame_end((unsigned)num_dls);
     gfx_wapi->swap_buffers_begin();
     { /* The upload path no longer asks glGetError per texture (gfx_opengl.cpp
        * upload_texture). Every ~2 s one check, right after the swap is queued (at the top of
