@@ -1233,8 +1233,18 @@ end
 local TEST_KEYS = { next = { 1, true }, back = { -1, true }, ["next+"] = { 1, false }, ["back+"] = { -1, false } }
 
 local preview_i = 0
+local ARENA_KEYS = { next = true, back = true, ["next+"] = true, ["back+"] = true, callout = true, ["callout+"] = true, fog = true, rain = true }
+local keys_off_said = false
 local function test_key(name)
-  if not (S.test_keys or mode.env_flag("GE_ARENA_TESTKEYS")) then return end
+  if not (S.test_keys or mode.env_flag("GE_ARENA_TESTKEYS")) then
+    -- (once a run) a test key pressed where they are off: say so, instead of nothing at all
+    if ARENA_KEYS[name] and not keys_off_said then
+      keys_off_said = true
+      say("TEST KEYS ARE OFF - USE PLAY ARENA (TEST KEYS)", 3)
+      print(string.format("ge: arena: test key '%s' pressed, but the test keys are off (test_keys / GE_ARENA_TESTKEYS)", name))
+    end
+    return
+  end
   if (name == "callout" or name == "callout+") and type(ARENA_THEME) == "table" and ARENA_THEME.preview_list then
     -- the callout preview (Home / Shift+Home): every chain, streak, event and boss card in turn
     local list = ARENA_THEME.preview_list()

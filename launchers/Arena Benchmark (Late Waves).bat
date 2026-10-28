@@ -1,4 +1,5 @@
 @echo off
+setlocal
 rem Colosseum arena benchmark, late waves: the state of waves 15-20 (the default crowd: 150 real spectators + 1000 impostors,
 rem 150 corpses, 40 live enemies), then 11 phases of 8 s: the new render settings on and off, and each kind of thing left out of
 rem the picture in turn, so the report says what each costs on this PC. About 2 minutes, then the game quits by itself.

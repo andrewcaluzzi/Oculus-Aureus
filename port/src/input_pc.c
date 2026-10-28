@@ -1846,6 +1846,24 @@ static int inputFixedKeyDown(const SDL_KeyboardEvent *key)
     const SDL_Scancode sc = key->keysym.scancode;
     const int repeat = key->repeat != 0;
 
+    {   /* GE_KEYLOG=1: every key that reaches the fixed-key handler (the test hotkeys' path), with the state that can stop it */
+        static int keylog = -1;
+
+        if (keylog < 0)
+        {
+            const char *e = getenv("GE_KEYLOG");
+
+            keylog = (e != NULL && e[0] != '\0' && e[0] != '0') ? 1 : 0;
+        }
+        if (keylog)
+        {
+            extern int portCoopActive(void);
+            extern int portNetActive(void);
+
+            portConLogf("ge: input: key down scancode %d (%s) repeat %d console %d coop %d net %d\n", (int) sc, SDL_GetScancodeName(sc),
+                        repeat, portConIsOpen(), portCoopActive(), portNetActive());
+        }
+    }
     if (sc == SDL_SCANCODE_GRAVE)
     {
         {   /* Where this key types a digit or letter (Hungarian layout) it
@@ -1957,15 +1975,20 @@ static int inputFixedKeyDown(const SDL_KeyboardEvent *key)
     }
     if ((sc == SDL_SCANCODE_PAGEUP || sc == SDL_SCANCODE_PAGEDOWN || sc == SDL_SCANCODE_HOME || sc == SDL_SCANCODE_END ||
          sc == SDL_SCANCODE_INSERT) && !repeat)
-    {   /* Lua test hotkeys (modding/arena.md); they read this machine's keyboard, so never in co-op or netplay.
+    {   /* Lua test hotkeys (modding/arena.md). They read this machine's keyboard, so never in netplay (the other machine would not
+         * see them). Local co-op is one machine and one keyboard: they work there (v0.2: they used to be off in any co-op, so a
+         * GE_COOP=1 left in a console by Play Arena (Co-op).bat, or a co-op run from the menu, silently turned them off).
          * Home / Shift+Home: the arena's callout preview (the next / previous callout of every tier); End: the LOW VISIBILITY fog on / off;
          * Insert: the RAIN mutator on / off */
-        extern int portCoopActive(void);
         extern int portNetActive(void);
         extern void portLuaTestKey(const char *name);
         const int plus = (key->keysym.mod & KMOD_SHIFT) != 0;
 
-        if (!portCoopActive() && !portNetActive())
+        if (portNetActive())
+        {
+            portConLogf("ge: input: test key %s ignored (netplay)\n", SDL_GetScancodeName(sc));
+        }
+        else
         {
             if (sc == SDL_SCANCODE_HOME)
             {
@@ -1988,11 +2011,10 @@ static int inputFixedKeyDown(const SDL_KeyboardEvent *key)
     if ((sc == SDL_SCANCODE_F5 || sc == SDL_SCANCODE_F6 || sc == SDL_SCANCODE_F7 || sc == SDL_SCANCODE_F8) && !repeat)
     {   /* arena Whacky test keys (tools/arena_whacky.lua): F5/F6 next/previous effect, F7 effect off, F8 the minion launcher.
          * Only a script listening on test_key sees them; not consumed (a bind on these keys still works) */
-        extern int portCoopActive(void);
         extern int portNetActive(void);
         extern void portLuaTestKey(const char *name);
 
-        if (!portCoopActive() && !portNetActive())
+        if (!portNetActive())   /* (local co-op too: one machine; see above) */
         {
             portLuaTestKey(sc == SDL_SCANCODE_F5 ? "wfx+" : (sc == SDL_SCANCODE_F6 ? "wfx-" : (sc == SDL_SCANCODE_F7 ? "woff" : "wgun")));
         }
@@ -8660,8 +8682,65 @@ static void portMouseApplyCapture(int on)
     SDL_ShowCursor(s_OptMouse ? SDL_DISABLE : SDL_ENABLE);
 }
 
+/* GE_KEYINJECT="secs:scancode,secs:scancode,..." (tests): at those seconds after the first poll, push a real SDL_KEYDOWN / SDL_KEYUP pair
+ * for that scancode through SDL's queue, so the event watch (inputFixedKeyDown: the test hotkeys) sees it exactly as a key press.
+ * Works in hidden mode, where no key can reach an unfocused window. Scancodes: PageDown 78, Home 74, End 77, Insert 73, F5 62. */
+static void inputKeyInjectPoll(void)
+{
+    static int parsed = 0, n = 0, next = 0;
+    static Uint32 t0;
+    static float at[16];
+    static int code[16];
+
+    if (!parsed)
+    {
+        const char *e = getenv("GE_KEYINJECT");
+
+        parsed = 1;
+        t0 = SDL_GetTicks();
+        while (e != NULL && *e != '\0' && n < 16)
+        {
+            float s;
+            int c, used = 0;
+
+            if (sscanf(e, "%f:%d%n", &s, &c, &used) != 2 || used <= 0) break;
+            at[n] = s;
+            code[n] = c;
+            n++;
+            e += used;
+            if (*e == ',') e++;
+        }
+        if (n > 0) portConLogf("ge: input: GE_KEYINJECT: %d key presses scheduled\n", n);
+    }
+    if (n > 0)
+    {   /* (the poll is alive: a heartbeat every 600 polls) */
+        static unsigned polls;
+
+        if ((++polls % 600u) == 0u) portConLogf("ge: input: GE_KEYINJECT: poll %u at %.1f s\n", polls, (double) (SDL_GetTicks() - t0) / 1000.0);
+    }
+    while (next < n && (float) (SDL_GetTicks() - t0) / 1000.0f >= at[next])
+    {
+        extern SDL_Window *gfx_sdl_get_window(void);
+        SDL_Event ev;
+
+        memset(&ev, 0, sizeof(ev));
+        ev.type = SDL_KEYDOWN;
+        ev.key.state = SDL_PRESSED;
+        ev.key.windowID = SDL_GetWindowID(gfx_sdl_get_window());
+        ev.key.keysym.scancode = (SDL_Scancode) code[next];
+        ev.key.keysym.sym = SDL_GetKeyFromScancode((SDL_Scancode) code[next]);
+        portConLogf("ge: input: GE_KEYINJECT: pressing scancode %d (%s)\n", code[next], SDL_GetScancodeName((SDL_Scancode) code[next]));
+        SDL_PushEvent(&ev);
+        ev.type = SDL_KEYUP;
+        ev.key.state = SDL_RELEASED;
+        SDL_PushEvent(&ev);
+        next++;
+    }
+}
+
 void portInputMouseUpdate(void)
 {
+    inputKeyInjectPoll();
     /* read ONCE per poll: the latch is one-shot, so testing it separately in
      * the two lock branches below would swallow every other press */
     const int grabtoggle = inputGrabTogglePressed();

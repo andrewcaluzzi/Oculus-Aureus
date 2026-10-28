@@ -610,6 +610,21 @@ int portLuaHasTick(void)
 /* A test hotkey (input_pc.c) or the `arena` console command; it reaches Lua's test_key handlers on the next game tick. */
 void portLuaTestKey(const char *name)
 {
+    {   /* GE_KEYLOG=1 (input_pc.c): whether the key reached a listener */
+        static int keylog = -1;
+
+        if (keylog < 0)
+        {
+            const char *e = getenv("GE_KEYLOG");
+
+            keylog = (e != NULL && e[0] != '\0' && e[0] != '0') ? 1 : 0;
+        }
+        if (keylog)
+        {
+            portConLogf("ge: lua: test key '%s': %s\n", name != NULL ? name : "?",
+                        (!sTestKeyOn || sL == NULL) ? "no test_key listener" : (sTestKeyN >= 8 ? "queue full" : "queued"));
+        }
+    }
     if (!sTestKeyOn || sL == NULL || name == NULL || sTestKeyN >= 8)
     {
         return;

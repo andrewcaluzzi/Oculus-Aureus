@@ -183,7 +183,7 @@ Test hooks: `first_wave = N` starts at wave N; `debug_track = true` logs every l
 
 ## Test keys
 
-For testing, the wave can be jumped. They work when the setting `test_keys` is true or `GE_ARENA_TESTKEYS=1` is set, and never in co-op or netplay.
+For testing, the wave can be jumped. They work when the setting `test_keys` is true or `GE_ARENA_TESTKEYS=1` is set, in solo and local co-op, never in netplay (the other machine would not see them). Pressed where they are off, the first one says "TEST KEYS ARE OFF". `GE_KEYLOG=1` logs every key that reaches the test-key handler; `GE_KEYINJECT="secs:scancode,..."` pushes real SDL key presses (tests: `tests/arena_menu/realkeys.sh` with xdotool, `tests/win/keyinject_win.py` in Windows hidden mode).
 
 | Key | Console | Action |
 | --- | --- | --- |
