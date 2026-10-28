@@ -42,6 +42,8 @@ int  portLuaGameCoopKill(int player);                                        /* 
 int  portLuaGameCoopBot(int on);                                             /* the puppet Bond is driven by the arena bot */
 int  portLuaGameCoopBotGoal(int player, int set, float x, float z);         /* a point the bot walks to (ammo, armour); set 0 clears */
 int  portLuaGameCoopBotInfo(int player, int *target, const char **act, int *ammo, int *weapon, int *shots);
+/* the bot's test counters: empty-gun clicks of that Bond's gun, ticks it held fire with another Bond in the line of fire */
+int  portLuaGameCoopBotStats(int player, int *dry, int *blocked);
 void portLuaGameCoopCounts(int *downs, int *revives, int *bleedouts);
 
 #endif

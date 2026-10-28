@@ -55,6 +55,16 @@ int portCoopDropSpotSafe(int hasTile, int inTile, float footY, float floorY, int
  * type still unspent by earlier drops; the result is what to take from it. */
 int portCoopDropMagazine(int inHand, int handMag, int magSize, int pool);
 
+/* The arena partner bot's line of fire. 1 when a body at (px,py,pz) is in the way of a shot from the gun at (sx,sy,sz) to a target at
+ * (tx,ty,tz): ahead of the gun and nearer than the target along the line, within radius + spread * (distance from the gun) of the line
+ * horizontally (spread widens it for a spraying gun), and within `band` of the line's height there. */
+int portCoopShotBlocked(float sx, float sy, float sz, float tx, float ty, float tz, float px, float py, float pz, float radius, float spread,
+                        float band);
+/* The partner bot's trigger: held only when it wants to fire, nobody is in the line of fire, and the gun has rounds in its magazine
+ * (usesAmmo = 0 for melee). Holding the trigger on an empty magazine dry-fires again and again and keeps the engine's reload from
+ * starting; with the trigger released the reload starts at once, or, with no reserve left, the empty-gun weapon switch. */
+int portCoopBotTrigger(int want, int usesAmmo, int mag, int blocked);
+
 #ifdef __cplusplus
 }
 #endif

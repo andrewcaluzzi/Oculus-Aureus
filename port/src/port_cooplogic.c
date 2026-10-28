@@ -1,4 +1,5 @@
 /* port_cooplogic.c - pure co-op rules, unit tested by tests/cooplogic_test.c. */
+#include <math.h>
 #include "port_cooplogic.h"
 
 int portCoopPickNearest(int n, const float *x, const float *y, const float *z, const int *dead, const int *has,
@@ -211,4 +212,30 @@ int portCoopDropMagazine(int inHand, int handMag, int magSize, int pool)
         pool = 0;
     }
     return q < pool ? q : pool;
+}
+
+int portCoopShotBlocked(float sx, float sy, float sz, float tx, float ty, float tz, float px, float py, float pz, float radius, float spread,
+                        float band)
+{
+    float dx = tx - sx, dz = tz - sz, qx = px - sx, qz = pz - sz;
+    float len2 = dx * dx + dz * dz, along = qx * dx + qz * dz, t, perp2, m, lineY;
+
+    if (len2 < 1.0f || along <= 0.0f || along >= len2)
+    {
+        return 0;   /* no line, or the body is behind the gun or beyond the target */
+    }
+    t = along / len2;
+    perp2 = qx * qx + qz * qz - along * t;   /* squared distance from the line */
+    m = radius + spread * t * sqrtf(len2);   /* the margin widens with the distance from the gun */
+    if (perp2 > m * m)
+    {
+        return 0;
+    }
+    lineY = sy + t * (ty - sy);
+    return (py - lineY <= band && lineY - py <= band) ? 1 : 0;
+}
+
+int portCoopBotTrigger(int want, int usesAmmo, int mag, int blocked)
+{
+    return (want && !blocked && (!usesAmmo || mag > 0)) ? 1 : 0;
 }

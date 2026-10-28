@@ -198,8 +198,48 @@ static void test_escort(void)
     CHECK(portCoopEscortPick(2, d, dead, has, 0, 0, 0.7f, 180) == 0);             /* nobody lives: first present */
 }
 
+/* the partner bot's line of fire: gun at the origin, target 1000 ahead on +z, body radius 45, no spread unless given */
+static void test_shot_blocked(void)
+{
+    /* on the line, halfway: blocked */
+    CHECK(portCoopShotBlocked(0, 0, 0, 0, 0, 1000, 0, 0, 500, 45.0f, 0.0f, 250.0f) == 1);
+    /* 40 to the side (inside the body radius): blocked; 60 to the side: clear */
+    CHECK(portCoopShotBlocked(0, 0, 0, 0, 0, 1000, 40, 0, 500, 45.0f, 0.0f, 250.0f) == 1);
+    CHECK(portCoopShotBlocked(0, 0, 0, 0, 0, 1000, 60, 0, 500, 45.0f, 0.0f, 250.0f) == 0);
+    /* a spraying gun widens it with the distance: 60 to the side at 500 is in the way with spread 0.1 (margin 95), not at 50 (margin 50) */
+    CHECK(portCoopShotBlocked(0, 0, 0, 0, 0, 1000, 60, 0, 500, 45.0f, 0.1f, 250.0f) == 1);
+    CHECK(portCoopShotBlocked(0, 0, 0, 0, 0, 1000, 60, 0, 50, 45.0f, 0.1f, 250.0f) == 0);
+    /* behind the gun, beyond the target: clear (only a body nearer than the target is in the way) */
+    CHECK(portCoopShotBlocked(0, 0, 0, 0, 0, 1000, 0, 0, -200, 45.0f, 0.1f, 250.0f) == 0);
+    CHECK(portCoopShotBlocked(0, 0, 0, 0, 0, 1000, 0, 0, 1200, 45.0f, 0.1f, 250.0f) == 0);
+    /* on a floor far above or below the line: clear */
+    CHECK(portCoopShotBlocked(0, 0, 0, 0, 0, 1000, 0, 400, 500, 45.0f, 0.0f, 250.0f) == 0);
+    CHECK(portCoopShotBlocked(0, 0, 0, 0, 0, 1000, 0, -400, 500, 45.0f, 0.0f, 250.0f) == 0);
+    /* the line's height follows a pitched shot: a target 400 up, the body halfway and 200 up is in it */
+    CHECK(portCoopShotBlocked(0, 0, 0, 0, 400, 1000, 0, 200, 500, 45.0f, 0.0f, 100.0f) == 1);
+    /* any direction (not only +z): target on the diagonal, body on it */
+    CHECK(portCoopShotBlocked(100, 0, 100, 800, 0, 800, 450, 0, 450, 45.0f, 0.0f, 250.0f) == 1);
+    CHECK(portCoopShotBlocked(100, 0, 100, 800, 0, 800, 450, 0, 600, 45.0f, 0.0f, 250.0f) == 0);
+    /* no line (target on the gun): clear */
+    CHECK(portCoopShotBlocked(0, 0, 0, 0, 0, 0, 0, 0, 0, 45.0f, 0.0f, 250.0f) == 0);
+}
+
+/* the partner bot's trigger: never on an empty magazine (no dry-fire), never with a partner in the way */
+static void test_bot_trigger(void)
+{
+    CHECK(portCoopBotTrigger(1, 1, 7, 0) == 1);   /* a loaded gun, clear line */
+    CHECK(portCoopBotTrigger(0, 1, 7, 0) == 0);   /* does not want to */
+    CHECK(portCoopBotTrigger(1, 1, 0, 0) == 0);   /* empty magazine: release, the reload starts */
+    CHECK(portCoopBotTrigger(1, 1, -1, 0) == 0);
+    CHECK(portCoopBotTrigger(1, 1, 7, 1) == 0);   /* a partner in the line of fire */
+    CHECK(portCoopBotTrigger(1, 0, 0, 0) == 1);   /* melee: no magazine */
+    CHECK(portCoopBotTrigger(1, 0, 0, 1) == 0);
+}
+
 int main(void)
 {
+    test_shot_blocked();
+    test_bot_trigger();
     test_escort();
     test_nearest_basic();
     test_nearest_tie_lower_index();

@@ -10,7 +10,8 @@
  *    dies, and every downed Bond dies with him, so "everybody down" is the stock all-dead failure.
  * 2. The partner bot: GE_COOP_P2=arena or Lua coop.bot(true) makes the co-op puppet Bond play the arena through its pad and look
  *    channel (the same input a human gives): it picks the nearest arena enemy (chrnum 8000+) it can see, turns and pitches at it,
- *    fires when lined up, strafes, keeps near its partner, revives him, walks to a point the mode gives (centre ammo, armour) and
+ *    fires when lined up (never with another Bond in the line of fire: it strafes clear; never on an empty magazine: the trigger is
+ *    released so the reload starts), strafes, keeps near its partner, revives him, walks to a point the mode gives (centre ammo, armour) and
  *    cycles past empty guns. Local co-op only (in netplay the partner is a human); its decisions use sim state and its own
  *    xorshift, never the sim RNG.
  *
@@ -32,6 +33,7 @@
 #include "game/chrai.h"
 #include "port_mode.h"
 #include "port_arenacoop.h"
+#include "port_cooplogic.h"
 
 extern void portConLogf(const char *fmt, ...);
 extern void portCoopFpLog(const char *fmt, ...);
@@ -41,6 +43,8 @@ extern int portCoopPuppetArena(int on);                 /* port_coop.c */
 extern void bondviewKillCurrentPlayer(void);
 extern s32 get_ammo_type_for_weapon(ITEM_IDS weapon);
 extern s32 bondinvHasInvItem(ITEM_IDS weapon);
+extern s32 get_ammo_in_hands_magazine(GUNHAND hand);    /* gunfire.c: the current player's magazine */
+extern s32 get_ammo_in_hands_weapon(GUNHAND hand);      /* gunfire.c: the current player's reserve for the gun in that hand */
 extern s32 portArenaChrIsEnemy(const ChrRecord *chr);   /* port_arenamode.c */
 extern ChrRecord *g_ChrSlots;
 extern s32 get_numguards(void);
@@ -74,6 +78,8 @@ typedef struct {
     f32 lastX, lastZ, gx, gz;
     s32 shots;
     f32 yawErr;
+    s32 blocked;         /* ticks it held fire because another Bond was in the line of fire */
+    s32 dryFires;        /* empty-gun clicks of this Bond's gun (gunfire.c, portArenaCoopNoteDryFire) */
 } BotState;
 
 static BotState sBot[NP];
@@ -485,6 +491,46 @@ static s32 botFindDrop(struct player *me, s32 minRank, f32 range, f32 *x, f32 *z
     return found;
 }
 
+#define BOT_BODY_RADIUS 90.0f   /* a Bond's hit volume, arms and gun included: a pistol shot 63 units from his centre hit him (coop-ff) */
+#define BOT_SPREAD_AUTO 0.10f   /* line-of-fire margin per unit of distance for a spraying gun (automatics, shotguns): ~6 degrees */
+#define BOT_SPREAD_ONE  0.04f   /* ...and for a single-shot gun */
+#define BOT_LOF_BAND    250.0f  /* a Bond this far above / below the shot line is not in it (another floor) */
+
+static s32 botSprays(s32 w)
+{
+    switch (w) {
+        case ITEM_SKORPION: case ITEM_AK47: case ITEM_UZI: case ITEM_MP5K: case ITEM_MP5KSIL: case ITEM_SPECTRE: case ITEM_M16:
+        case ITEM_FNP90: case ITEM_SHOTGUN: case ITEM_AUTOSHOT:
+            return TRUE;
+        default:
+            return FALSE;
+    }
+}
+
+/* another Bond (up or downed) in the line of fire, nearer than the target: on the line to the target or on the line the gun points
+ * along (it fires within BOT_FIRE_CONE of the target, autoaim pulls between the two). The first such Bond's index, -1 none. */
+static s32 botBlocker(int mi, struct player *me, ChrRecord *tc, f32 tdist, f32 fx, f32 fz)
+{
+    s32 k, n = portAllPlayerCount();
+    f32 sx = me->prop->pos.x, sy = me->prop->pos.y, sz = me->prop->pos.z;
+    f32 tx = tc->prop->pos.x, ty = tc->prop->pos.y + 20.0f, tz = tc->prop->pos.z;
+    f32 ax = sx + fx * tdist, az = sz + fz * tdist;
+    f32 spread = botSprays((s32) me->hands[GUNRIGHT].weaponnum) ? BOT_SPREAD_AUTO : BOT_SPREAD_ONE;
+
+    for (k = 0; k < n && k < NP; k++) {
+        struct player *q = pl(k);
+
+        if (k == mi || q == NULL || q->prop == NULL || q->bonddead) {
+            continue;
+        }
+        if (portCoopShotBlocked(sx, sy, sz, tx, ty, tz, q->prop->pos.x, q->prop->pos.y, q->prop->pos.z, BOT_BODY_RADIUS, spread, BOT_LOF_BAND) ||
+            portCoopShotBlocked(sx, sy, sz, ax, ty, az, q->prop->pos.x, q->prop->pos.y, q->prop->pos.z, BOT_BODY_RADIUS, spread, BOT_LOF_BAND)) {
+            return k;
+        }
+    }
+    return -1;
+}
+
 static s8 stick(f32 v)
 {
     return (s8) (v > 70.0f ? 70.0f : (v < -70.0f ? -70.0f : v));
@@ -497,7 +543,7 @@ void portArenaBotPad(int mi, int pi, unsigned short *buttons, signed char *sx, s
     ChrRecord *tc;
     f32 mvx = 0.0f, mvz = 0.0f, speed = 0.0f, th, fx, fz, tdist = 0.0f;
     f32 wantYaw = 0.0f, wantPitch = 0.0f;
-    s32 haveYaw = FALSE, fire = FALSE;
+    s32 haveYaw = FALSE, fire = FALSE, blocker = -1;
 
     *buttons = 0;
     *sx = *sy = 0;
@@ -529,6 +575,7 @@ void portArenaBotPad(int mi, int pi, unsigned short *buttons, signed char *sx, s
         wantYaw = yawTo(dx, dz);
         wantPitch = wrap180(__builtin_atan2f(dy, tdist > 1.0f ? tdist : 1.0f) * (180.0f / 3.14159265f));   /* (the game's atan2f is 0..2pi) */
         haveYaw = TRUE;
+        blocker = botBlocker(mi, me, tc, tdist, fx, fz);
     }
 
     if ((b->tick % 30u) == 0) {
@@ -598,6 +645,17 @@ void portArenaBotPad(int mi, int pi, unsigned short *buttons, signed char *sx, s
         if (--b->strafeLeft <= 0) {
             b->strafeDir = (botRng(b) & 1u) ? 1 : -1;
             b->strafeLeft = 50 + (s32) (botRng(b) % 70u);
+        }
+        if (blocker >= 0) {   /* a Bond in the line of fire: strafe away from his side of the line until it is clear */
+            struct player *q = pl(blocker);
+            f32 side = (q->prop->pos.x - me->prop->pos.x) * (-dz) + (q->prop->pos.z - me->prop->pos.z) * dx;
+
+            if (side != 0.0f) {
+                b->strafeDir = side > 0.0f ? -1 : 1;
+            }
+            if (b->strafeLeft < 30) {
+                b->strafeLeft = 30;
+            }
         }
         mvx = (-dz / d) * (f32) b->strafeDir;
         mvz = (dx / d) * (f32) b->strafeDir;
@@ -676,11 +734,18 @@ void portArenaBotPad(int mi, int pi, unsigned short *buttons, signed char *sx, s
         }
     }
 
-    /* weapons: fire when lined up on a visible target in range; cycle past an empty gun */
+    /* weapons: fire when lined up on a visible target in range and no other Bond is in the line of fire; never on an empty magazine
+     * (held, the trigger dry-fires again and again and the engine's reload never starts: released, it reloads at once); cycle past an
+     * empty gun */
     {
         s32 w = (s32) me->hands[GUNRIGHT].weaponnum, type = w > 0 ? get_ammo_type_for_weapon((ITEM_IDS) w) : 0;
-        s32 mag = me->hands[GUNRIGHT].weapon_ammo_in_magazine, res = (type > 0 && type < 30) ? me->ammoheldarr[type] : 0;
+        s32 mag, res, saved = get_cur_playernum();
         s32 k, anyAmmo = 0;
+
+        set_cur_player(mi);
+        mag = get_ammo_in_hands_magazine(GUNRIGHT);
+        res = get_ammo_in_hands_weapon(GUNRIGHT);
+        set_cur_player(saved);
 
         for (k = 1; k < 30; k++) {
             anyAmmo += me->ammoheldarr[k];
@@ -705,6 +770,10 @@ void portArenaBotPad(int mi, int pi, unsigned short *buttons, signed char *sx, s
         }
         if (tc != NULL && b->los && tdist < BOT_RANGE && b->yawErr < BOT_FIRE_CONE && b->yawErr > -BOT_FIRE_CONE) {
             fire = (w > ITEM_KNIFE) || tdist < 180.0f;
+            if (fire && blocker >= 0) {
+                b->blocked++;
+            }
+            fire = portCoopBotTrigger(fire, w > ITEM_KNIFE && type > 0, mag, blocker >= 0);
         }
         if (fire && (b->tick % 8u) < 6u) {   /* hold, with a short release so a pistol fires again */
             *buttons |= CONT_G;
@@ -848,6 +917,24 @@ int portLuaGameCoopBotInfo(int p, int *target, const char **act, int *ammo, int 
     *ammo = q->hands[GUNRIGHT].weapon_ammo_in_magazine + ((type > 0 && type < 30) ? q->ammoheldarr[type] : 0);
     *weapon = w;
     *shots = sBot[p].shots;
+    return 1;
+}
+
+/* gunfire.c: a Bond's gun clicked on an empty magazine (counted for every Bond; coop.bot_info's `dry`) */
+void portArenaCoopNoteDryFire(s32 player)
+{
+    if (player >= 0 && player < NP) {
+        sBot[player].dryFires++;
+    }
+}
+
+int portLuaGameCoopBotStats(int p, int *dry, int *blocked)
+{
+    if (!portModeActive() || pl(p) == NULL || p < 0 || p >= NP) {
+        return 0;
+    }
+    *dry = sBot[p].dryFires;
+    *blocked = sBot[p].blocked;
     return 1;
 }
 

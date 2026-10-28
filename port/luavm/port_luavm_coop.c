@@ -8,7 +8,8 @@
  *   coop.counts() -> downs, revives, bleedouts
  *   coop.bot(on) -> bool                        the co-op puppet Bond is driven by the arena partner bot (local co-op)
  *   coop.bot_goal(p, x, z) / coop.bot_goal(p)   a point the bot walks to (it forgets it on arrival); no point = clear
- *   coop.bot_info(p) -> { target=, act=, ammo=, weapon=, shots= }
+ *   coop.bot_info(p) -> { target=, act=, ammo=, weapon=, shots=, dry=, blocked= }   (dry: empty-gun clicks; blocked: ticks it held fire
+ *                                                                                    because another Bond was in the line of fire)
  *   test hooks: test.coop_down(p) (put a Bond down now), test.coop_kill(p) (a real death, past the downed rule) */
 #include <string.h>
 #include "lua.h"
@@ -180,6 +181,17 @@ static int coopBotInfo(lua_State *L)
     lua_setfield(L, -2, "weapon");
     lua_pushinteger(L, shots);
     lua_setfield(L, -2, "shots");
+    {
+        int dry, blocked;
+
+        if (portLuaGameCoopBotStats((int) luaL_checkinteger(L, 1), &dry, &blocked))
+        {
+            lua_pushinteger(L, dry);
+            lua_setfield(L, -2, "dry");
+            lua_pushinteger(L, blocked);
+            lua_setfield(L, -2, "blocked");
+        }
+    }
     return 1;
 }
 
