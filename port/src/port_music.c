@@ -288,6 +288,43 @@ int portMusicOverride(s32 kind, s32 stage, s32 *track)
     return 1;
 }
 
+/* Per-stage volume override: the vanilla default of one track is swapped in g_musicDefaultTrackVolume
+ * (the only thing musicTrack1ApplySeqpVol scales by, fades included) and put back at the next stage start. */
+extern s16 g_musicDefaultTrackVolume[];
+static int sVolId = 0;
+static s16 sVolSaved = 0;
+
+static void musVolRestore(void)
+{
+    if (sVolId != 0)
+    {
+        g_musicDefaultTrackVolume[sVolId] = sVolSaved;
+        sVolId = 0;
+    }
+}
+
+/* volume 0..1 of full scale; NaN rejected, out of range clamped. 1 = applied. */
+int portMusicSetVolume(int id, double volume)
+{
+    s16 v;
+
+    if (id < 1 || id > MUS_MAXID || volume != volume)
+    {
+        return 0;
+    }
+    volume = volume < 0.0 ? 0.0 : volume > 1.0 ? 1.0 : volume;
+    v = (s16)(volume * 32767.0);   /* 0.8 -> 0x6665 */
+    if (sVolId != id)
+    {
+        musVolRestore();
+        sVolId = id;
+        sVolSaved = g_musicDefaultTrackVolume[id];
+    }
+    g_musicDefaultTrackVolume[id] = v;
+    portConLogf("ge: music: track %d volume 0x%X [override]\n", id, (unsigned)v);
+    return 1;
+}
+
 int portMusicSetMain(int id)
 {
     MusOvr *o;
@@ -327,6 +364,7 @@ int portMusicCurrent(void)
 void portMusicStageStart(void)
 {
     sOvrN = 0;
+    musVolRestore();
 }
 
 void portMusicConsole(const char *arg1)

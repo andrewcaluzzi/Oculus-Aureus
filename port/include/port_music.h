@@ -15,7 +15,8 @@ void        portMusicModText(int v, char *buf, int n);
 int         portMusicModParse(const char *text, int *v);   /* "stock", "random" or a track name; 1 = parsed */
 
 /* Per-stage override (cleared at every stage start). Lua music.set: the main track of the current/next stage. */
-int         portMusicSetMain(int id);                 /* 1 = accepted (solo, no demo) */
+int         portMusicSetVolume(int id, double volume); /* per-stage default volume of a track, 0..1 of full scale; 1 = applied */
+int         portMusicSetMain(int id);                /* 1 = accepted (solo, no demo) */
 int         portMusicPlayNow(int id, int needLive);   /* main channel now; 1 = started */
 int         portMusicCurrent(void);                   /* id on the main channel, 0 when none */
 

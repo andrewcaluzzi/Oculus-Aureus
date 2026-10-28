@@ -1216,20 +1216,37 @@ static int portLuaMusicId(lua_State *L)
     return id;
 }
 
-/* music.set(name): the main track of the current/next stage (cleared at the next stage start). */
+/* optional arg 2: volume 0..1 (clamped); NaN is an error. Applied before the track starts. */
+static void portLuaMusicVolume(lua_State *L, int id)
+{
+    if (!lua_isnoneornil(L, 2))
+    {
+        lua_Number v = luaL_checknumber(L, 2);
+
+        if (v != v)
+        {
+            luaL_error(L, "music volume is NaN");
+        }
+        portMusicSetVolume(id, (double)v);
+    }
+}
+
+/* music.set(name [, volume]): the main track of the current/next stage (cleared at the next stage start). */
 static int portLuaMusicSet(lua_State *L)
 {
     int id = portLuaMusicId(L);
 
+    portLuaMusicVolume(L, id);
     lua_pushboolean(L, portLuaGameAllowed() && portMusicSetMain(id));
     return 1;
 }
 
-/* music.play(name): the main channel now; false when no stage is live. */
+/* music.play(name [, volume]): the main channel now; false when no stage is live. */
 static int portLuaMusicPlay(lua_State *L)
 {
     int id = portLuaMusicId(L);
 
+    portLuaMusicVolume(L, id);
     lua_pushboolean(L, portLuaGameAllowed() && portMusicPlayNow(id, 1));
     return 1;
 }
