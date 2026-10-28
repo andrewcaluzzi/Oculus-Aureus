@@ -443,7 +443,7 @@ static void bars(HudCanvas *c, s32 x0, s32 y0, s32 x1, s32 y1)
         const UiBar *b = &sV.bar[i];
         const s32 v = b->v < 0 ? -b->v : b->v;
         const f32 g = hudEaseOut(clamp01((t - 0.8f - (labelled ? 0.12f : 0.025f) * (f32) i) / 0.45f));
-        const s32 bh = (s32) ((f32) (y1 - y0) * (f32) v / (f32) vmax * g);
+        const s32 bh = (s32) ((f32) (y1 - y0 - (labelled ? 10 : 0)) * (f32) v / (f32) vmax * g);   /* (room over a labelled bar for its text) */
         const u32 col = b->kind == 1 ? GOLD : (b->kind == 2 ? 0xA868E8FFu : (b->kind == 3 ? RED : 0xA8A090E0u));
         const s32 bx = xs + i * bw, pad = labelled ? 6 : 1;
         char buf[16];
@@ -452,6 +452,8 @@ static void bars(HudCanvas *c, s32 x0, s32 y0, s32 x1, s32 y1)
         if (labelled)
         {
             uTextFit(c, bx + bw / 2, y1 + 3, b->label, DIM, 0.52f, HUD_FONT_BANK, HUD_ALIGN_CENTRE, 0, bw - 2, 0.4f);
+            if (b->text[0] && g >= 1.0f) uTextFit(c, bx + bw / 2, y1 - bh - 9, b->text, b->kind == 3 ? RED : INK, 0.52f, HUD_FONT_BANK, HUD_ALIGN_CENTRE,
+                                                  HUD_FX_SHADOW, bw - 2, 0.4f);
         }
         else if ((i + 1) % step == 0 || i == 0 || i == n - 1)
         {

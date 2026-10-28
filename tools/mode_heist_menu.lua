@@ -172,7 +172,12 @@ local function page_debrief()
   }
   if ab then t.checks = nil end
   local bars = {}
-  local function bar(v, k, l) if v and v ~= 0 then bars[#bars + 1] = { math.floor(v), k, l } end end
+  local function short(v)   -- $4.95M, $100K
+    local a = math.abs(v)
+    local s = a >= 1e6 and string.format("$%.2fM", a / 1e6) or (a >= 1e3 and string.format("$%dK", math.floor(a / 1e3 + 0.5)) or string.format("$%d", a))
+    return (v < 0 and "-" or "") .. s
+  end
+  local function bar(v, k, l) if v and v ~= 0 then bars[#bars + 1] = { math.floor(v), k, l, short(v) } end end
   if win then   -- (the take's sums: a busted job takes nothing home)
     bar((r.bars or 0) * (r.bar_value or 0), 1, TD.b_vault)
     bar((r.cash or 0) * (r.money_value or 0), 1, TD.b_cash)

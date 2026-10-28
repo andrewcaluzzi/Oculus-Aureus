@@ -88,6 +88,13 @@ static void readLaunch(lua_State *L, int t, UiLaunch *out)
                 snprintf(keys[n], sizeof(keys[n]), "%s", lua_tostring(L, -2));
                 n++;
             }
+            else
+            {   /* (SECURITY: not on the hand-off's allowlist: never set; port_uimenu.c portUiLaunchSanitize checks the values) */
+                extern void portConLogf(const char *fmt, ...);
+
+                portConLogf("ge: uimenu: refused the variable %.23s for the next stage (not allowed)\n",
+                            lua_type(L, -2) == LUA_TSTRING ? lua_tostring(L, -2) : "?");
+            }
             lua_pop(L, 1);
         }
         for (i = 1; i < n; i++)
@@ -206,21 +213,23 @@ static int lSavePrefs(lua_State *L)
 {
     const char *name = luaL_checkstring(L, 1);
 
+    int refused = 0, saved;
+
     luaL_checktype(L, 2, LUA_TTABLE);
     if (portNetActive()) { lua_pushboolean(L, 0); return 1; }
     portUiPrefClear(name);
     lua_pushnil(L);
     while (lua_next(L, 2) != 0)
-    {
-        if (lua_type(L, -2) == LUA_TSTRING)
-        {
-            const char *v = lua_isboolean(L, -1) ? (lua_toboolean(L, -1) ? "true" : "false") : lua_tostring(L, -1);
+    {   /* (a bad key or value is refused and the rest kept; the call then returns false) */
+        const char *v = NULL;
 
-            if (v != NULL) portUiPrefPut(name, lua_tostring(L, -2), v);
-        }
+        if (lua_isboolean(L, -1)) v = lua_toboolean(L, -1) ? "true" : "false";
+        else if (lua_type(L, -1) == LUA_TSTRING || lua_type(L, -1) == LUA_TNUMBER) v = lua_tostring(L, -1);
+        if (lua_type(L, -2) != LUA_TSTRING || v == NULL || !portUiPrefPut(name, lua_tostring(L, -2), v)) refused++;
         lua_pop(L, 1);
     }
-    lua_pushboolean(L, portUiPrefSave(name));
+    saved = portUiPrefSave(name);
+    lua_pushboolean(L, saved && refused == 0);
     return 1;
 }
 
@@ -410,6 +419,7 @@ static int lView(lua_State *L)
                 b->v = seqInt(L, lua_gettop(L), 1);
                 b->kind = (signed char) seqInt(L, lua_gettop(L), 2);
                 seqStr(L, lua_gettop(L), 3, b->label, sizeof(b->label));
+                seqStr(L, lua_gettop(L), 4, b->text, sizeof(b->text));
             }
             lua_pop(L, 1);
         }

@@ -42,11 +42,19 @@ const char *portUiMenuResult(void);
 void portUiMenuEscapeBack(int on);
 int  portUiMenuEscape(int p);                 /* bondview2.c */
 
-/* named preference files: Data/Saves/<name>.ini (name: a-z 0-9 _, up to 23) */
+/* what a script may hand to the next stage (SECURITY: mode scripts include third-party mods): an allowlist of GE_* keys, each with a
+ * value rule (GE_LEVELGEN a level name, GE_SEED digits, GE_COOP / GE_DIAG 0 or 1, GE_COOP_P2 idle / walk / follow), and a mode name
+ * of letters, digits, _ and -. portUiLaunchSanitize drops the rest (0 = the launch itself is refused: a bad mode name) */
+int  portUiEnvKeyOk(const char *k);
+int  portUiEnvValueOk(const char *k, const char *v);
+int  portUiLaunchSanitize(UiLaunch *l);
+
+/* named preference files: Data/Saves/ui/<name>.ini (name: a-z 0-9 _, 1..32; keys A-Z a-z 0-9 _; values printable ASCII, no control
+ * characters). GE_UIMENU_DIR (read once at process start) moves the folder for tests. */
 int  portUiPrefCount(const char *name);
 const char *portUiPref(const char *name, int k, const char **val);
 void portUiPrefClear(const char *name);
-void portUiPrefPut(const char *name, const char *key, const char *val);
+int  portUiPrefPut(const char *name, const char *key, const char *val);   /* 0 = refused */
 int  portUiPrefSave(const char *name);
 
 /* ---- the view (port_uimenu_draw.c, presentation) ---- */
@@ -72,7 +80,7 @@ typedef struct { signed char kind, col, medal, chosen, dim; char label[44], valu
 typedef struct { char label[32], value[44]; unsigned int rgba; signed char flag; } UiInfo;     /* an info-card line or a stat cell */
 typedef struct { char label[48], value[32]; signed char state; } UiCheck;                  /* 0 not done, 1 done, 2 failed */
 typedef struct { char label[28]; signed char on; } UiChip;
-typedef struct { int v; signed char kind; char label[16]; } UiBar;
+typedef struct { int v; signed char kind; char label[16], text[16]; } UiBar;   /* text: drawn over the bar ("" = none) */
 
 typedef struct UiView
 {
