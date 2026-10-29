@@ -88,6 +88,25 @@ static s32 s_PortSwirlAiFields = 0;
 static u16 s_PortIntroSkipMask = 0;
 static s32 s_PortIntroSkipPort = 0;
 static u32 s_PortIntroStartCount = 0;
+
+/* PORT: GE_NOINTRO=1: no stage intro at all (the overview camera, its text, the Bond swirl): the stage opens in play, fading in from black,
+ * as a generated stage (which has neither) does. The main menu hub's launcher sets it: Control has both, and a menu does not wait for them. */
+static s32 portNoIntro(void)
+{
+    extern char *getenv(const char *);
+    static s32 v = -1;
+
+    if (v < 0)
+    {
+        const char *e = getenv("GE_NOINTRO");
+
+        v = (e != NULL && e[0] != '\0' && e[0] != '0');
+    }
+    return v;
+}
+#define PORT_NO_INTRO() portNoIntro()
+#else
+#define PORT_NO_INTRO() 0
 #endif
 
 #ifdef VERSION_EU
@@ -882,7 +901,7 @@ void bondviewSetCameraMode(s32 arg0)
         s_PortIntroSkipPort = 0;
         s_PortIntroStartCount = osGetCount();
 #endif
-        if ((ptr_random06cam_entry != NULL) && (get_recording_ramrom_flag() == 0) && (get_is_ramrom_flag() == 0))
+        if ((ptr_random06cam_entry != NULL) && (get_recording_ramrom_flag() == 0) && (get_is_ramrom_flag() == 0) && !PORT_NO_INTRO())
         {
             camera_transition_timer = 0.0f;
             currentPlayerSetFadeColour(0, 0, 0, 1.0f);
@@ -921,7 +940,7 @@ void bondviewSetCameraMode(s32 arg0)
         currentPlayerSetFadeFrac(60.0f, 0.0f);
         fogLoadLevelEnvironment(bossGetStageNum(), 0);
 
-        if ((g_IntroSwirl != 0) && (get_recording_ramrom_flag() == 0) && (get_is_ramrom_flag() == 0))
+        if ((g_IntroSwirl != 0) && (get_recording_ramrom_flag() == 0) && (get_is_ramrom_flag() == 0) && !PORT_NO_INTRO())
         {
 #ifndef TARGET_N64
             s_PortSwirlAiFields = 0;

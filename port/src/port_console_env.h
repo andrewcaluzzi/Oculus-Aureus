@@ -153,6 +153,7 @@ static const char *const sPortConEnvNames[] = {
     "GE_NOHEADROLL",
     "GE_NOINISAVE",
     "GE_NOINPUT",
+    "GE_NOINTRO",
     "GE_NOMASKCROP",
     "GE_NOMSGBOX",
     "GE_NOPIXFOG",

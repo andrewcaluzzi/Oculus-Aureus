@@ -85,6 +85,7 @@ There are hundreds; `port/src/port_console_env.h` lists them and the console's `
 | --- | --- |
 | `GE_STAGE=<name>`, `GE_DIFF=<0-3>` | jump straight into a stage (`dam`, `bunker2`, `colosseum`, `flatland`, `levelgen`, ...) and difficulty |
 | `GE_SKIPINTRO=1` | tap through the intro (counts sim ticks since the fork's fix) |
+| `GE_NOINTRO=1` | no stage intro at all (overview camera, Bond swirl): the stage opens in play (the main menu hub's launcher) |
 | `GE_FRAMES=<n>` | run n pumps and exit 0; suppresses message boxes |
 | `GE_TICKHZ=<hz>` | sim rate; 60 is vanilla-identical |
 | `GE_FIXEDTICK=1` | exactly one field per tick: required for repeatable runs |

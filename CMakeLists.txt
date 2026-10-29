@@ -714,7 +714,7 @@ if(GE_VIDEO)
             ${CMAKE_SOURCE_DIR}/tools/heist_flow.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/_heist_flow.lua
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/tools/mode_heist_menu.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/heist-menu.lua)
-    # the main menu hub (GE_MODE=hub, Play Midas.bat): the mode and its words / tables, which the arena and heist lobbies read too
+    # the main menu hub (GE_MODE=hub, Play Oculus Aureus.bat): the mode and its words / tables, which the arena and heist lobbies read too
     add_custom_command(TARGET ge POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/tools/hub_defs.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/_hub_defs.lua
@@ -758,7 +758,7 @@ if(GE_VIDEO)
                 "${CMAKE_SOURCE_DIR}/launchers/Arena Benchmark (Late Waves).bat"
                 "${CMAKE_SOURCE_DIR}/launchers/Play Heist.bat"
                 "${CMAKE_SOURCE_DIR}/launchers/Play Casino.bat"
-                "${CMAKE_SOURCE_DIR}/launchers/Play Midas.bat"
+                "${CMAKE_SOURCE_DIR}/launchers/Play Oculus Aureus.bat"
                 "${CMAKE_SOURCE_DIR}/launchers/Walk Janus Bank.bat"
                 "$<TARGET_FILE_DIR:ge>"
             VERBATIM)
