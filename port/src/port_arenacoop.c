@@ -10,7 +10,8 @@
  *    dies, and every downed Bond dies with him, so "everybody down" is the stock all-dead failure.
  * 2. The partner bot: GE_COOP_P2=arena or Lua coop.bot(true) makes the co-op puppet Bond play the arena through its pad and look
  *    channel (the same input a human gives): it picks the nearest arena enemy (chrnum 8000+) it can see, turns and pitches at it,
- *    fires when lined up, strafes, keeps near its partner, revives him, walks to a point the mode gives (centre ammo, armour) and
+ *    fires when lined up (never with another Bond in the line of fire: it strafes clear; never on an empty magazine: the trigger is
+ *    released so the reload starts), strafes, keeps near its partner, revives him, walks to a point the mode gives (centre ammo, armour) and
  *    cycles past empty guns. Local co-op only (in netplay the partner is a human); its decisions use sim state and its own
  *    xorshift, never the sim RNG.
  *
@@ -32,6 +33,7 @@
 #include "game/chrai.h"
 #include "port_mode.h"
 #include "port_arenacoop.h"
+#include "port_cooplogic.h"
 
 extern void portConLogf(const char *fmt, ...);
 extern void portCoopFpLog(const char *fmt, ...);
@@ -41,6 +43,8 @@ extern int portCoopPuppetArena(int on);                 /* port_coop.c */
 extern void bondviewKillCurrentPlayer(void);
 extern s32 get_ammo_type_for_weapon(ITEM_IDS weapon);
 extern s32 bondinvHasInvItem(ITEM_IDS weapon);
+extern s32 get_ammo_in_hands_magazine(GUNHAND hand);    /* gunfire.c: the current player's magazine */
+extern s32 get_ammo_in_hands_weapon(GUNHAND hand);      /* gunfire.c: the current player's reserve for the gun in that hand */
 extern s32 portArenaChrIsEnemy(const ChrRecord *chr);   /* port_arenamode.c */
 extern ChrRecord *g_ChrSlots;
 extern s32 get_numguards(void);
@@ -74,9 +78,18 @@ typedef struct {
     f32 lastX, lastZ, gx, gz;
     s32 shots;
     f32 yawErr;
+    s32 blocked;         /* ticks it held fire because another Bond was in the line of fire */
+    s32 dryFires;        /* empty-gun clicks of this Bond's gun (gunfire.c, portArenaCoopNoteDryFire) */
+    /* its skill at work (sSkill): the reaction countdown, and the aim wobble (degrees off the target, easing to a goal re-rolled now
+     * and then from its own RNG; only drawn when the aim error is above 0) */
+    s32 lastTarget, reactLeft, aimRoll;
+    u8 lastLos;
+    f32 aimYaw, aimPitch, aimGoalYaw, aimGoalPitch;
 } BotState;
 
 static BotState sBot[NP];
+static PortCoopBotSkill sSkill;   /* the partner bot's knobs (coop.rules bot_*), clamped; step 5 until a mode sets them */
+static s32 sSkillStep;
 
 enum { ACT_IDLE, ACT_FIGHT, ACT_FOLLOW, ACT_REVIVE, ACT_GOAL, ACT_DOWN, ACT_LOOT, ACT_N };
 static const char *const sActNames[] = { "idle", "fight", "follow", "revive", "goal", "down", "loot" };
@@ -100,12 +113,15 @@ void portArenaCoopReset(void)
     memset(sBot, 0, sizeof(sBot));
     for (i = 0; i < NP; i++) {
         sBot[i].target = -1;
+        sBot[i].lastTarget = -1;
         sBot[i].rng = 0x9E3779B9u ^ (u32) (i * 7919 + 1);
         sBot[i].strafeDir = 1;
         sBot[i].unstickDir = 1;
     }
     sBypass = 0;
     sDowns = sRevives = sBleeds = 0;
+    sSkillStep = PORT_COOP_BOT_SKILL_TOP;
+    portCoopBotSkillPreset(sSkillStep, &sSkill);
 }
 
 static u32 botRng(BotState *b)
@@ -339,10 +355,11 @@ unsigned portArenaCoopHash(char *dump, int cap)
 
 /* ---- the partner bot ------------------------------------------------------------------------------------------------------------ */
 
-#define BOT_RANGE      5500.0f   /* engage from here (the pit is 9000 across) */
+/* (the range it engages from is sSkill.range: 5500 at skill 5; the pit is 9000 across) */
 #define BOT_FOLLOW_FAR 1000.0f   /* start walking to the partner */
 #define BOT_FOLLOW_OK  500.0f    /* ...and stop here */
-#define BOT_FIRE_CONE  6.0f      /* degrees of yaw error to fire */
+#define BOT_FIRE_CONE  6.0f      /* degrees of yaw error to fire (plus sSkill.aimError) */
+#define BOT_AIM_EASE   0.15f     /* the aim wobble moves this share of the way to its goal a tick */
 
 static f32 wrap180(f32 a)
 {
@@ -392,7 +409,7 @@ static void botPick(BotState *b, struct player *me)
         dx = c->prop->pos.x - me->prop->pos.x;
         dz = c->prop->pos.z - me->prop->pos.z;
         d2 = dx * dx + dz * dz;
-        if (d2 > BOT_RANGE * BOT_RANGE * 2.0f) {
+        if (d2 > sSkill.range * sSkill.range * 2.0f) {
             continue;
         }
         vis = canSee(c, me);
@@ -485,6 +502,46 @@ static s32 botFindDrop(struct player *me, s32 minRank, f32 range, f32 *x, f32 *z
     return found;
 }
 
+#define BOT_BODY_RADIUS 90.0f   /* a Bond's hit volume, arms and gun included: a pistol shot 63 units from his centre hit him (coop-ff) */
+#define BOT_SPREAD_AUTO 0.10f   /* line-of-fire margin per unit of distance for a spraying gun (automatics, shotguns): ~6 degrees */
+#define BOT_SPREAD_ONE  0.04f   /* ...and for a single-shot gun */
+#define BOT_LOF_BAND    250.0f  /* a Bond this far above / below the shot line is not in it (another floor) */
+
+static s32 botSprays(s32 w)
+{
+    switch (w) {
+        case ITEM_SKORPION: case ITEM_AK47: case ITEM_UZI: case ITEM_MP5K: case ITEM_MP5KSIL: case ITEM_SPECTRE: case ITEM_M16:
+        case ITEM_FNP90: case ITEM_SHOTGUN: case ITEM_AUTOSHOT:
+            return TRUE;
+        default:
+            return FALSE;
+    }
+}
+
+/* another Bond (up or downed) in the line of fire, nearer than the target: on the line to the target or on the line the gun points
+ * along (it fires within BOT_FIRE_CONE of the target, autoaim pulls between the two). The first such Bond's index, -1 none. */
+static s32 botBlocker(int mi, struct player *me, ChrRecord *tc, f32 tdist, f32 fx, f32 fz)
+{
+    s32 k, n = portAllPlayerCount();
+    f32 sx = me->prop->pos.x, sy = me->prop->pos.y, sz = me->prop->pos.z;
+    f32 tx = tc->prop->pos.x, ty = tc->prop->pos.y + 20.0f, tz = tc->prop->pos.z;
+    f32 ax = sx + fx * tdist, az = sz + fz * tdist;
+    f32 spread = botSprays((s32) me->hands[GUNRIGHT].weaponnum) ? BOT_SPREAD_AUTO : BOT_SPREAD_ONE;
+
+    for (k = 0; k < n && k < NP; k++) {
+        struct player *q = pl(k);
+
+        if (k == mi || q == NULL || q->prop == NULL || q->bonddead) {
+            continue;
+        }
+        if (portCoopShotBlocked(sx, sy, sz, tx, ty, tz, q->prop->pos.x, q->prop->pos.y, q->prop->pos.z, BOT_BODY_RADIUS, spread, BOT_LOF_BAND) ||
+            portCoopShotBlocked(sx, sy, sz, ax, ty, az, q->prop->pos.x, q->prop->pos.y, q->prop->pos.z, BOT_BODY_RADIUS, spread, BOT_LOF_BAND)) {
+            return k;
+        }
+    }
+    return -1;
+}
+
 static s8 stick(f32 v)
 {
     return (s8) (v > 70.0f ? 70.0f : (v < -70.0f ? -70.0f : v));
@@ -497,7 +554,7 @@ void portArenaBotPad(int mi, int pi, unsigned short *buttons, signed char *sx, s
     ChrRecord *tc;
     f32 mvx = 0.0f, mvz = 0.0f, speed = 0.0f, th, fx, fz, tdist = 0.0f;
     f32 wantYaw = 0.0f, wantPitch = 0.0f;
-    s32 haveYaw = FALSE, fire = FALSE;
+    s32 haveYaw = FALSE, fire = FALSE, blocker = -1, ready, acquired;
 
     *buttons = 0;
     *sx = *sy = 0;
@@ -521,6 +578,15 @@ void portArenaBotPad(int mi, int pi, unsigned short *buttons, signed char *sx, s
         botPick(b, me);
         tc = liveEnemy(b->target);
     }
+    /* skill: the reaction time runs from a new target or one that came back into sight (sim state and its own RNG only) */
+    {
+        s32 vis = tc != NULL && b->los;
+
+        acquired = b->target != b->lastTarget || (vis && !b->lastLos);
+        b->lastTarget = b->target;
+        b->lastLos = (u8) vis;
+        ready = portCoopBotReact(acquired, vis, (s32) (sSkill.reaction * 60.0f + 0.5f), &b->reactLeft);
+    }
     if (tc != NULL) {
         f32 dx = tc->prop->pos.x - me->prop->pos.x, dz = tc->prop->pos.z - me->prop->pos.z;
         f32 dy = (tc->prop->pos.y + 20.0f) - me->prop->pos.y;   /* (chest of the chr vs Bond's eye prop; autoaim does the rest) */
@@ -529,6 +595,22 @@ void portArenaBotPad(int mi, int pi, unsigned short *buttons, signed char *sx, s
         wantYaw = yawTo(dx, dz);
         wantPitch = wrap180(__builtin_atan2f(dy, tdist > 1.0f ? tdist : 1.0f) * (180.0f / 3.14159265f));   /* (the game's atan2f is 0..2pi) */
         haveYaw = TRUE;
+        blocker = botBlocker(mi, me, tc, tdist, fx, fz);
+        if (sSkill.aimError > 0.0f) {   /* skill: it aims off the target by a wobble that drifts (a fresh target starts off by it) */
+            if (acquired || --b->aimRoll <= 0) {
+                b->aimGoalYaw = portCoopBotAimRoll(botRng(b), sSkill.aimError);
+                b->aimGoalPitch = portCoopBotAimRoll(botRng(b), 0.5f * sSkill.aimError);
+                b->aimRoll = 15 + (s32) (botRng(b) % 30u);
+                if (acquired) {
+                    b->aimYaw = b->aimGoalYaw;
+                    b->aimPitch = b->aimGoalPitch;
+                }
+            }
+            b->aimYaw += (b->aimGoalYaw - b->aimYaw) * BOT_AIM_EASE;
+            b->aimPitch += (b->aimGoalPitch - b->aimPitch) * BOT_AIM_EASE;
+            wantYaw = wrap180(wantYaw + b->aimYaw);
+            wantPitch += b->aimPitch;
+        }
     }
 
     if ((b->tick % 30u) == 0) {
@@ -599,6 +681,17 @@ void portArenaBotPad(int mi, int pi, unsigned short *buttons, signed char *sx, s
             b->strafeDir = (botRng(b) & 1u) ? 1 : -1;
             b->strafeLeft = 50 + (s32) (botRng(b) % 70u);
         }
+        if (blocker >= 0) {   /* a Bond in the line of fire: strafe away from his side of the line until it is clear */
+            struct player *q = pl(blocker);
+            f32 side = (q->prop->pos.x - me->prop->pos.x) * (-dz) + (q->prop->pos.z - me->prop->pos.z) * dx;
+
+            if (side != 0.0f) {
+                b->strafeDir = side > 0.0f ? -1 : 1;
+            }
+            if (b->strafeLeft < 30) {
+                b->strafeLeft = 30;
+            }
+        }
         mvx = (-dz / d) * (f32) b->strafeDir;
         mvz = (dx / d) * (f32) b->strafeDir;
         speed = 45.0f;
@@ -651,17 +744,18 @@ void portArenaBotPad(int mi, int pi, unsigned short *buttons, signed char *sx, s
     }
 
     /* look: ease the yaw and pitch toward the wanted angles (milli-degrees per tick, like the mouse) */
+    /* (skill: the most it turns a tick is sSkill.turn degrees a second, pitch half of it; 360 = 6000 / 3000 milli-degrees a tick) */
     if (haveYaw) {
-        f32 err = wrap180(wantYaw - me->vv_theta), y = err * 350.0f;
+        f32 err = wrap180(wantYaw - me->vv_theta), y = err * 350.0f, cap = sSkill.turn * 1000.0f / 60.0f;
 
         b->yawErr = err;
-        *yawMilli = (int) (y > 6000.0f ? 6000.0f : (y < -6000.0f ? -6000.0f : y));
+        *yawMilli = (int) (y > cap ? cap : (y < -cap ? -cap : y));
     }
     {
         f32 cur = me->vv_verta > 180.0f ? me->vv_verta - 360.0f : me->vv_verta;
-        f32 perr = (tc != NULL ? wantPitch : 0.0f) - cur, pm = perr * 300.0f;
+        f32 perr = (tc != NULL ? wantPitch : 0.0f) - cur, pm = perr * 300.0f, cap = sSkill.turn * 1000.0f / 120.0f;
 
-        *pitchMilli = (int) (pm > 3000.0f ? 3000.0f : (pm < -3000.0f ? -3000.0f : pm));
+        *pitchMilli = (int) (pm > cap ? cap : (pm < -cap ? -cap : pm));
     }
 
     /* walk: the world direction as forward + sideways stick from the facing (the PC stick strafes) */
@@ -676,11 +770,18 @@ void portArenaBotPad(int mi, int pi, unsigned short *buttons, signed char *sx, s
         }
     }
 
-    /* weapons: fire when lined up on a visible target in range; cycle past an empty gun */
+    /* weapons: fire when lined up on a visible target in range and no other Bond is in the line of fire; never on an empty magazine
+     * (held, the trigger dry-fires again and again and the engine's reload never starts: released, it reloads at once); cycle past an
+     * empty gun */
     {
         s32 w = (s32) me->hands[GUNRIGHT].weaponnum, type = w > 0 ? get_ammo_type_for_weapon((ITEM_IDS) w) : 0;
-        s32 mag = me->hands[GUNRIGHT].weapon_ammo_in_magazine, res = (type > 0 && type < 30) ? me->ammoheldarr[type] : 0;
+        s32 mag, res, saved = get_cur_playernum();
         s32 k, anyAmmo = 0;
+
+        set_cur_player(mi);
+        mag = get_ammo_in_hands_magazine(GUNRIGHT);
+        res = get_ammo_in_hands_weapon(GUNRIGHT);
+        set_cur_player(saved);
 
         for (k = 1; k < 30; k++) {
             anyAmmo += me->ammoheldarr[k];
@@ -703,8 +804,14 @@ void portArenaBotPad(int mi, int pi, unsigned short *buttons, signed char *sx, s
             b->cycleWait = 40;
             b->upCycles++;
         }
-        if (tc != NULL && b->los && tdist < BOT_RANGE && b->yawErr < BOT_FIRE_CONE && b->yawErr > -BOT_FIRE_CONE) {
+        /* (skill: not before its reaction time is up, within its range, and the cone is wider by its aim error) */
+        if (tc != NULL && b->los && ready && tdist < sSkill.range && b->yawErr < BOT_FIRE_CONE + sSkill.aimError &&
+            b->yawErr > -(BOT_FIRE_CONE + sSkill.aimError)) {
             fire = (w > ITEM_KNIFE) || tdist < 180.0f;
+            if (fire && blocker >= 0) {
+                b->blocked++;
+            }
+            fire = portCoopBotTrigger(fire, w > ITEM_KNIFE && type > 0, mag, blocker >= 0);
         }
         if (fire && (b->tick % 8u) < 6u) {   /* hold, with a short release so a pistol fires again */
             *buttons |= CONT_G;
@@ -748,9 +855,25 @@ void portLuaGameCoopRules(const PortArenaCoopRules *r)
     if (sCfg.radius <= 0.0f) sCfg.radius = 170.0f;
     if (sCfg.reviveHealth <= 0.0f || sCfg.reviveHealth > 1.0f) sCfg.reviveHealth = 0.35f;
     if (sCfg.grace < 0.0f) sCfg.grace = 0.0f;
+    /* the bot's skill: the step's knobs, each one given (not negative) instead, all clamped */
+    {
+        PortCoopBotSkill k;
+
+        sSkillStep = sCfg.botSkill < PORT_COOP_BOT_SKILL_MIN ? PORT_COOP_BOT_SKILL_MIN
+                                                               : (sCfg.botSkill > PORT_COOP_BOT_SKILL_MAX ? PORT_COOP_BOT_SKILL_MAX : sCfg.botSkill);
+        portCoopBotSkillPreset(sSkillStep, &k);
+        if (sCfg.botReaction >= 0.0f) k.reaction = sCfg.botReaction;
+        if (sCfg.botAimError >= 0.0f) k.aimError = sCfg.botAimError;
+        if (sCfg.botTurn >= 0.0f) k.turn = sCfg.botTurn;
+        if (sCfg.botRange >= 0.0f) k.range = sCfg.botRange;
+        portCoopBotSkillClamp(&k);
+        sSkill = k;
+    }
     portConLogf("ge: arena: coop rules %s: bleed %.0fs revive %.1fs radius %.0f health %.2f grace %.1fs bleedout %d (co-op %d)\n",
                 sCfg.on ? "on" : "off", (double) sCfg.bleed, (double) sCfg.revive, (double) sCfg.radius, (double) sCfg.reviveHealth,
                 (double) sCfg.grace, sCfg.bleedout, portCoopActive());
+    portConLogf("ge: arena: coop bot skill %d: reaction %.2fs aim error %.1f deg turn %.0f deg/s range %.0f\n", (int) sSkillStep,
+                (double) sSkill.reaction, (double) sSkill.aimError, (double) sSkill.turn, (double) sSkill.range);
 }
 
 int portLuaGameCoopActive(void)
@@ -848,6 +971,24 @@ int portLuaGameCoopBotInfo(int p, int *target, const char **act, int *ammo, int 
     *ammo = q->hands[GUNRIGHT].weapon_ammo_in_magazine + ((type > 0 && type < 30) ? q->ammoheldarr[type] : 0);
     *weapon = w;
     *shots = sBot[p].shots;
+    return 1;
+}
+
+/* gunfire.c: a Bond's gun clicked on an empty magazine (counted for every Bond; coop.bot_info's `dry`) */
+void portArenaCoopNoteDryFire(s32 player)
+{
+    if (player >= 0 && player < NP) {
+        sBot[player].dryFires++;
+    }
+}
+
+int portLuaGameCoopBotStats(int p, int *dry, int *blocked)
+{
+    if (!portModeActive() || pl(p) == NULL || p < 0 || p >= NP) {
+        return 0;
+    }
+    *dry = sBot[p].dryFires;
+    *blocked = sBot[p].blocked;
     return 1;
 }
 

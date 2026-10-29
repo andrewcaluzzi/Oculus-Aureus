@@ -5,7 +5,15 @@
 
 #define G_CROWD_EXT 0x4d          /* w0 low byte = the op below */
 
-enum { CROWD_CAP_BEGIN = 1, CROWD_CAP_CELL = 2, CROWD_CAP_END = 3, CROWD_DRAW = 4 };
+enum { CROWD_CAP_BEGIN = 1, CROWD_CAP_CELL = 2, CROWD_CAP_END = 3, CROWD_DRAW = 4, CROWD_CORPSES = 5 };
+
+/* CROWD_CORPSES (port_crowd.c, before the world end of each view): bake what this view captured and draw the baked corpses
+ * listed (gfx_corpsebake.inl). slot = chrnum & 1023, serial = the bake the sim saw finished. */
+typedef struct {
+    float mvp[16];                /* this view's world -> clip, as CrowdFrame.mvp */
+    int n;
+    const int *slot, *serial;
+} CrowdCorpses;
 
 #define CROWD_ATLAS 1024          /* the capture atlas: 8 x 4 cells of 128 x 256, skin + 16 * pose */
 #define CROWD_COLS 8
@@ -27,6 +35,10 @@ typedef struct {
     float now;
     float box[3];                 /* quad half width, bottom (from the seat), height */
     float tint[4];                /* rgb blended in by a, like a chr's shade */
+    float fog[4];                 /* the world's fog: rgb, and a = 1 when on (bgfog.c portFogCurve) */
+    float fogab[2];               /* its curve: fog alpha = fogab[0] - fogab[1] / clip w, as the props are fogged */
+    int slot;                     /* 0 = the stand impostors (cached by version), 1 = the far real spectators (port_perfcat.c),
+                                   * a fresh list every frame */
 } CrowdFrame;
 
 #endif

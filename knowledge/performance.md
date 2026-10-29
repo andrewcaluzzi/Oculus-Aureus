@@ -76,3 +76,16 @@ Spectators still animate every frame; animation was not a cost.
   "The benchmark").
 - `GE_SIMONLY_STATS=1` logs the sim-only tick cost by section; `GE_SHOWFPS`, `GE_HITCHMS` (hitch log threshold).
 - `perf record -g` on the Linux build inside the container works for profiling the sim.
+
+## Arena late waves: the render thread (2026-10-28, branch arena-perf)
+
+- The late-wave chug is render-thread CPU, not GL: the GL draw call itself is about 1 us on an RTX 2080; the cost is Fast3D's
+  interpretation of every chr limb (display-list walk, vertex transform, draw-state re-derivation, texture bind), about 8 us
+  per draw batch on an i7-8700K (AC's v0.1 log: 2700 draws, gl 21.7 ms, 44 fps). The sim stays at 2-4 ms.
+- `Arena Benchmark (Late Waves).bat` (`GE_BENCH_LATE=1`): 150 real spectators + 1000 impostors, 150 corpses, 40 live; phases
+  turn the fixes off and drop each category (`bench.hide`); per category render-thread ms / draws / triangles
+  (`port/fast3d/gfx_perfcat.*`, `port/src/port_perfcat.c`) and an interpreter split (vertices, triangles, state, binds).
+- Fixes (presentation only, same sim hash on and off): `crowd_lod` (far spectators as impostors), `chr_batch` (opaque chr
+  triangles one draw per state, `gfx_chrbatch.inl`), `corpse_bake` (still bodies captured once and redrawn from world space,
+  `gfx_corpsebake.inl`). RTX 2080 hidden 720p: gl 12.8-17.1 ms / 1340-1560 draws before, 9.2-9.8 ms / ~410 draws after.
+- `room_cache=2` (the GPU part cache) was slower here (gl 15.4 vs 12.8 ms before, 12.7 vs 9.4 after): keep 0 for the arena.

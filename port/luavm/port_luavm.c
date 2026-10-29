@@ -610,6 +610,21 @@ int portLuaHasTick(void)
 /* A test hotkey (input_pc.c) or the `arena` console command; it reaches Lua's test_key handlers on the next game tick. */
 void portLuaTestKey(const char *name)
 {
+    {   /* GE_KEYLOG=1 (input_pc.c): whether the key reached a listener */
+        static int keylog = -1;
+
+        if (keylog < 0)
+        {
+            const char *e = getenv("GE_KEYLOG");
+
+            keylog = (e != NULL && e[0] != '\0' && e[0] != '0') ? 1 : 0;
+        }
+        if (keylog)
+        {
+            portConLogf("ge: lua: test key '%s': %s\n", name != NULL ? name : "?",
+                        (!sTestKeyOn || sL == NULL) ? "no test_key listener" : (sTestKeyN >= 8 ? "queue full" : "queued"));
+        }
+    }
     if (!sTestKeyOn || sL == NULL || name == NULL || sTestKeyN >= 8)
     {
         return;
@@ -621,8 +636,12 @@ void portLuaTick(int clockTicks)
 {
     int i;
     extern void portBenchSweepTick(int clockTicks);   /* port_arenamode.c: the benchmark's camera sweep */
+    extern void portArenaFogTick(int clockTicks);     /* port_arenafx.c: the arena fog's fade in / out */
+    extern void portArenaRainTick(int clockTicks);    /* port_arenarain.c: the rain's roll in / out */
 
     portBenchSweepTick(clockTicks);
+    portArenaFogTick(clockTicks);
+    portArenaRainTick(clockTicks);
 
     if (sL != NULL && sTestKeyN > 0)
     {
@@ -1216,20 +1235,37 @@ static int portLuaMusicId(lua_State *L)
     return id;
 }
 
-/* music.set(name): the main track of the current/next stage (cleared at the next stage start). */
+/* optional arg 2: volume 0..1 (clamped); NaN is an error. Applied before the track starts. */
+static void portLuaMusicVolume(lua_State *L, int id)
+{
+    if (!lua_isnoneornil(L, 2))
+    {
+        lua_Number v = luaL_checknumber(L, 2);
+
+        if (v != v)
+        {
+            luaL_error(L, "music volume is NaN");
+        }
+        portMusicSetVolume(id, (double)v);
+    }
+}
+
+/* music.set(name [, volume]): the main track of the current/next stage (cleared at the next stage start). */
 static int portLuaMusicSet(lua_State *L)
 {
     int id = portLuaMusicId(L);
 
+    portLuaMusicVolume(L, id);
     lua_pushboolean(L, portLuaGameAllowed() && portMusicSetMain(id));
     return 1;
 }
 
-/* music.play(name): the main channel now; false when no stage is live. */
+/* music.play(name [, volume]): the main channel now; false when no stage is live. */
 static int portLuaMusicPlay(lua_State *L)
 {
     int id = portLuaMusicId(L);
 
+    portLuaMusicVolume(L, id);
     lua_pushboolean(L, portLuaGameAllowed() && portMusicPlayNow(id, 1));
     return 1;
 }
@@ -1664,7 +1700,7 @@ static const char sSortSource[] =
 
 /* ---- include(name): run another mode script (Data/Scripts/modes/<name>.lua) from a mode script. The modes folder is hashed with the
  * other scripts at the netplay handshake, so both machines run the same text. Used by preset modes (hostage-flatland.lua sets its
- * HOSTAGE_SETTINGS and includes "hostage"). Only while a mode script is running; depth 4. ---- */
+ * HOSTAGE_SETTINGS and includes "hostage"). Only while a mode script is running; depth 8 (the arena start menu added three levels under arena.lua: a preset that includes a preset hit the old limit of 4). ---- */
 static int sIncludeDepth;
 static int sInMode;
 
@@ -1689,7 +1725,7 @@ static int portLuaInclude(lua_State *L)
             return luaL_error(L, "script name '%s': only letters, digits, '_' and '-'", name);
         }
     }
-    if (sIncludeDepth >= 4)
+    if (sIncludeDepth >= 8)
     {
         return luaL_error(L, "include() nested too deep");
     }

@@ -12,7 +12,7 @@
 --
 -- Settings (ARENA_SETTINGS, defaults below): coop_bot, coop_count_mult, coop_alive_mult, coop_hp_mult, coop_boss_hp_mult, coop_down,
 -- coop_bleed, coop_revive, coop_revive_radius, coop_revive_health, coop_revive_grace, coop_bleedout, coop_bot_ammo_low,
--- coop_bot_armour_low, coop_debug.
+-- coop_bot_armour_low, coop_debug, coop_bot_skill (+ coop_bot_reaction, coop_bot_aim_error, coop_bot_turn, coop_bot_range).
 
 local DEFAULTS = {
   coop_bot            = true,    -- the second Bond is the arena bot (local co-op; in netplay the partner is a person)
@@ -30,6 +30,9 @@ local DEFAULTS = {
   coop_bot_ammo_low   = 40,      -- the bot fetches a centre ammo box below this many rounds for its gun (and in breathers)
   coop_bot_armour_low = 0.5,     -- ...and the centre armour below this
   coop_debug          = false,   -- bot status every 2 s, state changes
+  coop_bot_skill      = 4,       -- the bot's skill 1..5 (ROOKIE, AGENT, SECRET AGENT, 00 AGENT, 007 = the bot as first built); it presets
+                                 -- the four knobs below, and any of them set in ARENA_SETTINGS wins (see mode_arena.lua's header):
+                                 -- coop_bot_reaction (s), coop_bot_aim_error (deg), coop_bot_turn (deg/s), coop_bot_range (units)
 }
 
 function ARENA_COOP(S)
@@ -50,7 +53,9 @@ function ARENA_COOP(S)
     print(string.format("ge: arena: co-op %s (%d Bonds)", on and "ON" or "off (one Bond: solo rules)", n()))
     if not on then return end
     coop.rules{ on = S.coop_down, bleed = S.coop_bleed, revive = S.coop_revive, radius = S.coop_revive_radius,
-                revive_health = S.coop_revive_health, grace = S.coop_revive_grace, bleedout = S.coop_bleedout, debug = S.coop_debug }
+                revive_health = S.coop_revive_health, grace = S.coop_revive_grace, bleedout = S.coop_bleedout, debug = S.coop_debug,
+                bot_skill = math.tointeger(S.coop_bot_skill) or 4, bot_reaction = S.coop_bot_reaction, bot_aim_error = S.coop_bot_aim_error,
+                bot_turn = S.coop_bot_turn, bot_range = S.coop_bot_range }
     if S.coop_bot then
       if coop.bot(true) then
         bot_p = 1

@@ -8,14 +8,18 @@ SETUP
 1. Put your own GoldenEye 007 (USA) cart image in the Data folder as Data\baserom.u.z64
    (see Data\README.txt). It is not included and never will be.
 2. Double-click a launcher. Running ProjectMidas.exe directly plays the normal game.
-     Play Arena.bat                   20 waves, a boss every 5
+     Play Arena.bat                   the start menu: 20 waves with a boss every 5, or pick a
+                                      preset, co-op (and the bot's skill), mutators and more
      Play Arena (Endless).bat         waves keep coming and keep getting harder
      Play Arena (Chaos).bat           20 waves with wave mutators and elite enemies
      Play Arena (Chaos Endless).bat   endless, with mutators and elites
      Play Arena (Co-op).bat           two Bonds: you and a bot partner
      Play Arena (Co-op Chaos).bat     co-op with mutators and elites
-     Play Arena (Test Keys).bat       PageDown/PageUp jump waves; invincible, all guns
+     Play Arena (Test Keys).bat       PageDown/PageUp jump waves, Home callouts, End fog, Insert rain (Shift+Insert lightning);
+                                      invincible, all guns
      Arena Benchmark.bat, Arena Benchmark (Live).bat   write Data\Logs\arena_bench.txt
+     Arena Benchmark (Late Waves).bat   a wave 15-20 scene, the render settings on and off;
+                                      writes Data\Logs\arena_bench.txt
 
 Enemies drop their guns; ammo boxes and body armour appear in the middle of the pit; every
 kill gives back a little health. The crowd keeps a favour meter (HUD line 4): stylish kills

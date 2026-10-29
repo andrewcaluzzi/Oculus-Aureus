@@ -1,4 +1,5 @@
 @echo off
+setlocal
 rem Colosseum arena, endless, with wave mutators and affix elites. Needs Data\baserom.u.z64 (see README.txt).
 if not exist "%~dp0Data\baserom.u.z64" (
     echo Missing Data\baserom.u.z64 - put your own GoldenEye 007 USA ROM there. See README.txt.

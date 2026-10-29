@@ -691,6 +691,7 @@ if(GE_VIDEO)
                 "${CMAKE_SOURCE_DIR}/launchers/Play Arena (Whacky Test Keys).bat"
                 "${CMAKE_SOURCE_DIR}/launchers/Arena Benchmark.bat"
                 "${CMAKE_SOURCE_DIR}/launchers/Arena Benchmark (Live).bat"
+                "${CMAKE_SOURCE_DIR}/launchers/Arena Benchmark (Late Waves).bat"
                 "${CMAKE_SOURCE_DIR}/launchers/Play Heist.bat"
                 "${CMAKE_SOURCE_DIR}/launchers/Walk Janus Bank.bat"
                 "$<TARGET_FILE_DIR:ge>"

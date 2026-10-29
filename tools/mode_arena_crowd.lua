@@ -676,6 +676,8 @@ function ARENA_CROWD.new(S, H)
 
   -- test helpers
   function X.set(f) X.favour = clamp(f, 0, 100); local t = tier_of(X.favour); if t ~= tier then on_tier_change(tier, t, nil) end end
+  -- the crowd's mood moves for a reason that is nobody's doing (the weather): delta favour, the toast's text
+  function X.mood(delta, shown) change(delta, "mood", nil, nil, nil, shown or "THE CROWD") end
   function X.tier() return tier, C.tier_names[tier] end
   function X.sponsor(force) return sponsor_gift(force) end
   function X.throw(p) return throw_gift(p or 0, nil) end

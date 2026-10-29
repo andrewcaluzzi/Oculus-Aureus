@@ -55,6 +55,47 @@ int portCoopDropSpotSafe(int hasTile, int inTile, float footY, float floorY, int
  * type still unspent by earlier drops; the result is what to take from it. */
 int portCoopDropMagazine(int inHand, int handMag, int magSize, int pool);
 
+/* The arena partner bot's line of fire. 1 when a body at (px,py,pz) is in the way of a shot from the gun at (sx,sy,sz) to a target at
+ * (tx,ty,tz): ahead of the gun and nearer than the target along the line, within radius + spread * (distance from the gun) of the line
+ * horizontally (spread widens it for a spraying gun), and within `band` of the line's height there. */
+int portCoopShotBlocked(float sx, float sy, float sz, float tx, float ty, float tz, float px, float py, float pz, float radius, float spread,
+                        float band);
+/* The partner bot's trigger: held only when it wants to fire, nobody is in the line of fire, and the gun has rounds in its magazine
+ * (usesAmmo = 0 for melee). Holding the trigger on an empty magazine dry-fires again and again and keeps the engine's reload from
+ * starting; with the trigger released the reload starts at once, or, with no reserve left, the empty-gun weapon switch. */
+int portCoopBotTrigger(int want, int usesAmmo, int mag, int blocked);
+
+/* The partner bot's skill (coop.rules bot_skill; ARENA_SETTINGS coop_bot_skill; modding/arena.md "Co-op"). Step 5 is the bot as it
+ * was built: no reaction delay, no aim error, 360 degrees a second, 5500 units. Lower steps react later, aim worse and turn slower
+ * at a shorter range:
+ *   step  name           reaction  aim error  turn       range
+ *   1     ROOKIE         0.80 s    9 deg      120 deg/s  3000
+ *   2     AGENT          0.55 s    6 deg      180 deg/s  3600
+ *   3     SECRET AGENT   0.35 s    4 deg      240 deg/s  4200
+ *   4     00 AGENT       0.18 s    2 deg      300 deg/s  4800   (the arena's default)
+ *   5     007            0         0          360 deg/s  5500
+ * reaction: seconds before it fires at a target it has just acquired (a new target, or one that came back into sight); aimError:
+ * degrees of deliberate aim wobble (its own RNG) and of extra fire cone; turn: the most it turns a second (pitch half of it); range:
+ * how far it engages. */
+#define PORT_COOP_BOT_SKILL_MIN 1
+#define PORT_COOP_BOT_SKILL_MAX 5
+#define PORT_COOP_BOT_SKILL_TOP 5   /* the bot as built */
+typedef struct {
+    float reaction;   /* seconds */
+    float aimError;   /* degrees */
+    float turn;       /* degrees per second (yaw; pitch half of it) */
+    float range;      /* units */
+} PortCoopBotSkill;
+/* the preset knobs of a step (out of range: clamped to 1..5) */
+void portCoopBotSkillPreset(int step, PortCoopBotSkill *out);
+/* every knob into its sane range (NaN included): reaction 0..3 s, aim error 0..30 deg, turn 30..1440 deg/s, range 300..20000 */
+void portCoopBotSkillClamp(PortCoopBotSkill *k);
+/* The reaction gate, once a tick. acquired: it has just picked a new target or got it back in sight (the countdown restarts at
+ * reactFields); visible: the target is in sight (the countdown runs only then). 1 = it may fire. reactFields 0 = always 1. */
+int portCoopBotReact(int acquired, int visible, int reactFields, int *left);
+/* An aim offset from 32 random bits: uniform in [-amp, amp] (0 for amp <= 0) */
+float portCoopBotAimRoll(unsigned int bits, float amp);
+
 #ifdef __cplusplus
 }
 #endif

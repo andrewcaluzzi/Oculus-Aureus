@@ -1,4 +1,5 @@
 @echo off
+setlocal
 rem Colosseum arena, 20 waves, WHACKY: nearly every wave rolls a mutator (ghosts, chameleons, shadow troops, glass cannons, giants,
 rem fast forward, slow motion, rocket party, double trouble, glitch, speed swap, the crowd's gifts, minion madness, tiny mayhem, and the
 rem A7 ones); glowing affix elites, a golden Baron Samedi, and the minion launcher after every boss. Needs Data\baserom.u.z64 (see README.txt).

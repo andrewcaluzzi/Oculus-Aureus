@@ -137,7 +137,8 @@ local function items_advanced()
     it[#it + 1] = { kind = "header", col = col, label = T.groups[g] or g }
     for _, r in ipairs(D.ROWS) do
       if r.group == g then
-        local dim = (r.id == "downed" and not D.val(M.v, "players")) or (r.id == "intensity" and not D.val(M.v, "mutators") and not D.val(M.v, "elites"))
+        local dim = ((r.id == "downed" or r.id == "bot_skill") and not D.val(M.v, "players"))
+                    or (r.id == "intensity" and not D.val(M.v, "mutators") and not D.val(M.v, "elites"))
         it[#it + 1] = { kind = "choice", col = col, label = r.label, value = D.label(M.v, r.id), row = r.id, desc = r.desc, dim = dim and 1 or 0 }
       end
     end
@@ -313,8 +314,8 @@ local function activate(it, ev)
   elseif a == "quit" then
     M.busy = true
     sfx(SFX.back)
-    log("QUIT to the title")
-    if not amenu.quit() then M.busy = false end
+    log("EXIT the game")
+    if not amenu.exit() then M.busy = false end
   elseif a == "retry" then retry()
   elseif a == "reset" then
     local p = D.preset_of(M.v)
@@ -410,7 +411,9 @@ local function crowd_setup()
       k = k + step
     end
     pcall(crowd.impostors, xyz, CROWD_SKINS)
+    if crowd.lod then pcall(crowd.lod, 2500) end   -- as in a run (mode_arena.lua crowd_lod): far spectators drawn as impostors
   end
+  if crowd and crowd.batch then pcall(crowd.batch, true) end   -- as in a run (chr_batch)
   return cx
 end
 
@@ -446,6 +449,8 @@ if cur and cur.lobby == "postgame" then
   result = D.parse(amenu.result())
   if result then M.screen = "postgame" end
 end
+local LOBBY_MUSIC_VOL = 0.8   -- 0x6665, the level tracks' default (the elevator track's own default is a quiet 0x3FFF)
+pcall(music.set, "ELEVATOR_CONTROL", LOBBY_MUSIC_VOL)   -- lobby (start menu + post-game) music; cleared at the next stage start, so runs keep their own
 log("lobby: %s, preset %s, %s", M.screen, (D.preset_of(M.v) or { id = "custom" }).id, cur and ("after " .. (cur.label ~= "" and cur.label or "a run")) or "first boot")
 
 on("stage_start", function()

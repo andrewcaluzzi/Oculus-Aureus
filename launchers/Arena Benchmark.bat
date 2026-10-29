@@ -1,4 +1,5 @@
 @echo off
+setlocal
 rem Colosseum arena benchmark: 5 phases (crowd 100 -> 1000, 250 corpses, 18 live enemies), about 4 minutes, then the game quits by itself.
 rem Writes Data\Logs\arena_bench.txt. Needs Data\baserom.u.z64 (see README.txt).
 if not exist "%~dp0Data\baserom.u.z64" (

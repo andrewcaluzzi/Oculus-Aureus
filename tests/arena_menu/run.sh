@@ -2,7 +2,7 @@
 # The arena start menu / post-game test inside the build container (Xvfb on :99, build_pc): see amenu_drive.lua for the flow.
 # usage: run.sh [game frames]   (log: build_tests/amenu/drive.log, shots: build_tests/amenu/shots/*.bmp)
 # Checks at the end: two runs started with identical settings, a win and a fall reached the post-game, the menu came back with the
-# run's settings, and the quit reached the title menus.
+# run's settings, and EXIT closed the game.
 P=/home/dev/project
 OUT=$P/build_tests/amenu
 mkdir -p $OUT/shots
@@ -32,7 +32,7 @@ if [ "$2" = bat ]; then   # run.sh <frames> bat: a launcher's preset (arena-chao
   chk "retry the preset" "RETRY SPECTRE PROTOCOL (mode arena-chaos"
   chk "second run" "MENUTEST bat run 2"
   chk "debrief 2" "MENUTEST bat postgame 2: screen postgame"
-  chk "quit" "after the stage: to the title menus"
+  chk "exit" "ge: arenamenu: exit the game"
   if grep -q "end screen: Mission Failed" $L; then echo "FAIL the stock report showed"; fail=$((fail+1)); else echo "PASS no stock report"; pass=$((pass+1)); fi
   echo "amenu bat: $pass passed, $fail failed"
   exit 0
@@ -47,8 +47,10 @@ if [ "$2" = coop ]; then   # run.sh <frames> coop: the co-op variant
   chk "co-op picked" "MENUTEST coop pick: screen main cursor 11 preset coop"
   chk "two Bonds" "MENUTEST coop run: 2 Bonds"
   chk "co-op rules on" "ge: arena: co-op ON (2 Bonds)"
+  chk "the menu's bot skill in the run's settings" "flow settings:.*coop_bot_skill=4"
+  chk "the menu's bot skill reached the bot" "ge: arena: coop bot skill 4: reaction 0.18s"
   chk "debrief" "MENUTEST coop postgame: screen postgame"
-  chk "quit" "after the stage: to the title menus"
+  chk "exit" "ge: arenamenu: exit the game"
   echo "amenu coop: $pass passed, $fail failed"
   exit 0
 fi
@@ -65,7 +67,7 @@ chk "retry" "ge: arena: menu: RETRY"
 chk "run 2 fell" "ge: arena: flow finish: FELL"
 chk "post-game 2" "MENUTEST postgame 2: screen postgame"
 chk "change settings" "MENUTEST after: screen main"
-chk "quit to title" "after the stage: to the title menus"
+chk "exit the game" "ge: arenamenu: exit the game"
 chk "the menu has the mouse in the lobby" "MENUTEST boot mouse: menu_up true"
 chk "run 1: the menu let go of the mouse, gameplay owns it" "MENUTEST run 1 mouse: menu_up false gameplay_pointer true captured true"
 chk "run 2 (Retry): likewise" "MENUTEST run 2 mouse: menu_up false gameplay_pointer true captured true"

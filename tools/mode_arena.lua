@@ -31,6 +31,16 @@
 --                 armour_chance (0.25), after other waves; replaces the old armour gift
 --   crowd_impostors  (PC) flat camera-facing pictures of the crowd skins on the spare seats behind the real spectators (1000; 0 = none):
 --                 no chr slots, no sim cost, one draw call. crowd.cheer() raises their arms (wave clear, boss down)
+--   crowd_lod     (PC, presentation only) real spectators farther than this from the camera are drawn as impostors of their own skin
+--                 and pose (arms up while they cheer) in one more batched draw; they stay real chrs for the sim (reactions, the crowd
+--                 favour, shots at the crowd). 0 = always real models. GE_CROWD_LOD=<units> overrides. Needs crowd_impostors > 0 (the atlas)
+--   chr_batch     (PC, presentation only) true: the opaque triangles of spectators, corpses and live enemies are drawn once per draw
+--                 state for the whole view instead of a draw per limb of every chr (thousands of draws at wave 20); the z-buffer
+--                 orders them, so the picture is the same. false = the old way. GE_CHR_BATCH=0/1 overrides
+--   corpse_bake   (PC, presentation only) true: a body that has lain still for 1.5 s is captured once by the renderer and drawn from
+--                 that capture after, instead of being transformed limb by limb every frame (the biggest cost of a late wave). The
+--                 sim still builds it every frame (shots, hit boxes the same). Not while the arena fog is on or for a Whacky-tinted
+--                 body. false = the old way. GE_CORPSE_BAKE=0/1 overrides
 --   crowd         real spectators in the stands, front rows first (150; crowd_real is the same setting); they appear crowd_rate a second (200: the mode ticks 4 times a second, so 50 a tick),
 --                 so a big crowd does not hitch the start. The stage needs the chr slots: GE_COLOSSEUM_SLOTS=<n> (default 600) on a PC that can take 1000+
 --   reactions     the crowd cheers and boos (true; false = only the old wave-clear / boss reactions, no sounds). REACT below has, per
@@ -52,9 +62,29 @@
 --   crowd         (A8) may also be a table { count = 150, favour = true, ... }: count = the real spectators, the rest the crowd favour settings
 --                 (drop A8, _arena_crowd.lua: points, tiers, drift, gifts, the HATED penalty, the emperor's thumb). crowd = { favour = false }
 --                 or crowd_favour = false turns the favour off (on by default in every arena preset)
+--   coop_bot_skill   (co-op, tools/arena_coop.lua) the partner bot's skill, 1..5 (default 4): 1 ROOKIE, 2 AGENT, 3 SECRET AGENT,
+--                 4 00 AGENT, 5 007 (the bot as first built). It presets four knobs; each may be set on its own and wins over the step:
+--                   coop_bot_reaction   seconds before it fires at a target it has just acquired or got back in sight
+--                   coop_bot_aim_error  degrees it aims off the target (a drifting wobble from the bot's own seeded RNG) and of extra
+--                                       fire cone, so it misses more
+--                   coop_bot_turn       degrees a second it turns at most onto a target (pitch half of it)
+--                   coop_bot_range      units it engages from
+--                         step:  1      2      3      4      5
+--                   reaction     0.80   0.55   0.35   0.18   0
+--                   aim_error    9      6      4      2      0
+--                   turn         120    180    240    300    360
+--                   range        3000   3600   4200   4800   5500
+--                 Clamped in C (port_cooplogic.c): reaction 0..3, aim error 0..30, turn 30..1440, range 300..20000. The start menu's
+--                 BOT SKILL row sets coop_bot_skill. Sim state only, so co-op state hashes stay the same run to run
 --   first_wave    test hook: start at this wave;  debug_track / debug_clear_after: test hooks
 --   test_keys     true = the wave-jump hotkeys work (or set GE_ARENA_TESTKEYS=1): PageDown/PageUp = next/back wave and clear the
---                 live enemies, with Shift = start it on top of them (never in co-op or netplay)
+--                 live enemies, with Shift = start it on top of them (never in netplay); End = the fog, Insert = the THUNDERBALL rain,
+--                 Shift+Insert = a lightning strike near Bond now
+--   rain_lightning / rain_strike_min / rain_strike_max / rain_strike_bond / rain_strike_near_min / rain_strike_near /
+--   rain_strike_fuse / rain_strike_blast   THUNDERBALL's lightning (documented with the other rain_* settings at the top of
+--                 mode_arena_mutators.lua): while it rains, a strike every 2..4 s near a character (a Bond 35% of the time, else a
+--                 random live enemy), 100..450 units from his feet, landing 0.6 s after the aim (the point crackles meanwhile) as a
+--                 grenade's explosion with a full-screen flash, a bolt and thunder. Standing still gets you hit; keep moving
 --
 -- Per-Bond safe: it only reads bond.count/pos(p)/dead(p) and hands pickups to every Bond; math.random is the session's.
 
@@ -74,6 +104,9 @@ local S = {
   supplies    = true,
   crowd       = 150,
   crowd_impostors = 1000,
+  crowd_lod   = 2500,     -- (PC, presentation) a real spectator farther than this from the camera is drawn as an impostor (0 = never)
+  chr_batch   = true,     -- (PC, presentation) spectators, corpses and fighters drawn once per draw state, not a draw per limb
+  corpse_bake = true,     -- (PC, presentation) still bodies captured once and redrawn from that
   crowd_rate  = 200,
 
   -- crowd reactions (presentation: the impostors and the sounds; the real spectators' animations follow the same sim events)
@@ -105,6 +138,7 @@ local S = {
     big_hit    = { level = 2, boo = true, secs = 2.0, real = 0.15, sound = "jeer",    vol = 0.55, cooldown = 4.0 },
     low_health = { level = 3, boo = true, secs = 3.0, real = 0.35, sound = "boo",     vol = 0.75, cooldown = 10.0 },
     bond_died  = { level = 6, boo = true, secs = 5.0, real = 0.85, sound = "boo_big", vol = 1.00, cooldown = 0, duck = 0.25 },
+    weather    = { level = 3, boo = true, secs = 3.0, real = 0.40, sound = "boo",     vol = 0.60, cooldown = 0 },   -- the rain starts
   },
 
   corpse_keep  = -1,
@@ -1219,8 +1253,19 @@ end
 local TEST_KEYS = { next = { 1, true }, back = { -1, true }, ["next+"] = { 1, false }, ["back+"] = { -1, false } }
 
 local preview_i = 0
+local ARENA_KEYS = { next = true, back = true, ["next+"] = true, ["back+"] = true, callout = true, ["callout+"] = true, fog = true, rain = true,
+  strike = true }
+local keys_off_said = false
 local function test_key(name)
-  if not (S.test_keys or mode.env_flag("GE_ARENA_TESTKEYS")) then return end
+  if not (S.test_keys or mode.env_flag("GE_ARENA_TESTKEYS")) then
+    -- (once a run) a test key pressed where they are off: say so, instead of nothing at all
+    if ARENA_KEYS[name] and not keys_off_said then
+      keys_off_said = true
+      say("TEST KEYS ARE OFF - USE PLAY ARENA (TEST KEYS)", 3)
+      print(string.format("ge: arena: test key '%s' pressed, but the test keys are off (test_keys / GE_ARENA_TESTKEYS)", name))
+    end
+    return
+  end
   if (name == "callout" or name == "callout+") and type(ARENA_THEME) == "table" and ARENA_THEME.preview_list then
     -- the callout preview (Home / Shift+Home): every chain, streak, event and boss card in turn
     local list = ARENA_THEME.preview_list()
@@ -1228,6 +1273,28 @@ local function test_key(name)
     local e = list[preview_i]
     ARENA_THEME.callout(e[1], e[2], string.format("%s   [%d/%d  L%d]", e[3] or "", preview_i, #list, e[2]))
     print(string.format("ge: arena: TEST callout preview %d/%d: %s (level %d)", preview_i, #list, e[1], e[2]))
+    return
+  end
+  if name == "fog" and arena and arena.fog then
+    -- End: the LOW VISIBILITY fog on / off now (as the mutator sets it), to look at it without waiting for the roll
+    local on = (arena.fog() or 0) > 0
+    arena.fog(on and 0 or (S.mutator_fog_far or 2600), 0x70, 0x70, 0x78)
+    print(string.format("ge: arena: TEST fog %s", on and "off" or "on"))
+    say(on and "TEST: FOG OFF" or "TEST: LOW VISIBILITY", 2)
+    return
+  end
+  if name == "rain" then
+    -- Insert: the RAIN mutator (THUNDERBALL) on / off now, the whole of it (slips, slower enemies from the next spawns, the crowd)
+    local on = MUT.name == "rain"
+    if on then MUT.wave_end("test key") else MUT.apply("rain", wave, {}) end
+    print(string.format("ge: arena: TEST rain %s", on and "off" or "on"))
+    say(on and "TEST: RAIN OFF" or "TEST: THUNDERBALL", 2)
+    return
+  end
+  if name == "strike" then
+    -- Shift+Insert: a THUNDERBALL lightning strike now, near Bond (rain or not): the crackle, then the flash, the bolt and the blast
+    local x, z = ARENA_MUTATORS.strike(true)
+    print(string.format("ge: arena: TEST strike %s", x and string.format("near Bond at (%.0f, %.0f)", x, z) or "refused"))
     return
   end
   local k = TEST_KEYS[name]
@@ -1247,6 +1314,11 @@ ARENA_HOOKS = {
   cheer = cheer,
   say = say,
   counts = function() return #crowd, corpse_n, alive_count(), crowd_fail, crowd_retry end,
+  live = function()   -- the live enemies' chrnums (the rain's slips)
+    local t = {}
+    for _, e in ipairs(E) do if not e.dead_at then t[#t + 1] = e.chr end end
+    return t
+  end,
   -- crowd reactions: react(trigger) fires one now (false = cooling down / held off); reactions() = trigger -> count, animations started;
   -- spectators() = the spectator records ({ chr=, last_react=, last_react_at= }; read only)
   react = react,
@@ -1330,7 +1402,10 @@ on("stage_start", function(stage)
     crowd_pads = front_seats(seats, crowd_count())
     for _, p in ipairs(crowd_pads) do seats_planned[p] = true end
     local nimp = (S.crowd_impostors or 0) > 0 and impostors_set(S.crowd_impostors) or 0
-    print(string.format("ge: arena: crowd %d of %d seats, %d impostors", #crowd_pads, #seats, nimp))
+    local lod = IMPOSTORS and IMPOSTORS.lod and IMPOSTORS.lod(nimp > 0 and S.crowd_lod or 0) or 0   -- (PC, presentation) far spectators as impostors
+    if IMPOSTORS and IMPOSTORS.batch then IMPOSTORS.batch(S.chr_batch and true or false) end        -- (PC, presentation) the chr batch
+    if IMPOSTORS and IMPOSTORS.bake then IMPOSTORS.bake(S.corpse_bake and true or false) end        -- (PC, presentation) baked corpses
+    print(string.format("ge: arena: crowd %d of %d seats, %d impostors, real spectators beyond %d drawn as impostors", #crowd_pads, #seats, nimp, lod))
     if SOUND and S.reactions then   -- load the crowd recordings now (none is fine), so the first cheer does not read the disk
       local parts = {}
       for _, n in ipairs(SOUND_NAMES) do sound_have[n] = SOUND.variants(n); parts[#parts + 1] = n .. " " .. sound_have[n] end

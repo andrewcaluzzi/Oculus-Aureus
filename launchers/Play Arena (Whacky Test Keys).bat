@@ -1,4 +1,5 @@
 @echo off
+setlocal
 rem Whacky arena with test keys and cheats (invincible, all guns). F5 / F6 = next / previous Whacky effect NOW on the live enemies,
 rem F7 = effect off, F8 = the minion launcher (+ rockets: fire it, each rocket hatches tiny knife throwers on your side).
 rem PageDown / PageUp = next / back wave (Shift = stack on the live enemies). Needs Data\baserom.u.z64 (see README.txt).

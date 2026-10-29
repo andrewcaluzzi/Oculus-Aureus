@@ -73,6 +73,20 @@ struct NearFogRecordF eu_loadCurrentNearFog;
  * scenery around them. Computed per environment load; A = -1 disables it. */
 static f32 g_PropFogRegA = -1.0f;
 static f32 g_PropFogRegB = 0.0f;
+
+/* PORT (the arena fog, v0.2): fog positions in thousandths of the depth range as floats, instead of the record's whole numbers. The
+ * arena's fog fades in by sliding its band (start to full, 4 thousandths wide as Jungle's) from past the far plane to its place,
+ * which needs fractions; the record's integers stay as the floor. Set by portFogSetPositionF before fogLoadCurrentEnvironment;
+ * every fogLoadLevelEnvironment clears it, so no stock stage ever uses it. */
+static s32 sPortFogPosF;
+static f32 sPortFogMn, sPortFogMx;
+
+void portFogSetPositionF(s32 on, f32 mn, f32 mx)
+{
+    sPortFogPosF = on && (mx - mn) >= 3.95f;   /* the s16 fog factor 128000 / (mx - mn) */
+    sPortFogMn = mn;
+    sPortFogMx = mx;
+}
 #endif
 
 /**
@@ -340,6 +354,11 @@ void fogLoadCurrentEnvironment(EnvironmentRecord *arg0)
         f32 mn = (f32) arg0->Fog.DifferenceFromFarIntensity;
         f32 mx = (f32) arg0->Fog.FarIntensity;
 
+        if (sPortFogPosF)
+        {
+            mn = sPortFogMn;
+            mx = sPortFogMx;
+        }
         if ((f > n) && (mx > mn) && (n > 0.0f))
         {
             f32 bigF = f / (f - n);
@@ -525,6 +544,7 @@ void fogLoadLevelEnvironment(s32 level_id, s32 arg1)
     sp1C = NULL;
 
 #ifndef TARGET_N64
+    sPortFogPosF = 0;   /* a stage's own environment: the record's whole-number fog positions */
     if (level_id == LEVELID_SHO)
     {
         level_id = LEVELID_SURFACE; /* PORT: Flatland (port/flatland) takes Surface's sky and fog */
@@ -741,6 +761,22 @@ Gfx *fogSetRenderFogColor(Gfx *gdl, s32 arg1)
         return gdl;
     }
 
+#ifndef TARGET_N64
+    if (sPortFogPosF)
+    {   /* the float positions (the arena fog): the same factor gSPFogPosition computes, without its whole-number rounding */
+        f32 fm = 128000.0f / (sPortFogMx - sPortFogMn);
+        f32 fo = ((500.0f - sPortFogMn) * 256.0f) / (sPortFogMx - sPortFogMn);
+
+        if (fm > 32767.0f) fm = 32767.0f;
+        if (fo < -32768.0f) fo = -32768.0f;
+        if (fo > 32767.0f) fo = 32767.0f;
+        gDPSetFogColor(gdl++, g_CurrentEnvironment.Red, g_CurrentEnvironment.Green, g_CurrentEnvironment.Blue, 0xff);
+        gSPFogFactor(gdl++, (s16) fm, (s16) fo);
+        gSPSetGeometryMode(gdl++, G_FOG);
+        gDPSetAlphaDither(gdl++, G_AD_NOISE);
+        return gdl;
+    }
+#endif
     // note: both branches are exactly the same.
     // maybe one has debug code?
     if (arg1)
@@ -814,6 +850,25 @@ NearFogRecord *fogGetNearFogValuesP(void)
 {
     return g_NearFogValuesP;
 }
+
+#ifndef TARGET_N64
+/* PORT (the arena fog, v0.2): the world's fog colour (0..1) and the curve props fog with (fog alpha = a - b / w, w = clip w of the
+ * world projection; see g_PropFogRegA), for what is drawn outside the vertex fog: the arena's impostor crowd (one GL draw) and its
+ * 2D pickup markers. 0 when there is no fog. */
+s32 portFogCurve(f32 *a, f32 *b, f32 rgb[3])
+{
+    if (g_FogSkyIsEnabled == 0 || g_PropFogRegA <= 0.0f)
+    {
+        return 0;
+    }
+    *a = g_PropFogRegA;
+    *b = g_PropFogRegB;
+    rgb[0] = (f32) g_CurrentEnvironment.Red / 255.0f;
+    rgb[1] = (f32) g_CurrentEnvironment.Green / 255.0f;
+    rgb[2] = (f32) g_CurrentEnvironment.Blue / 255.0f;
+    return 1;
+}
+#endif
 
 
 /**

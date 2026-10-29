@@ -3899,6 +3899,12 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
             handptr->weapon_action_state = GUN_ANIM_STATE_DRY_FIRE;
             handptr->field_890 = 0;
             handptr->field_88C = 0;
+#ifndef TARGET_N64
+            {   /* the arena partner bot's dry-fire count (a test counter, port_arenacoop.c) */
+                extern void portArenaCoopNoteDryFire(s32 player);
+                portArenaCoopNoteDryFire(get_cur_playernum());
+            }
+#endif
 
             if ((getPlayerCount() == 1)
 #if defined(VERSION_JP) || defined(VERSION_EU)

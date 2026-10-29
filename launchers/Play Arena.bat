@@ -1,4 +1,5 @@
 @echo off
+setlocal
 rem Colosseum arena: opens the arena's start menu (presets, difficulty, every setting; your last choices are kept in
 rem Data\Saves\arena_menu.ini). A run ends on the post-game: Retry, Change settings, Quit. The other "Play Arena (...)" launchers
 rem skip the menu and start their preset at once (they end on the post-game too). Needs Data\baserom.u.z64 (see README.txt).

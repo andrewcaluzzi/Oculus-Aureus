@@ -24,6 +24,7 @@ static int sRecvHead, sRecvCount;
 static Delayed sDelay[NIO_SEND_CAP];
 static int sDelayCount;
 static unsigned int sLastReliableDue;
+static int sHaveReliableDue;   /* sLastReliableDue is set: netioNowMs() is wall-clock ms on Linux (ms since boot on Windows), so 0 is no "before" */
 static int sLag, sJitter, sLoss;
 
 static int nioInit(void)
@@ -108,8 +109,12 @@ int netioSend(int channel, const void *data, int len)
     d->due = netioNowMs() + (unsigned int) sLag + (sJitter > 0 ? (unsigned int) (rand() % (sJitter + 1)) : 0u);
     if (channel == NETIO_CH_SESSION)
     {
-        if ((int) (d->due - sLastReliableDue) < 0) d->due = sLastReliableDue;   /* reliable stays in order */
+        /* reliable stays in order. Without the flag the first one was compared with 0: whenever the clock's top bit is set
+           (on Linux about 24.9 days of every 49.7) it was moved back to due 0, which never
+           comes due either, and the HELLO and every later session message were held forever ("timed out waiting for HELLO") */
+        if (sHaveReliableDue && (int) (d->due - sLastReliableDue) < 0) d->due = sLastReliableDue;
         sLastReliableDue = d->due;
+        sHaveReliableDue = 1;
     }
     d->p.channel = channel; d->p.len = len; memcpy(d->p.data, data, (size_t) len);
     return 0;

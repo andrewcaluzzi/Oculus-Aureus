@@ -1,4 +1,5 @@
 @echo off
+setlocal
 rem Colosseum arena benchmark, live enemies: no crowd, no corpses; 0 / 25 / 50 / 100 / 200 live soldiers fighting an invulnerable Bond.
 rem Five phases of 30 s plus set-up, about 4 minutes, then the game quits by itself. Writes Data\Logs\arena_bench.txt. Needs Data\baserom.u.z64.
 if not exist "%~dp0Data\baserom.u.z64" (

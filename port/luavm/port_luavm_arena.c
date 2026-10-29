@@ -838,6 +838,12 @@ static int benchExit(lua_State *L)
  *   crowd.cheer(seconds [, fraction])   that share of the impostors (1) raise their arms for about `seconds`, rippling */
 extern int portCrowdSet(const float *xyz, int n, const char *const *skins, int nskins);
 extern void portCrowdCheer(float secs, float frac);
+extern int portLuaBenchHide(lua_State *L);   /* port_luavm_perfcat.c: bench.hide, crowd.lod */
+extern int portLuaCrowdLod(lua_State *L);
+extern int portLuaBenchSummary(lua_State *L);
+extern int portLuaBenchShot(lua_State *L);
+extern int portLuaCrowdBatch(lua_State *L);
+extern int portLuaCrowdBake(lua_State *L);
 
 static int crowdImpostors(lua_State *L)
 {
@@ -1127,6 +1133,59 @@ static int arenaFog(lua_State *L)
     return 1;
 }
 
+/* arena.rain(slip [, grip]) -> ok: the RAIN mutator (port_arenarain.c): slip = Bond's slide time constant in seconds at full rain
+ * (0 = stop: it rolls out), grip = the grenades' landed-slide friction (0.2 .. 1, default 0.5). arena.rain() -> the slip asked for */
+static int arenaRain(lua_State *L)
+{
+    extern int portLuaGameRain(float slip, float grip);
+    extern float portLuaGameRainGet(void);
+
+    needStage(L, "arena.rain");
+    if (lua_isnoneornil(L, 1))
+    {
+        lua_pushnumber(L, portLuaGameRainGet());
+        return 1;
+    }
+    lua_pushboolean(L, portLuaGameRain((float) luaL_checknumber(L, 1), (float) luaL_optnumber(L, 2, 0.5)));
+    return 1;
+}
+
+/* arena.strike(who, dx, dz [, explosion [, fuse]]) -> x, y, z, serial | nil: the RAIN mutator's lightning (port_arenarain.c).
+ * who = a chrnum, or { bond = p } for Bond p; (dx, dz) = the offset from the character's feet (walked along the floor, shorter when a
+ * wall or an edge is in the way); explosion = "small" | "medium" | "grenade" (default) | "remote" or an EXPLOSION_DEF number;
+ * fuse = seconds before it lands (0.6). The flash and the bolt are drawn when it lands; the explosion hurts whoever stands there. */
+static int arenaStrike(lua_State *L)
+{
+    extern int portLuaGameStrike(int who, float dx, float dz, int kind, float fuseSecs, float *ox, float *oy, float *oz);
+    static const char *const kinds[] = { "small", "medium", "grenade", "remote", NULL };
+    static const int ids[] = { 4, 12, 13, 19 };
+    int who, kind = 13, serial;
+    float x, y, z;
+
+    needStage(L, "arena.strike");
+    if (lua_istable(L, 1))
+    {
+        lua_getfield(L, 1, "bond");
+        who = -1 - (int) luaL_checkinteger(L, -1);
+        lua_pop(L, 1);
+    }
+    else
+    {
+        who = (int) luaL_checkinteger(L, 1);
+        if (who < 0) return 0;
+    }
+    if (lua_type(L, 4) == LUA_TSTRING) kind = ids[luaL_checkoption(L, 4, "grenade", kinds)];
+    else if (!lua_isnoneornil(L, 4)) kind = (int) luaL_checkinteger(L, 4);
+    serial = portLuaGameStrike(who, (float) luaL_checknumber(L, 2), (float) luaL_checknumber(L, 3), kind, (float) luaL_optnumber(L, 5, 0.6),
+                               &x, &y, &z);
+    if (serial <= 0) return 0;
+    lua_pushnumber(L, x);
+    lua_pushnumber(L, y);
+    lua_pushnumber(L, z);
+    lua_pushinteger(L, serial);
+    return 4;
+}
+
 static int arenaDebrief(lua_State *L)
 {
     int k, n = 0;
@@ -1195,7 +1254,7 @@ static void portLuaArenaRegisterA7(lua_State *L)
     static const luaL_Reg spawnA7[] = { { "knife_only", arenaSpawnKnifeOnly }, { "scale", arenaSpawnScale }, { "heal", arenaSpawnHeal },
         { "health", arenaSpawnHealth }, { "explode", arenaSpawnExplode }, { NULL, NULL } };
     static const luaL_Reg testA7[] = { { "hurt", arenaSpawnHurt }, { NULL, NULL } };   /* test hooks (modding/lua.md "The test table") */
-    static const luaL_Reg arenaLib[] = { { "fog", arenaFog }, { "debrief", arenaDebrief }, { NULL, NULL } };
+    static const luaL_Reg arenaLib[] = { { "fog", arenaFog }, { "rain", arenaRain }, { "strike", arenaStrike }, { "debrief", arenaDebrief }, { NULL, NULL } };
     static const luaL_Reg scoresLib[] = { { "get", scoresGet }, { "set", scoresSet }, { "all", scoresAll }, { "enabled", scoresEnabled },
         { "path", scoresPath }, { NULL, NULL } };
 
@@ -1231,9 +1290,11 @@ void portLuaArenaRegister(lua_State *L)
 
     static const luaL_Reg benchLib[] = { { "run_start", benchRunStart }, { "note", benchNote }, { "begin", benchBegin },
         { "tag", benchTag }, { "pools", benchPools }, { "finish", benchFinish }, { "look", benchLook }, { "sweep", benchSweep }, { "sweep_off", benchSweepOff }, { "last", benchLast }, { "exit", benchExit },
+        { "hide", portLuaBenchHide }, { "summary", portLuaBenchSummary }, { "shot", portLuaBenchShot },   /* port_luavm_perfcat.c */
         { NULL, NULL } };
 
-    static const luaL_Reg crowdLib[] = { { "impostors", crowdImpostors }, { "cheer", crowdCheer }, { NULL, NULL } };
+    static const luaL_Reg crowdLib[] = { { "impostors", crowdImpostors }, { "cheer", crowdCheer }, { "lod", portLuaCrowdLod }, { "batch", portLuaCrowdBatch },
+        { "bake", portLuaCrowdBake }, { NULL, NULL } };
     static const luaL_Reg soundLib[] = { { "play_file", soundPlayFile }, { "play_any", soundPlayAny }, { "variants", soundVariants },
         { "file_exists", soundExists }, { "stop", soundStop }, { "playing", soundPlaying }, { "play_sfx", soundPlaySfx },
         { "sfx_burst", soundSfxBurst }, { "sfx_names", soundSfxNames }, { "stop_sfx", soundStopSfx }, { "sfx_playing", soundSfxPlaying },

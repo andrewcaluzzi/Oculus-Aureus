@@ -21,7 +21,7 @@ gcc -m32 -std=c11 -O2 -Wall -Werror -Iport/include \
 ./build_tests/modparse_test
 gcc -m32 -std=c11 -O2 -Wall -Werror -Iport/include \
     -o build_tests/cooplogic_test \
-    tests/cooplogic_test.c port/src/port_cooplogic.c
+    tests/cooplogic_test.c port/src/port_cooplogic.c -lm
 ./build_tests/cooplogic_test
 gcc -m32 -std=c11 -O2 -Wall -Werror -Iport/include \
     -o build_tests/netmsg_test \

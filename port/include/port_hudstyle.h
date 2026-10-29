@@ -59,6 +59,10 @@ typedef struct HudLetter { f32 dx, dy, scale, sx; u32 rgba; s32 hide; char ch; f
 typedef void (*HudLetterFn)(s32 i, s32 n, HudLetter *l, void *ud);
 void hudTextLetters(HudCanvas *c, s32 x, s32 y, const char *t, u32 rgba, f32 scale, s32 font, s32 align, s32 fx, u32 dark,
                     HudLetterFn fn, void *ud);
+/* the same layout and fn without drawing: the horizontal span (block units, before the transform) of the letters hudTextLetters would
+ * draw; 0 when none would be. fn is called once per letter as for drawing, so it must not keep state between calls. */
+s32 hudTextLettersExtent(HudCanvas *c, s32 x, s32 y, const char *t, f32 scale, s32 font, s32 align, HudLetterFn fn, void *ud,
+                         f32 *x0, f32 *x1);
 
 /* a filled disc / ring (horizontal spans), centre and radii in the block's units */
 void hudDisc(HudCanvas *c, s32 cx, s32 cy, s32 r, u32 rgba);

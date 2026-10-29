@@ -14,6 +14,7 @@
 
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <ultra64.h>
 
@@ -348,6 +349,7 @@ typedef struct
     u32 seed, col;
     f32 alpha, lineScale;
     f32 shakeX, shakeY;
+    f32 fit;   /* the safe-area fit (calloutFit): the whole line drawn this much smaller about its centre; 0 or 1 = none */
 } CallAnim;
 
 static void letterFx(s32 i, s32 n, HudLetter *l, void *ud)
@@ -474,6 +476,66 @@ static void letterFx(s32 i, s32 n, HudLetter *l, void *ud)
     l->dx += l->ox * (A->lineScale - 1.0f);   /* the line's own scale (slam, pulse) spreads the letters too */
     l->scale *= A->lineScale;
     l->rgba = hudAlpha(l->rgba, A->alpha);
+    if (A->fit > 0.0f && A->fit < 1.0f)
+    {   /* the safe-area fit: positions and sizes about the line's centre */
+        l->dx = (l->ox + l->dx) * A->fit - l->ox;
+        l->scale *= A->fit;
+    }
+}
+
+/* The safe area (AC's 1280x720 playtest: a level-5 "THE WORLD IS NOT ENOUGH" overran both screen edges in a mid-entrance frame of
+ * ZOOM, which starts at 4.5x, and the hold's pulse and shake add a little more). The console space is 480 high and 480 x aspect wide
+ * (video.c portConsoleSpace: 853 at 16:9, 640 at 4:3), so a long line that fits a wide screen can still overrun a 4:3 one. The title
+ * safe area is the middle 90% of the width. calloutFit measures the letters exactly as letterFx will place them on this frame
+ * (hudTextLettersExtent: the same layout and callback, nothing drawn) and returns the factor that brings the wider side inside it,
+ * so a zoom or a slam is held at the largest size that fits and the resting line is never touched when it already fits. The exits
+ * are measured as the hold (q = 0) so FLING and SHATTER still throw the letters off-screen as they fade, at the hold's size. */
+#define CALLOUT_SAFE 0.90f
+
+static f32 calloutSafeHalf(const HudCanvas *c) { return (f32) c->w * CALLOUT_SAFE * 0.5f; }
+
+static f32 calloutFit(HudCanvas *c, s32 cx, s32 cy, f32 base, const CallAnim *A, f32 *needOut)
+{
+    CallAnim M = *A;
+    f32 x0, x1, raw;
+    const f32 half = calloutSafeHalf(c), pad = base + 1.0f;   /* pad: the outline (textFx: ~scale units), which the fit does not scale */
+
+    M.q = 0.0f;
+    M.fit = 1.0f;
+    *needOut = 0.0f;
+    if (!hudTextLettersExtent(c, cx, cy, sCall.text, base, HUD_FONT_ZURICH, HUD_ALIGN_CENTRE, letterFx, &M, &x0, &x1))
+    {
+        return 1.0f;
+    }
+    raw = (f32) cx - x0 > x1 - (f32) cx ? (f32) cx - x0 : x1 - (f32) cx;
+    *needOut = raw + pad;
+    /* (one unit spare for the pixel rounding of each letter's position) */
+    return (raw + pad > half && raw > 0.0f) ? (half - pad - 1.0f) / raw : 1.0f;
+}
+
+/* GE_CALLOUT_FITLOG=1: a line per drawn frame of every callout with the measured span after the fit (tests/arena_a8/callout-fit.sh
+ * checks it never leaves the safe area; =2 logs with the fit off, the before); GE_CALLOUT_ENTRANCE=0..6 forces the entrance
+ * (SLAM SPIN DROP ZOOM SCRAMBLE SPLIT ORBIT) */
+static s32 sFitLog = -1, sForceEn = -2;
+
+static void calloutFitLog(HudCanvas *c, s32 cx, s32 cy, f32 base, const CallAnim *A, f32 need, const char *what)
+{
+    CallAnim M = *A;
+    f32 x0, x1;
+
+    if (A->q > 0.0f && A->ex != EX_SHRINK && A->ex != EX_WIPE)
+    {   /* FLING / SHATTER leave on purpose: log the hold-size line they start from */
+        M.q = 0.0f;
+    }
+    if (hudTextLettersExtent(c, cx, cy, sCall.text, base, HUD_FONT_ZURICH, HUD_ALIGN_CENTRE, letterFx, &M, &x0, &x1))
+    {
+        extern void portConLogf(const char *fmt, ...);
+        const f32 half = calloutSafeHalf(c);
+
+        portConLogf("ge: arena: callout fit: %s lv %d en %d ex %d t %.3f q %.2f need %.1f half %.1f k %.3f span %.1f %.1f safe %.1f %.1f "
+                    "w %d text %s\n", what, A->lv, A->en, A->ex, A->t, A->q, need, half, A->fit, x0 - (base + 1.0f), x1 + (base + 1.0f),
+                    (f32) cx - half, (f32) cx + half, c->w, sCall.text);
+    }
 }
 
 /* radial flare rays behind the text (level 4+), as rows of small squares, turning slowly */
@@ -518,6 +580,18 @@ static void drawCallout(HudCanvas *c)
     A.seed = sCall.seed;
     A.en = kEnter[lv][sCall.seed % kEnterN[lv]];
     A.ex = kExit[lv][(sCall.seed >> 8) % kExitN[lv]];
+    if (sForceEn == -2)
+    {
+        const char *e = getenv("GE_CALLOUT_ENTRANCE"), *g = getenv("GE_CALLOUT_FITLOG");
+
+        sForceEn = (e != NULL && e[0] >= '0' && e[0] < '0' + EN_N) ? e[0] - '0' : -1;
+        sFitLog = (g != NULL && g[0] != '\0' && g[0] != '0') ? (g[0] == '2' ? 2 : 1) : 0;   /* 2: log with the fit off (the before) */
+    }
+    if (sForceEn >= 0)
+    {
+        A.en = sForceEn;
+    }
+    A.fit = 1.0f;
     A.enterSecs = enterSecs;
     A.te = clamp01(t / enterSecs);
     A.hold = t > enterSecs + freeze ? t - enterSecs - freeze : 0.0f;
@@ -542,8 +616,30 @@ static void drawCallout(HudCanvas *c)
     cx = c->w / 2;
     cy = (s32) ((f32) c->h * 0.28f);
     tw = hudTextW(sCall.text, base, HUD_FONT_ZURICH);
+    {   /* a line too wide for the safe area even at rest is set smaller (the bar, flare and gunbarrel follow tw) */
+        const f32 room = 2.0f * (calloutSafeHalf(c) - base - 1.0f);
+
+        if ((f32) tw > room && tw > 0 && sFitLog != 2)
+        {
+            base *= room / (f32) tw;
+            tw = hudTextW(sCall.text, base, HUD_FONT_ZURICH);
+        }
+    }
     th = (f32) hudTextH(base, HUD_FONT_ZURICH);
     pad = 14 + 3 * lv;
+    {
+        f32 need;
+
+        A.fit = calloutFit(c, cx, cy, base, &A, &need);
+        if (sFitLog == 2)
+        {
+            A.fit = 1.0f;
+        }
+        if (sFitLog > 0)
+        {
+            calloutFitLog(c, cx, cy, base, &A, need, "main");
+        }
+    }
 
     /* ---- the top tiers' stage: flash, vignette, gunbarrel ---- */
     if (lv >= 5)
@@ -619,7 +715,19 @@ static void drawCallout(HudCanvas *c)
             B.alpha = A.alpha * (k == 1 ? 0.3f : 0.15f);
             B.shakeX = A.shakeX * 2.0f;
             if (B.t > 0.0f)
-            {
+            {   /* (earlier in the entrance, so larger: its own fit) */
+                f32 need;
+
+                B.fit = 1.0f;
+                B.fit = calloutFit(c, cx, cy, base, &B, &need);
+                if (sFitLog == 2)
+                {
+                    B.fit = 1.0f;
+                }
+                if (sFitLog > 0)
+                {
+                    calloutFitLog(c, cx, cy, base, &B, need, "echo");
+                }
                 hudTextLetters(c, cx, cy, sCall.text, A.col, base, HUD_FONT_ZURICH, HUD_ALIGN_CENTRE, 0, SHADE, letterFx, &B);
             }
         }

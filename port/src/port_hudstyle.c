@@ -251,8 +251,10 @@ void hudText(HudCanvas *c, s32 x, s32 y, const char *t, u32 rgba, f32 scale, s32
 
 /* Each letter of t drawn on its own: the line is laid out at `scale` (left / centre / right on x, top at y), then fn may move, scale,
  * squash, recolour or hide every letter (around its own centre). Spaces keep their place and are never passed to fn. */
-void hudTextLetters(HudCanvas *c, s32 x, s32 y, const char *t, u32 rgba, f32 scale, s32 font, s32 align, s32 fx, u32 dark,
-                    HudLetterFn fn, void *ud)
+/* the layout and fn of hudTextLetters; draws when ext is NULL, else only widens ext (x0, x1 in the block's units) by every letter
+ * that would be drawn */
+static void lettersRun(HudCanvas *c, s32 x, s32 y, const char *t, u32 rgba, f32 scale, s32 font, s32 align, s32 fx, u32 dark,
+                       HudLetterFn fn, void *ud, f32 *ext)
 {
     char pre[64], one[2] = { 0, 0 };
     s32 i, n, total, h;
@@ -302,9 +304,32 @@ void hudTextLetters(HudCanvas *c, s32 x, s32 y, const char *t, u32 rgba, f32 sca
             const f32 s = scale * l.scale;
             const f32 w2 = (f32) lw * l.scale * l.sx * 0.5f, h2 = (f32) h * l.scale * 0.5f;
 
+            if (ext != NULL)
+            {
+                if (cx - w2 < ext[0]) ext[0] = cx - w2;
+                if (cx + w2 > ext[1]) ext[1] = cx + w2;
+                continue;
+            }
             textFx(c, TX(c, (s32) (cx - w2)), TY(c, (s32) (cy - h2)), one, l.rgba, s * c->s, l.sx, font, fx, dark);
         }
     }
+}
+
+void hudTextLetters(HudCanvas *c, s32 x, s32 y, const char *t, u32 rgba, f32 scale, s32 font, s32 align, s32 fx, u32 dark,
+                    HudLetterFn fn, void *ud)
+{
+    lettersRun(c, x, y, t, rgba, scale, font, align, fx, dark, fn, ud, NULL);
+}
+
+s32 hudTextLettersExtent(HudCanvas *c, s32 x, s32 y, const char *t, f32 scale, s32 font, s32 align, HudLetterFn fn, void *ud,
+                         f32 *x0, f32 *x1)
+{
+    f32 ext[2] = { 1.0e9f, -1.0e9f };
+
+    lettersRun(c, x, y, t, 0xFFFFFFFFu, scale, font, align, 0, 0, fn, ud, ext);
+    *x0 = ext[0];
+    *x1 = ext[1];
+    return ext[1] >= ext[0];
 }
 
 u32 hudAlpha(u32 rgba, f32 a)

@@ -1,4 +1,5 @@
 /* cooplogic_test.c - unit tests for the pure co-op rules in port_cooplogic.c. */
+#include <math.h>
 #include <stdio.h>
 #include "port_cooplogic.h"
 
@@ -198,8 +199,116 @@ static void test_escort(void)
     CHECK(portCoopEscortPick(2, d, dead, has, 0, 0, 0.7f, 180) == 0);             /* nobody lives: first present */
 }
 
+/* the partner bot's line of fire: gun at the origin, target 1000 ahead on +z, body radius 45, no spread unless given */
+static void test_shot_blocked(void)
+{
+    /* on the line, halfway: blocked */
+    CHECK(portCoopShotBlocked(0, 0, 0, 0, 0, 1000, 0, 0, 500, 45.0f, 0.0f, 250.0f) == 1);
+    /* 40 to the side (inside the body radius): blocked; 60 to the side: clear */
+    CHECK(portCoopShotBlocked(0, 0, 0, 0, 0, 1000, 40, 0, 500, 45.0f, 0.0f, 250.0f) == 1);
+    CHECK(portCoopShotBlocked(0, 0, 0, 0, 0, 1000, 60, 0, 500, 45.0f, 0.0f, 250.0f) == 0);
+    /* a spraying gun widens it with the distance: 60 to the side at 500 is in the way with spread 0.1 (margin 95), not at 50 (margin 50) */
+    CHECK(portCoopShotBlocked(0, 0, 0, 0, 0, 1000, 60, 0, 500, 45.0f, 0.1f, 250.0f) == 1);
+    CHECK(portCoopShotBlocked(0, 0, 0, 0, 0, 1000, 60, 0, 50, 45.0f, 0.1f, 250.0f) == 0);
+    /* behind the gun, beyond the target: clear (only a body nearer than the target is in the way) */
+    CHECK(portCoopShotBlocked(0, 0, 0, 0, 0, 1000, 0, 0, -200, 45.0f, 0.1f, 250.0f) == 0);
+    CHECK(portCoopShotBlocked(0, 0, 0, 0, 0, 1000, 0, 0, 1200, 45.0f, 0.1f, 250.0f) == 0);
+    /* on a floor far above or below the line: clear */
+    CHECK(portCoopShotBlocked(0, 0, 0, 0, 0, 1000, 0, 400, 500, 45.0f, 0.0f, 250.0f) == 0);
+    CHECK(portCoopShotBlocked(0, 0, 0, 0, 0, 1000, 0, -400, 500, 45.0f, 0.0f, 250.0f) == 0);
+    /* the line's height follows a pitched shot: a target 400 up, the body halfway and 200 up is in it */
+    CHECK(portCoopShotBlocked(0, 0, 0, 0, 400, 1000, 0, 200, 500, 45.0f, 0.0f, 100.0f) == 1);
+    /* any direction (not only +z): target on the diagonal, body on it */
+    CHECK(portCoopShotBlocked(100, 0, 100, 800, 0, 800, 450, 0, 450, 45.0f, 0.0f, 250.0f) == 1);
+    CHECK(portCoopShotBlocked(100, 0, 100, 800, 0, 800, 450, 0, 600, 45.0f, 0.0f, 250.0f) == 0);
+    /* no line (target on the gun): clear */
+    CHECK(portCoopShotBlocked(0, 0, 0, 0, 0, 0, 0, 0, 0, 45.0f, 0.0f, 250.0f) == 0);
+}
+
+/* the partner bot's trigger: never on an empty magazine (no dry-fire), never with a partner in the way */
+static void test_bot_trigger(void)
+{
+    CHECK(portCoopBotTrigger(1, 1, 7, 0) == 1);   /* a loaded gun, clear line */
+    CHECK(portCoopBotTrigger(0, 1, 7, 0) == 0);   /* does not want to */
+    CHECK(portCoopBotTrigger(1, 1, 0, 0) == 0);   /* empty magazine: release, the reload starts */
+    CHECK(portCoopBotTrigger(1, 1, -1, 0) == 0);
+    CHECK(portCoopBotTrigger(1, 1, 7, 1) == 0);   /* a partner in the line of fire */
+    CHECK(portCoopBotTrigger(1, 0, 0, 0) == 1);   /* melee: no magazine */
+    CHECK(portCoopBotTrigger(1, 0, 0, 1) == 0);
+}
+
+/* the partner bot's skill: step 5 is the bot as it was built; lower steps are worse in every knob; clamping; the reaction gate */
+static void test_bot_skill(void)
+{
+    PortCoopBotSkill k, p;
+    int s, left, n;
+
+    portCoopBotSkillPreset(5, &k);   /* exactly the old constants: no delay, no aim error, 6000 milli-degrees a tick, 5500 */
+    CHECK(k.reaction == 0.0f && k.aimError == 0.0f && k.turn == 360.0f && k.range == 5500.0f);
+    CHECK(k.turn * 1000.0f / 60.0f == 6000.0f && k.turn * 1000.0f / 120.0f == 3000.0f);
+    portCoopBotSkillPreset(1, &k);
+    CHECK(fabsf(k.reaction - 0.80f) < 1e-6f && k.aimError == 9.0f && k.turn == 120.0f && k.range == 3000.0f);   /* (x87: 0.80f is not exact) */
+    for (s = 2; s <= 5; s++) {   /* each step better than the last */
+        portCoopBotSkillPreset(s - 1, &p);
+        portCoopBotSkillPreset(s, &k);
+        CHECK(k.reaction < p.reaction && k.aimError < p.aimError && k.turn > p.turn && k.range > p.range);
+    }
+    portCoopBotSkillPreset(0, &k);   /* out of range clamps */
+    portCoopBotSkillPreset(1, &p);
+    CHECK(k.reaction == p.reaction && k.range == p.range);
+    portCoopBotSkillPreset(99, &k);
+    CHECK(k.reaction == 0.0f && k.range == 5500.0f);
+    k.reaction = -1.0f; k.aimError = 1000.0f; k.turn = 0.0f; k.range = 1e9f;
+    portCoopBotSkillClamp(&k);
+    CHECK(k.reaction == 0.0f && k.aimError == 30.0f && k.turn == 30.0f && k.range == 20000.0f);
+    k.reaction = NAN; k.aimError = NAN; k.turn = NAN; k.range = NAN;
+    portCoopBotSkillClamp(&k);
+    CHECK(k.reaction == 0.0f && k.aimError == 0.0f && k.turn == 360.0f && k.range == 5500.0f);
+    k.reaction = 0.5f; k.aimError = 3.0f; k.turn = 200.0f; k.range = 4000.0f;   /* in range: kept */
+    portCoopBotSkillClamp(&k);
+    CHECK(fabsf(k.reaction - 0.5f) < 1e-6f && k.aimError == 3.0f && k.turn == 200.0f && k.range == 4000.0f);
+
+    /* no reaction time: ready at once, always */
+    left = 0;
+    CHECK(portCoopBotReact(1, 1, 0, &left) == 1);
+    CHECK(portCoopBotReact(0, 1, 0, &left) == 1);
+    CHECK(portCoopBotReact(0, 0, 0, &left) == 1);
+    /* 10 ticks: it fires on the 11th visible tick after the acquisition; out of sight the countdown waits */
+    left = 0;
+    CHECK(portCoopBotReact(1, 1, 10, &left) == 0);
+    for (n = 1; n < 10; n++) {
+        CHECK(portCoopBotReact(0, n != 5, 10, &left) == 0);   /* (tick 5 out of sight: no count) */
+    }
+    CHECK(portCoopBotReact(0, 1, 10, &left) == 0);
+    CHECK(portCoopBotReact(0, 1, 10, &left) == 1);
+    CHECK(portCoopBotReact(0, 1, 10, &left) == 1);
+    CHECK(portCoopBotReact(1, 1, 10, &left) == 0);   /* a new target: again */
+
+    /* the aim roll: inside [-amp, amp], both signs, 0 without an amplitude */
+    {
+        unsigned x = 12345u;
+        int neg = 0, pos = 0, inside = 1;
+
+        for (n = 0; n < 1000; n++) {
+            float a;
+
+            x ^= x << 13; x ^= x >> 17; x ^= x << 5;
+            a = portCoopBotAimRoll(x, 9.0f);
+            if (a < -9.0f || a > 9.0f) inside = 0;
+            if (a < -4.0f) neg++;
+            if (a > 4.0f) pos++;
+        }
+        CHECK(inside && neg > 200 && pos > 200);
+        CHECK(portCoopBotAimRoll(0xFFFFFFFFu, 9.0f) <= 9.0f && portCoopBotAimRoll(0u, 9.0f) >= -9.0f);
+        CHECK(portCoopBotAimRoll(0xDEADBEEFu, 0.0f) == 0.0f && portCoopBotAimRoll(0xDEADBEEFu, -1.0f) == 0.0f);
+    }
+}
+
 int main(void)
 {
+    test_shot_blocked();
+    test_bot_trigger();
+    test_bot_skill();
     test_escort();
     test_nearest_basic();
     test_nearest_tie_lower_index();

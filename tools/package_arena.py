@@ -26,7 +26,7 @@ import argparse, datetime, os, re, shutil, subprocess, sys, zipfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LAUNCHERS = ["Play Arena.bat", "Play Arena (Endless).bat", "Play Arena (Chaos).bat", "Play Arena (Chaos Endless).bat",
              "Play Arena (Co-op).bat", "Play Arena (Co-op Chaos).bat", "Play Arena (Whacky).bat", "Play Arena (Test Keys).bat",
-             "Play Arena (Whacky Test Keys).bat", "Arena Benchmark.bat", "Arena Benchmark (Live).bat"]
+             "Play Arena (Whacky Test Keys).bat", "Arena Benchmark.bat", "Arena Benchmark (Live).bat", "Arena Benchmark (Late Waves).bat"]
 TOP = ["ProjectMidas.exe", "SDL2.dll", "gamecontrollerdb.txt", "gamecontrollerdefault.txt", "midas_ini_help.txt"]
 MODES = ["arena.lua", "arena-endless.lua", "arena-chaos.lua", "arena-chaos-endless.lua", "arena-coop.lua", "arena-coop-chaos.lua",
          "_arena_polish.lua", "_arena_mutators.lua", "_arena_elites.lua", "_arena_scores.lua", "_arena_coop.lua", "_arena_crowd.lua",
@@ -35,13 +35,14 @@ MODES = ["arena.lua", "arena-endless.lua", "arena-chaos.lua", "arena-chaos-endle
 FROM_REPO = {"README-FORK.md": "README-FORK.md", "LICENSE": "LICENSE.txt", "tools/THIRD_PARTY_NOTICES.txt": "THIRD_PARTY_NOTICES.txt",
              "tools/Data_README.txt": "Data/README.txt", "tools/Mods_README.txt": "Mods/README.txt",
              "tools/Sounds_README.txt": "Data/Sounds/README.txt"}
-# Cheats never ship in a play launcher. The allowlist is exactly these four launchers with exactly these lines: the two test-keys
-# launchers (invuln + guns) and the two benchmarks (invuln, so a measurement run cannot end early). Anything else, including one of
-# these four with another cheat line, refuses the package.
+# Cheats never ship in a play launcher. The allowlist is exactly these five launchers with exactly these lines: the two test-keys
+# launchers (invuln + guns) and the three benchmarks (invuln, so a measurement run cannot end early). Anything else, including one of
+# these five with another cheat line, refuses the package.
 CHEATS_OK = {"Play Arena (Test Keys).bat": "set GE_CHEATS=invuln,guns",
              "Play Arena (Whacky Test Keys).bat": "set GE_CHEATS=invuln,guns",
              "Arena Benchmark.bat": "set GE_CHEATS=invuln",
-             "Arena Benchmark (Live).bat": "set GE_CHEATS=invuln"}
+             "Arena Benchmark (Live).bat": "set GE_CHEATS=invuln",
+             "Arena Benchmark (Late Waves).bat": "set GE_CHEATS=invuln"}
 # cheat-like settings: the environment switches, and Lua settings defaults that would make Bond unkillable or hand out everything
 CHEAT_ENV = re.compile(r"\b(GE_CHEATS|GE_COOP_GOD|GE_ARENA_GOD|GE_GOD|GE_INVULN)\b", re.I)
 CHEAT_LUA = re.compile(r"\b(invuln|invulnerable|invincible|god|godmode|god_mode|cheats|all_guns|infinite_health|no_damage)\s*=\s*"

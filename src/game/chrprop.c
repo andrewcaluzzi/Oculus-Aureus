@@ -439,6 +439,15 @@ void chrpropDetach(PropRecord* prop) {
 Gfx *chrpropRender(Gfx * gdl, PropRecord *prop, s32 withalpha)
 {
     u8 type;
+#ifndef TARGET_N64
+    /* PORT: render-cost tags, the chr batch, far spectators as impostors, baked corpses (port_perfcat.c, presentation: the
+     * prop is still built in full; only the commands handed to the renderer change) */
+    extern Gfx *portPerfPropBegin(Gfx *gdl, PropRecord *prop, s32 withalpha);
+    extern Gfx *portPerfPropEnd(Gfx *start, Gfx *gdl, PropRecord *prop, s32 withalpha);
+    Gfx *portPerf0 = gdl;
+
+    gdl = portPerfPropBegin(gdl, prop, withalpha);
+#endif
 
     type = prop->type;
 
@@ -469,6 +478,9 @@ Gfx *chrpropRender(Gfx * gdl, PropRecord *prop, s32 withalpha)
         if (withalpha) PORT_DXLU_GROUP(gdl, 0);
     }
 
+#ifndef TARGET_N64
+    gdl = portPerfPropEnd(portPerf0, gdl, prop, withalpha);
+#endif
     return gdl;
 }
 

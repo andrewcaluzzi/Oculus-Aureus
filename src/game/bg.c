@@ -4025,6 +4025,13 @@ void bgLoadRoomModelData(s32 roomID)
         }
     }
 
+#ifndef TARGET_N64
+    {   /* the fog state these lists were patched for (port_roomfog.c re-patches them if the fog changes mid-stage) */
+        extern void portRoomFogLoaded(s32 room, s32 fog);
+
+        portRoomFogLoaded(roomID, g_FogSkyIsEnabled);
+    }
+#endif
     bgBuildRoomVtxBounds(roomID);
     roomsHandleStateDebugging();
 
@@ -4207,6 +4214,13 @@ Gfx *bgRenderRoomPrimary(Gfx *gdl, s32 room_index)
 #endif
         else
         {
+#ifndef TARGET_N64
+            {   /* the arena turns fog on / off mid-stage: bring a room loaded under the other state to this one (port_roomfog.c) */
+                extern void portRoomFogSync(s32 room);
+
+                portRoomFogSync(room_index);
+            }
+#endif
             gdl = applyRoomMatrixToDisplayList(gdl, room_index);
 
             gSPSegment(gdl++, SPSEGMENT_BG_VTX, OS_K0_TO_PHYSICAL(g_BgRoomInfo[room_index].vertices));

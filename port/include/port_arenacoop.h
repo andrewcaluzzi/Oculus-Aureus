@@ -19,6 +19,13 @@ typedef struct {
     float grace;         /* seconds of no damage after a revive */
     int   bleedout;      /* PORT_AC_BLEED_* */
     int   debug;         /* bot / rule debug log */
+    /* the partner bot's skill (port_cooplogic.h PortCoopBotSkill): a step 1..5 (5 = the bot as built), and its knobs; a negative
+     * knob takes the step's value. The game half clamps them. */
+    int   botSkill;
+    float botReaction;   /* seconds before it fires at a newly acquired target */
+    float botAimError;   /* degrees of aim wobble and extra fire cone */
+    float botTurn;       /* degrees a second it turns at most */
+    float botRange;      /* units it engages from */
 } PortArenaCoopRules;
 
 /* engine hooks (port_coop.c, bondview2.c) */
@@ -42,6 +49,8 @@ int  portLuaGameCoopKill(int player);                                        /* 
 int  portLuaGameCoopBot(int on);                                             /* the puppet Bond is driven by the arena bot */
 int  portLuaGameCoopBotGoal(int player, int set, float x, float z);         /* a point the bot walks to (ammo, armour); set 0 clears */
 int  portLuaGameCoopBotInfo(int player, int *target, const char **act, int *ammo, int *weapon, int *shots);
+/* the bot's test counters: empty-gun clicks of that Bond's gun, ticks it held fire with another Bond in the line of fire */
+int  portLuaGameCoopBotStats(int player, int *dry, int *blocked);
 void portLuaGameCoopCounts(int *downs, int *revives, int *bleedouts);
 
 #endif

@@ -10821,7 +10821,22 @@ void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
                 ) * g_GlobalTimerDelta * 10.0f;
         }
 
+#ifndef TARGET_N64
+        {   /* PORT: the arena's RAIN mutator (port_arenarain.c): the walk slips (a no-op unless it rains in a Lua mode) */
+            extern void portArenaRainSlip(s32 p, f32 *dx, f32 *dz, f32 delta);
+
+            portArenaRainSlip(get_cur_playernum(), &move_offset.f[0], &move_offset.f[2], g_GlobalTimerDelta);
+        }
+#endif
         bondviewCalcUpdatePlayerCollision(&move_offset, (g_CurrentPlayer->swaytarget == 0.0f));
+#ifndef TARGET_N64
+        {   /* ... and what the collision let through is the slide's velocity now (a wall stops it) */
+            extern void portArenaRainSlipAfter(s32 p, f32 movedx, f32 movedz, f32 delta);
+
+            portArenaRainSlipAfter(get_cur_playernum(), g_CurrentPlayer->field_488.collision_position.f[0] - start_collision_pos_x,
+                                   g_CurrentPlayer->field_488.collision_position.f[2] - start_collision_pos_z, g_GlobalTimerDelta);
+        }
+#endif
 
         stanTileDistanceRelated(
             &sp200,

@@ -2061,6 +2061,26 @@ static GlRetainedProgram* gl_ret_bound = nullptr;
 static int gl_ret_cull_mode = -1;            /* GE_ROCGL_CULL: 0 off, 1 front = CW, 2 front = CCW (default: shot-proven) */
 static unsigned gl_ret_dbg_draws = 0, gl_ret_dbg_tris = 0;
 
+/* GE arena baked corpses (gfx_corpsebake.inl): their triangles were captured with the CPU cull skipped, so the GPU culls them,
+ * the retained geometry's way (front = CCW). cull_bits = the G_CULL_* bits at capture, 0 = off (and back to the interpreter's
+ * state: no GL culling). GE_BAKE_CULL=0 never culls (both faces drawn), 1 front = CW, 2 front = CCW (default). */
+extern "C" void gfx_opengl_bake_cull(uint32_t cull_bits, int invert_y) {
+    static int mode = -1;
+    if (mode < 0) {
+        const char* e = getenv("GE_BAKE_CULL");
+        mode = e ? atoi(e) : 2;
+    }
+    const int want = mode != 0 ? (int) (cull_bits & (uint32_t) G_CULL_BOTH) : 0;
+    if (want != 0) {
+        glEnable(GL_CULL_FACE);
+        glFrontFace(((mode == 2) != (invert_y != 0)) ? GL_CCW : GL_CW);   /* a y-flipped target mirrors the winding */
+        glCullFace(want == G_CULL_BOTH ? GL_FRONT_AND_BACK : (want & G_CULL_FRONT) ? GL_FRONT : GL_BACK);
+    } else {
+        glDisable(GL_CULL_FACE);
+    }
+    gl_ret_cull_state = want;
+}
+
 /* back to the interpreter's state: its VBO, its program's attribute arrays */
 static void gl_ret_restore(void) {
     if (!gl_ret_active) {
@@ -3083,9 +3103,10 @@ static void gfx_opengl_resolve_n64_aa(int fb_dst, int fb_src) {
 
 /* ==== GE arena crowd (gfx_crowd.h): the impostor atlas and its one batched draw ==== */
 #include "gfx_crowd.h"
-static GLuint crowd_tex = 0, crowd_prog = 0, crowd_vao = 0, crowd_vbo = 0;
+static GLuint crowd_tex = 0, crowd_prog = 0, crowd_vaos[2] = { 0, 0 }, crowd_vbos[2] = { 0, 0 };   /* [1]: far real spectators */
 static GLint cu_mvp = -1, cu_fix = -1, cu_right = -1, cu_box = -1, cu_now = -1, cu_flip = -1, cu_tint = -1, cu_tex = -1;
-static int crowd_ver = -1, crowd_verts = 0;
+static GLint cu_fog = -1, cu_fogab = -1;   /* the arena fog (gfx_crowd.h CrowdFrame.fog / fogab) */
+static int crowd_vers[2] = { -1, -1 }, crowd_nverts[2] = { 0, 0 };
 static bool crowd_failed = false;
 static size_t crowd_saved_fb_id = 0;
 static float crowd_saved_noise = 1.0f;
@@ -3192,11 +3213,12 @@ static bool crowd_init(void) {
     std::string vs = std::string(hdr) +
         "in vec3 aPos;\nin vec2 aCorner;\nin vec3 aInfo;\n"
         "uniform mat4 uMvp;\nuniform vec2 uFix;\nuniform vec2 uRight;\nuniform vec3 uBox;\nuniform float uNow;\nuniform float uFlip;\n"
-        "out vec2 vUv;\n"
+        "out vec2 vUv;\nout float vW;\n"
         "void main() {\n"
         "    vec3 p = aPos + vec3(uRight.x, 0.0, uRight.y) * (aCorner.x * uBox.x);\n"
         "    p.y += uBox.y + aCorner.y * uBox.z;\n"
         "    vec4 c = uMvp * vec4(p, 1.0);\n"
+        "    vW = c.w;\n"
         "    c.x = c.x * uFix.x + uFix.y * c.w;\n"
         "    c.y *= uFlip;\n"
         "    float cell = aInfo.x + ((uNow >= aInfo.y && uNow < aInfo.z) ? 16.0 : 0.0);\n"
@@ -3205,11 +3227,13 @@ static bool crowd_init(void) {
         "    gl_Position = c;\n"
         "}\n";
     std::string fs = std::string(hdr) +
-        "in vec2 vUv;\nuniform sampler2D uTex;\nuniform vec4 uTint;\nout vec4 outColor;\n"
+        "in vec2 vUv;\nin float vW;\nuniform sampler2D uTex;\nuniform vec4 uTint;\nuniform vec4 uFog;\nuniform vec2 uFogAB;\nout vec4 outColor;\n"
         "void main() {\n"
         "    vec4 t = texture(uTex, vUv);\n"
         "    if (t.a < 0.5) discard;\n"
-        "    outColor = vec4(mix(t.rgb, uTint.rgb, uTint.a), 1.0);\n"
+        "    vec3 rgb = mix(t.rgb, uTint.rgb, uTint.a);\n"
+        "    if (uFog.a > 0.5) rgb = mix(rgb, uFog.rgb, clamp(uFogAB.x - uFogAB.y / max(vW, 0.001), 0.0, 1.0));\n"
+        "    outColor = vec4(rgb, 1.0);\n"
         "}\n";
     crowd_prog = vi_compile(vs.c_str(), fs.c_str());
     if (crowd_prog == 0) {
@@ -3224,17 +3248,21 @@ static bool crowd_init(void) {
     cu_flip = glGetUniformLocation(crowd_prog, "uFlip");
     cu_tint = glGetUniformLocation(crowd_prog, "uTint");
     cu_tex = glGetUniformLocation(crowd_prog, "uTex");
-    glGenVertexArrays(1, &crowd_vao);
-    glGenBuffers(1, &crowd_vbo);
-    glBindVertexArray(crowd_vao);
-    glBindBuffer(GL_ARRAY_BUFFER, crowd_vbo);
-    const char* names[3] = { "aPos", "aCorner", "aInfo" };
-    const int sizes[3] = { 3, 2, 3 }, offs[3] = { 0, 3, 5 };
-    for (int i = 0; i < 3; i++) {
-        GLint loc = glGetAttribLocation(crowd_prog, names[i]);
-        if (loc >= 0) {
-            glEnableVertexAttribArray(loc);
-            glVertexAttribPointer(loc, sizes[i], GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*) (offs[i] * sizeof(float)));
+    cu_fog = glGetUniformLocation(crowd_prog, "uFog");
+    cu_fogab = glGetUniformLocation(crowd_prog, "uFogAB");
+    glGenVertexArrays(2, crowd_vaos);
+    glGenBuffers(2, crowd_vbos);
+    for (int s = 0; s < 2; s++) {
+        glBindVertexArray(crowd_vaos[s]);
+        glBindBuffer(GL_ARRAY_BUFFER, crowd_vbos[s]);
+        const char* names[3] = { "aPos", "aCorner", "aInfo" };
+        const int sizes[3] = { 3, 2, 3 }, offs[3] = { 0, 3, 5 };
+        for (int i = 0; i < 3; i++) {
+            GLint loc = glGetAttribLocation(crowd_prog, names[i]);
+            if (loc >= 0) {
+                glEnableVertexAttribArray(loc);
+                glVertexAttribPointer(loc, sizes[i], GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*) (offs[i] * sizeof(float)));
+            }
         }
     }
     glBindVertexArray((gl_core_profile || gl_es) ? opengl_vao : 0);
@@ -3245,9 +3273,10 @@ static bool crowd_init(void) {
 /* every impostor in one draw: cylindrical billboards, alpha-tested, depth-tested and written like opaque geometry */
 extern "C" void gfx_opengl_crowd_draw(const CrowdFrame* f, const float fix[2], int invert_y) {
     if (f == NULL || f->n <= 0 || crowd_tex == 0 || !crowd_init()) return;
-    glBindVertexArray(crowd_vao);
-    glBindBuffer(GL_ARRAY_BUFFER, crowd_vbo);
-    if (f->version != crowd_ver) {
+    const int slot = f->slot == 1 ? 1 : 0;
+    glBindVertexArray(crowd_vaos[slot]);
+    glBindBuffer(GL_ARRAY_BUFFER, crowd_vbos[slot]);
+    if (slot == 1 || f->version != crowd_vers[slot]) {
         static const float corner[6][2] = { { -1, 0 }, { 1, 0 }, { 1, 1 }, { -1, 0 }, { 1, 1 }, { -1, 1 } };
         std::vector<float> v((size_t) f->n * 6 * 8);
         for (int i = 0; i < f->n; i++) {
@@ -3259,9 +3288,9 @@ extern "C" void gfx_opengl_crowd_draw(const CrowdFrame* f, const float fix[2], i
                 o[5] = c.skin; o[6] = c.t0; o[7] = c.t1;
             }
         }
-        glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr) (v.size() * sizeof(float)), v.data(), GL_STATIC_DRAW);
-        crowd_ver = f->version;
-        crowd_verts = f->n * 6;
+        glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr) (v.size() * sizeof(float)), v.data(), slot == 1 ? GL_STREAM_DRAW : GL_STATIC_DRAW);
+        crowd_vers[slot] = f->version;
+        crowd_nverts[slot] = f->n * 6;
     }
     glUseProgram(crowd_prog);
     glUniformMatrix4fv(cu_mvp, 1, GL_FALSE, f->mvp);
@@ -3271,6 +3300,8 @@ extern "C" void gfx_opengl_crowd_draw(const CrowdFrame* f, const float fix[2], i
     glUniform1f(cu_now, f->now);
     glUniform1f(cu_flip, invert_y ? -1.0f : 1.0f);
     glUniform4f(cu_tint, f->tint[0], f->tint[1], f->tint[2], f->tint[3]);
+    glUniform4f(cu_fog, f->fog[0], f->fog[1], f->fog[2], f->fog[3]);
+    glUniform2f(cu_fogab, f->fogab[0], f->fogab[1]);
     glUniform1i(cu_tex, 7);
     glActiveTexture(GL_TEXTURE7);
     glBindTexture(GL_TEXTURE_2D, crowd_tex);
@@ -3281,7 +3312,7 @@ extern "C" void gfx_opengl_crowd_draw(const CrowdFrame* f, const float fix[2], i
     glDepthFunc(GL_LESS);
     glDepthMask(GL_TRUE);
     glDisable(GL_POLYGON_OFFSET_FILL);
-    glDrawArrays(GL_TRIANGLES, 0, crowd_verts);
+    glDrawArrays(GL_TRIANGLES, 0, crowd_nverts[slot]);
     /* put back everything Fast3D believes is bound, so its caches stay true: blend, cull, depth (test, func, mask,
      * polygon offset), the active unit, VAO + array buffer, and the program with its uniforms */
     if (blend) glEnable(GL_BLEND);
