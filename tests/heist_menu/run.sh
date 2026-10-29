@@ -2,7 +2,7 @@
 # The heist start menu / debrief test inside the build container (Xvfb on :99, build_pc): see hm_drive.lua for the flow.
 # usage: run.sh [frames] [casino]   (log: build_tests/heist_menu/drive.log or casino.log, shots: build_tests/heist_menu/shots/*.bmp)
 # Checks at the end: two runs started with identical settings, a win and a fail reached the debrief, the menu came back with the
-# run's settings, the quit reached the title menus, no stock report; the casino variant: the lobby moved to the casino at runtime and
+# run's settings, EXIT closed the game, no stock report; the casino variant: the lobby moved to the casino at runtime and
 # a casino job ended on its debrief.
 P=/home/dev/project
 OUT=$P/build_tests/heist_menu
@@ -42,7 +42,7 @@ if [ "$2" = casino ]; then
   chk "back to the bank after the casino" "MENUTEST bank again: page main .* level bank"
   n=$(grep -c "the levelgen slot holds" $L)
   if [ "$n" -ge 5 ]; then echo "PASS five level loads (bank, casino, casino, casino, bank): $n"; pass=$((pass+1)); else echo "FAIL level loads $n"; fail=$((fail+1)); fi
-  chk "quit" "after the stage: to the title menus"
+  chk "exit" "ge: ui: exit the game"
   if grep -q "end screen: Mission Failed" $L; then echo "FAIL the stock report showed"; fail=$((fail+1)); else echo "PASS no stock report"; pass=$((pass+1)); fi
   if grep -q "ge: lua: .*error" $L; then echo "FAIL a Lua error"; grep "ge: lua: .*error" $L | head -3; fail=$((fail+1)); else echo "PASS no Lua errors"; pass=$((pass+1)); fi
   echo "heist_menu casino: $pass passed, $fail failed"
@@ -68,7 +68,7 @@ chk "run 2 (seq 3: the lobby's own launch is seq 2)" "MENUTEST run seq 3 (heist_
 chk "run 2 busted" "flow finish: BUSTED"
 chk "the debrief after the fail" "MENUTEST debrief 2: page debrief"
 chk "NEW JOB: the briefing" "MENUTEST after: page main"
-chk "quit to title" "after the stage: to the title menus"
+chk "exit the game" "ge: ui: exit the game"
 n=$(grep -c "ge: heist: flow settings:" $L)
 u=$(grep "ge: heist: flow settings:" $L | sort -u | wc -l)
 if [ "$n" = 2 ] && [ "$u" = 1 ]; then echo "PASS two runs, same settings"; pass=$((pass+1)); else echo "FAIL runs $n, distinct settings $u"; fail=$((fail+1)); fi

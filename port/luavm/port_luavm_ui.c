@@ -9,6 +9,7 @@
  *   ui.arm{...}                       the same launch, for when this stage ends by itself (a run: the win, the fail, an abort)
  *   ui.disarm()                       nothing after this stage (the stock report)
  *   ui.quit() -> bool                 end this stage and go to the Files screen
+ *   ui.exit() -> bool                 close the game (the window's close box)
  *   ui.current() -> t | nil           what this stage was launched with by the hand-off (the fields above, + seq: launches so far);
  *                                     nil = a plain launch (a launcher, the Mods page)
  *   ui.retry([t]) -> t | nil          the last run's own launch (set by the run, read by the debrief)
@@ -34,6 +35,8 @@
 extern int portNetActive(void);
 extern int portModeActive(void);
 extern int portUiEnvKeyOk(const char *k);
+extern void portRequestQuit(void);   /* video.c */
+extern void portConLogf(const char *fmt, ...);
 
 static void optField(lua_State *L, int t, const char *k, char *buf, size_t n)
 {
@@ -147,6 +150,15 @@ static int lLaunch(lua_State *L) { readLaunch(L, 1, &sTmp); lua_pushboolean(L, p
 static int lArm(lua_State *L) { readLaunch(L, 1, &sTmp); if (portModeActive()) portUiMenuArm(&sTmp); return 0; }
 static int lDisarm(lua_State *L) { (void) L; portUiMenuDisarm(); return 0; }
 static int lQuit(lua_State *L) { lua_pushboolean(L, portUiMenuQuitNow()); return 1; }
+/* the close box's path (video.c portRequestQuit: SDL_QUIT, then the atexit ini saver) */
+static int lExit(lua_State *L)
+{
+    if (!portModeActive()) { lua_pushboolean(L, 0); return 1; }
+    portConLogf("ge: ui: exit the game\n");
+    portRequestQuit();
+    lua_pushboolean(L, 1);
+    return 1;
+}
 static int lNetplay(lua_State *L) { lua_pushboolean(L, portNetActive()); return 1; }
 static int lEscape(lua_State *L) { portUiMenuEscapeBack(lua_toboolean(L, 1)); return 0; }
 
@@ -440,7 +452,7 @@ static int lLgHas(lua_State *L) { lua_pushboolean(L, portLevelgenHas(luaL_checks
 void portLuaUiRegister(lua_State *L)
 {
     static const luaL_Reg lib[] = {
-        { "launch", lLaunch }, { "arm", lArm }, { "disarm", lDisarm }, { "quit", lQuit }, { "current", lCurrent }, { "retry", lRetry },
+        { "launch", lLaunch }, { "arm", lArm }, { "disarm", lDisarm }, { "quit", lQuit }, { "exit", lExit }, { "current", lCurrent }, { "retry", lRetry },
         { "result", lResult }, { "prefs", lPrefs }, { "save_prefs", lSavePrefs }, { "view", lView }, { "escape_back", lEscape },
         { "netplay", lNetplay }, { "state", lState }, { NULL, NULL } };
     static const luaL_Reg lg[] = { { "current", lLgCurrent }, { "default", lLgDefault }, { "has", lLgHas }, { NULL, NULL } };

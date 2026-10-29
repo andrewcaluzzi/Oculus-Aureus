@@ -5,7 +5,7 @@
 --   2. run 1 (heist_flowtest.lua: the win path): the planning board: buy the silenced PP7, START; the win path wins
 --   3. the debrief (shot): AGAIN
 --   4. run 2: the same settings (run.sh compares the "flow settings" lines), the planning board again, START; Bond is killed: BUSTED
---   5. the debrief (shot): NEW JOB -> the briefing with the run's settings (shot), then RETURN TO MI6
+--   5. the debrief (shot): NEW JOB -> the briefing with the run's settings (shot), then EXIT
 -- GE_HM_CASINO=1 (run.sh casino): the lobby moves to the casino (its card), BEGIN there, Bond is killed: BUSTED on the casino, quit.
 local name = mode.name()
 local UP, DOWN, LEFT, RIGHT, SELECT, BACK, START = 1, 2, 4, 8, 16, 32, 64
@@ -58,7 +58,7 @@ local function lobby_plan()
     return { { 3.0, "shot", "debrief-busted" }, { 3.1, function() state("debrief 2") end },
              { 3.4, RIGHT }, { 3.6, SELECT },                                                                   -- NEW JOB
              { 4.6, "shot", "menu-after" }, { 4.7, function() state("after") end },
-             { 5.0, BACK }, { 5.3, SELECT } }                                                                   -- RETURN TO MI6
+             { 5.0, BACK }, { 5.3, SELECT } }                                                                   -- EXIT
   end
   return {
     { 1.6, "shot", "menu-main" }, { 1.7, function() state("boot") end },

@@ -5,12 +5,12 @@
 --
 -- The job's level is up behind the menu, quiet: the camera turns slowly from the middle of the banking hall (the casino: the Salle
 -- Europe), a few staff and guards stand about. Nobody fights: the controls are held (plan.hold: the crew's synchronized buttons drive
--- the menu, so the menu is sim state like the planning board) and nothing of the heist runs. BEGIN THE JOB, AGAIN and RETURN TO MI6
+-- the menu, so the menu is sim state like the planning board) and nothing of the heist runs. BEGIN THE JOB and AGAIN
 -- end this stage; the hand-off (port/src/port_uimenu.c) loads the slot again with the run's mode, settings, difficulty and level at
 -- once, without the stock menus or the mission report. Choosing the other job's card moves the lobby to that job's level.
 --
 -- Pages: MAIN (the job cards with their bests, the difficulty, Q BRANCH, BEGIN THE JOB), SETTINGS (Q BRANCH: every setting by group),
--- DEBRIEF (the result, the stats, the objectives, the take, the commendations; AGAIN, NEW JOB, RETURN TO MI6). The choices are kept in
+-- DEBRIEF (the result, the stats, the objectives, the take, the commendations; AGAIN, NEW JOB, EXIT: closes the game). The choices are kept in
 -- Data/Saves/ui/heist_menu.ini, the bests per job and difficulty in Data/Saves/ui/heist_bests.ini (ui.prefs: this machine's, solo only).
 -- Test hooks: HEIST_MENU (the menu), GE_HEISTMENU_TEST=1 runs mode heist_flowtest instead of heist (tests/heist_menu).
 
@@ -270,9 +270,9 @@ M = U.new{
     elseif a == "quit" then
       M.busy = true
       sfx(SFX.back)
-      M.log("QUIT to the title")
+      M.log("EXIT the game")
       save()
-      if not ui.quit() then M.busy = false end
+      if not ui.exit() then M.busy = false end
     elseif a == "reset" then
       local keep = M.v.difficulty
       M.defaults()
