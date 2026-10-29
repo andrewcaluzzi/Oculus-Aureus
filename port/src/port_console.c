@@ -895,13 +895,13 @@ static void conExecute(char *line)
 
         if (arg1 != NULL && (conStrEqI(arg1, "next") || conStrEqI(arg1, "next+") || conStrEqI(arg1, "back") || conStrEqI(arg1, "back+") ||
                              conStrEqI(arg1, "callout") || conStrEqI(arg1, "callout+") || conStrEqI(arg1, "fog") ||
-                             conStrEqI(arg1, "rain") || conStrEqI(arg1, "strike")))
+                             conStrEqI(arg1, "rain") || conStrEqI(arg1, "strike") || conStrEqI(arg1, "powerup") || conStrEqI(arg1, "credits")))
         {
             portLuaTestKey(arg1);
         }
         else
         {
-            portConPrintf(0, "usage: arena next|next+|back|back+|callout|callout+|fog|rain|strike   (+= stack on the live enemies / previous callout; "
+            portConPrintf(0, "usage: arena next|next+|back|back+|callout|callout+|fog|rain|strike|powerup|credits   (+= stack on the live enemies / previous callout; "
                              "needs test_keys or GE_ARENA_TESTKEYS=1)\n");
         }
     }

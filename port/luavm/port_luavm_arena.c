@@ -505,6 +505,7 @@ extern void portArenaHudPanel(int wave, int waves, const char *title, const char
                               int phase, int crowd, int tier, const char *tierName, const char *toast, int dbl);
 extern void portArenaHudCallout(const char *text, int level, const char *sub, float life);
 extern void portArenaHudPanelWords(const char *phaseLabel, const char *idleTitle, const char *idleSub);
+extern void portArenaHudExtras(int credits, int n, const char labels[][24], const int *secs, const unsigned *rgba);
 
 static int arenaHud(lua_State *L)
 {
@@ -543,7 +544,7 @@ static void fieldStr(lua_State *L, const char *k, char *out, size_t n)
 }
 
 /* arena.panel{wave, waves, title, mutator, kills, left, elites, time, phase = "delay"|"fight"|"breather"|"over", crowd (0..100, -1 off),
- * tier (1..5), tier_name, toast, double_secs} */
+ * tier (1..5), tier_name, toast, double_secs, credits (-1 off), chips = {{label, secs, rgba}, ...}} */
 static int arenaPanel(lua_State *L)
 {
     static const char *const phases[] = { "delay", "fight", "breather", "over", NULL };
@@ -568,6 +569,39 @@ static int arenaPanel(lua_State *L)
         fieldStr(L, "idle_title", idleTitle, sizeof(idleTitle));
         fieldStr(L, "idle_sub", idleSub, sizeof(idleSub));
         portArenaHudPanelWords(phaseLabel, idleTitle, idleSub);
+    }
+    {   /* arena plus (credits and power-up timer chips): credits (-1 = none), chips = { {label =, secs =, rgba =}, ... } (4 at most) */
+        char labels[4][24];
+        int secs[4], n = 0;
+        unsigned rgba[4];
+
+        lua_getfield(L, 1, "chips");
+        if (lua_istable(L, -1))
+        {
+            const int t = lua_gettop(L);
+            int k, len = (int) lua_rawlen(L, t);
+
+            for (k = 1; k <= len && n < 4; k++)
+            {
+                lua_rawgeti(L, t, k);
+                if (lua_istable(L, -1))
+                {
+                    lua_getfield(L, -1, "label");
+                    snprintf(labels[n], sizeof(labels[n]), "%s", lua_type(L, -1) == LUA_TSTRING ? lua_tostring(L, -1) : "");
+                    lua_pop(L, 1);
+                    lua_getfield(L, -1, "secs");
+                    secs[n] = lua_isnumber(L, -1) ? (int) lua_tointeger(L, -1) : 0;
+                    lua_pop(L, 1);
+                    lua_getfield(L, -1, "rgba");
+                    rgba[n] = lua_isnumber(L, -1) ? (unsigned) lua_tointeger(L, -1) : 0xF0C040FFu;
+                    lua_pop(L, 1);
+                    n++;
+                }
+                lua_pop(L, 1);
+            }
+        }
+        lua_pop(L, 1);
+        portArenaHudExtras(fieldInt(L, "credits", -1), n, (const char (*)[24]) labels, secs, rgba);
     }
     return 0;
 }

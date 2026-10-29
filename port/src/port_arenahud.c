@@ -33,6 +33,9 @@ typedef struct
     s32 dbl;                                       /* seconds of sponsor double damage left */
     char title[40], mutator[32], time[12], tierName[24], toast[48];
     char phaseLabel[20], idleTitle[24], idleSub[32];   /* the theme's words (empty: the built-in ones) */
+    s32 credits;                                   /* arena plus: the credits (-1 = none, no row) */
+    s32 nchips;                                    /* arena plus: power-up timer chips under the stats */
+    struct { char label[24]; s32 secs; u32 rgba; } chip[4];
 } Panel;
 
 typedef struct
@@ -98,6 +101,21 @@ void portArenaHudPanelWords(const char *phaseLabel, const char *idleTitle, const
     cpy(sP.phaseLabel, sizeof(sP.phaseLabel), phaseLabel);
     cpy(sP.idleTitle, sizeof(sP.idleTitle), idleTitle);
     cpy(sP.idleSub, sizeof(sP.idleSub), idleSub);
+}
+
+/* arena plus (tools/arena_plus.lua): the credits row and the power-up timer chips (up to 4: label, seconds left, colour) */
+void portArenaHudExtras(int credits, int n, const char labels[][24], const int *secs, const unsigned *rgba)
+{
+    int i;
+
+    sP.credits = credits;
+    sP.nchips = n < 0 ? 0 : (n > 4 ? 4 : n);
+    for (i = 0; i < sP.nchips; i++)
+    {
+        cpy(sP.chip[i].label, sizeof(sP.chip[i].label), labels[i]);
+        sP.chip[i].secs = secs[i];
+        sP.chip[i].rgba = rgba[i];
+    }
 }
 
 /* level 1..6 (colour and size climb with it); life seconds (0 = by level) */
@@ -183,7 +201,7 @@ static void drawPanel(HudCanvas *c)
     }
 
     /* the height: the header (wave + title), the mutator tag, the stats row, the crowd block */
-    h = 72 + (sP.mutator[0] ? 22 : 0) + 24 + (sP.crowd >= 0 ? 36 : 0) + 2;
+    h = 72 + (sP.mutator[0] ? 22 : 0) + 24 + (sP.credits >= 0 ? 22 : 0) + (sP.nchips > 0 ? 22 : 0) + (sP.crowd >= 0 ? 36 : 0) + 2;
     hudSetTransform(c, sAnchor == 1 ? c->w - sMargin - (s32) ((f32) PANEL_W * sScale) : sMargin, sMargin, sScale);
 
     /* backing: a dark plate fading to the right, a gold rule on the left edge, a frame that flashes when the wave changes */
@@ -269,6 +287,34 @@ static void drawPanel(HudCanvas *c)
         }
         hudText(c, x1 - 8, y, sP.time, INK, T_VALUE, HUD_FONT_ZURICH, HUD_ALIGN_RIGHT, HUD_FX_SHADOW, SHADE);
         y += 24;
+    }
+    if (sP.credits >= 0)
+    {   /* arena plus: the credits, in the stats row's type */
+        s32 x = x0 + 12;
+
+        hudText(c, x, y + 3, "CREDITS", DIM, T_LABEL, HUD_FONT_BANK, HUD_ALIGN_LEFT, HUD_FX_SHADOW, SHADE);
+        x += hudTextW("CREDITS", T_LABEL, HUD_FONT_BANK) + 6;
+        snprintf(buf, sizeof(buf), "%d", (int) sP.credits);
+        hudText(c, x, y, buf, GOLD, T_VALUE, HUD_FONT_ZURICH, HUD_ALIGN_LEFT, HUD_FX_SHADOW, SHADE);
+        y += 22;
+    }
+    if (sP.nchips > 0)
+    {   /* arena plus: one chip per running power-up, with the seconds left */
+        s32 x = x0 + 10, k;
+
+        for (k = 0; k < sP.nchips; k++)
+        {
+            char txt[40];
+            s32 tw;
+
+            snprintf(txt, sizeof(txt), "%s %ds", sP.chip[k].label, (int) sP.chip[k].secs);
+            tw = hudTextW(txt, T_MUT, HUD_FONT_BANK) + 12;
+            hudFill(c, x, y - 2, x + tw, y + 16, hudLerp(sP.chip[k].rgba, 0x000000FFu, 0.55f));
+            hudFrame(c, x, y - 2, x + tw, y + 16, 1, sP.chip[k].rgba);
+            hudText(c, x + 6, y + 1, txt, 0xFFFFFFFFu, T_MUT, HUD_FONT_BANK, HUD_ALIGN_LEFT, HUD_FX_SHADOW, SHADE);
+            x += tw + 4;
+        }
+        y += 22;
     }
     if (sP.crowd >= 0)
     {   /* the crowd favour: a thin bar in the tier's colour, the mood to its right, the last toast under it */
