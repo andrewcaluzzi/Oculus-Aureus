@@ -8,7 +8,8 @@ SETUP
 1. Put your own GoldenEye 007 (USA) cart image in the Data folder as Data\baserom.u.z64
    (see Data\README.txt). It is not included and never will be.
 2. Double-click a launcher. Running ProjectMidas.exe directly plays the normal game.
-     Play Arena.bat                   20 waves, a boss every 5
+     Play Arena.bat                   the start menu: 20 waves with a boss every 5, or pick a
+                                      preset, co-op (and the bot's skill), mutators and more
      Play Arena (Endless).bat         waves keep coming and keep getting harder
      Play Arena (Chaos).bat           20 waves with wave mutators and elite enemies
      Play Arena (Chaos Endless).bat   endless, with mutators and elites
