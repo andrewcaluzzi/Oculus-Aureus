@@ -18,7 +18,8 @@ ARENA_SCORES.MEDALS = MEDALS
 local function mmss(s) s = math.floor(s); return string.format("%d:%02d", s // 60, s % 60) end
 
 -- (score_key: the start menu's per-preset key, tools/arena_menu_defs.lua; a plain run keys by its pacing as before)
-local function prefix(S) return S.score_key or ((S.mode == "endless") and "endless" or ("fixed" .. tostring(S.waves))) end
+-- (a run on a stock map with no menu key of its own keeps its bests apart from the Colosseum's: "_temple" ...)
+local function prefix(S) return S.score_key or (((S.mode == "endless") and "endless" or ("fixed" .. tostring(S.waves))) .. (S.map and ("_" .. S.map) or "")) end
 ARENA_SCORES.prefix = prefix
 
 -- 0 = none, 1..4 = MEDALS

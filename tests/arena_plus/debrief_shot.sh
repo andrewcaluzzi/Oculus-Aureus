@@ -9,7 +9,7 @@ S=${1:-1920x1080}
 M=$B/Data/Scripts/modes
 mkdir -p $OUT/shots
 rm -f $OUT/shots/*
-for f in mode_arena_menu:arena-menu arena_menu_defs:_arena_menu_defs arena_theme:_arena_theme ui_menu:_ui_menu; do
+for f in mode_arena_menu:arena-menu arena_menu_defs:_arena_menu_defs arena_maps:_arena_maps arena_theme:_arena_theme ui_menu:_ui_menu; do
   cp "$P/tools/${f%%:*}.lua" "$M/${f##*:}.lua"
 done
 cp $P/tests/arena_plus/debrief-shot.lua $B/Data/Scripts/zz_debrief_shot.lua

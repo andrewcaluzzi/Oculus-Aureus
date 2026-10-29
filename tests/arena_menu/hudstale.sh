@@ -6,7 +6,7 @@ B=${2:-build_pc}
 OUT=$P/build_tests/amenu_hudstale
 mkdir -p $OUT/shots
 rm -f $OUT/shots/*.bmp
-for f in mode_arena:arena arena_flow:_arena_flow arena_menu_defs:_arena_menu_defs mode_arena_menu:arena-menu mode_arena_scores:_arena_scores \
+for f in mode_arena:arena arena_flow:_arena_flow arena_menu_defs:_arena_menu_defs arena_maps:_arena_maps mode_arena_menu:arena-menu mode_arena_scores:_arena_scores \
          mode_arena_crowd:_arena_crowd arena_polish:_arena_polish arena_theme:_arena_theme arena_coop:_arena_coop arena_plus:_arena_plus ui_menu:_ui_menu \
          mode_arena_chaos:arena-chaos mode_arena_mutators:_arena_mutators mode_arena_elites:_arena_elites; do
   cp "$P/tools/${f%%:*}.lua" "$P/$B/Data/Scripts/modes/${f##*:}.lua"

@@ -1,13 +1,13 @@
 #!/bin/sh
 # The arena start menu / post-game test inside the build container (Xvfb on :99, build_pc): see amenu_drive.lua for the flow.
-# usage: run.sh [game frames]   (log: build_tests/amenu/drive.log, shots: build_tests/amenu/shots/*.bmp)
+# usage: run.sh [game frames] [bat|coop|map]   (log: build_tests/amenu/drive.log | bat.log | coop.log | map.log, shots: build_tests/amenu/shots/*.bmp)
 # Checks at the end: two runs started with identical settings, a win and a fall reached the post-game, the menu came back with the
 # run's settings, and EXIT closed the game.
 P=/home/dev/project
 OUT=$P/build_tests/amenu
 mkdir -p $OUT/shots
 rm -f $OUT/shots/*.bmp
-for f in mode_arena:arena arena_flow:_arena_flow arena_menu_defs:_arena_menu_defs mode_arena_menu:arena-menu mode_arena_scores:_arena_scores \
+for f in mode_arena:arena arena_flow:_arena_flow arena_menu_defs:_arena_menu_defs arena_maps:_arena_maps mode_arena_menu:arena-menu mode_arena_scores:_arena_scores \
          mode_arena_crowd:_arena_crowd arena_polish:_arena_polish arena_theme:_arena_theme arena_coop:_arena_coop arena_plus:_arena_plus ui_menu:_ui_menu; do
   cp "$P/tools/${f%%:*}.lua" "$P/build_pc/Data/Scripts/modes/${f##*:}.lua"
 done
@@ -44,7 +44,7 @@ if [ "$2" = coop ]; then   # run.sh <frames> coop: the co-op variant
   echo "exit $?" >> $L
   rm -f $P/build_pc/Data/Scripts/zz_amenu_drive.lua
   chk() { if grep -q "$2" $L; then echo "PASS $1"; pass=$((pass+1)); else echo "FAIL $1"; fail=$((fail+1)); fi; }
-  chk "co-op picked" "MENUTEST coop pick: screen main cursor 11 preset coop"
+  chk "co-op picked" "MENUTEST coop pick: screen main cursor 12 preset coop"   # (BEGIN MISSION: item 12 now the ARENA row is in the list)
   chk "two Bonds" "MENUTEST coop run: 2 Bonds"
   chk "co-op rules on" "ge: arena: co-op ON (2 Bonds)"
   chk "the menu's bot skill in the run's settings" "flow settings:.*coop_bot_skill=4"
@@ -54,13 +54,25 @@ if [ "$2" = coop ]; then   # run.sh <frames> coop: the co-op variant
   echo "amenu coop: $pass passed, $fail failed"
   exit 0
 fi
-$P/build_pc/ProjectMidas > $OUT/drive.log 2>&1
-echo "exit $?" >> $OUT/drive.log
-rm -f $P/build_pc/Data/Scripts/zz_amenu_drive.lua
 L=$OUT/drive.log
+SFX=""   # the label's map name: run.sh <frames> map sets the ARENA row to THE TEMPLE (a run on a stock multiplayer map, its post-game on the Colosseum, Retry on the map)
+if [ "$2" = map ]; then export GE_AMENU_MAP=1; L=$OUT/map.log; SFX=" - THE TEMPLE"; fi
+$P/build_pc/ProjectMidas > $L 2>&1
+echo "exit $?" >> $L
+rm -f $P/build_pc/Data/Scripts/zz_amenu_drive.lua
 chk() { if grep -q "$2" $L; then echo "PASS $1"; pass=$((pass+1)); else echo "FAIL $1"; fail=$((fail+1)); fi; }
+if [ "$2" = map ]; then
+  chk "the settings carry the map" "ge: arena: flow settings:.*map=temple"
+  chk "the run is launched on the Temple's own setup" "ge: arenamenu: after the stage: launching the mptemple again: mode 'arena'"
+  chk "the Temple's path graph was built" "ge: mpnav: [0-9]* pieces; the largest: [0-9]* waypoints"
+  chk "the arena ran on the map" "ge: arena: MAP THE TEMPLE (mptemple)"
+  chk "the post-game is on the Colosseum" "ge: arenamenu: after the stage: launching the colosseum again: mode 'arena-menu'"
+  chk "Retry loads the map again" "ge: arenamenu: after the stage: launching the mptemple again: mode 'arena'.*"
+  n=$(grep -c "ge: arenamenu: after the stage: launching the mptemple again" $L)
+  if [ "$n" = 2 ]; then echo "PASS the map was loaded twice (the run and Retry)"; pass=$((pass+1)); else echo "FAIL map loads: $n (want 2)"; fail=$((fail+1)); fi
+fi
 chk "menu page advanced" "ge: arena: menu: page advanced"
-chk "menu START" "ge: arena: menu: START UNSANCTIONED OPERATION - DOUBLE-O"
+chk "menu START" "ge: arena: menu: START UNSANCTIONED OPERATION - DOUBLE-O$SFX"
 chk "run 1 won" "ge: arena: flow finish: WON"
 chk "post-game 1" "MENUTEST postgame 1: screen postgame"
 chk "retry" "ge: arena: menu: RETRY"
@@ -76,7 +88,7 @@ u=$(grep "ge: arena: flow settings:" $L | sort -u | wc -l)
 if [ "$n" = 2 ] && [ "$u" = 1 ]; then echo "PASS two runs, same settings"; pass=$((pass+1)); else echo "FAIL runs $n, distinct settings $u"; fail=$((fail+1)); fi
 if grep "flow settings:" $L | grep -q "mutators=true" && grep "flow settings:" $L | grep -q "waves=10" && grep "flow settings:" $L | grep -q "whacky=1"; then
   echo "PASS the menu's choices reached the run"; pass=$((pass+1)); else echo "FAIL the menu's choices"; fail=$((fail+1)); fi
-a=$(grep "MENUTEST advanced:" $L | sed 's/.*| //'); b=$(grep "MENUTEST after:" $L | sed 's/.*| //')
+a=$(grep "MENUTEST advanced:" $L | sed 's/.* rows #\([0-9]*\) |.*/\1/'); b=$(grep "MENUTEST after:" $L | sed 's/.* rows #\([0-9]*\) |.*/\1/')   # (a checksum of every row: the log line is cut)
 if [ -n "$a" ] && [ "$a" = "$b" ]; then echo "PASS the menu came back with the run's settings"; pass=$((pass+1)); else echo "FAIL menu settings after"; fail=$((fail+1)); fi
 if grep -q "mission report\|end screen: Mission Failed" $L; then echo "FAIL the stock report showed"; fail=$((fail+1)); else echo "PASS no stock report"; pass=$((pass+1)); fi
 echo "amenu: $pass passed, $fail failed"

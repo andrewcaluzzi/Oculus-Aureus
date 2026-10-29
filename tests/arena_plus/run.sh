@@ -9,7 +9,7 @@ M=$B/Data/Scripts/modes
 mkdir -p $OUT/shots
 rm -f $OUT/shots/*
 # the arena scripts as they are in tools/ (the build copies them only when the exe relinks)
-for f in mode_arena:arena arena_flow:_arena_flow arena_menu_defs:_arena_menu_defs mode_arena_scores:_arena_scores mode_arena_crowd:_arena_crowd \
+for f in mode_arena:arena arena_flow:_arena_flow arena_menu_defs:_arena_menu_defs arena_maps:_arena_maps mode_arena_scores:_arena_scores mode_arena_crowd:_arena_crowd \
          mode_arena_mutators:_arena_mutators mode_arena_elites:_arena_elites arena_polish:_arena_polish arena_theme:_arena_theme \
          arena_coop:_arena_coop arena_plus:_arena_plus ui_menu:_ui_menu; do
   cp "$P/tools/${f%%:*}.lua" "$M/${f##*:}.lua"

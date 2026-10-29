@@ -24,6 +24,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <time.h>
 #include <ultra64.h>
 #include <bondtypes.h>
 #include <bondconstants.h>
@@ -297,6 +298,7 @@ int portMpNavBuild(void)
     s32 *lists, *members;
     int n = 0, nt = 0, i, j, k, q, comps = 0, best = -1, bestn = 0, m, e, extra, kept = 0, shortOk = 0, shortTried = 0, adjLinks = 0, padNodes = 0;
     int refused[4] = { 0, 0, 0, 0 };
+    clock_t t0 = clock();
 
     g_PortMpNavBase = 0;
     g_PortMpNavPads = NULL;
@@ -569,8 +571,8 @@ int portMpNavBuild(void)
     g_PortMpNavBase = n;
     g_PortMpNavPads = np;
     g_PortMpNavCount = k + 1;
-    printf("ge: mpnav: %d pieces; the largest: %d waypoints (%d of the map's pads, %d floor nodes added after pad %d), %d links\n",
-           comps, m, m - extra, extra, n - 1, kept);
+    printf("ge: mpnav: %d pieces; the largest: %d waypoints (%d of the map's pads, %d floor nodes added after pad %d), %d links, built in %d ms\n",
+           comps, m, m - extra, extra, n - 1, kept, (int) ((clock() - t0) * 1000 / CLOCKS_PER_SEC));
     NAV_FREE();
     return m;
 }

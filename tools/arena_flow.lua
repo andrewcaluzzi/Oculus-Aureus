@@ -145,7 +145,7 @@ if F.on then
     if bench and bench.sweep_off then pcall(bench.sweep_off) end
     if scores and scores.enabled and scores.enabled() and ARENA_SCORES and ARENA_SCORES.prefix then   -- (the debrief's NEW medal)
       local a = AS or {}
-      local key = ARENA_SCORES.prefix({ score_key = a.score_key, mode = a.mode or "fixed", waves = a.waves or 20 })
+      local key = ARENA_SCORES.prefix({ score_key = a.score_key, mode = a.mode or "fixed", waves = a.waves or 20, map = a.map })
       F.prev_medal = scores.get(key .. "_best_medal") or 0
     end
     amenu.retry(retry_spec())

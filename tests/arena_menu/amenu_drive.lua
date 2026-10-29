@@ -1,6 +1,6 @@
 -- The arena start menu / post-game scripted test (tests/arena_menu/run.sh copies this to Data/Scripts/zz_amenu_drive.lua: it runs at
 -- every stage start, in the lobby and in the runs). The flow it drives, with the crew's board events (test.plan_input, sim side):
---   1. the lobby on first boot (the start menu): pick SPRINT 10, difficulty 00 AGENT, then ADVANCED: wave mutators ON, whacky MILD;
+--   1. the lobby on first boot (the start menu): pick SPRINT 10, difficulty 00 AGENT (the ARENA row: THE TEMPLE when GE_AMENU_MAP), then ADVANCED: wave mutators ON, whacky MILD;
 --      back, ENTER THE ARENA (screenshots of the main page and the advanced page)
 --   2. run 1: the test keys jump the 10 waves (GE_ARENA_TESTKEYS=1): a WIN, the post-game after the crowd's cheer
 --   3. the post-game (screenshot): RETRY
@@ -9,7 +9,8 @@
 -- The runs are told apart by the in-memory best-score counter of the run's key (GE_NOSCORESAVE: never written).
 local name = mode.name()
 local UP, DOWN, LEFT, RIGHT, SELECT, BACK = 1, 2, 4, 8, 16, 32
-local KEY = "custom_fixed10_00"
+local MAPTEST = mode.env_flag("GE_AMENU_MAP")   -- run.sh <frames> map: the ARENA row set to THE TEMPLE (a run on a stock multiplayer map and back)
+local KEY = "custom_fixed10_00" .. (MAPTEST and "_temple" or "")
 local function runs() return (scores and scores.enabled() and scores.get(KEY .. "_runs")) or 0 end
 local function log(fmt, ...) print(string.format("ge: arena: MENUTEST " .. fmt, ...)) end
 local t, i = 0, 1
@@ -34,8 +35,11 @@ local function state(tag)
   local parts = {}
   for _, r in ipairs(D.ROWS) do parts[#parts + 1] = r.id .. "=" .. D.label(M.v, r.id) end
   local p = D.preset_of(M.v)
+  local all = table.concat(parts, " ")
+  local h = 0   -- (the log line is cut at about 1000 characters and the rows are more: a checksum of all of them ends it)
+  for k = 1, #all do h = (h * 31 + all:byte(k)) % 1000003 end
   log("%s mouse: menu_up %s", tag, tostring((amenu.state())))
-  log("%s: screen %s cursor %d preset %s key %s | %s", tag, M.screen, M.cursor, p and p.id or "custom", D.score_key(M.v), table.concat(parts, " "))
+  log("%s: screen %s cursor %d preset %s key %s rows #%d | %s", tag, M.screen, M.cursor, p and p.id or "custom", D.score_key(M.v), h, all:sub(1, 300))
 end
 
 if mode.env_flag("GE_AMENU_BATTEST") then
@@ -89,6 +93,7 @@ elseif name == "arena-menu" then
       { 2.0, DOWN }, { 2.1, DOWN }, { 2.2, DOWN }, { 2.3, DOWN }, { 2.4, DOWN }, { 2.5, SELECT },   -- SPRINT 10
       { 2.7, LEFT }, { 2.8, DOWN }, { 2.9, DOWN }, { 3.0, DOWN }, { 3.1, DOWN }, { 3.2, DOWN }, { 3.3, DOWN }, { 3.4, DOWN },
       { 3.5, RIGHT },                                                                                -- difficulty -> 00 AGENT
+      { 3.55, DOWN }, { 3.58, function() if MAPTEST then test.plan_input(0, RIGHT) end end },        -- the ARENA row (THE TEMPLE in the map test)
       { 3.6, DOWN }, { 3.7, SELECT },                                                                -- ADVANCED SETTINGS
       { 4.6, "shot", "menu-advanced" },
       { 4.8, DOWN }, { 4.9, DOWN }, { 5.0, DOWN }, { 5.1, DOWN }, { 5.2, DOWN }, { 5.3, RIGHT },      -- wave mutators ON
