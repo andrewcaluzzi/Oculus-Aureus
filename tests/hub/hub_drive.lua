@@ -63,7 +63,7 @@ end
 
 local function hub_plan()
   if mode.env_flag("GE_HUB_TEST") then   -- (the value is not read: any setting of GE_HUB_TEST = the EXIT flow)
-    return { { 1.6, "shot", "hub-main" }, { 1.7, function() hub_state("exit flow") end }, { 2.0, DOWN }, { 2.1, DOWN }, { 2.2, DOWN }, { 2.3, DOWN }, { 2.5, SELECT } }
+    return { { 1.6, "shot", "hub-main" }, { 1.7, function() hub_state("exit flow") end }, { 2.0, DOWN }, { 2.1, DOWN }, { 2.2, DOWN }, { 2.3, DOWN }, { 2.4, DOWN }, { 2.5, SELECT } }
   end
   if step == 1 then
     return {
@@ -84,11 +84,11 @@ local function hub_plan()
       { 7.3, function() heist_state("heist casino card") end },
       { 7.5, BACK }, { 7.9, function() heist_state("heist exit row") end }, { 8.1, SELECT },                          -- MAIN MENU (no load)
       { 8.7, function() hub_state("hub after heist") end },
-      { 8.9, DOWN }, { 9.0, DOWN }, { 9.2, SELECT },                                                                  -- SETTINGS
+      { 8.8, DOWN }, { 8.9, DOWN }, { 9.0, DOWN }, { 9.2, SELECT },                                                   -- SETTINGS (past SNIPER DUEL and GOLDENEYE 007)
       { 9.6, function() hub_state("settings before") end },
       { 9.8, RIGHT }, { 9.9, DOWN }, { 10.0, RIGHT }, { 10.1, DOWN }, { 10.3, RIGHT },                                -- music, sound, mouse X
       { 10.8, "shot", "hub-settings" }, { 10.9, function() hub_state("settings changed") end },
-      { 11.2, BACK }, { 11.6, UP }, { 11.7, UP }, { 11.8, UP }, { 12.0, SELECT },                                     -- main, ARENA (hosted)
+      { 11.2, BACK }, { 11.5, UP }, { 11.6, UP }, { 11.7, UP }, { 11.8, UP }, { 12.0, SELECT },                       -- main, ARENA (hosted)
       { 12.8, function() arena_state("arena again") end },
       { 13.0, SELECT },                                                                                               -- BEGIN: the run
     }
@@ -112,7 +112,7 @@ local function hub_plan()
       { 2.4, "shot", "heist-debrief" }, { 2.5, function() heist_state("heist debrief") end },
       { 2.8, DOWN }, { 2.9, DOWN }, { 3.1, function() heist_state("heist exit row") end }, { 3.3, SELECT },           -- MAIN MENU (no load)
       { 3.9, function() hub_state("hub 7") end },
-      { 4.1, DOWN }, { 4.3, function() hub_state("goldeneye") end }, { 4.5, SELECT },                                 -- GOLDENEYE 007
+      { 4.0, DOWN }, { 4.1, DOWN }, { 4.3, function() hub_state("goldeneye") end }, { 4.5, SELECT },                  -- GOLDENEYE 007 (past SNIPER DUEL)
     }
   end
   return {}

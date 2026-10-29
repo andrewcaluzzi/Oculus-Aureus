@@ -4,7 +4,7 @@
 --   T          every player-facing word (the arena's MI6 tone: tools/arena_theme.lua, tools/heist_theme.lua)
 --   STAGE      the backdrop: the stock stage the hub runs on and where its camera sits. ONE table entry: swap in Surface by changing it
 --   OPTIONS    the settings page: the port's own options (ui.opt), by group
---   TILES      the top level: id, the lobby it hosts (the Arena's, the Heist's), or none (GoldenEye: the Files screen)
+--   TILES      the top level: id, the lobby it hosts (the Arena's, the Heist's, the Sniper Duel's), or none (GoldenEye: the Files screen)
 --   exit_text(label, desc) -> label, desc    a lobby's EXIT row: MAIN MENU when the hub opened this session
 --   lobby(host, page, preset, label) -> t    the launch that brings a run back to the hub's stage on a hosted lobby's page
 --   lobby_of(text) -> host, page             that launch's lobby text read back ("arena/postgame")
@@ -28,10 +28,12 @@ D.T = {
               more = "The Colosseum, or the Temple, Complex, Caves, Library, Stack, Basement and Facility. Presets, mutators, elites; Q Branch has every setting." },
     heist = { name = "HEIST", place = "JANUS BANK AND LE GRAND CASINO", blurb = "Plan the job in the van, then rob Janus: keys, cameras, the vault.",
               more = "Stealth or loud. Two jobs, every setting in Q Branch." },
+    sniper = { name = "SNIPER DUEL", place = "SEVERNAYA SURFACE  -  PROTOTYPE", blurb = "One rifle, a snowy ridge, and a named hunter on the far slopes.",
+               more = "Five rounds. A glint shows where a sniper has set up: shoot first or get down. He fires once, then moves. Later rounds add a second rifle and rushers." },
     goldeneye = { name = "GOLDENEYE 007", place = "THE ORIGINAL", blurb = "The campaign and stock multiplayer, from the Files screen.",
                   more = "Missions, multiplayer, the cheats, and the port's own options." },
   },
-  best_arena = "BEST %s", best_arena_wave = "WAVE %d", best_heist = "BEST %s", best_none = "NO RUNS YET",
+  best_arena = "BEST %s", best_arena_wave = "WAVE %d", best_heist = "BEST %s", best_sniper = "BEST %d / %d ROUNDS", best_none = "NO RUNS YET",
 }
 
 -- The backdrop. `id` is a name front.c's stage table knows (the names of GE_STAGE); the camera stands on `pad` and pans `pan` degrees
@@ -64,6 +66,7 @@ D.GROUP_COL = { AUDIO = 1, CONTROLS = 1, VIEW = 2 }
 D.TILES = {
   { id = "arena", host = "arena" },
   { id = "heist", host = "heist" },
+  { id = "sniper", host = "sniper" },
   { id = "goldeneye" },   -- (ui.quit: the stock front end)
 }
 

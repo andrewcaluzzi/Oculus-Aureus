@@ -1,6 +1,7 @@
 -- The MAIN MENU HUB (GE_MODE=hub on the stock Control stage; shipped as Data/Scripts/modes/hub.lua). Play Oculus Aureus.bat boots into it.
--- It is the top level over every mode: ARENA and HEIST open their start menus (the Arena's lobby, tools/mode_arena_menu.lua, and the
--- Heist's, tools/mode_heist_menu.lua) HOSTED on this stage, GOLDENEYE 007 goes to the stock front end (the Files screen: the campaign,
+-- It is the top level over every mode: ARENA, HEIST and SNIPER DUEL open their start menus (the Arena's lobby, tools/mode_arena_menu.lua, the
+-- Heist's, tools/mode_heist_menu.lua, and the Sniper Duel's card and debrief, tools/mode_sniper_menu.lua) HOSTED on this stage, GOLDENEYE 007
+-- goes to the stock front end (the Files screen: the campaign,
 -- stock multiplayer), SETTINGS is the port's own options, EXIT closes the game. Built on the generic menu layer (tools/ui_menu.lua,
 -- port/src/port_uimenu*.c): the Arena's look.
 --
@@ -25,6 +26,7 @@
 include("_ui_menu")
 include("_hub_defs")
 pcall(include, "_arena_menu_defs")   -- (the Arena's best, for its tile; a build without the arena just has no best line)
+pcall(include, "_sniper_defs")       -- (the Sniper Duel's rounds, for its tile)
 local U, D = UI_MENU, HUB_DEFS
 local T, ST = D.T, D.STAGE
 
@@ -41,7 +43,8 @@ local M
 -- ---- the hosted lobbies: the Arena's start menu and the Heist's, run on this stage (see the header) ----
 local HOSTED = {}                 -- "arena" / "heist" -> the lobby's menu (host_open, host_tick)
 local active, want_back = nil, false   -- the lobby that is up; it asked to go back to the hub's page (done after its tick)
-for _, h in ipairs({ { "arena", "ARENA_MENU", "ARENA_MENU_HOST", "arena-menu" }, { "heist", "HEIST_MENU", "HEIST_MENU_HOST", "heist-menu" } }) do
+for _, h in ipairs({ { "arena", "ARENA_MENU", "ARENA_MENU_HOST", "arena-menu" }, { "heist", "HEIST_MENU", "HEIST_MENU_HOST", "heist-menu" },
+                     { "sniper", "SNIPER_MENU", "SNIPER_MENU_HOST", "sniper-menu" } }) do
   _G[h[3]] = { back = function() want_back = true end }
   local ok, err = pcall(include, h[4])
   _G[h[3]] = nil
@@ -80,8 +83,20 @@ local function heist_best()
   return top
 end
 
+local function sniper_best()   -- the rounds won in the best Sniper Duel on file, and how many there are (ui prefs sniper_bests)
+  local SD = SNIPER_DEFS
+  if not SD then return nil end
+  local b = ui.prefs("sniper_bests")
+  if (tonumber(b[SD.key() .. "_runs"]) or 0) == 0 then return nil end
+  return tonumber(b[SD.key() .. "_rounds"]) or 0, #SD.ROUNDS
+end
+
 local function status(id)   -- text, medal tier (0..4)
-  if id == "arena" then
+  if id == "sniper" then
+    local r, n = sniper_best()
+    if not r then return T.best_none, 0 end
+    return string.format(T.best_sniper, r, n), 0
+  elseif id == "arena" then
     local a = arena_best()
     if not a then return T.best_none, 0 end
     return string.format(T.best_arena, a.name or string.format(T.best_arena_wave, a.wave)), a.medal
@@ -123,7 +138,7 @@ local function page_main()
   local th = T.tiles[sel]
   local right, medal = status(sel)
   local inf = { { T.d_mode, th.name }, { T.d_where, th.place }, { "", "" } }
-  if sel == "arena" or sel == "heist" then inf[#inf + 1] = { T.d_best, right, MEDAL_RGBA[medal] } end
+  if sel == "arena" or sel == "heist" or sel == "sniper" then inf[#inf + 1] = { T.d_best, right, MEDAL_RGBA[medal] } end
   return { layout = "lobby", items = it, title = T.title, kicker = T.kicker, subtitle = T.subtitle, info = inf, info_title = T.dossier,
            info_sub = th.name, cursor_act = "tile" }
 end

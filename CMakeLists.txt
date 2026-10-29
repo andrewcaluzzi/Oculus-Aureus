@@ -723,6 +723,14 @@ if(GE_VIDEO)
             ${CMAKE_SOURCE_DIR}/tools/hub_defs.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/_hub_defs.lua
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/tools/mode_hub.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/hub.lua)
+    # the SNIPER DUEL on Surface (GE_MODE=sniper, Play Sniper Duel.bat): the run, its words / tables and its lobby (hosted by the hub)
+    add_custom_command(TARGET ge POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/tools/sniper_defs.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/_sniper_defs.lua
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/tools/mode_sniper.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/sniper.lua
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/tools/mode_sniper_menu.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/sniper-menu.lua)
     if(GE_LEVELGEN_HAS_EXTRA)
         add_custom_command(TARGET ge POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -762,6 +770,7 @@ if(GE_VIDEO)
                 "${CMAKE_SOURCE_DIR}/launchers/Play Heist.bat"
                 "${CMAKE_SOURCE_DIR}/launchers/Play Casino.bat"
                 "${CMAKE_SOURCE_DIR}/launchers/Play Oculus Aureus.bat"
+                "${CMAKE_SOURCE_DIR}/launchers/Play Sniper Duel.bat"
                 "${CMAKE_SOURCE_DIR}/launchers/Walk Janus Bank.bat"
                 "$<TARGET_FILE_DIR:ge>"
             VERBATIM)
