@@ -97,7 +97,7 @@ D.PERCH = { y_min = 60, ban = {}, prefer = {},
 D.STAGES = {
   surface = { key = "surface", name = "SEVERNAYA", card = "SURFACE", stage = "surface", bond_pads = D.BOND.pads, perch_pads = D.PERCH.pads, foe_scale = 1.5 },
   ridge = { key = "ridge", name = "SEVERNAYA RIDGE", card = "SEVERNAYA RIDGE", stage = "levelgen", env = { GE_LEVELGEN = "ridge" }, layout = "levelgen_layout_ridge",
-            bond_names = { "sp4", "sp3", "sp5", "sp2", "sp6" }, perch_names = { "np1", "np2", "np3", "np4", "np5", "np6", "np7", "np8", "vp1", "vp2", "vp3", "vp4", "vp5", "vp6" },
+            bond_names = { "sp4", "sp3", "sp5", "sp2", "sp6" }, perch_names = { "np1", "np2", "np3", "np4", "np5", "np6", "np7", "vp1", "vp2", "vp3", "vp4", "vp5", "vp6" },
             foe_scale = 2.0, all_perches = true },
 }
 D.STAGE_ORDER = { "ridge", "surface" }
