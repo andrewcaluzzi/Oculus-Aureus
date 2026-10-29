@@ -46,7 +46,7 @@ on("tick", function(dt)
       local px, pz = f.perch.x, f.perch.z
       local bx, _, bz = bond.pos(0)
       if bench and bench.look then pcall(bench.look, 0, math.deg(math.atan(-(px - bx), (pz - bz))), 1) end
-      snap("glint", t + 0.5)
+      snap("glint", t + 1.0)
     end
     if f.st == "fire" and f.chr and spawn.alive(f.chr) then
       f.test_seen = f.test_seen or t

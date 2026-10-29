@@ -65,12 +65,12 @@ local function view_yaw()
   if ok and yaw then return yaw end
   return nil
 end
-local function clock_of(b)   -- "2 O'CLOCK": the perch's bearing against where Bond looks now
+local function clock_of(b, fmt)   -- "2 O'CLOCK": the perch's bearing against where Bond looks now
   local v = view_yaw()
   if not v then return "" end
   local rel = wrap(b - v)   -- positive: to his left
   local h = math.floor(-rel / 30 + 0.5) % 12
-  return string.format(T.clock_fmt, T.clock[h + 1])
+  return string.format(fmt or T.clock_fmt, T.clock[h + 1])
 end
 local function rand_in(r) return r[1] + math.random() * (r[2] - r[1]) end
 local function sfx(spec) if sound and sound.play_sfx and spec then pcall(sound.play_sfx, spec[1], spec[2], spec[3]) end end
@@ -213,7 +213,7 @@ local function start_glint(f)
   end
   sfx(S.glint_sfx)
   toast(string.format(T.glint, clock_of(b), math.floor(p.d / 100)))
-  callout(string.format(T.glint_big, clock_of(b)), 2, string.format(T.glint_m, math.floor(p.d / 100)), math.max(1.2, rnd.glint + 0.4))
+  callout(string.format(T.glint_big, clock_of(b, T.clock_fmt_big)), 2, string.format(T.glint_m, math.floor(p.d / 100)), math.max(1.2, rnd.glint + 0.4))
   log("GLINT %d: foe %d on pad %d at %.0f m, bearing %.0f, %s, %.1f s before the shot", ST.glints, f.n, p.pad, p.d / 100, b, clock_of(b), rnd.glint)
 end
 
@@ -325,6 +325,7 @@ local function end_run(win)
   for _, f in ipairs(ST.foes) do if f.chr then spawn.remove(f.chr); f.chr = nil end end
   local fired, hits = bond.shots(0)
   fired, hits = fired or 0, hits or 0
+  fired = math.max(fired, hits)   -- (a hit is a shot: the counters of a scripted test shot would otherwise show more hits than shots)
   local r = { win = win and true or false, rounds = stats.rounds, total = N_ROUNDS, time = math.floor(run_t * 100 + 0.5) / 100, shots = fired, hits = hits,
               headshots = stats.headshots, hits_taken = stats.hits_taken, foe = stats.killer, label = LABEL, stage = D.key(), round_times = stats.round_times }
   log("END: %s, %d/%d rounds won, %s, accuracy %d/%d, headshots %d, hits taken %d%s", win and "WON" or "DOWN", r.rounds, r.total, clockstr(run_t), hits, fired,

@@ -30,7 +30,7 @@ D.T = {
   glint = "GLINT  %s  %d m", glint_sub = "HE IS SETTING UP", glint_big = "GLINT  -  %s", glint_m = "%d M  -  GET DOWN OR SHOOT FIRST", spotter = "SPOTTER", rushers = "THEY ARE COMING FOR YOU", gone = "HE HAS MOVED", killed_by = "SHOT BY %s",
   hud_plate = "ROUND %d / %d", hud_round = "ROUND %d/%d  %s", hud_foe = "%s", hud_left = "SNIPERS %d   RUSHERS %d", hud_time = "TIME %s   SHOTS %d  HITS %d",
   clock = { "12", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11" },
-  clock_fmt = "%s O'CLOCK",
+  clock_fmt = "%s O'CLOCK", clock_fmt_big = "%s OCLOCK",
   -- the debrief
   win = "TARGETS ELIMINATED", fail = "AGENT DOWN", abort = "DUEL ABORTED", win_line = "The ridge is quiet. M will want the rifle back.",
   fail_line = "The snow keeps what it takes, 007.", abort_line = "You left the ridge.",
