@@ -152,7 +152,7 @@ ARENA_THEME.menu = {
   dossier = "MISSION DOSSIER", begin = "BEGIN MISSION", begin_sub = "FIRE / ENTER / CLICK", begin_desc = "Start the run with these settings. The crowd is waiting.",
   qbranch = "Q BRANCH", qbranch_title = "Q BRANCH",
   qbranch_desc = "Every setting: the assignment, SPECTRE's interference, the field team, the opposition, supplies, the crowd.",
-  to_mi6 = "RETURN TO MI6", to_mi6_desc = "Leave the Colosseum for the title menus.", done = "BACK TO THE BRIEFING",
+  to_mi6 = "EXIT", to_mi6_desc = "Close the game.", done = "BACK TO THE BRIEFING",
   reset = "RESET TO THE OPERATION", reset_desc = "Every setting back to the chosen operation's (the defaults when it is custom).",
   custom = "UNSANCTIONED OPERATION", coop_note = "  Your partner is the arena bot; no best scores in co-op.",
   footer = "W S / STICK: MOVE    A D / LEFT RIGHT: CHANGE    FIRE / A / ENTER: SELECT    ESC / B: BACK    MOUSE: POINT, CLICK",

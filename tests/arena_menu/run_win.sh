@@ -35,7 +35,7 @@ chk "run 1 won" "ge: arena: flow finish: WON"
 chk "retry" "ge: arena: menu: RETRY"
 chk "run 2 fell" "ge: arena: flow finish: FELL"
 chk "change settings" "MENUTEST after: screen main"
-chk "quit to title" "after the stage: to the title menus"
+chk "exit the game" "ge: arenamenu: exit the game"
 chk "run 1: the menu let go, gameplay owns the pointer" "MENUTEST run 1 mouse: menu_up false gameplay_pointer true"
 chk "run 2 (Retry): likewise" "MENUTEST run 2 mouse: menu_up false gameplay_pointer true"
 c1=$(grep "MENUTEST run 1 mouse:" $L | sed 's/.*captured //'); c2=$(grep "MENUTEST run 2 mouse:" $L | sed 's/.*captured //')

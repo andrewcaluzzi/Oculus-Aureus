@@ -9,6 +9,7 @@
  *   amenu.arm{...}                    the same launch, for when this stage ends by itself (the run: death, the win, an abort)
  *   amenu.disarm()                    nothing after this stage (the stock report)
  *   amenu.quit() -> bool              end this stage and go to the Files screen
+ *   amenu.exit() -> bool              close the game (the window's close box)
  *   amenu.current() -> t | nil        what this stage was launched with by the hand-off (the fields above); nil = a plain launch
  *   amenu.retry([t]) -> t | nil       the last run's own launch (set by the run, read by the post-game)
  *   amenu.result([text]) -> text      the last run's result (a Lua table constructor, set by the run)
@@ -26,6 +27,8 @@
 
 extern int portNetActive(void);
 extern int portModeActive(void);
+extern void portRequestQuit(void);   /* video.c */
+extern void portConLogf(const char *fmt, ...);
 
 static const char *optField(lua_State *L, int t, const char *k, char *buf, size_t n)
 {
@@ -73,6 +76,15 @@ static int lLaunch(lua_State *L) { AmLaunch l; readLaunch(L, 1, &l); lua_pushboo
 static int lArm(lua_State *L) { AmLaunch l; readLaunch(L, 1, &l); if (portModeActive()) portArenaMenuArm(&l); return 0; }
 static int lDisarm(lua_State *L) { (void) L; portArenaMenuDisarm(); return 0; }
 static int lQuit(lua_State *L) { lua_pushboolean(L, portArenaMenuQuitNow()); return 1; }
+/* the close box's path (video.c portRequestQuit: SDL_QUIT, then the atexit ini saver) */
+static int lExit(lua_State *L)
+{
+    if (!portModeActive()) { lua_pushboolean(L, 0); return 1; }
+    portConLogf("ge: arenamenu: exit the game\n");
+    portRequestQuit();
+    lua_pushboolean(L, 1);
+    return 1;
+}
 static int lNetplay(lua_State *L) { lua_pushboolean(L, portNetActive()); return 1; }
 static int lEscape(lua_State *L) { portArenaMenuEscapeBack(lua_toboolean(L, 1)); return 0; }
 
@@ -301,7 +313,7 @@ static int lView(lua_State *L)
 void portLuaArenaMenuRegister(lua_State *L)
 {
     static const luaL_Reg lib[] = {
-        { "launch", lLaunch }, { "arm", lArm }, { "disarm", lDisarm }, { "quit", lQuit }, { "current", lCurrent }, { "retry", lRetry },
+        { "launch", lLaunch }, { "arm", lArm }, { "disarm", lDisarm }, { "quit", lQuit }, { "exit", lExit }, { "current", lCurrent }, { "retry", lRetry },
         { "result", lResult }, { "prefs", lPrefs }, { "save_prefs", lSavePrefs }, { "view", lView }, { "escape_back", lEscape },
         { "netplay", lNetplay }, { "state", lState }, { NULL, NULL } };
 

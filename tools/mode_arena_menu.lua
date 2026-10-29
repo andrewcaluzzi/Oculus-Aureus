@@ -314,8 +314,8 @@ local function activate(it, ev)
   elseif a == "quit" then
     M.busy = true
     sfx(SFX.back)
-    log("QUIT to the title")
-    if not amenu.quit() then M.busy = false end
+    log("EXIT the game")
+    if not amenu.exit() then M.busy = false end
   elseif a == "retry" then retry()
   elseif a == "reset" then
     local p = D.preset_of(M.v)
