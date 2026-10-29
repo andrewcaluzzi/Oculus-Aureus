@@ -28,7 +28,7 @@ D.T = {
               more = "The Colosseum, or the Temple, Complex, Caves, Library, Stack, Basement and Facility. Presets, mutators, elites; Q Branch has every setting." },
     heist = { name = "HEIST", place = "JANUS BANK AND LE GRAND CASINO", blurb = "Plan the job in the van, then rob Janus: keys, cameras, the vault.",
               more = "Stealth or loud. Two jobs, every setting in Q Branch." },
-    sniper = { name = "SNIPER DUEL", place = "SEVERNAYA SURFACE  -  PROTOTYPE", blurb = "One rifle, a snowy ridge, and a named hunter on the far slopes.",
+    sniper = { name = "SNIPER DUEL", place = "SEVERNAYA RIDGE + SURFACE  -  PROTOTYPE", blurb = "One rifle, a snowy ridge, and a named hunter on the far slopes.",
                more = "Five rounds. A glint shows where a sniper has set up: shoot first or get down. He fires once, then moves. Later rounds add a second rifle and rushers." },
     goldeneye = { name = "GOLDENEYE 007", place = "THE ORIGINAL", blurb = "The campaign and stock multiplayer, from the Files screen.",
                   more = "Missions, multiplayer, the cheats, and the port's own options." },

@@ -6,10 +6,11 @@
 # GE_STAGE=<surface|ridge> picks the stage (default surface; the ridge needs the ridge build). The run ends in the debrief on the hub's Control
 # stage (the hand-off), which the checks read from the lobby's own log lines.
 P=/home/dev/project
-B=$P/build_pc
+B=$P/${BUILD:-build_pc}
 OUT=$P/build_tests/sniper
 M=$B/Data/Scripts/modes
 STAGE=${STAGE:-surface}
+for f in levelgen_layout_ridge; do :; done
 mkdir -p $OUT/shots
 rm -f $OUT/shots/*.bmp
 for f in mode_sniper:sniper mode_sniper_menu:sniper-menu sniper_defs:_sniper_defs mode_hub:hub hub_defs:_hub_defs ui_menu:_ui_menu; do
@@ -35,6 +36,10 @@ pass=0; fail=0
 chk() { if grep -aq "$2" $L; then echo "PASS $1"; pass=$((pass+1)); else echo "FAIL $1"; fail=$((fail+1)); fi; }
 echo "== $((E - S)) s wall for $GE_FRAMES frames"
 chk "the run starts on the stage" "ge: mode: 'sniper-smoke' on stage"
+if [ -n "$GE_SNIPER_RIDGE" ]; then
+  chk "cover blocks both lines (a perch the stan line and the drawn geometry both lose)" "SMOKE LOSAGREE: [0-9]* see Bond by both lines, [1-9][0-9]* blocked by both"
+  if grep -aq "stan sees but geometry blocks [1-9]" $L; then echo "FAIL the stan line sees a perch the drawn geometry blocks (see the SMOKE LOS lines)"; fail=$((fail+1)); else echo "PASS no perch the stan line sees and the drawn geometry blocks (the glitch)"; pass=$((pass+1)); fi
+fi
 chk "Bond's perch: one warp, the listed perches checked" "ge: sniper: Bond's perch pad [0-9]*: [0-9]* of the [0-9]* listed perches see him"
 n=$(grep -a "SMOKE bondpos" $L | sed 1,3d | sed 's/.*(\(.*\)).*/\1/' | sort -u | wc -l)
 if [ $LOSE = 1 ]; then echo "SKIP Bond stays put (the loss variant: he is hit and knocked back)"; elif [ "$n" = 1 ]; then echo "PASS Bond does not move after the stage starts (one position each second, 3 s to 12 s)"; pass=$((pass+1)); else echo "FAIL Bond moved ($n positions)"; fail=$((fail+1)); fi

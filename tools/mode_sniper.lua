@@ -36,7 +36,17 @@ local N_ROUNDS = math.min(S.rounds or #ROUNDS, #ROUNDS)
 
 local automated = mode.env_flag("GE_FRAMES") or mode.env_flag("GE_PLAYERBOT") or mode.env_flag("GE_INPUTPLAY")
 local FLOW = ui ~= nil and HUB_DEFS ~= nil and not ui.netplay() and (not automated or mode.env_flag("GE_SNIPER_MENU")) and S.postgame ~= false
-local LABEL = (cur and cur.label ~= "" and cur.label) or (T.title .. "  -  " .. D.STAGE.name)
+local SID = S.stage or "surface"
+local SD = D.STAGES[SID] or D.STAGES.surface
+if SD.layout then include(SD.layout) end   -- the generated level's named pads (LEVEL)
+local function pad_ids(ids, names)
+  if ids then return ids end
+  local out = {}
+  for _, n in ipairs(names or {}) do local p = LEVEL and LEVEL.pads and LEVEL.pads[n]; if p then out[#out + 1] = p end end
+  return out
+end
+local BOND_PADS, PERCH_PADS = pad_ids(SD.bond_pads, SD.bond_names), pad_ids(SD.perch_pads, SD.perch_names)
+local LABEL = (cur and cur.label ~= "" and cur.label) or (T.title .. "  -  " .. SD.name)
 local function log(fmt, ...) print(string.format("ge: sniper: " .. fmt, ...)) end
 
 SNIPER = { S = S, rounds = N_ROUNDS }   -- (the tests read it)
@@ -94,7 +104,7 @@ end
 local function sweep_for(bp)
   local px, py, pz = pads.pos(bp)
   local seen = {}
-  local ids = (D.PERCH.pads and #D.PERCH.pads > 0) and D.PERCH.pads or pads.far_from(px, pz, S.band_lo, S.band_hi, true)
+  local ids = (#PERCH_PADS > 0) and PERCH_PADS or pads.far_from(px, pz, S.band_lo, S.band_hi, true)
 
   table.sort(ids)
   local i = 1
@@ -112,8 +122,9 @@ local function sweep_for(bp)
     end
     coroutine.yield()
     for _, g in ipairs(group) do
-      if combat.los(g.chr, 0) then
-        seen[#seen + 1] = { pad = g.pad, x = g.x, y = g.y, z = g.z, d = math.sqrt((g.x - px) ^ 2 + (g.z - pz) ^ 2), prefer = prefer[g.pad] }
+      local losv = combat.los(g.chr, 0)
+      if SD.all_perches or losv then   -- (a built level: every perch is listed; the glint waits for his line)
+        seen[#seen + 1] = { pad = g.pad, x = g.x, y = g.y, z = g.z, d = math.sqrt((g.x - px) ^ 2 + (g.z - pz) ^ 2), prefer = prefer[g.pad], los = losv }
       end
       spawn.remove(g.chr)
     end
@@ -123,12 +134,12 @@ end
 
 local sweep_co = coroutine.create(function()
   local bp
-  for _, p in ipairs(D.BOND.pads) do if pads.pos(p) then bp = p; break end end
+  for _, p in ipairs(BOND_PADS) do if pads.pos(p) then bp = p; break end end
   if not bp then return nil end
   bond.warp(0, bp)   -- the one warp of the run (Bond starts on the stage's own start pad)
   for _ = 1, 4 do coroutine.yield() end
   local seen = sweep_for(bp)
-  log("Bond's perch pad %d: %d of the %d listed perches see him (stan line)", bp, #seen, #(D.PERCH.pads or {}))
+  log("Bond's perch pad %d: %d of the %d listed perches see him (stan line)", bp, #seen, #PERCH_PADS)
   return bp, seen
 end)
 
@@ -182,7 +193,7 @@ local function glint_label(f) return "GLINT" .. (f.n > 1 and (" " .. f.n) or "")
 local function marksman(f, pad)
   local _, skin = foe_def(f)
   local c = spawn.chr(pad, { skin = skin, weapon = "sniperrifle", behaviour = "snipe", health = S.foe_hp, sight = S.sight, face = { bx, bz } })
-  if c then spawn.hold(c, true); pcall(spawn.scale, c, S.foe_scale or 1) end
+  if c then spawn.hold(c, true); pcall(spawn.scale, c, S.foe_scale or SD.foe_scale or 1) end
   return c
 end
 
@@ -190,7 +201,7 @@ end
 local function runner(f, pad)
   local _, skin = foe_def(f)
   local c = spawn.chr(pad, { skin = skin, weapon = "sniperrifle", behaviour = "hold", health = S.foe_hp, sight = 50, hearing = 0.01, face = { bx, bz } })
-  if c then spawn.hold(c, true); pcall(spawn.scale, c, S.foe_scale or 1) end
+  if c then spawn.hold(c, true); pcall(spawn.scale, c, S.foe_scale or SD.foe_scale or 1) end
   return c
 end
 
@@ -253,8 +264,10 @@ local function foe_tick(f)
     if now >= f.t then arrive(f) end
   elseif f.st == "scan" then
     if not f.chr then return end
-    if now >= f.dwell_end and f.volleys >= 1 then start_move(f)
-    elseif now >= f.volley_at then start_glint(f) end
+    if now >= f.dwell_end and (f.volleys >= 1 or now >= f.dwell_end + 6) then start_move(f)
+    elseif now >= f.volley_at then
+      if combat.los(f.chr, 0) then start_glint(f) else f.volley_at = now + 1.5 end   -- (no glint, no shot, while he has no line to Bond)
+    end
   elseif f.st == "glint" then
     if now >= f.glint_end then release(f) end
   elseif f.st == "fire" then
@@ -354,14 +367,14 @@ local function end_run(win)
   fired, hits = fired or 0, hits or 0
   fired = math.max(fired, hits)   -- (a hit is a shot: the counters of a scripted test shot would otherwise show more hits than shots)
   local r = { win = win and true or false, rounds = stats.rounds, total = N_ROUNDS, time = math.floor(run_t * 100 + 0.5) / 100, shots = fired, hits = hits,
-              headshots = stats.headshots, hits_taken = stats.hits_taken, foe = stats.killer, label = LABEL, stage = D.key(), round_times = stats.round_times }
+              headshots = stats.headshots, hits_taken = stats.hits_taken, foe = stats.killer, label = LABEL, stage = SD.key, round_times = stats.round_times }
   log("END: %s, %d/%d rounds won, %s, accuracy %d/%d, headshots %d, hits taken %d%s", win and "WON" or "DOWN", r.rounds, r.total, clockstr(run_t), hits, fired,
     r.headshots, r.hits_taken, r.foe ~= "" and (", felled by " .. r.foe) or "")
   ST.result = r
   if FLOW then
     ui.result(U.serialize(r))
-    ui.retry({ mode = name, settings = cur and cur.settings or "", preset = "surface", label = LABEL, stage = D.STAGE.id })
-    ui.arm(HUB_DEFS.lobby("sniper", "postgame", "surface", LABEL))
+    ui.retry({ mode = name, settings = cur and cur.settings or "", preset = SD.key, label = LABEL, stage = SD.stage, env = SD.env })
+    ui.arm(HUB_DEFS.lobby("sniper", "postgame", SD.key, LABEL))
   end
   ST.end_at = now + (win and 4.0 or 2.5)
 end
@@ -394,7 +407,7 @@ on("stage_start", function()
   if bench and bench.sweep_off then pcall(bench.sweep_off) end
   if arena and arena.hud then   -- the Arena's styled HUD: the centre callouts (rounds, the glint) and the plate; the mode rows are hidden under it
     pcall(arena.hud, true)
-    if arena.panel then pcall(arena.panel, { wave = 0, idle_title = T.title, idle_sub = D.STAGE.name, phase = "delay" }) end
+    if arena.panel then pcall(arena.panel, { wave = 0, idle_title = T.title, idle_sub = SD.name, phase = "delay" }) end
   end
   give_kit()
   -- one marksman hit takes hit_damage of a health bar: the AI's hit is 0.125 x the rifle's damage x the difficulty's damage modifier (0.5, 0.75, 1, 1)
@@ -403,12 +416,12 @@ on("stage_start", function()
   weapon.set("sniperrifle", "damage", dmg)
   log("difficulty %d: the sniper rifle's damage is %.2f, one hit takes %.0f%% of a health bar", mission.difficulty() or 0, dmg, S.hit_damage * 100)
   if FLOW then   -- an abort from the watch comes back to the lobby too
-    ui.retry({ mode = name, settings = cur and cur.settings or "", preset = "surface", label = LABEL, stage = D.STAGE.id })
-    ui.result(U.serialize({ aborted = true, win = false, rounds = 0, total = N_ROUNDS, time = 0, label = LABEL, stage = D.key() }))
-    ui.arm(HUB_DEFS.lobby("sniper", "postgame", "surface", LABEL))
+    ui.retry({ mode = name, settings = cur and cur.settings or "", preset = SD.key, label = LABEL, stage = SD.stage, env = SD.env })
+    ui.result(U.serialize({ aborted = true, win = false, rounds = 0, total = N_ROUNDS, time = 0, label = LABEL, stage = SD.key }))
+    ui.arm(HUB_DEFS.lobby("sniper", "postgame", SD.key, LABEL))
   end
   callout(T.get_ready, 3, T.get_ready_sub, 5.0)
-  log("stage start: %s, %d rounds, Bond at pad %s, the sight sweep begins", D.STAGE.name, N_ROUNDS, tostring(bond.pos(0) and "?" or "?"))
+  log("stage start: %s, %d rounds, Bond at pad %s, the sight sweep begins", SD.name, N_ROUNDS, tostring(bond.pos(0) and "?" or "?"))
 end)
 
 on("ui_tick", function(dt)

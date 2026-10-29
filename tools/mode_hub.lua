@@ -87,8 +87,13 @@ local function sniper_best()   -- the rounds won in the best Sniper Duel on file
   local SD = SNIPER_DEFS
   if not SD then return nil end
   local b = ui.prefs("sniper_bests")
-  if (tonumber(b[SD.key() .. "_runs"]) or 0) == 0 then return nil end
-  return tonumber(b[SD.key() .. "_rounds"]) or 0, #SD.ROUNDS
+  local best, runs = 0, 0
+  for _, id in ipairs(SD.STAGE_ORDER) do
+    runs = runs + (tonumber(b[SD.key(id) .. "_runs"]) or 0)
+    best = math.max(best, tonumber(b[SD.key(id) .. "_rounds"]) or 0)
+  end
+  if runs == 0 then return nil end
+  return best, #SD.ROUNDS
 end
 
 local function status(id)   -- text, medal tier (0..4)

@@ -1,0 +1,778 @@
+{
+ "name": "levelgen",
+ "comment": "SEVERNAYA RIDGE, the sniper duel's level (tools/levelgen/build_ridge.py). Edit the script, not this file.",
+ "defaults": {
+  "height": 1500,
+  "cell": 420,
+  "door_width": 10200,
+  "door_height": 1300,
+  "max_wall": 200,
+  "floor_mat": "snow",
+  "wall_mat": "rock",
+  "ceiling_mat": "snow",
+  "chr_light": 14,
+  "light": {
+   "ambient": 0.74,
+   "intensity": 0.28,
+   "radius": 900,
+   "lamp_spacing": 1400,
+   "tint": [
+    214,
+    226,
+    255
+   ],
+   "lamp_height": 900
+  }
+ },
+ "materials": {
+  "snow": {
+   "tex": 1264,
+   "texels_per_unit": 0.064,
+   "from": "Surface floor (the Colosseum's TEX_FLOOR)"
+  },
+  "snow_top": {
+   "tex": 1264,
+   "texels_per_unit": 0.064
+  },
+  "rock": {
+   "tex": 1263,
+   "texels_per_unit": 0.064,
+   "from": "Surface wall (the Colosseum's TEX_WALL)"
+  }
+ },
+ "rooms": [
+  {
+   "name": "s_top",
+   "rect": [
+    -5200,
+    -7080,
+    5200,
+    -5280
+   ],
+   "floor": 700,
+   "height": 1500,
+   "open_top": true,
+   "blocks": [
+    {
+     "name": "par0",
+     "rect": [
+      -4550,
+      -5570,
+      -3450,
+      -5480
+     ],
+     "height": 300,
+     "mat": "rock",
+     "top_mat": "snow_top"
+    },
+    {
+     "name": "par1",
+     "rect": [
+      -2950,
+      -5570,
+      -1850,
+      -5480
+     ],
+     "height": 300,
+     "mat": "rock",
+     "top_mat": "snow_top"
+    },
+    {
+     "name": "par2",
+     "rect": [
+      -1350,
+      -5570,
+      -250,
+      -5480
+     ],
+     "height": 300,
+     "mat": "rock",
+     "top_mat": "snow_top"
+    },
+    {
+     "name": "par3",
+     "rect": [
+      250,
+      -5570,
+      1350,
+      -5480
+     ],
+     "height": 300,
+     "mat": "rock",
+     "top_mat": "snow_top"
+    },
+    {
+     "name": "par4",
+     "rect": [
+      1850,
+      -5570,
+      2950,
+      -5480
+     ],
+     "height": 300,
+     "mat": "rock",
+     "top_mat": "snow_top"
+    },
+    {
+     "name": "par5",
+     "rect": [
+      3450,
+      -5570,
+      4550,
+      -5480
+     ],
+     "height": 300,
+     "mat": "rock",
+     "top_mat": "snow_top"
+    },
+    {
+     "name": "wall0",
+     "rect": [
+      -3750,
+      -6270,
+      -2650,
+      -6180
+     ],
+     "height": 300,
+     "mat": "rock",
+     "top_mat": "snow_top"
+    },
+    {
+     "name": "wall1",
+     "rect": [
+      -2150,
+      -6270,
+      -1050,
+      -6180
+     ],
+     "height": 300,
+     "mat": "rock",
+     "top_mat": "snow_top"
+    },
+    {
+     "name": "wall2",
+     "rect": [
+      -550,
+      -6270,
+      550,
+      -6180
+     ],
+     "height": 300,
+     "mat": "rock",
+     "top_mat": "snow_top"
+    },
+    {
+     "name": "wall3",
+     "rect": [
+      1050,
+      -6270,
+      2150,
+      -6180
+     ],
+     "height": 300,
+     "mat": "rock",
+     "top_mat": "snow_top"
+    },
+    {
+     "name": "wall4",
+     "rect": [
+      2650,
+      -6270,
+      3750,
+      -6180
+     ],
+     "height": 300,
+     "mat": "rock",
+     "top_mat": "snow_top"
+    }
+   ],
+   "pads": [
+    {
+     "name": "sp1",
+     "at": [
+      -4800,
+      -5830
+     ],
+     "face": [
+      -4800,
+      4000
+     ]
+    },
+    {
+     "name": "sp2",
+     "at": [
+      -3200,
+      -5830
+     ],
+     "face": [
+      -3200,
+      4000
+     ]
+    },
+    {
+     "name": "sp3",
+     "at": [
+      -1600,
+      -5830
+     ],
+     "face": [
+      -1600,
+      4000
+     ]
+    },
+    {
+     "name": "sp4",
+     "at": [
+      0,
+      -5830
+     ],
+     "face": [
+      0,
+      4000
+     ]
+    },
+    {
+     "name": "sp5",
+     "at": [
+      1600,
+      -5830
+     ],
+     "face": [
+      1600,
+      4000
+     ]
+    },
+    {
+     "name": "sp6",
+     "at": [
+      3200,
+      -5830
+     ],
+     "face": [
+      3200,
+      4000
+     ]
+    },
+    {
+     "name": "sp7",
+     "at": [
+      4800,
+      -5830
+     ],
+     "face": [
+      4800,
+      4000
+     ]
+    }
+   ]
+  },
+  {
+   "name": "s_ramp",
+   "rect": [
+    -5200,
+    -5240,
+    5200,
+    -2840
+   ],
+   "floor": 700,
+   "height": 1500,
+   "open_top": true,
+   "ramp": {
+    "axis": "z",
+    "to": 0
+   }
+  },
+  {
+   "name": "valley",
+   "rect": [
+    -5200,
+    -2800,
+    5200,
+    2800
+   ],
+   "floor": 0,
+   "height": 1500,
+   "open_top": true,
+   "blocks": [
+    {
+     "name": "rock0",
+     "rect": [
+      -4550,
+      -900,
+      -4050,
+      -500
+     ],
+     "height": 380,
+     "mat": "rock",
+     "top_mat": "snow_top"
+    },
+    {
+     "name": "rock1",
+     "rect": [
+      -2620,
+      940,
+      -1980,
+      1460
+     ],
+     "height": 420,
+     "mat": "rock",
+     "top_mat": "snow_top"
+    },
+    {
+     "name": "rock2",
+     "rect": [
+      -550,
+      -610,
+      350,
+      -90
+     ],
+     "height": 1100,
+     "mat": "rock",
+     "top_mat": "snow_top"
+    },
+    {
+     "name": "rock3",
+     "rect": [
+      1890,
+      -1560,
+      2510,
+      -1040
+     ],
+     "height": 400,
+     "mat": "rock",
+     "top_mat": "snow_top"
+    },
+    {
+     "name": "rock4",
+     "rect": [
+      3940,
+      690,
+      4460,
+      1110
+     ],
+     "height": 1000,
+     "mat": "rock",
+     "top_mat": "snow_top"
+    },
+    {
+     "name": "rock5",
+     "rect": [
+      -1110,
+      1690,
+      -690,
+      2110
+     ],
+     "height": 340,
+     "mat": "rock",
+     "top_mat": "snow_top"
+    },
+    {
+     "name": "rock6",
+     "rect": [
+      740,
+      -2310,
+      1260,
+      -1890
+     ],
+     "height": 360,
+     "mat": "rock",
+     "top_mat": "snow_top"
+    },
+    {
+     "name": "rock7",
+     "rect": [
+      4240,
+      -1210,
+      4760,
+      -790
+     ],
+     "height": 1000,
+     "mat": "rock",
+     "top_mat": "snow_top"
+    },
+    {
+     "name": "rock8",
+     "rect": [
+      -4940,
+      490,
+      -4460,
+      910
+     ],
+     "height": 360,
+     "mat": "rock",
+     "top_mat": "snow_top"
+    },
+    {
+     "name": "rock9",
+     "rect": [
+      2720,
+      1970,
+      3280,
+      2430
+     ],
+     "height": 400,
+     "mat": "rock",
+     "top_mat": "snow_top"
+    }
+   ],
+   "pads": [
+    {
+     "name": "vp1",
+     "at": [
+      -3690,
+      -700
+     ],
+     "face": [
+      -4300,
+      -4000
+     ]
+    },
+    {
+     "name": "vp2",
+     "at": [
+      -1620,
+      1200
+     ],
+     "face": [
+      -2300,
+      -4000
+     ]
+    },
+    {
+     "name": "vp3",
+     "at": [
+      710,
+      -350
+     ],
+     "face": [
+      -100,
+      -4000
+     ]
+    },
+    {
+     "name": "vp4",
+     "at": [
+      2870,
+      -1300
+     ],
+     "face": [
+      2200,
+      -4000
+     ]
+    },
+    {
+     "name": "vp5",
+     "at": [
+      4820,
+      900
+     ],
+     "face": [
+      4200,
+      -4000
+     ]
+    },
+    {
+     "name": "vp6",
+     "at": [
+      -330,
+      1900
+     ],
+     "face": [
+      -900,
+      -4000
+     ]
+    }
+   ]
+  },
+  {
+   "name": "n_ramp",
+   "rect": [
+    -5200,
+    2840,
+    5200,
+    5240
+   ],
+   "floor": 0,
+   "height": 1500,
+   "open_top": true,
+   "ramp": {
+    "axis": "z",
+    "to": 700
+   }
+  },
+  {
+   "name": "n_top",
+   "rect": [
+    -5200,
+    5280,
+    5200,
+    7080
+   ],
+   "floor": 700,
+   "height": 1500,
+   "open_top": true,
+   "blocks": [
+    {
+     "name": "par0",
+     "rect": [
+      -4550,
+      5480,
+      -3450,
+      5570
+     ],
+     "height": 300,
+     "mat": "rock",
+     "top_mat": "snow_top"
+    },
+    {
+     "name": "par1",
+     "rect": [
+      -2950,
+      5480,
+      -1850,
+      5570
+     ],
+     "height": 300,
+     "mat": "rock",
+     "top_mat": "snow_top"
+    },
+    {
+     "name": "par2",
+     "rect": [
+      -1350,
+      5480,
+      -250,
+      5570
+     ],
+     "height": 300,
+     "mat": "rock",
+     "top_mat": "snow_top"
+    },
+    {
+     "name": "par3",
+     "rect": [
+      250,
+      5480,
+      1350,
+      5570
+     ],
+     "height": 300,
+     "mat": "rock",
+     "top_mat": "snow_top"
+    },
+    {
+     "name": "par4",
+     "rect": [
+      1850,
+      5480,
+      2950,
+      5570
+     ],
+     "height": 300,
+     "mat": "rock",
+     "top_mat": "snow_top"
+    },
+    {
+     "name": "par5",
+     "rect": [
+      3450,
+      5480,
+      4550,
+      5570
+     ],
+     "height": 300,
+     "mat": "rock",
+     "top_mat": "snow_top"
+    },
+    {
+     "name": "wall0",
+     "rect": [
+      -3750,
+      6180,
+      -2650,
+      6270
+     ],
+     "height": 300,
+     "mat": "rock",
+     "top_mat": "snow_top"
+    },
+    {
+     "name": "wall1",
+     "rect": [
+      -2150,
+      6180,
+      -1050,
+      6270
+     ],
+     "height": 300,
+     "mat": "rock",
+     "top_mat": "snow_top"
+    },
+    {
+     "name": "wall2",
+     "rect": [
+      -550,
+      6180,
+      550,
+      6270
+     ],
+     "height": 300,
+     "mat": "rock",
+     "top_mat": "snow_top"
+    },
+    {
+     "name": "wall3",
+     "rect": [
+      1050,
+      6180,
+      2150,
+      6270
+     ],
+     "height": 300,
+     "mat": "rock",
+     "top_mat": "snow_top"
+    },
+    {
+     "name": "wall4",
+     "rect": [
+      2650,
+      6180,
+      3750,
+      6270
+     ],
+     "height": 300,
+     "mat": "rock",
+     "top_mat": "snow_top"
+    }
+   ],
+   "pads": [
+    {
+     "name": "np1",
+     "at": [
+      -4800,
+      5830
+     ],
+     "face": [
+      -4800,
+      -4000
+     ]
+    },
+    {
+     "name": "np2",
+     "at": [
+      -3200,
+      5830
+     ],
+     "face": [
+      -3200,
+      -4000
+     ]
+    },
+    {
+     "name": "np3",
+     "at": [
+      -1600,
+      5830
+     ],
+     "face": [
+      -1600,
+      -4000
+     ]
+    },
+    {
+     "name": "np4",
+     "at": [
+      0,
+      5830
+     ],
+     "face": [
+      0,
+      -4000
+     ]
+    },
+    {
+     "name": "np5",
+     "at": [
+      1600,
+      5830
+     ],
+     "face": [
+      1600,
+      -4000
+     ]
+    },
+    {
+     "name": "np6",
+     "at": [
+      3200,
+      5830
+     ],
+     "face": [
+      3200,
+      -4000
+     ]
+    },
+    {
+     "name": "np7",
+     "at": [
+      4800,
+      5830
+     ],
+     "face": [
+      4800,
+      -4000
+     ]
+    }
+   ]
+  }
+ ],
+ "doors": [
+  {
+   "rooms": [
+    "s_top",
+    "s_ramp"
+   ],
+   "at": 0,
+   "width": 10200,
+   "height": 1300
+  },
+  {
+   "rooms": [
+    "s_ramp",
+    "valley"
+   ],
+   "at": 0,
+   "width": 10200,
+   "height": 1300
+  },
+  {
+   "rooms": [
+    "valley",
+    "n_ramp"
+   ],
+   "at": 0,
+   "width": 10200,
+   "height": 1300
+  },
+  {
+   "rooms": [
+    "n_ramp",
+    "n_top"
+   ],
+   "at": 0,
+   "width": 10200,
+   "height": 1300
+  }
+ ],
+ "start": {
+  "room": "s_top",
+  "at": [
+   0,
+   -5830
+  ],
+  "face": [
+   0,
+   4000
+  ]
+ }
+}

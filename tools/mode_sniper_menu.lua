@@ -21,12 +21,13 @@ local SFX = { move = 18, change = 43, select = 199, page = 77, back = 78, start 
 local result = nil
 local news = {}
 local M
-local K = D.key()
+local picked = D.STAGE_ORDER[1]   -- the card chosen (the ridge by default)
+local function K(id) return D.key(id or picked) end
 local bests = ui.prefs("sniper_bests") or {}
 
-local function best()
-  local b = { rounds = tonumber(bests[K .. "_rounds"]) or 0, time = tonumber(bests[K .. "_time"]), runs = tonumber(bests[K .. "_runs"]) or 0,
-              wins = tonumber(bests[K .. "_wins"]) or 0 }
+local function best(id)
+  local b = { rounds = tonumber(bests[K(id) .. "_rounds"]) or 0, time = tonumber(bests[K(id) .. "_time"]), runs = tonumber(bests[K(id) .. "_runs"]) or 0,
+              wins = tonumber(bests[K(id) .. "_wins"]) or 0 }
   if b.runs == 0 then return nil end
   return b
 end
@@ -34,26 +35,27 @@ end
 -- the run just played: counted once, when the debrief opens
 local function record(r)
   if r.aborted then return end
-  local b = best() or { rounds = 0, runs = 0, wins = 0 }
+  local rid = r.stage or picked
+  local b = best(rid) or { rounds = 0, runs = 0, wins = 0 }
   b.runs = b.runs + 1
   if r.win then b.wins = b.wins + 1 end
   local better = (r.rounds or 0) > b.rounds or ((r.rounds or 0) == b.rounds and r.win and (not b.time or r.time < b.time))
   if better then news.best = true; b.rounds = r.rounds or 0; b.time = r.win and r.time or b.time end
-  bests[K .. "_runs"], bests[K .. "_wins"], bests[K .. "_rounds"] = tostring(b.runs), tostring(b.wins), tostring(b.rounds)
-  if b.time then bests[K .. "_time"] = string.format("%.2f", b.time) end
+  bests[K(rid) .. "_runs"], bests[K(rid) .. "_wins"], bests[K(rid) .. "_rounds"] = tostring(b.runs), tostring(b.wins), tostring(b.rounds)
+  if b.time then bests[K(rid) .. "_time"] = string.format("%.2f", b.time) end
   ui.save_prefs("sniper_bests", bests)
   print(string.format("ge: sniper: menu: recorded: runs %d wins %d best %d rounds%s", b.runs, b.wins, b.rounds, news.best and " (new best)" or ""))
 end
 
-local function best_text()
-  local b = best()
+local function best_text(id)
+  local b = best(id)
   if not b then return T.d_none end
   return string.format(T.best_hub, b.rounds, #D.ROUNDS)
 end
 
 local function page_main()
-  local b = best()
-  local inf = { { T.d_where, T.place }, { T.d_rounds, tostring(#D.ROUNDS) }, { T.d_rifle, T.rifle }, { "", "" } }
+  local b = best(picked)
+  local inf = { { T.d_where, D.STAGES[picked].name }, { T.d_rounds, tostring(#D.ROUNDS) }, { T.d_rifle, T.rifle }, { "", "" } }
   if b then
     inf[#inf + 1] = { T.d_best, string.format("%d / %d", b.rounds, #D.ROUNDS) }
     if b.time and b.rounds >= #D.ROUNDS then inf[#inf + 1] = { T.d_time, U.clock(b.time) } end
@@ -62,11 +64,14 @@ local function page_main()
     inf[#inf + 1] = { T.d_best, T.d_none, 0x9A9080FF }
   end
   local xl, xd = T.to_mi6, T.to_mi6_desc
-  local it = {
-    { kind = "card", label = T.title, value = T.place, sub = T.blurb, right = best_text(), chosen = true, act = "start", desc = T.blurb .. " " .. T.more },
-    { kind = "button", label = xl, act = "quit", desc = xd },
-    { kind = "primary", col = 2, label = T.begin, sub = T.begin_sub, act = "start", desc = T.begin_desc },
-  }
+  local it = {}
+  for _, id in ipairs(D.STAGE_ORDER) do
+    local sd = D.STAGES[id]
+    it[#it + 1] = { kind = "card", label = sd.card or sd.name, value = sd.name, sub = T.blurb, right = best_text(id), chosen = (picked == id), act = "pick", stage = id,
+                    desc = T.blurb .. " " .. T.more }
+  end
+  it[#it + 1] = { kind = "button", label = xl, act = "quit", desc = xd }
+  it[#it + 1] = { kind = "primary", col = 2, label = T.begin, sub = T.begin_sub, act = "start", desc = T.begin_desc }
   return { layout = "lobby", items = it, title = T.title, kicker = T.kicker, subtitle = "", info = inf, info_title = T.dossier, info_sub = T.title, cursor_act = "start" }
 end
 
@@ -103,11 +108,14 @@ local function sfx(id) if arena and arena.sfx then pcall(arena.sfx, id) end end
 
 local function launch()
   if M.busy then return end
-  local label = T.title .. "  -  " .. D.STAGE.name
+  local label = T.title .. "  -  " .. D.STAGES[picked].name
   M.busy = true
   sfx(SFX.start)
   M.log("BEGIN %s", label)
-  if not ui.launch({ mode = "sniper", settings = U.serialize({}), preset = "surface", label = label, stage = D.STAGE.id }) then
+  local SDm = D.STAGES[picked]
+  local env = {}
+  for k, v in pairs(SDm.env or {}) do env[k] = v end
+  if not ui.launch({ mode = "sniper", settings = U.serialize({ stage = picked }), preset = picked, label = label, stage = SDm.stage, env = env }) then
     M.busy = false
     M.log("launch refused")
   end
@@ -117,7 +125,7 @@ local function again()
   if M.busy then return end
   local r = ui.retry()
   if not r then M.log("no duel to run again"); return end
-  r.lobby, r.stage = "", D.STAGE.id
+  r.lobby = ""
   M.busy = true
   sfx(SFX.start)
   M.log("AGAIN %s", r.label or "")
@@ -130,7 +138,8 @@ M = U.new{
   back = { debrief = "main" },
   footer = T.footer, sfx = sfx, SFX = SFX,
   act = function(M_, a, it)
-    if a == "start" then launch()
+    if a == "pick" then picked = it.stage; sfx(SFX.select); M.dirty = true
+    elseif a == "start" then launch()
     elseif a == "again" then again()
     elseif a == "quit" then
       sfx(SFX.back)
@@ -143,6 +152,7 @@ SNIPER_MENU = M
 
 function M.host_open(c)
   M.busy, M.cursor, M.last, M.dirty = false, 0, {}, true
+  if c and D.STAGES[c.preset] then picked = c.preset end
   M.quiet = 0.4   -- (the press that opened it is not ours)
   for k in pairs(news) do news[k] = nil end
   result, M.page = nil, "main"

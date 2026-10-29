@@ -3,7 +3,7 @@
 # SNIPER DUEL tile, SELECTs it and presses BEGIN THE DUEL; the launch (ui.launch{mode = "sniper", stage = "surface"}) loads Surface with the mode and the
 # run starts its first round. usage: hubbegin.sh [frames]    Log: build_tests/sniper/hubbegin.log
 P=/home/dev/project
-B=$P/build_pc
+B=$P/${BUILD:-build_pc}
 OUT=$P/build_tests/sniper
 M=$B/Data/Scripts/modes
 mkdir -p $OUT/shots

@@ -92,4 +92,13 @@ D.PERCH = { y_min = 60, ban = {}, prefer = {},
   -- eye to head and to rifle) say see Bond. A pad the stan line alone sees is a place a marksman could hit a Bond who cannot see him: left out.
   pads = { 50, 84, 101, 108, 116, 117, 118, 120, 146, 151, 152, 153, 155, 157, 158, 159, 160, 161, 168, 169, 170, 171, 172, 173, 177 } }
 
-function D.key() return "surface" end   -- the best-score key (one stage for now); the file is Data/Saves/ui/sniper_bests.ini
+-- the stages the duel can be fought on. stage = the name the launch loads (ui.launch stage=), env = the launch's variables, layout = the levelgen layout the
+-- mode includes (LEVEL: its named pads), bond_* / perch_* = Bond's candidate perches and the marksmen's, as pad ids (a stock stage) or LEVEL.pads names
+D.STAGES = {
+  surface = { key = "surface", name = "SEVERNAYA", card = "SURFACE", stage = "surface", bond_pads = D.BOND.pads, perch_pads = D.PERCH.pads, foe_scale = 1.5 },
+  ridge = { key = "ridge", name = "SEVERNAYA RIDGE", card = "SEVERNAYA RIDGE", stage = "levelgen", env = { GE_LEVELGEN = "ridge" }, layout = "levelgen_layout_ridge",
+            bond_names = { "sp4", "sp3", "sp5", "sp2", "sp6" }, perch_names = { "np1", "np2", "np3", "np4", "np5", "np6", "np7", "np8", "vp1", "vp2", "vp3", "vp4", "vp5", "vp6" },
+            foe_scale = 2.0, all_perches = true },
+}
+D.STAGE_ORDER = { "ridge", "surface" }
+function D.key(id) return (D.STAGES[id or "surface"] or D.STAGES.surface).key end   -- the best-score key (ui prefs sniper_bests: <key>_rounds ...)

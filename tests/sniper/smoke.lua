@@ -2,10 +2,11 @@
 -- real shot (test.shoot, the stock hit path) once he has taken his shot: in round 1 only after he has fired and moved once, so the log shows the
 -- whole glint -> shot -> relocate -> glint cycle; in the later rounds as soon as he is aiming. The run ends in the debrief on the hub's stage.
 -- Env: GE_SNIPER_SHOTS=1 takes pictures (a glint, the round callout).
-if mode.env_flag("GE_SNIPER_SHOTS") then SNIPER_SETTINGS = { band_hi = 8500 } end   -- (the pictures: the nearest perches, so a figure shows at all)
+SNIPER_SETTINGS = {}
+if mode.env_flag("GE_SNIPER_RIDGE") then SNIPER_SETTINGS.stage = "ridge" end   -- (GE_STAGE=levelgen GE_LEVELGEN=ridge, the ridge build)
 if mode.env_flag("GE_SNIPER_LOSE") then   -- the loss path quickly: a marksman who nearly always hits and moves fast (round 1 five times over: "ROUND 1/5" still)
   local hard = { foe = 1, snipers = 1, rushers = 0, hit = 0.9, glint = 1.0, dwell = { 6, 8 }, volley_gap = { 2, 3 }, volley_shots = { 1, 1 } }
-  SNIPER_SETTINGS = { rounds_table = { hard, hard, hard, hard, hard }, first_delay = 1 }
+  SNIPER_SETTINGS.rounds_table, SNIPER_SETTINGS.first_delay = { hard, hard, hard, hard, hard }, 1
 end
 include("sniper")
 local ST = SNIPER
@@ -20,6 +21,7 @@ local blog
 local shot_at = {}
 local function snap(tag, at) shot_at[#shot_at + 1] = { tag = tag, at = at } end
 
+local losdone = false
 on("stage_start", function() print(string.format("SMOKE fog: props are drawn out to %.0f units", probe.fog())) end)
 on("tick", function(dt)
   t = t + dt
@@ -35,6 +37,18 @@ on("tick", function(dt)
       if shot_at[i].tag == "perch" then local d = test.rooms_drawn and test.rooms_drawn(0) or {}; print("SMOKE perch rooms drawn now: " .. table.concat(d, ",")) end
       table.remove(shot_at, i)
     end
+  end
+  if ST.phase == "round" and not losdone then   -- does the AI's line (stan) agree with the drawn geometry (probe.los) from Bond's perch? one line a perch, once
+    losdone = true
+    local _, _, ex, ey, ez = gadget.aim(0)
+    local both_ok, both_blocked, glitch, other = 0, 0, 0, 0
+    for _, p in ipairs(ST.perches) do
+      local g = true
+      for _, h in ipairs({ 165, 140 }) do g = g and probe.los(ex, ey, ez, p.x, p.y + h, p.z) and probe.los(p.x, p.y + h, p.z, ex, ey, ez) end
+      if p.los and g then both_ok = both_ok + 1 elseif not p.los and not g then both_blocked = both_blocked + 1 elseif p.los then glitch = glitch + 1 else other = other + 1 end
+      print(string.format("SMOKE LOS pad %d (%.0f m): stan %s, drawn geometry %s", p.pad, p.d / 100, tostring(p.los), tostring(g)))
+    end
+    print(string.format("SMOKE LOSAGREE: %d see Bond by both lines, %d blocked by both (cover), stan sees but geometry blocks %d (the glitch), geometry clear but stan blocks %d", both_ok, both_blocked, glitch, other))
   end
   if ST.phase ~= "round" then return end
   if #ST.rushers > 0 and t - rlog >= 2 then   -- how the rushers close in (the nearest one's distance from Bond, every 2 s)
