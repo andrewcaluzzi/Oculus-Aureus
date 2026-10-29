@@ -9,7 +9,7 @@
 local cur = ui and ui.current() or nil
 local n = cur and cur.seq or 1
 print(string.format("ge: heist: FLOWTEST run seq %d", n))
-if n <= 1 then
+if n <= 1 and not mode.env_flag("GE_HUB_TEST_KILL") then   -- (the hub test: its one heist run is the plain job, Bond killed)
   local real_win, real_fail = mission.win, mission.fail
   include("heist_winpath")
   local tw, tf = mission.win, mission.fail

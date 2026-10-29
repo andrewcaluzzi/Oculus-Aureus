@@ -30,6 +30,7 @@
 #include <ultra64.h>
 
 #include "port_uimenu.h"
+#include "port_arenamenu.h"
 
 extern void portConLogf(const char *fmt, ...);
 extern const char *portRootPath(const char *name);
@@ -263,7 +264,11 @@ int portUiMenuAfterStage(int prev)
     const s32 a = sArmed;
     s32 i;
 
-    if (prev != 0) return prev;
+    if (prev != 0)
+    {   /* the arena's hand-off took it: its stage slot (the hub hosts the arena's lobby on Control and starts its runs on the Colosseum) */
+        if (prev == 1) cpy(sStage, sizeof(sStage), portArenaMenuTakeStage());
+        return prev;
+    }
     sArmed = UI_ARM_NONE;
     portUiMenuViewOff();
     if (a == UI_ARM_NONE || portNetActive()) return 0;

@@ -13,16 +13,26 @@
 -- DEBRIEF (the result, the stats, the objectives, the take, the commendations; AGAIN, NEW JOB, EXIT: closes the game). The choices are kept in
 -- Data/Saves/ui/heist_menu.ini, the bests per job and difficulty in Data/Saves/ui/heist_bests.ini (ui.prefs: this machine's, solo only).
 -- Test hooks: HEIST_MENU (the menu), GE_HEISTMENU_TEST=1 runs mode heist_flowtest instead of heist (tests/heist_menu).
+--
+-- HOSTED by the main menu hub (tools/mode_hub.lua sets HEIST_MENU_HOST = { cur =, back = function } and includes this script): the hub's
+-- stage (Control) is the backdrop, so there is no job level, staff, camera turn, music or stage handler here, and a job's card only picks
+-- the job (no stage load). The hub calls HEIST_MENU.host_open(cur) when the Heist tile opens it (or a run ended and came back to the
+-- debrief) and HEIST_MENU.host_tick(dt) every ui tick while it is up. EXIT is MAIN MENU (host.back); BEGIN THE JOB / AGAIN are stage
+-- loads, on the levelgen slot (stage = "levelgen").
 
+local HOST = HEIST_MENU_HOST
+HEIST_MENU_HOST = nil
 include("_ui_menu")
 include("_heist_menu_defs")
 pcall(include, "_hub_defs")   -- the main menu hub's: when it opened this lobby, EXIT is MAIN MENU (a build without the hub has none)
 local U, D = UI_MENU, HEIST_MENU_DEFS
 local T, TD = D.T, D.TD
 local function exit_text(label, desc) if HUB_DEFS then return HUB_DEFS.exit_text(label, desc) end return label, desc end
-if levelgen and levelgen.current() ~= levelgen.default() then include("levelgen_layout_" .. levelgen.current()) else include("levelgen_layout") end
+if not HOST then
+  if levelgen and levelgen.current() ~= levelgen.default() then include("levelgen_layout_" .. levelgen.current()) else include("levelgen_layout") end
+end
 
-local cur = ui and ui.current() or nil
+local cur = HOST and HOST.cur or (ui and ui.current() or nil)
 local result = nil
 local RUN_MODE = mode.env_flag("GE_HEISTMENU_TEST") and "heist_flowtest" or "heist"
 local SFX = { move = 18, change = 43, select = 199, page = 77, back = 78, start = 50, best = 160 }
@@ -30,7 +40,7 @@ local BACKDROP = { bank = "hall", casino = "salle_europe" }   -- the room the ca
 local MEDAL_RGBA = { [0] = 0x9A9080FF, 0xD08A48FF, 0xD4D8E0FF, 0xF0C040FF, 0xA8ECF8FF }
 local FORCE = { [0] = 30, 45, 70, 90 }
 
-local here = D.job_here()
+local here = HOST and D.JOBS[1] or D.job_here()   -- (the job whose level is up; hosted, none is: the first job's the default pick)
 local M
 local function job() return D.JOB_BY_ID[M.job] or here end
 
@@ -78,8 +88,8 @@ local function card_items()
     local right = ""
     if b and b.payout then right = string.format(T.card_best, U.money(b.payout)) elseif ok then right = T.card_none end
     it[#it + 1] = { kind = "card", label = j.name, sub = j.blurb, value = j.place, right = right, medal = b and tier(b.rating) or 0,
-                    tag = (not ok) and T.card_missing or (j.lg == here.lg and T.card_here or ""), chosen = (M.job == j.id), dim = not ok,
-                    act = "job", job = j.id, desc = j.blurb .. " " .. j.more .. ((ok and j.lg ~= here.lg) and T.card_switch or "") }
+                    tag = (not ok) and T.card_missing or ((not HOST and j.lg == here.lg) and T.card_here or ""), chosen = (M.job == j.id), dim = not ok,
+                    act = "job", job = j.id, desc = j.blurb .. " " .. j.more .. ((ok and not HOST and j.lg ~= here.lg) and T.card_switch or "") }
   end
   return it
 end
@@ -224,7 +234,7 @@ local function launch()
   M.busy = true
   sfx(SFX.start)
   M.log("BEGIN %s (%s): difficulty %d, %d bytes of settings, deal %s, partner %s", label, j.id, d, #text, M.label("seed"), tostring(M.val("partner")))
-  if not ui.launch({ mode = RUN_MODE, settings = text, preset = j.id, label = label, difficulty = d, env = env }) then
+  if not ui.launch({ mode = RUN_MODE, settings = text, preset = j.id, label = label, difficulty = d, env = env, stage = HOST and "levelgen" or nil }) then
     M.busy = false
     M.log("launch refused")
   end
@@ -235,6 +245,7 @@ local function again()
   local r = ui.retry()
   if not r then M.log("no job to run again"); return end
   r.lobby = ""
+  if HOST then r.stage = "levelgen" end
   M.busy = true
   sfx(SFX.start)
   M.log("AGAIN %s (mode %s, %d bytes of settings)", r.label or "", r.mode, #(r.settings or ""))
@@ -246,7 +257,7 @@ local function pick_job(id)
   if not j or not D.available(j) then sfx(SFX.back); return end
   M.job = id
   sfx(SFX.select)
-  if j.lg ~= here.lg and not M.busy then   -- the other job's level: the lobby moves there (a stage load)
+  if not HOST and j.lg ~= here.lg and not M.busy then   -- the other job's level: the lobby moves there (a stage load; hosted, there is no level)
     save()
     M.busy = true
     M.log("job %s: moving the lobby to its level (%s)", id, j.lg)
@@ -275,9 +286,10 @@ M = U.new{
       M.busy = true
       sfx(SFX.back)
       save()
-      if HUB_DEFS and HUB_DEFS.from_hub() then   -- the hub opened this lobby: back to it (a stage load)
+      if HOST then   -- the hub hosts this lobby: back to its main page (no stage load)
         M.log("MAIN MENU")
-        if not HUB_DEFS.to_hub() then M.busy = false end
+        M.busy = false
+        HOST.back()
         return
       end
       M.log("EXIT the game")
@@ -294,17 +306,41 @@ HEIST_MENU = M
 M.job = here.id
 
 -- ---- the stage ----
-local pr = M.load_prefs()
-if cur and cur.preset ~= "" and D.JOB_BY_ID[cur.preset] then M.job = cur.preset end
-if not D.available(job()) then M.job = here.id end
-if cur and cur.lobby == "postgame" then
-  result = U.parse(ui.result())
-  if result then
-    record(result)
-    M.page = "debrief"
+-- the page it opens on: the saved choices and job, the job a run came back with, the debrief of the run that just ended
+local function open_from(c)
+  cur = c
+  M.load_prefs()
+  M.job = here.id
+  if cur and cur.preset ~= "" and D.JOB_BY_ID[cur.preset] then M.job = cur.preset end
+  if not D.available(job()) then M.job = here.id end
+  M.page, result = "main", nil
+  if cur and cur.lobby == "postgame" then
+    result = U.parse(ui.result())
+    if result then
+      record(result)
+      M.page = "debrief"
+    end
   end
+  M.log("lobby: %s, job %s%s, %s", M.page, M.job, HOST and " (hosted by the hub)" or string.format(" on the %s level", here.lg),
+        cur and ("after " .. (cur.label ~= "" and cur.label or "a run")) or "first boot")
 end
-M.log("lobby: %s, job %s on the %s level, %s", M.page, M.job, here.lg, cur and ("after " .. (cur.label ~= "" and cur.label or "a run")) or "first boot")
+
+if HOST then   -- the hub's stage, music, camera and ticks: it opens this page and calls us (see the header)
+  function M.host_open(c)
+    M.busy, M.cursor, M.last, M.dirty = false, 0, {}, true
+    M.quiet = 0.4   -- (the press that opened it is not ours)
+    for k in pairs(news) do news[k] = nil end
+    open_from(c)
+    M.cursor = (M.page == "main") and (M.find_act("start") or 1) or 1
+    M.show()
+    M.cursor = (M.page == "main") and (M.find_act("start") or 1) or 1
+    M.show()
+  end
+  function M.host_tick(dt) M.tick(dt); mode.state(M.state_text()) end
+  return
+end
+
+open_from(cur)
 
 -- the people behind the menu: a few staff and guards standing about, fidgeting (no AI to speak of: spectators)
 local FIDGETS = { "yawn", "scratch_leg", "adjust", "chat", "listen", "cough", "look" }

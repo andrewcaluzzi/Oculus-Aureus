@@ -1,15 +1,22 @@
--- The MAIN MENU HUB (GE_MODE=hub on the stock Control stage; shipped as Data/Scripts/modes/hub.lua). Play Midas.bat boots into it. It is
--- the top level over every mode: ARENA and HEIST hand off to their lobbies (arena-menu, heist-menu) exactly as their own launchers
--- start them, GOLDENEYE 007 goes to the stock front end (the Files screen: the campaign, stock multiplayer), SETTINGS is the port's own
--- options, EXIT closes the game. Built on the generic menu layer (tools/ui_menu.lua, port/src/port_uimenu*.c): the Arena's look.
+-- The MAIN MENU HUB (GE_MODE=hub on the stock Control stage; shipped as Data/Scripts/modes/hub.lua). Play Oculus Aureus.bat boots into it.
+-- It is the top level over every mode: ARENA and HEIST open their start menus (the Arena's lobby, tools/mode_arena_menu.lua, and the
+-- Heist's, tools/mode_heist_menu.lua) HOSTED on this stage, GOLDENEYE 007 goes to the stock front end (the Files screen: the campaign,
+-- stock multiplayer), SETTINGS is the port's own options, EXIT closes the game. Built on the generic menu layer (tools/ui_menu.lua,
+-- port/src/port_uimenu*.c): the Arena's look.
 --
--- The stage is the backdrop: the stock Control stage, the big world-map screen wall in front of the camera, which pans slowly. Nobody
--- fights (the mode removes the guards): the controls are held (plan.hold: the crew's synchronized buttons drive the menu, so the menu
--- is sim state like the lobbies') and Bond stands there, unarmed. The stage, the camera and the music are ONE table entry
--- (HUB_DEFS.STAGE in tools/hub_defs.lua). The music is the Control elevator track the lobbies play.
+-- The stage is the backdrop AND the stage of every menu page: the stock Control stage, the big world-map screen wall in front of the
+-- camera, which pans slowly. Nothing loads between the hub, the Arena's start menu (all its pages), the Heist's (all its pages, the job
+-- cards too) and SETTINGS, so the music plays on; only a run (BEGIN, Retry, AGAIN) loads its own stage, and when it ends the hub's
+-- stage loads once more and shows the run's post-game or debrief (the hosted lobby's page), MAIN MENU then goes back to the hub's page
+-- with no load. Nobody fights (the mode removes the guards): the controls are held (plan.hold: the crew's synchronized buttons drive
+-- the menu, so the menu is sim state like the lobbies') and Bond stands there, unarmed. The stage, the camera and the music are ONE
+-- table entry (HUB_DEFS.STAGE in tools/hub_defs.lua). The music is the Control elevator track the lobbies play.
 --
--- A lobby the hub opened (ui.hub() true) has MAIN MENU where it has EXIT, and it comes back here: a stage load (HUB_DEFS.to_hub). A lobby
--- started by its own launcher is as it always was. The hub is off under netplay (the menu flow is solo and local co-op only).
+-- Hosting: the lobby scripts are included at load with ARENA_MENU_HOST / HEIST_MENU_HOST set (their header says what that turns off);
+-- the hub opens one (host_open), gives it the ui ticks (host_tick) and takes the screen back when it asks (host.back). Only one menu
+-- is drawn at a time: the Arena's has its own view (amenu.view), the Heist's and the hub's share ui.view. A lobby started by its own
+-- launcher is as it always was (its own stage, its own music). ui.hub() is true for the whole session (a run's flow, arena_flow and
+-- heist_flow, then returns to this stage). The hub is off under netplay (the menu flow is solo and local co-op only).
 --
 -- SETTINGS: the port's own options (ui.opt / ui.opt_set: port_options.c, the table the Options pages use). Each applies the moment it
 -- changes and is written to midas.ini by the port itself, so they hold across the stage loads and the next launch.
@@ -30,6 +37,17 @@ local SFX = { move = 18, change = 43, select = 199, page = 77, back = 78, start 
 local MEDAL_RGBA = { [0] = 0x9A9080FF, 0xD08A48FF, 0xD4D8E0FF, 0xF0C040FF, 0xA8ECF8FF }
 local cur = ui.current()
 local M
+
+-- ---- the hosted lobbies: the Arena's start menu and the Heist's, run on this stage (see the header) ----
+local HOSTED = {}                 -- "arena" / "heist" -> the lobby's menu (host_open, host_tick)
+local active, want_back = nil, false   -- the lobby that is up; it asked to go back to the hub's page (done after its tick)
+for _, h in ipairs({ { "arena", "ARENA_MENU", "ARENA_MENU_HOST", "arena-menu" }, { "heist", "HEIST_MENU", "HEIST_MENU_HOST", "heist-menu" } }) do
+  _G[h[3]] = { back = function() want_back = true end }
+  local ok, err = pcall(include, h[4])
+  _G[h[3]] = nil
+  if ok and _G[h[2]] and _G[h[2]].host_open then HOSTED[h[1]] = _G[h[2]]
+  else print(string.format("ge: hub: menu: the %s lobby is not available (%s)", h[1], tostring(err))) end
+end
 
 -- ---- the tiles' status lines: the Arena's best (arena_scores.ini) and the Heist's (ui prefs heist_bests), solo only ----
 local function arena_best()
@@ -118,25 +136,59 @@ end
 -- ---- actions ----
 local function sfx(id) if arena and arena.sfx then pcall(arena.sfx, id) end end
 
+-- a run from a hosted lobby that just ended brought us here: which lobby, and the launch it came with (lobby = its page)
+local function returning()
+  for _, src in ipairs({ amenu.current, ui.current }) do
+    local c = src()
+    if c and c.mode == "hub" then
+      local host, page = D.lobby_of(c.lobby)
+      if host and HOSTED[host] then return host, { preset = c.preset, label = c.label, lobby = page } end
+    end
+  end
+end
+
+-- a hosted lobby takes the screen: it draws its own view (the Arena's amenu.view, the Heist's ui.view); the hub's page is switched off
+local function enter(host, c)
+  local H = HOSTED[host]
+  active, want_back = host, false
+  ui.view({})
+  amenu.view({})
+  M.log("%s: lobby up on this stage (%s)", host, c and (c.lobby ~= "" and c.lobby or "a run") or "from the main menu")
+  H.host_open(c)
+end
+
+-- the lobby asked for the main menu (its MAIN MENU row): its view goes, the hub's page is back, no stage load
+local function leave()
+  local host = active
+  active, want_back = nil, false
+  ui.view({})
+  amenu.view({})
+  M.page, M.busy, M.quiet = "main", false, 0.3
+  M.cursor = 0
+  for _, t in ipairs(D.TILES) do if t.host == host then sel = t.id end end
+  M.dirty = true
+  M.show()
+  M.cursor = M.find(function(it) return it.act == "tile" and it.tile == sel end) or M.find_act("tile") or 1
+  M.show()
+  M.log("%s: back to the main menu", host or "?")
+  mode.state(M.state_text())
+end
+
 local function open(id)
   if M.busy then return end
   local tile
   for _, t in ipairs(D.TILES) do if t.id == id then tile = t end end
-  M.busy = true
-  sfx(SFX.start)
-  if not tile.launch then   -- GOLDENEYE 007: the stock front end's Files screen
-    M.log("%s: to the Files screen", id)
-    if not ui.quit() then M.busy = false; M.log("quit refused") end
+  if tile.host then
+    if not HOSTED[tile.host] then sfx(SFX.back); M.log("%s: not available", id); return end
+    sfx(SFX.page)
+    enter(tile.host, nil)
     return
   end
-  local L = tile.launch
-  M.log("%s: %s on the %s stage", id, L.mode, L.stage)
-  ui.hub(true)   -- (the lobby it opens has MAIN MENU where it has EXIT)
-  if not ui.launch({ mode = L.mode, stage = L.stage, lobby = "menu", preset = "", label = T.tiles[id].name, env = L.env }) then
-    ui.hub(false)
-    M.busy = false
-    M.log("launch refused")
-  end
+  M.busy = true
+  sfx(SFX.start)
+  -- GOLDENEYE 007: the stock front end's Files screen
+  M.log("%s: to the Files screen", id)
+  if not ui.quit() then M.busy = false; M.log("quit refused") end
 end
 
 M = U.new{
@@ -174,7 +226,7 @@ on("stage_start", function()
     local okc, curm = pcall(music.current)
     if not (okc and curm == ST.music) then pcall(music.play, ST.music, ST.volume) end
   end
-  ui.hub(false)   -- (the hub is the top: a lobby sets it again when it opens one)
+  ui.hub(true)   -- (the session is the hub's: its runs' flows bring them back here, and a lobby's exit is MAIN MENU)
   plan.hold(true)
   ui.escape_back(true)
   if crosshair and crosshair.hide then pcall(crosshair.hide, true) end
@@ -186,6 +238,12 @@ on("stage_start", function()
     pcall(bond.equip, p, "fist")
   end
   M.log("stage start: %s, camera on pad %d", ST.name, ST.pad)
+  local host, c = returning()
+  if host then   -- a run from a hosted lobby just ended (or was aborted): its lobby on this stage, on the post-game / debrief
+    for _, t in ipairs(D.TILES) do if t.host == host then sel = t.id end end
+    enter(host, c)
+    return
+  end
   M.show()
   M.cursor = M.find_act("tile") or 1
   M.show()
@@ -193,8 +251,13 @@ end)
 
 local clock = 0
 on("ui_tick", function(dt)
-  M.tick(dt)
-  mode.state(M.state_text())
+  if active then
+    HOSTED[active].host_tick(dt)
+    if want_back then leave() end
+  else
+    M.tick(dt)
+    mode.state(M.state_text())
+  end
   clock = clock + dt   -- the camera pans between yaw - pan and yaw + pan
   local yaw = ST.yaw + ST.pan * math.sin(clock * 2 * math.pi / ST.period)
   for p = 0, bond.count() - 1 do pcall(bench.look, p, yaw, ST.pitch) end

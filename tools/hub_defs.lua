@@ -1,12 +1,13 @@
 -- hub_defs.lua: the main menu hub's words and tables (shipped as Data/Scripts/modes/_hub_defs.lua). Read by the hub (tools/mode_hub.lua)
--- and, through HUB_DEFS.exit_text / HUB_DEFS.to_hub, by the Arena and Heist lobbies (a lobby the hub opened has MAIN MENU where it has EXIT).
+-- and, through HUB_DEFS.exit_text / HUB_DEFS.lobby, by the Arena and Heist run flows (a hub session's run comes back to the hub's stage).
 -- Defines the global HUB_DEFS:
 --   T          every player-facing word (the arena's MI6 tone: tools/arena_theme.lua, tools/heist_theme.lua)
 --   STAGE      the backdrop: the stock stage the hub runs on and where its camera sits. ONE table entry: swap in Surface by changing it
 --   OPTIONS    the settings page: the port's own options (ui.opt), by group
---   TILES      the top level: id, the mode it opens, its stage, the launch it hands off with
+--   TILES      the top level: id, the lobby it hosts (the Arena's, the Heist's), or none (GoldenEye: the Files screen)
 --   exit_text(label, desc) -> label, desc    a lobby's EXIT row: MAIN MENU when the hub opened this session
---   to_hub() -> bool                         end the lobby's stage and load the hub
+--   lobby(host, page, preset, label) -> t    the launch that brings a run back to the hub's stage on a hosted lobby's page
+--   lobby_of(text) -> host, page             that launch's lobby text read back ("arena/postgame")
 --   from_hub() -> bool                       the hub opened this session
 -- Nothing here reads a file or needs the other mode scripts; a package without the hub simply lacks it (the lobbies pcall the include).
 
@@ -14,12 +15,12 @@ HUB_DEFS = {}
 local D = HUB_DEFS
 
 D.T = {
-  kicker = "MI6  -  SECTION 00  -  OPERATIONS", title = "PROJECT MIDAS", subtitle = "Choose your assignment, 007.",
+  kicker = "MI6  -  SECTION 00  -  OPERATIONS", title = "OCULUS AUREUS", subtitle = "Choose your assignment, 007.",
   dossier = "ASSIGNMENT", settings = "SETTINGS", settings_title = "SETTINGS", exit = "EXIT",
   settings_desc = "Sound, mouse, view and HUD. They apply at once and are kept for the next time.",
   exit_desc = "Close the game.", done = "BACK TO THE MAIN MENU", done_desc = "Back to the main menu (B / Escape).",
   footer = "W S / STICK: MOVE    A D / LEFT RIGHT: CHANGE    FIRE / A / ENTER: SELECT    ESC / B: BACK    MOUSE: POINT, CLICK",
-  back_label = "MAIN MENU", back_desc = "Back to the main menu: the stage loads again.",
+  back_label = "MAIN MENU", back_desc = "Back to the main menu.",
   d_mode = "OPERATION", d_where = "WHERE", d_best = "BEST ON FILE", d_none = "NO RUNS YET", d_solo = "SOLO ONLY",
   groups = { AUDIO = "SOUND", CONTROLS = "CONTROLS", VIEW = "VIEW AND HUD" },
   tiles = {
@@ -58,10 +59,11 @@ D.OPTIONS = {
 D.GROUPS = { "AUDIO", "CONTROLS", "VIEW" }
 D.GROUP_COL = { AUDIO = 1, CONTROLS = 1, VIEW = 2 }
 
--- the top level: id, the launch the tile hands off with (mode, stage, env), as the mode's own .bat starts it
+-- the top level: id, the lobby it hosts (mode_hub.lua runs the Arena's start menu and the Heist's on this stage: no stage load between
+-- the menus; only a run loads its own stage)
 D.TILES = {
-  { id = "arena", launch = { mode = "arena-menu", stage = "colosseum" } },
-  { id = "heist", launch = { mode = "heist-menu", stage = "levelgen", env = { GE_LEVELGEN = "bank" } } },
+  { id = "arena", host = "arena" },
+  { id = "heist", host = "heist" },
   { id = "goldeneye" },   -- (ui.quit: the stock front end)
 }
 
@@ -72,6 +74,14 @@ function D.exit_text(label, desc)
   return label, desc
 end
 
-function D.to_hub()
-  return ui.launch({ mode = "hub", stage = D.STAGE.id, lobby = "menu", label = D.T.back_label })
+-- the launch that brings a run back to the hub, on a hosted lobby's page ("menu" / "postgame"): the run side (arena_flow, heist_flow) arms it
+function D.lobby(host, page, preset, label)
+  return { mode = "hub", stage = D.STAGE.id, lobby = host .. "/" .. page, preset = preset or "", label = label or "" }
+end
+
+-- a hub launch's lobby text -> the host and its page ("arena/postgame" -> "arena", "postgame"); nil for a plain launch
+function D.lobby_of(text)
+  if type(text) ~= "string" then return nil end
+  local host, page = text:match("^(%a+)/(%a+)$")
+  return host, page
 end

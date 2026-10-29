@@ -14,13 +14,15 @@ typedef struct AmLaunch
     char settings[AM_SETTINGS_LEN]; /* ARENA_SETTINGS overrides as a Lua table constructor ("" = the mode's own) */
     char preset[24];                /* the menu's preset id ("" = none) */
     char label[64];                 /* what the post-game calls the run */
-    char lobby[16];                 /* the lobby's page: "menu" or "postgame" ("" = not the lobby) */
+    char lobby[16];                 /* the lobby's page: "menu" or "postgame" ("" = not the lobby); the hub's: "arena/menu", "arena/postgame" */
+    char stage[16];                 /* the stage slot to load it on ("colosseum", "control" ...; "" = this stage's own: the main menu hub hosts the lobby on Control) */
     int coop;                       /* GE_COOP for it: 1 / 0, -1 = leave as it is */
     int slots;                      /* GE_COLOSSEUM_SLOTS for it, 0 = leave */
 } AmLaunch;
 
 void portArenaMenuLaunchSet(AmLaunch *dst, const char *mode, const char *settings, const char *preset, const char *label,
-                            const char *lobby, int coop, int slots);
+                            const char *lobby, const char *stage, int coop, int slots);
+const char *portArenaMenuTakeStage(void);     /* port_uimenu.c: the stage slot the hand-off asked for, once */
 void portArenaMenuArm(const AmLaunch *next);
 void portArenaMenuDisarm(void);
 int  portArenaMenuLaunchNow(const AmLaunch *next);
@@ -58,6 +60,7 @@ typedef struct AmView
     AmInfo info[AMV_INFO];
     AmBar bar[AMV_BARS];
     char title[48], kicker[80], subtitle[120], desc[200], footer[200], banner[32], news[120], infoTitle[48], infoSub[80];
+    char cards[320];   /* the post-game's chips, "|"-separated (arena plus: the requisitions); "" = none */
     char medalName[40], chart[40], legend[64], bestChip[20], newMedal[16];   /* the post-game's words (the theme table's, from Lua) */
     unsigned int bannerRgba;
 } AmView;

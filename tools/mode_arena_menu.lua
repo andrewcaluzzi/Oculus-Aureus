@@ -15,7 +15,14 @@
 -- weapon keys, the bumpers) change a setting; fire or A selects; B, USE or Escape goes back; START (Enter) selects too. The mouse
 -- points and clicks (right click = back / the previous value). Rendering: port/src/port_arenamenu_draw.c (port_hudstyle.c).
 -- Test hooks: ARENA_MENU (the live state), ARENA_MENU.press(mask) (a board event as if pressed), ARENA_MENU.go(screen).
+--
+-- HOSTED by the main menu hub (tools/mode_hub.lua sets ARENA_MENU_HOST = { cur =, back = function } and includes this script): the
+-- hub's stage (Control) is the backdrop, so there is no crowd, music or stage handler here; the hub calls ARENA_MENU.host_open(cur) when
+-- the Arena tile opens it (or a run ended and came back to its post-game) and ARENA_MENU.host_tick(dt) every ui tick while it is up.
+-- EXIT is MAIN MENU (host.back: the hub's page, no stage load); a run is still a stage load, on the Colosseum (stage = "colosseum").
 
+local HOST = ARENA_MENU_HOST
+ARENA_MENU_HOST = nil
 include("_arena_menu_defs")
 pcall(include, "_hub_defs")   -- the main menu hub's: when it opened this lobby, EXIT is MAIN MENU (a build without the hub has none)
 local D = ARENA_MENU_DEFS
@@ -24,7 +31,7 @@ local UP, DOWN, LEFT, RIGHT, SELECT, BACK, START = 1, 2, 4, 8, 16, 32, 64
 
 local M = { screen = "main", cursor = 0, v = D.defaults(), dirty = true, t = 0, quiet = 0.4, busy = false, last = { main = 0 } }
 ARENA_MENU = M
-local cur = amenu and amenu.current() or nil
+local cur = HOST and HOST.cur or (amenu and amenu.current() or nil)
 local result = nil
 local function log(fmt, ...) print(string.format("ge: arena: menu: " .. fmt, ...)) end
 local function sfx(id) if arena and arena.sfx then pcall(arena.sfx, id) end end
@@ -189,13 +196,13 @@ local function postgame_view(t)
     info[#info + 1] = { T.s_elites, tostring(r.elites or 0) }
     info[#info + 1] = { T.s_mut, tostring(r.mutators or 0) }
   end
-  if (r.credits or -1) >= 0 then   -- arena plus: the credits and the requisitions of the run
-    info[#info + 1] = { T.s_credits, tostring(r.credits) }
-    info[#info + 1] = { T.s_spent, tostring(r.spent or 0) }
-  end
-  for i, c in ipairs(r.cards or {}) do   -- (the few most stacked: { name, count })
-    info[#info + 1] = { i == 1 and T.s_cards or "", string.format("%s x%d", c[1], c[2]) }
-  end
+  -- arena plus: ONE cell for the credits (earned / spent) and one line of chips for the requisitions (the few most stacked: { name, count }),
+  -- so the cells stay in their three rows and nothing runs into the chart or the buttons
+  if (r.credits or -1) >= 0 then info[#info + 1] = { T.s_credits_both or T.s_credits, string.format("%d / %d", r.credits, r.spent or 0) } end
+  while #info > 12 do table.remove(info, #info - ((r.credits or -1) >= 0 and 1 or 0)) end   -- (three rows of four; the credits cell is the last)
+  local chips = {}
+  for _, c in ipairs(r.cards or {}) do chips[#chips + 1] = string.format("%s x%d", c[1], c[2]) end
+  t.cards = #chips > 0 and (T.s_cards .. "|" .. table.concat(chips, "|")) or ""
   local bars = {}
   for _, w in ipairs(r.wave_list or {}) do bars[#bars + 1] = { w[1], w[3] } end
   t.banner = r.win and T.win or T.fell
@@ -285,7 +292,8 @@ local function launch()
   sfx(SFX.start)
   if crowd and crowd.cheer then pcall(crowd.cheer, 3, 1.0) end
   log("START %s (%s): coop %s slots %s key %s, %d bytes", label, p and p.id or "custom", tostring(coop), tostring(slots), S.score_key, #text)
-  if not amenu.launch({ mode = "arena", settings = text, preset = p and p.id or "custom", label = label, coop = coop, slots = slots }) then
+  if not amenu.launch({ mode = "arena", settings = text, preset = p and p.id or "custom", label = label, coop = coop, slots = slots,
+                        stage = HOST and "colosseum" or nil }) then
     M.busy = false
     log("launch refused")
   end
@@ -296,6 +304,7 @@ local function retry()
   local r = amenu.retry()
   if not r then log("no run to retry"); return end
   r.lobby = ""
+  if HOST then r.stage = "colosseum" end
   M.busy = true
   sfx(SFX.start)
   if crowd and crowd.cheer then pcall(crowd.cheer, 3, 1.0) end
@@ -326,9 +335,10 @@ local function activate(it, ev)
   elseif a == "quit" then
     M.busy = true
     sfx(SFX.back)
-    if HUB_DEFS and HUB_DEFS.from_hub() then   -- the hub opened this lobby: back to it (a stage load)
+    if HOST then   -- the hub hosts this lobby: back to its main page (no stage load)
       log("MAIN MENU")
-      if not HUB_DEFS.to_hub() then M.busy = false end
+      M.busy = false
+      HOST.back()
       return
     end
     log("EXIT the game")
@@ -396,6 +406,10 @@ local function point(a, b)
 end
 
 function M.press(mask) if plan and plan.held() then test.plan_input(0, mask) end end
+function M.test_postgame(text)   -- tests: show the post-game of this result text (tests/arena_plus/debrief-shot.lua)
+  result = D.parse(text)
+  if result then M.screen, M.dirty = "postgame", true end
+end
 
 -- ---- the crowd behind the menu (a light copy of the arena's: real spectators in the front rows, impostors behind) ----
 local CROWD_SKINS = { "civilian_f", "civilian_m1", "civilian_m2", "civilian_m3", "scientist_m", "scientist_f", "russian_infantry",
@@ -457,18 +471,58 @@ local function crowd_react(kinds)
 end
 
 -- ---- the stage ----
-load_prefs()
-if cur and cur.preset ~= "" and cur.preset ~= "custom" and D.PRESET_BY_ID[cur.preset] then
-  local p = D.preset_of(M.v)
-  if not p or p.id ~= cur.preset then D.apply_preset(M.v, cur.preset) end
+-- the page it opens on: the saved choices, the preset a run came back with, the post-game of the run that just ended
+local function open_from(c)
+  cur = c
+  load_prefs()
+  if cur and cur.preset ~= "" and cur.preset ~= "custom" and D.PRESET_BY_ID[cur.preset] then
+    local p = D.preset_of(M.v)
+    if not p or p.id ~= cur.preset then D.apply_preset(M.v, cur.preset) end
+  end
+  M.screen, result = "main", nil
+  if cur and cur.lobby == "postgame" then
+    result = D.parse(amenu.result())
+    if result then M.screen = "postgame" end
+  end
+  log("lobby: %s, preset %s, %s", M.screen, (D.preset_of(M.v) or { id = "custom" }).id, cur and ("after " .. (cur.label ~= "" and cur.label or "a run")) or "first boot")
 end
-if cur and cur.lobby == "postgame" then
-  result = D.parse(amenu.result())
-  if result then M.screen = "postgame" end
+
+local function drain_input(dt)
+  M.t = M.t + dt
+  M.quiet = M.quiet - dt
+  local ev = plan.input(0)
+  while ev ~= 0 do
+    if M.quiet <= 0 then step(ev) end
+    ev = plan.input(0)
+  end
+  local a, b = plan.pointer(0)
+  while a do
+    if M.quiet <= 0 then point(a, b) end
+    a, b = plan.pointer(0)
+  end
+  for p = 1, bond.count() - 1 do
+    while plan.input(p) ~= 0 do end
+    while plan.pointer(p) do end
+  end
+  if M.dirty then show() end
 end
+
+if HOST then   -- the hub's stage, music, camera and ticks: it opens this page and calls us (see the header)
+  function M.host_open(c)
+    M.busy, M.cursor, M.last = false, 0, { main = 0 }
+    M.quiet = 0.4   -- (the press that opened it is not ours)
+    open_from(c)
+    build_items()
+    M.cursor = (M.screen == "main") and (find_item(function(x) return x.act == "start" end) or 1) or 1
+    show()
+  end
+  M.host_tick = drain_input
+  return
+end
+
+open_from(cur)
 local LOBBY_MUSIC_VOL = 0.8   -- 0x6665, the level tracks' default (the elevator track's own default is a quiet 0x3FFF)
 pcall(music.set, "ELEVATOR_CONTROL", LOBBY_MUSIC_VOL)   -- lobby (start menu + post-game) music; cleared at the next stage start, so runs keep their own
-log("lobby: %s, preset %s, %s", M.screen, (D.preset_of(M.v) or { id = "custom" }).id, cur and ("after " .. (cur.label ~= "" and cur.label or "a run")) or "first boot")
 
 on("stage_start", function()
   plan.hold(true)
@@ -489,25 +543,7 @@ on("stage_start", function()
   show()
 end)
 
-on("ui_tick", function(dt)
-  M.t = M.t + dt
-  M.quiet = M.quiet - dt
-  local ev = plan.input(0)
-  while ev ~= 0 do
-    if M.quiet <= 0 then step(ev) end
-    ev = plan.input(0)
-  end
-  local a, b = plan.pointer(0)
-  while a do
-    if M.quiet <= 0 then point(a, b) end
-    a, b = plan.pointer(0)
-  end
-  for p = 1, bond.count() - 1 do
-    while plan.input(p) ~= 0 do end
-    while plan.pointer(p) do end
-  end
-  if M.dirty then show() end
-end)
+on("ui_tick", drain_input)
 
 on("tick", function(dt)
   crowd_tick()

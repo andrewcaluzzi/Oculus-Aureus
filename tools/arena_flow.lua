@@ -12,6 +12,7 @@
 -- crosses the stage load through C.
 
 include("_arena_menu_defs")
+pcall(include, "_hub_defs")   -- the main menu hub's (a build without it has none): where a hub session's run returns to
 local D = ARENA_MENU_DEFS
 ARENA_FLOW = {}
 local F = ARENA_FLOW
@@ -73,12 +74,20 @@ function F.wave_cleared(w, kills, t)
 end
 
 -- the run's launch, for Retry: the same mode, the same settings, the same players
+-- (a session the main menu hub started: its run is on the Colosseum slot, and the hub's Control stage hosts the lobby that follows)
+local function from_hub() return HUB_DEFS ~= nil and HUB_DEFS.from_hub() end
+
 local function retry_spec()
   return { mode = name, settings = F.settings_text, preset = F.preset, label = F.label, coop = mode.env_flag("GE_COOP"),
-           slots = cur and cur.slots or nil }
+           slots = cur and cur.slots or nil, stage = from_hub() and "colosseum" or nil }
 end
 
 local function lobby(page)
+  if from_hub() then
+    local l = HUB_DEFS.lobby("arena", page, F.preset, F.label)
+    l.coop = false
+    return l
+  end
   return { mode = "arena-menu", lobby = page, preset = F.preset, label = F.label, coop = false }
 end
 

@@ -12,6 +12,7 @@
 
 local D = HEIST_MENU_DEFS
 local U = UI_MENU
+pcall(include, "_hub_defs")   -- the main menu hub's (a build without it has none): where a hub session's run returns to
 HEIST_FLOW = {}
 local F = HEIST_FLOW
 
@@ -50,16 +51,21 @@ if launched then
 end
 
 -- the run's launch, for AGAIN: the same mode, settings, difficulty and variables (the same level, the same deal number, the partner)
+-- (a session the main menu hub started: the run is on the levelgen slot, and the hub's Control stage hosts the lobby that follows)
+local function from_hub() return HUB_DEFS ~= nil and HUB_DEFS.from_hub() end
+
 local function retry_spec()
+  local stage = from_hub() and "levelgen" or nil
   if cur then
     return { mode = cur.mode, settings = cur.settings, preset = cur.preset, label = cur.label, difficulty = cur.difficulty or mission.difficulty(),
-             env = cur.env or {} }
+             env = cur.env or {}, stage = stage }
   end
   return { mode = name, settings = "", preset = F.job, label = F.label, difficulty = mission.difficulty(),
-           env = { GE_LEVELGEN = levelgen and levelgen.current() or nil } }
+           env = { GE_LEVELGEN = levelgen and levelgen.current() or nil }, stage = stage }
 end
 
 local function lobby(page)
+  if from_hub() then return HUB_DEFS.lobby("heist", page, F.job, F.label) end
   return { mode = "heist-menu", lobby = page, preset = F.job, label = F.label, env = { GE_LEVELGEN = levelgen and levelgen.current() or nil } }
 end
 

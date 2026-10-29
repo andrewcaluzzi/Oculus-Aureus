@@ -42,7 +42,7 @@ static const char *optField(lua_State *L, int t, const char *k, char *buf, size_
 static void readLaunch(lua_State *L, int t, AmLaunch *out)
 {
     static char settings[AM_SETTINGS_LEN];
-    char mode[32], preset[24], label[64], lobby[16];
+    char mode[32], preset[24], label[64], lobby[16], stage[16];
     int coop = -1, slots = 0;
 
     luaL_checktype(L, t, LUA_TTABLE);
@@ -51,13 +51,14 @@ static void readLaunch(lua_State *L, int t, AmLaunch *out)
     optField(L, t, "preset", preset, sizeof(preset));
     optField(L, t, "label", label, sizeof(label));
     optField(L, t, "lobby", lobby, sizeof(lobby));
+    optField(L, t, "stage", stage, sizeof(stage));
     lua_getfield(L, t, "coop");
     if (lua_isboolean(L, -1)) coop = lua_toboolean(L, -1);
     lua_pop(L, 1);
     lua_getfield(L, t, "slots");
     if (lua_isnumber(L, -1)) slots = (int) lua_tointeger(L, -1);
     lua_pop(L, 1);
-    portArenaMenuLaunchSet(out, mode, settings, preset, label, lobby, coop, slots);
+    portArenaMenuLaunchSet(out, mode, settings, preset, label, lobby, stage, coop, slots);
 }
 
 static void pushLaunch(lua_State *L, const AmLaunch *l)
@@ -68,6 +69,7 @@ static void pushLaunch(lua_State *L, const AmLaunch *l)
     lua_pushstring(L, l->preset); lua_setfield(L, -2, "preset");
     lua_pushstring(L, l->label); lua_setfield(L, -2, "label");
     lua_pushstring(L, l->lobby); lua_setfield(L, -2, "lobby");
+    lua_pushstring(L, l->stage); lua_setfield(L, -2, "stage");
     if (l->coop >= 0) { lua_pushboolean(L, l->coop); lua_setfield(L, -2, "coop"); }
     if (l->slots > 0) { lua_pushinteger(L, l->slots); lua_setfield(L, -2, "slots"); }
 }
@@ -231,6 +233,7 @@ static int lView(lua_State *L)
     str(L, 1, "legend", v.legend, sizeof(v.legend));
     str(L, 1, "best_chip", v.bestChip, sizeof(v.bestChip));
     str(L, 1, "new_medal", v.newMedal, sizeof(v.newMedal));
+    str(L, 1, "cards", v.cards, sizeof(v.cards));
     lua_getfield(L, 1, "items");
     if (lua_istable(L, -1))
     {

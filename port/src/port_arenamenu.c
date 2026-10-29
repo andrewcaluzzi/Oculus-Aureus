@@ -49,6 +49,7 @@ static AmLaunch sRetry;         /* the last run's own launch */
 static s32 sRetryOk;
 static char sResult[AM_RESULT_LEN];
 static s32 sEscOn, sEscEpoch = -1000;
+static char sStage[16];         /* the stage slot the armed hand-off asked for, until port_uimenu.c takes it for front.c */
 
 static void cpy(char *d, size_t n, const char *s) { snprintf(d, n, "%s", s != NULL ? s : ""); }
 
@@ -62,7 +63,7 @@ static void amSetenv(const char *k, const char *v)
 }
 
 void portArenaMenuLaunchSet(AmLaunch *dst, const char *mode, const char *settings, const char *preset, const char *label,
-                            const char *lobby, int coop, int slots)
+                            const char *lobby, const char *stage, int coop, int slots)
 {
     memset(dst, 0, sizeof(*dst));
     cpy(dst->mode, sizeof(dst->mode), mode);
@@ -70,6 +71,7 @@ void portArenaMenuLaunchSet(AmLaunch *dst, const char *mode, const char *setting
     cpy(dst->preset, sizeof(dst->preset), preset);
     cpy(dst->label, sizeof(dst->label), label);
     cpy(dst->lobby, sizeof(dst->lobby), lobby);
+    cpy(dst->stage, sizeof(dst->stage), stage);
     dst->coop = coop;
     dst->slots = slots;
 }
@@ -90,11 +92,22 @@ static int modeOk(const char *m)
 
 static int launchSanitize(AmLaunch *l)
 {
+    int i;
+
     l->mode[sizeof(l->mode) - 1] = '\0';
     if (!modeOk(l->mode))
     {
         portConLogf("ge: arenamenu: launch refused: mode name '%.40s' is not a mode\n", l->mode);
         return 0;
+    }
+    l->stage[sizeof(l->stage) - 1] = '\0';
+    for (i = 0; l->stage[i] != '\0'; i++)
+    {   /* a stage name from front.c's direct-launch table (resolved there): a-z 0-9 only, as the generic layer's */
+        if (!((l->stage[i] >= 'a' && l->stage[i] <= 'z') || (l->stage[i] >= '0' && l->stage[i] <= '9')))
+        {
+            portConLogf("ge: arenamenu: launch refused: stage name '%.16s' is not a stage\n", l->stage);
+            return 0;
+        }
     }
     if (l->coop < -1 || l->coop > 1) l->coop = -1;
     if (l->slots < 0 || l->slots > 4000) l->slots = 0;   /* (GE_COLOSSEUM_SLOTS: the stage takes 240..4000) */
@@ -188,9 +201,20 @@ s32 portArenaMenuAfterStage(void)
     }
     sCur = sNext;
     sCurEpoch = g_portCoopEpoch + 1;   /* the next stage start (portCoopStageBegin counts every one) */
-    portConLogf("ge: arenamenu: after the stage: launching the Colosseum again: mode '%s' preset '%s' lobby '%s'\n", sCur.mode, sCur.preset,
-                sCur.lobby);
+    cpy(sStage, sizeof(sStage), sNext.stage);
+    portConLogf("ge: arenamenu: after the stage: launching the %s again: mode '%s' preset '%s' lobby '%s'\n",
+                sNext.stage[0] ? sNext.stage : "Colosseum", sCur.mode, sCur.preset, sCur.lobby);
     return 1;
+}
+
+/* the stage slot the hand-off asked for ("" = the same slot), handed on to port_uimenu.c (front.c takes it from there) */
+const char *portArenaMenuTakeStage(void)
+{
+    static char t[sizeof(sStage)];
+
+    cpy(t, sizeof(t), sStage);
+    sStage[0] = '\0';
+    return t;
 }
 
 /* amenu.current: what this stage was launched with by the hand-off; NULL = a plain launch (a launcher, the Mods page) */
