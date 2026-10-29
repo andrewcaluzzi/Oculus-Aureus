@@ -211,6 +211,21 @@ static int arenaSpawnShots(lua_State *L)
     return 1;
 }
 
+/* spawn.hold(chr, on) -> bool: while on, the arena enemy's queued shots are dropped (he keeps aiming); spawn.shotbond(chr, v) -> bool: his accuracy build-up */
+static int arenaSpawnHold(lua_State *L)
+{
+    needStage(L, "spawn.hold");
+    lua_pushboolean(L, portLuaGameChrHold((int) luaL_checkinteger(L, 1), lua_toboolean(L, 2)));
+    return 1;
+}
+
+static int arenaSpawnShotbond(lua_State *L)
+{
+    needStage(L, "spawn.shotbond");
+    lua_pushboolean(L, portLuaGameChrShotbond((int) luaL_checkinteger(L, 1), (float) luaL_checknumber(L, 2)));
+    return 1;
+}
+
 /* spawn.idle(chr) -> bool | nil: standing, or a one-shot animation has run out and holds the idle pose (nil when gone or dead) */
 static int arenaSpawnIdle(lua_State *L)
 {
@@ -1331,7 +1346,7 @@ void portLuaArenaRegister(lua_State *L)
 
     static const luaL_Reg polishAdd[] = { { "markers", arenaSpawnMarkers }, { "marker_sync", arenaSpawnMarkerSync }, { NULL, NULL } };   /* drop A7 */
     static const luaL_Reg spawnA8[] = { { "item_marker", arenaSpawnItemMarker }, { "last_hit", arenaSpawnLastHit },   /* drop A8 */
-        { "hit_events", arenaSpawnHitEvents }, { "shots", arenaSpawnShots }, { "disarm", arenaSpawnDisarm }, { "owned_guns", arenaSpawnOwnedGuns }, { NULL, NULL } };
+        { "hit_events", arenaSpawnHitEvents }, { "shots", arenaSpawnShots }, { "hold", arenaSpawnHold }, { "shotbond", arenaSpawnShotbond }, { "disarm", arenaSpawnDisarm }, { "owned_guns", arenaSpawnOwnedGuns }, { NULL, NULL } };
     static const luaL_Reg testA8[] = { { "shoot", arenaSpawnShoot }, { NULL, NULL } };   /* test hook */
     static const luaL_Reg bondA8[] = { { "shots", arenaBondShots }, { NULL, NULL } };
     static const luaL_Reg arenaA8[] = { { "sfx", arenaSfx }, { "hud", arenaHud }, { "hud_layout", arenaHudLayout }, { "panel", arenaPanel }, { "callout", arenaCallout },

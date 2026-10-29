@@ -1545,7 +1545,28 @@ static int portLuaProbeCctv(lua_State *L)
     return 0;
 }
 
-static const luaL_Reg sProbeLib[] = { { "level", portLuaProbeLevel }, { "pads", portLuaProbePads }, { "alarm", portLuaProbeAlarm },
+static int portLuaProbeLos(lua_State *L)   /* probe.los(x1,y1,z1, x2,y2,z2) -> true when the drawn geometry is not in the way (loads every room: surveys only) */
+{
+    int room = 0, clear;
+
+    portLuaNeedStage(L, "probe.los");
+    clear = portLuaGameGeomLos((float) luaL_checknumber(L, 1), (float) luaL_checknumber(L, 2), (float) luaL_checknumber(L, 3),
+                               (float) luaL_checknumber(L, 4), (float) luaL_checknumber(L, 5), (float) luaL_checknumber(L, 6), &room);
+    lua_pushboolean(L, clear);
+    lua_pushinteger(L, room);
+    return 2;
+}
+
+static int portLuaProbeFog(lua_State *L)   /* probe.fog() -> the distance (world units) beyond which props (chrs) are not drawn: the stage's far fog */
+{
+    extern float fogGetScaledFarFogIntensitySquared(void);
+
+    portLuaNeedStage(L, "probe.fog");
+    lua_pushnumber(L, sqrtf(fogGetScaledFarFogIntensitySquared()));
+    return 1;
+}
+
+static const luaL_Reg sProbeLib[] = { { "fog", portLuaProbeFog }, { "los", portLuaProbeLos }, { "level", portLuaProbeLevel }, { "pads", portLuaProbePads }, { "alarm", portLuaProbeAlarm },
                                       { "cctv", portLuaProbeCctv }, { "doors_unlocked", portLuaProbeDoorsUnlocked }, { NULL, NULL } };
 
 static void portLuaRegisterLib(lua_State *L, const char *name, const luaL_Reg *reg)

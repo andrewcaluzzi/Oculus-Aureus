@@ -105,7 +105,10 @@ typedef struct PortLuaChrSpec {
 int         portLuaGameSpawnChr(int pad, const PortLuaChrSpec *spec);   /* chrnum, -1 failed, -2 bad skin, -3 bad weapon */
 int         portLuaGameChrKill(int chr, int head);                        /* test helper: lethal damage to an arena chr (head = count as a headshot); 1 = done */
 int         portLuaGameChrHeadshot(int chr);                              /* 1 = an arena enemy's last damaging hit was to the head */
-int         portLuaGameChrShots(int chr);                                 /* shots an arena enemy has fired (spawn.shots); -1 = not one */
+int         portLuaGameGeomLos(float x1, float y1, float z1, float x2, float y2, float z2, int *hitroom);   /* probe.los: 1 = no drawn geometry in the way */
+int         portLuaGameChrHold(int chr, int on);                        /* spawn.hold: drop every shot he queues while on */
+int         portLuaGameChrShotbond(int chr, float v);                     /* spawn.shotbond: set the accuracy build-up */
+int         portLuaGameChrShots(int chr);                                /* shots an arena enemy has fired (spawn.shots); -1 = not one */
 int         portLuaGameChrIdle(int chr);                                  /* 1 idle (standing / one-shot anim run out), 0 animating, -1 gone or dead */
 int         portLuaGamePools(int *loose, int *held, int *freeSlots, int *freeProps);   /* weapon slots (30): loose on the floor / held by chrs / free; free props (600) */
 int         portLuaGameTrimDrops(int maxDrops, float keepRadius);         /* drop cap: free the oldest loose weapons beyond maxDrops, never one within keepRadius of a Bond; returns the number freed */

@@ -1158,7 +1158,12 @@ int portHeistHoldFire(ChrRecord *self)
     int i, hold = 0;
     extern int portShieldHoldFire(ChrRecord *self);   /* port_shield.c: a hostage in his line to the Bond who holds it (section 31) */
     extern int portShieldHolds(int chrnum);
+    extern int portArenaShotHeld(s32 chrnum);   /* port_arenamode.c: spawn.hold (the sniper duel's marksman aims and waits for the glint) */
 
+    if (self != NULL && portArenaShotHeld(self->chrnum))
+    {
+        return 1;
+    }
     if (portShieldHoldFire(self))
     {
         fireStat(self->chrnum, 1);

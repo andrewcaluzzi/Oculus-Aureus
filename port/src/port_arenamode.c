@@ -21,6 +21,7 @@
 #include "game/objecthandler.h"
 #include "game/propobj.h"
 #include "game/bondview.h"
+#include "game/bg.h"
 #include "game/bondinv.h"
 #include "game/gun.h"
 #include "game/model.h"
@@ -51,7 +52,7 @@ extern s32 get_max_ammo_for_type(s32 type);
 #define SIGHT_DEFAULT           15000.0f  /* A5: chr->visionrange in world units (the Colosseum is 9000 across) */
 
 /* per arena chr: its knife numbers and whether it has fired yet (first-shot range log) */
-typedef struct { s32 chrnum; u8 enemy, knifer, fired, spectator, stockroute, headshot; u16 shots; f32 knifeRange, knifeCooldown, engage; f32 keepDist; s32 keepUntil; } ArenaInfo;
+typedef struct { s32 chrnum; u8 enemy, knifer, fired, spectator, stockroute, headshot, hold; u16 shots; f32 knifeRange, knifeCooldown, engage; f32 keepDist; s32 keepUntil; } ArenaInfo;
 static ArenaInfo sInfo[INFO_N];
 
 static ArenaInfo *infoGet(s32 chrnum)
@@ -258,6 +259,70 @@ int portLuaGameChrHeadshot(int chrnum)
     ArenaInfo *a = (chrnum >= ARENA_CHRNUM0) ? infoGet((s32)chrnum) : NULL;
 
     return a != NULL && a->headshot;
+}
+
+/* probe.los(x1,y1,z1, x2,y2,z2): the drawn geometry's line test (the background hit test a player's bullet uses, every room): 1 = nothing in the way,
+ * 0 = the ray meets the geometry. Rooms whose model is not loaded are loaded first (for the survey that builds the sniper duel's perch list: slow,
+ * memory hungry, never called during play). The AI's own sight is the stan line (combat.los); the two disagree where the stan tiles are not the
+ * drawn ground, which is how a marksman could hit a Bond who could not see him. */
+extern void bgLoadRoomModelData(s32 room);
+int portLuaGameGeomLos(float x1, float y1, float z1, float x2, float y2, float z2, int *hitroom)
+{
+    coord3d a, b;
+    struct HitThing hit;
+    f32 scale = get_room_data_float2(), dx, dy, dz, seg, d;
+    s32 r;
+
+    a.x = x1; a.y = y1; a.z = z1;
+    b.x = x2; b.y = y2; b.z = z2;
+    seg = (x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1) + (z2 - z1) * (z2 - z1);
+    for (r = 1; r < g_MaxNumRooms; r++)
+    {
+        if (g_BgRoomInfo[r].model_bin_loaded == 0)
+        {
+            bgLoadRoomModelData(r);
+        }
+        if (bgTestBulletHitBackground(&a, &b, r, &hit))
+        {   /* the test is a RAY test: it reports a triangle anywhere along the line: only a hit nearer than the far end counts */
+            dx = hit.hitpos.x * scale - x1; dy = hit.hitpos.y * scale - y1; dz = hit.hitpos.z * scale - z1;
+            d = dx * dx + dy * dy + dz * dz;
+            if (d < seg - 4.0f)
+            {
+                if (hitroom != NULL) *hitroom = (int)r;
+                return 0;
+            }
+        }
+    }
+    return 1;
+}
+
+/* spawn.hold(chr, on): while on, every shot the arena enemy queues is dropped (he keeps aiming: chraction.c via portHeistHoldFire). 1 = set */
+int portLuaGameChrHold(int chrnum, int on)
+{
+    ArenaInfo *a = (chrnum >= ARENA_CHRNUM0) ? infoGet((s32)chrnum) : NULL;
+
+    if (a == NULL || !a->enemy) return 0;
+    a->hold = on ? 1 : 0;
+    return 1;
+}
+
+/* port_heist.c portHeistHoldFire: 1 = this chr's shot is held by spawn.hold */
+int portArenaShotHeld(s32 chrnum)
+{
+    ArenaInfo *a = (chrnum >= ARENA_CHRNUM0) ? infoGet(chrnum) : NULL;
+
+    return a != NULL && a->hold;
+}
+
+/* spawn.shotbond(chr, v): the stock accuracy build-up (0..1; 1 = his next shot hits). 1 = set */
+int portLuaGameChrShotbond(int chrnum, float v)
+{
+    ChrRecord *c = chrFindByLiteralId(chrnum);
+    ArenaInfo *a = (chrnum >= ARENA_CHRNUM0) ? infoGet((s32)chrnum) : NULL;
+
+    if (c == NULL || a == NULL || !a->enemy) return 0;
+    c->shotbondsum = v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v);
+    return 1;
 }
 
 /* shots an arena enemy has fired since it spawned (every queued shot, hit or miss); -1 when it is not one */
