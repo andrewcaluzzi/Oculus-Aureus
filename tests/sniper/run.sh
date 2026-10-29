@@ -37,13 +37,13 @@ echo "== $((E - S)) s wall for $GE_FRAMES frames"
 chk "the run starts on the stage" "ge: mode: 'sniper-smoke' on stage"
 chk "Bond's perch: one warp, the listed perches checked" "ge: sniper: Bond's perch pad [0-9]*: [0-9]* of the [0-9]* listed perches see him"
 n=$(grep -a "SMOKE bondpos" $L | sed 1,3d | sed 's/.*(\(.*\)).*/\1/' | sort -u | wc -l)
-if [ "$n" = 1 ]; then echo "PASS Bond does not move after the stage starts (one position each second, 3 s to 12 s)"; pass=$((pass+1)); else echo "FAIL Bond moved ($n positions)"; fail=$((fail+1)); fi
+if [ $LOSE = 1 ]; then echo "SKIP Bond stays put (the loss variant: he is hit and knocked back)"; elif [ "$n" = 1 ]; then echo "PASS Bond does not move after the stage starts (one position each second, 3 s to 12 s)"; pass=$((pass+1)); else echo "FAIL Bond moved ($n positions)"; fail=$((fail+1)); fi
 chk "round 1 begins" "ge: sniper: ROUND 1/5"
 chk "the marksman arrives on a perch" "ge: sniper: ARRIVE: foe 1 on pad"
 chk "a glint before a shot" "ge: sniper: GLINT 1: foe 1 on pad"
 chk "he looses the shot after the glint" "ge: sniper: foe 1 lets [12] shot"
 chk "he fires (spawn.shots)" "ge: sniper: SHOT: foe 1 fired [1-9]"
-chk "he stays 10 s or more on the perch before moving" "ge: sniper: MOVE 1: foe 1 leaves pad [0-9]* .* after [12][0-9]\.[0-9] s on the perch"
+if [ $LOSE = 0 ]; then chk "he stays 10 s or more on the perch before moving" "ge: sniper: MOVE 1: foe 1 leaves pad [0-9]* .* after [12][0-9]\.[0-9] s on the perch"; fi
 chk "he is seen running along the ground" "ge: sniper: RUN foe 1 at"
 chk "he settles on the new perch" "ge: sniper: SETTLE: foe 1 on pad"
 chk "he glints again from it" "ge: sniper: GLINT 2: foe 1 on pad"
