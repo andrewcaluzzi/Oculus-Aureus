@@ -1180,6 +1180,12 @@ Gfx *portArHudRender(Gfx *gdl)
     s32 need;
 
     if ((!sArOn && !sDiagOn) || pl == NULL || pl->prop == NULL || g_ChrSlots == NULL || !portStageRunning()) return gdl;
+    {   /* a menu (the arena's post-game, the Requisition cards, any mode's lobby) owns the screen: no marks, labels or radar through it */
+        extern int portArenaMenuViewOn(void);
+        extern int portUiMenuViewOn(void);
+
+        if (portArenaMenuViewOn() || portUiMenuViewOn()) return gdl;
+    }
     if (ptrFontBankGothic == NULL || ptrFontBankGothicChars == NULL) return gdl;
     if (portCctvOverlayGet(&cam, name, (int) sizeof(name), &idx, &cnt, &off, &secs, &ticks)) return gdl;   /* on a camera feed */
     portConsoleSpace(&sW, &sH);

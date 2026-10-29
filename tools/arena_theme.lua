@@ -236,7 +236,7 @@ ARENA_THEME.menu = {
   best_chip = "NEW BEST", new_medal = "NEW!", chart = "KILLS PER WAVE", legend = "GOLD BOSS   PURPLE MUTATOR   RED THE LAST STAND",
   s_wave = "WAVE REACHED", s_kills = "CONFIRMED KILLS", s_time = "MISSION TIME", s_acc = "ACCURACY", s_heads = "HEADSHOTS",
   s_multi = "BEST MULTI-KILL", s_streak = "BEST STREAK", s_peak = "CROWD PEAK", s_hits = "HITS TAKEN", s_elites = "ELITES ELIMINATED",
-  s_mut = "SPECTRE MUTATORS", s_credits = "CREDITS EARNED", s_spent = "CREDITS SPENT", s_cards = "REQUISITIONS",
+  s_mut = "SPECTRE MUTATORS", s_credits = "CREDITS EARNED", s_spent = "CREDITS SPENT", s_cards = "REQUISITIONS", s_credits_both = "CREDITS EARNED / SPENT",
 }
 
 -- a favour toast's text for an internal label ("STREAK 7" / "BOOM x3" keep their number)

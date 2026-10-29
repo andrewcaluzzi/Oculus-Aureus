@@ -304,7 +304,8 @@ static s32 infoCard(HudCanvas *c, s32 x0, s32 y0, s32 x1)
 /* the post-game's stat cells: label, a value that counts up, a NEW BEST chip */
 static void statCells(HudCanvas *c, s32 ox, s32 y0)
 {
-    const s32 per = 4, cw = 146, ch = 50, gap = 6, total = per * cw + (per - 1) * gap;
+    const s32 compact = sV.cards[0] != '\0';   /* chips under the cells (arena plus): shorter cells, the same three rows */
+    const s32 per = 4, cw = 146, ch = compact ? 42 : 50, gap = compact ? 4 : 6, total = per * cw + (per - 1) * gap;
     const s32 x0 = ox + (640 - total) / 2;
     const f32 t = since(sScreenTick);
     s32 i;
@@ -323,7 +324,7 @@ static void statCells(HudCanvas *c, s32 ox, s32 y0)
         hudGradientV(c, cx, cy, cx + cw, cy + ch, A(0x1C140CE8u), A(0x100A06D0u), 6);
         hudFill(c, cx, cy, cx + cw, cy + 2, A(f->flag ? GOLD : 0x6A5838FFu));
         hudFrame(c, cx, cy, cx + cw, cy + ch, 1, A(RULE));
-        amText(c, cx + 8, cy + 7, f->label, DIM, 0.68f, HUD_FONT_BANK, HUD_ALIGN_LEFT, HUD_FX_SHADOW);
+        amText(c, cx + 8, cy + (compact ? 5 : 7), f->label, DIM, 0.68f, HUD_FONT_BANK, HUD_ALIGN_LEFT, HUD_FX_SHADOW);
         {   /* a plain integer (with a short suffix) counts up */
             char *end = NULL;
             const long n = strtol(v, &end, 10);
@@ -334,7 +335,8 @@ static void statCells(HudCanvas *c, s32 ox, s32 y0)
                 v = buf;
             }
         }
-        amTextFit(c, cx + 8, cy + 21, v, f->rgba ? f->rgba : INK, 1.45f, HUD_FONT_ZURICH, HUD_ALIGN_LEFT, HUD_FX_SHADOW, cw - 16, 0.7f);
+        amTextFit(c, cx + 8, cy + (compact ? 17 : 21), v, f->rgba ? f->rgba : INK, compact ? 1.2f : 1.45f, HUD_FONT_ZURICH, HUD_ALIGN_LEFT, HUD_FX_SHADOW,
+                  cw - 16, 0.7f);
         if (f->flag && k >= 1.0f)
         {
             const f32 pp = hudPulse(sNow, 1.5f, 0.12f);
@@ -344,6 +346,52 @@ static void statCells(HudCanvas *c, s32 ox, s32 y0)
         }
         sA = saved;
     }
+}
+
+/* the post-game's chips (arena plus: REQUISITIONS first, then one per card, "|"-separated): flowed in rows under the cells, the chart
+ * label's row (y0 + 32) is the limit; what does not fit is counted as "+N" */
+static void amChips(HudCanvas *c, s32 ox, s32 y0)
+{
+    const s32 xl = ox + 40, xr = ox + 600, rows = 2, rowh = 13;
+    const f32 t = since(sScreenTick), k = clamp01((t - 0.6f) / 0.4f);
+    const char *p = sV.cards;
+    const f32 saved = sA;
+    s32 x = xl, row = 0, n = 0, left = 0;
+
+    sA *= k;
+    while (*p != '\0')
+    {
+        char tok[48];
+        s32 len = 0, tw;
+        const int head = (p == sV.cards);   /* (the first token is the caption) */
+
+        while (p[len] != '\0' && p[len] != '|' && len < (s32) sizeof(tok) - 1) { tok[len] = p[len]; len++; }
+        tok[len] = '\0';
+        p += len;
+        while (*p != '\0' && *p != '|') p++;   /* (a token longer than the buffer is cut) */
+        if (*p == '|') p++;
+        tw = hudTextW(tok, 0.6f, HUD_FONT_BANK) + (head ? 4 : 12);
+        if (x + tw > xr && x > xl) { row++; x = xl; }
+        if (row >= rows) { left++; n++; continue; }
+        if (head) amText(c, x, y0 + row * rowh + 2, tok, DIM, 0.6f, HUD_FONT_BANK, HUD_ALIGN_LEFT, HUD_FX_SHADOW);
+        else
+        {
+            hudFill(c, x, y0 + row * rowh, x + tw - 3, y0 + row * rowh + 11, A(0x2A1E10D0u));
+            hudFill(c, x, y0 + row * rowh, x + 2, y0 + row * rowh + 11, A(GOLD));
+            amText(c, x + 6, y0 + row * rowh + 2, tok, INK, 0.6f, HUD_FONT_BANK, HUD_ALIGN_LEFT, HUD_FX_SHADOW);
+        }
+        x += tw + (head ? 0 : 3);
+        n++;
+    }
+    if (left > 0)
+    {
+        char buf[16];
+
+        snprintf(buf, sizeof(buf), "+%d", left);
+        amText(c, xr, y0 + (rows - 1) * rowh + 2, buf, GOLD, 0.6f, HUD_FONT_BANK, HUD_ALIGN_RIGHT, HUD_FX_SHADOW);
+    }
+    sA = saved;
+    (void) n;
 }
 
 static void amBars(HudCanvas *c, s32 ox, s32 y0, s32 y1)
@@ -502,6 +550,7 @@ Gfx *portArenaMenuRender(Gfx *gdl)
             amText(&c, cx, oy + 132, sV.news, hudLerp(GOLD, 0xFFF4C0FFu, 0.5f + 0.5f * pp), 0.85f, HUD_FONT_BANK, HUD_ALIGN_CENTRE, HUD_FX_SHADOW);
         }
         statCells(&c, ox, oy + 150);
+        if (sV.cards[0]) amChips(&c, ox, oy + 150 + 3 * 42 + 2 * 4 + 6);   /* (under the three compact rows: 290 .. 316, the chart label is at 322) */
         amBars(&c, ox, oy + 336, oy + 384);
     }
     else
@@ -547,7 +596,7 @@ static void click(s32 item, s32 act)
 int portArenaMenuMouse(int mx, int my, int winw, int winh, unsigned int mbuttons, int wheelUp, int wheelDown)
 {
     static s32 lastx = -99999, lasty = -99999;
-    s32 w, h, i, over = -1;
+    s32 w, h, i, over = -1, under = -1;
     u32 edge;
 
     if (!portArenaMenuViewOn() || winw <= 0 || winh <= 0)
@@ -565,15 +614,16 @@ int portArenaMenuMouse(int mx, int my, int winw, int winh, unsigned int mbuttons
         lastx = mx;
         lasty = my;
     }
-    if (sHitScreen == sV.screen && since(sPtrMoveTick) < 6.0f)
+    if (sHitScreen == sV.screen && sPtrSeen)
     {
         for (i = 0; i < sV.n; i++)
         {
             const Rect *r = &sHit[i];
 
-            if (r->ok && sPtrX >= (f32) r->x0 && sPtrX < (f32) r->x1 && sPtrY >= (f32) r->y0 && sPtrY < (f32) r->y1) { over = i; break; }
+            if (r->ok && sPtrX >= (f32) r->x0 && sPtrX < (f32) r->x1 && sPtrY >= (f32) r->y0 && sPtrY < (f32) r->y1) { under = i; break; }
         }
     }
+    if (since(sPtrMoveTick) < 6.0f) over = under;   /* (the highlight follows a pointer that moved lately: a still one leaves the keyboard's cursor) */
     sHover = over;
     if (over >= 0 && over != sHoverSent && since(sPtrMoveTick) < 0.2f)
     {   /* the cursor follows the pointer (the script moves it: sim input) */
@@ -582,8 +632,8 @@ int portArenaMenuMouse(int mx, int my, int winw, int winh, unsigned int mbuttons
     }
     edge = mbuttons & ~sPrevMB;
     sPrevMB = mbuttons;
-    if ((edge & 1u) && over >= 0) click(over + 1, 1);
-    if (edge & 4u) click(over >= 0 ? over + 1 : 0, 2);
+    if ((edge & 1u) && under >= 0) click(under + 1, 1);   /* (a click takes what is under the pointer, moved lately or not) */
+    if (edge & 4u) click(under >= 0 ? under + 1 : 0, 2);
     if (wheelUp) click(0, 4);
     if (wheelDown) click(0, 5);
     return 1;

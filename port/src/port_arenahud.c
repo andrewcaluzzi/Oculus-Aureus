@@ -791,9 +791,15 @@ static void drawCallout(HudCanvas *c)
 Gfx *portArenaHudRender(Gfx *gdl)
 {
     HudCanvas c;
+    extern int portArenaMenuViewOn(void);
+    extern int portUiMenuViewOn(void);
 
     if (!portArenaHudActive())
     {
+        return gdl;
+    }
+    if (portArenaMenuViewOn() || portUiMenuViewOn())
+    {   /* a menu (the post-game, the Requisition cards) owns the screen: no panel or callout through it */
         return gdl;
     }
     gdl = hudBegin(gdl, &c);

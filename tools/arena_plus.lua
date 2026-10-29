@@ -696,7 +696,7 @@ function ARENA_PLUS.new(S, H)
     end
     table.sort(list, function(a, b) if a[2] ~= b[2] then return a[2] > b[2] end return a[1] < b[1] end)
     local top = {}
-    for i = 1, math.min(4, #list) do top[i] = list[i] end
+    for i = 1, math.min(12, #list) do top[i] = list[i] end   -- (all of them: the post-game flows them as chips, the stock report line takes four)
     return { earned = C.credits and earned or -1, spent = spent, cards = top, ncards = #picked, rolls = rolls, duds = duds, goldens = goldens,
              drops = drops, collected = collected, nukes = nukes, nuked = nuked }
   end
@@ -706,7 +706,7 @@ function ARENA_PLUS.new(S, H)
     if C.credits then l[#l + 1] = string.format("CREDITS EARNED %d   SPENT %d", earned, spent) end
     if #picked > 0 then
       local names = {}
-      for _, c in ipairs(P.summary().cards) do names[#names + 1] = string.format("%s x%d", c[1], c[2]) end
+      for i, c in ipairs(P.summary().cards) do if i <= 4 then names[#names + 1] = string.format("%s x%d", c[1], c[2]) end end
       l[#l + 1] = (T.cards and TK.picked and "REQUISITIONS: " or "REQUISITIONS: ") .. table.concat(names, ", ")
     end
     return l

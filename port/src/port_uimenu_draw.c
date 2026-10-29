@@ -314,7 +314,8 @@ static s32 itemH(s32 kind)
 static s32 infoCard(HudCanvas *c, s32 x0, s32 y0, s32 x1)
 {
     s32 y = y0, i;
-    const s32 h = 46 + sV.ninfo * 15 + 8;
+    const s32 top = sV.infoSub[0] ? 46 : 26;   /* (no big sub-title: the rows start under the small title, not under a blank line) */
+    const s32 h = top + sV.ninfo * 15 + 8;
 
     hudFill(c, x0 + 3, y0 + 3, x1 + 3, y0 + h + 3, A(0x00000060u));
     plate(c, x0, y0, x1, y0 + h, 0x140E08E0u, 0x140E08A8u);
@@ -322,7 +323,7 @@ static s32 infoCard(HudCanvas *c, s32 x0, s32 y0, s32 x1)
     hudFrame(c, x0, y0, x1, y0 + h, 1, A(RULE));
     uText(c, x0 + 12, y + 6, sV.infoTitle, DIM, 0.72f, HUD_FONT_BANK, HUD_ALIGN_LEFT, HUD_FX_SHADOW);
     uTextFit(c, x0 + 12, y + 18, sV.infoSub, GOLD, 1.3f, HUD_FONT_ZURICH, HUD_ALIGN_LEFT, HUD_FX_OUTLINE, x1 - x0 - 24, 0.5f);
-    y += 46;
+    y += top;
     for (i = 0; i < sV.ninfo; i++)
     {
         const UiInfo *f = &sV.info[i];
@@ -669,7 +670,7 @@ static void click(s32 item, s32 act)
 int portUiMenuMouse(int mx, int my, int winw, int winh, unsigned int mbuttons, int wheelUp, int wheelDown)
 {
     static s32 lastx = -99999, lasty = -99999;
-    s32 w, h, i, over = -1;
+    s32 w, h, i, over = -1, under = -1;
     u32 edge;
 
     if (!portUiMenuViewOn() || winw <= 0 || winh <= 0)
@@ -687,15 +688,16 @@ int portUiMenuMouse(int mx, int my, int winw, int winh, unsigned int mbuttons, i
         lastx = mx;
         lasty = my;
     }
-    if (sHitPage == sV.page && since(sPtrMoveTick) < 6.0f)
+    if (sHitPage == sV.page && sPtrSeen)
     {
         for (i = 0; i < sV.n; i++)
         {
             const Rect *r = &sHit[i];
 
-            if (r->ok && sPtrX >= (f32) r->x0 && sPtrX < (f32) r->x1 && sPtrY >= (f32) r->y0 && sPtrY < (f32) r->y1) { over = i; break; }
+            if (r->ok && sPtrX >= (f32) r->x0 && sPtrX < (f32) r->x1 && sPtrY >= (f32) r->y0 && sPtrY < (f32) r->y1) { under = i; break; }
         }
     }
+    if (since(sPtrMoveTick) < 6.0f) over = under;   /* (the highlight follows a pointer that moved lately: a still one leaves the keyboard's cursor) */
     sHover = over;
     if (over >= 0 && over != sHoverSent && since(sPtrMoveTick) < 0.2f)
     {   /* the cursor follows the pointer (the script moves it: sim input) */
@@ -704,8 +706,8 @@ int portUiMenuMouse(int mx, int my, int winw, int winh, unsigned int mbuttons, i
     }
     edge = mbuttons & ~sPrevMB;
     sPrevMB = mbuttons;
-    if ((edge & 1u) && over >= 0) click(over + 1, 1);
-    if (edge & 4u) click(over >= 0 ? over + 1 : 0, 2);
+    if ((edge & 1u) && under >= 0) click(under + 1, 1);   /* (a click takes what is under the pointer, moved lately or not) */
+    if (edge & 4u) click(under >= 0 ? under + 1 : 0, 2);
     if (wheelUp) click(0, 4);
     if (wheelDown) click(0, 5);
     return 1;
