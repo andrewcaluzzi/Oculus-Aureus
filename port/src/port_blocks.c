@@ -80,7 +80,13 @@ s32 portPadCount(void)
 {
     const PadRecord *p = g_CurrentSetup.pads;
     const PadRecord *b = (const PadRecord *)g_CurrentSetup.boundpads;
+    extern const void *g_PortMpNavPads;   /* port_mpnav.c: the pad table the arena's MP-map path graph made (it sits apart from the bound pads) */
+    extern int g_PortMpNavCount;
 
+    if (p != NULL && p == g_PortMpNavPads)
+    {
+        return g_PortMpNavCount;
+    }
     /* no cache: a subtraction per call, so a stage change can never leave a stale count */
     if (p != NULL && b != NULL && b > p && (b - p) < PAD_SANE_MAX)
     {

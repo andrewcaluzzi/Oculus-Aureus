@@ -1951,7 +1951,12 @@ void proplvreset2(enum LEVELID stageId)
          * There are no slots for the mp stages in setup_text_pointers. The name
          * is created by adding "mp_" after the "U" e.g. "Ump_setuparchZ"
          */
+#ifndef TARGET_N64
+        extern s32 g_PortMpSetup;   /* front.c: the arena on a stock MP map loads the MP setup with the one solo Bond */
+        if (getPlayerCount() >= 2 || g_PortMpSetup)
+#else
         if (getPlayerCount() >= 2)
+#endif
         {
             strcat(strResource, "mp_"); // -> "Ump_"
         }

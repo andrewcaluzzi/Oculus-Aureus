@@ -42,8 +42,20 @@ s32 portLevelgenStage(void)
     return bossGetStageNum() == LEVELID_LEE;
 }
 
+/* The arena on a stock multiplayer map (tools/arena_maps.lua, the stage loaded by its MP-setup name: g_PortMpSetup, front.c): an MP setup
+ * has no guards either (9 chr slots for the players), so the same wave arena needs slots. No crowd here: 40 live enemies + the kept
+ * corpses (the arena keeps 160 on a map) + the partner/Q/headroom. GE_MPMAP_SLOTS overrides it (240..4000). */
+#define MPMAP_EXTRA_SLOTS 300
+extern s32 g_PortMpSetup;
+
 s32 portFlatlandExtraSlots(void)
 {
+    if (g_PortMpSetup)
+    {
+        const char *e = getenv("GE_MPMAP_SLOTS");
+        s32 n = e ? atoi(e) : 0;
+        return (n >= COLOSSEUM_BASE_SLOTS && n <= 4000) ? n : MPMAP_EXTRA_SLOTS;
+    }
     if (portLevelgenStage())
     {
         return LEVELGEN_EXTRA_SLOTS;
@@ -61,7 +73,7 @@ s32 portFlatlandExtraSlots(void)
 /* slots beyond the base 240: dyn.c grows the per-frame display list and vertex pools by it */
 s32 portColosseumBigSlots(void)
 {
-    return portColosseumStage() ? portFlatlandExtraSlots() - COLOSSEUM_BASE_SLOTS : 0;
+    return (portColosseumStage() || g_PortMpSetup) ? portFlatlandExtraSlots() - COLOSSEUM_BASE_SLOTS : 0;
 }
 
 #endif

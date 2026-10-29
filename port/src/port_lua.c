@@ -217,6 +217,15 @@ int portLuaGameItemId(const char *upper)
 
 int portLuaGamePadCount(void) { return portModeActive() ? (int) portPadCount() : 0; }
 
+/* the pads the stage's setup has of its own: on a stock MP map the arena's path graph adds floor nodes after them (port_mpnav.c), else all */
+extern int g_PortMpNavBase;
+int portLuaGamePadBase(void)
+{
+    const int count = portLuaGamePadCount();
+
+    return (g_PortMpNavBase > 0 && g_PortMpNavBase <= count) ? g_PortMpNavBase : count;
+}
+
 int portLuaGamePadPos(int pad, float *x, float *y, float *z)
 {
     coord3d p;

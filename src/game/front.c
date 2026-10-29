@@ -2578,7 +2578,9 @@ void init_menu05_fileselect(void)
 #ifndef TARGET_N64
     {   /* PORT: proof the Files screen came up (tests/hub: GOLDENEYE 007 on the main menu hands off to it) */
         extern int printf(const char *, ...);
+        extern s32 g_PortMpSetup;
         printf("ge: front: Files screen up\n");
+        g_PortMpSetup = 0;   /* (the stock missions and multiplayer load their own setups) */
     }
 #endif
 
@@ -17066,8 +17068,10 @@ void init_menu0C_missionfailed(void)
      * stage ends (MENU_RUN_STAGE's handler queued it when the stage launched). */
     extern s32 portArenaMenuAfterStage(void);
     extern int portUiMenuAfterStage(int prev);   /* the generic mode menus (port_uimenu.c), when the arena's did not take it */
+    extern s32 g_PortMpSetup;
     const s32 am = portUiMenuAfterStage(portArenaMenuAfterStage());
 
+    g_PortMpSetup = 0;   /* a stage that loaded a stock MP map's own setup (the arena) is over: the next launch names its stage again */
     sArenaMenuSkip = am != 0;
     if (am != 0)
     {
@@ -17083,7 +17087,11 @@ void init_menu0C_missionfailed(void)
 
           if (id >= 0)
           {
+            extern s32 portStageIsMp(const char *name);
+            extern s32 g_PortMpSetup;
+
             set_solo_and_ptr_briefing(id);
+            g_PortMpSetup = portStageIsMp(sn);   /* "mptemple" ...: the stock MP map's own setup, with the one solo Bond */
           }
           else
           {
@@ -19000,7 +19008,14 @@ s32 portSelectedDifficulty(void)
  * mission, skipping every menu (e.g. GE_STAGE=frigate). Uses the ramrom demo
  * launch recipe (folder + difficulty + briefing + jump to MENU_RUN_STAGE),
  * fired once after the first menus settle; again after g_PortDirectLaunchRearm. */
-static const struct { const char *name; s32 id; } stages[] = {
+/* `mp` = 1: the stage loads its MULTIPLAYER setup (Ump_setup*Z: the MP map's pads, props and spawn points) with the one solo Bond,
+ * for the arena on the stock MP maps (tools/arena_maps.lua). g_PortMpSetup carries it to proplvreset2 (prop.c); every other
+ * launch clears it (file.c set_solo_and_ptr_briefing). */
+s32 g_PortMpSetup = 0;
+static const struct { const char *name; s32 id; s32 mp; } stages[] = {
+        { "mptemple", LEVELID_TEMPLE, 1 },     { "mpcomplex", LEVELID_COMPLEX, 1 },   { "mpcaves", LEVELID_CAVES, 1 },
+        { "mplibrary", LEVELID_LIBRARY, 1 },   { "mpbasement", LEVELID_BASEMENT, 1 }, { "mpstack", LEVELID_STACK, 1 },
+        { "mpfacility", LEVELID_FACILITY, 1 },
         { "dam", LEVELID_DAM },           { "facility", LEVELID_FACILITY },
         { "runway", LEVELID_RUNWAY },     { "surface", LEVELID_SURFACE },
         { "bunker1", LEVELID_BUNKER1 },   { "silo", LEVELID_SILO },
@@ -19043,9 +19058,27 @@ s32 portNetStageValid(s32 id)
 
     for (k = 0; k < (s32) (sizeof(stages) / sizeof(stages[0])); k++)
     {
-        if (stages[k].id == id)
+        if (stages[k].id == id && !stages[k].mp)   /* (the MP-setup names are arena-only, never a netplay launch) */
         {
             return 1;
+        }
+    }
+    return 0;
+}
+
+/** 1 when the stage name is one of the MP-setup names ("mptemple" ...): the arena's stock multiplayer maps. */
+s32 portStageIsMp(const char *name)
+{
+    s32 k, j;
+
+    for (k = 0; k < (s32) (sizeof(stages) / sizeof(stages[0])); k++)
+    {
+        for (j = 0; stages[k].name[j] != '\0' && name[j] == stages[k].name[j]; j++)
+        {
+        }
+        if (stages[k].name[j] == '\0' && name[j] == '\0')
+        {
+            return stages[k].mp;
         }
     }
     return 0;
@@ -19068,7 +19101,7 @@ s32 portNetStageMaxId(void)
 
     for (k = 0; k < (s32) (sizeof(stages) / sizeof(stages[0])); k++)
     {
-        if (stages[k].id > m)
+        if (stages[k].id > m && !stages[k].mp)
         {
             m = stages[k].id;
         }
@@ -19082,6 +19115,7 @@ static void portDirectLaunchTick(void)
     extern int printf(const char *, ...);
     static s32 state; /* 0 = unparsed, 1 = armed, 2 = done/disabled */
     static s32 stage;
+    static s32 stageMp;   /* the GE_STAGE name was an MP-setup one (stages[].mp) */
     static s32 calls;
     static s32 launched;
     s32 i;
@@ -19169,6 +19203,7 @@ static void portDirectLaunchTick(void)
                     if (stages[i].name[j] == '\0' && e[j] == '\0')
                     {
                         stage = stages[i].id;
+                        stageMp = stages[i].mp;
                         state = 1;
                         break;
                     }
@@ -19223,8 +19258,9 @@ static void portDirectLaunchTick(void)
         selected_folder_num = FOLDER1;
         set_selected_difficulty(diff);
         set_solo_and_ptr_briefing(stage);
+        g_PortMpSetup = stageMp;
         frontChangeMenu(MENU_RUN_STAGE, TRUE);
-        printf("ge: GE_STAGE direct launch: levelid=%d diff=%d\n", stage, diff);
+        printf("ge: GE_STAGE direct launch: levelid=%d diff=%d%s\n", stage, diff, stageMp ? " (MP setup)" : "");
     }
     state = 2;
     launched = 1;

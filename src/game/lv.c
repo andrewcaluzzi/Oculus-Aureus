@@ -1036,6 +1036,17 @@ void lvlStageLoad(s32 stage)
         s32 s0;
 
         init_path_table_links();
+#ifndef TARGET_N64
+        { /* PORT: the arena on a stock MP map (stage name "mptemple" ...): the MP setup has no waypoints, so build a graph from its pads */
+            extern s32 g_PortMpSetup;
+            extern int portMpNavBuild(void);
+
+            if (g_PortMpSetup)
+            {
+                portMpNavBuild();
+            }
+        }
+#endif
         init_ejected_cartridges();
 
         for (s0 = 0; s0 < portAllPlayerCount(); s0++)

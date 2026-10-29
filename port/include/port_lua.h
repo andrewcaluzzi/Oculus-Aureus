@@ -37,6 +37,7 @@ int         portLuaGameModeActive(void);
 const char *portLuaGameModeName(void);
 int         portLuaGameItemId(const char *upper);        /* ITEM_* id for a weapon name (aliases ok), -1 unknown */
 int         portLuaGamePadCount(void);
+int         portLuaGamePadBase(void);                        /* the pads the setup has of its own (the arena's MP-map floor nodes come after them) */
 int         portLuaGamePadPos(int pad, float *x, float *y, float *z);
 int         portLuaGamePadList(float x, float z, float mindist, float maxdist, int wponly, int *out, int max);
 /* The Bonds. `player` is the 0-based player index (0 = the host's Bond on both machines in netplay); player < 0 means the

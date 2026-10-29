@@ -301,6 +301,15 @@ static s32 legacyAI(void)
     return v;
 }
 
+/* what stops a straight run to Bond (chraction.c plot_course_for_actor): path blockers (glass and scenery flagged for it). On a stock MP map
+ * (g_PortMpSetup, tools/arena_maps.lua) the props too: its pillars, statues and crates are not flagged, and a chr would run into one. */
+s32 portArenaDirectCd(void)
+{
+    extern s32 g_PortMpSetup;
+
+    return CDTYPE_PATHBLOCKER | (g_PortMpSetup ? CDTYPE_OBJS : 0);
+}
+
 /* an arena enemy that takes the A5 straight route / follows Bond (chraction.c plot_course_for_actor, chrlvTickGoPos) */
 s32 portArenaDirect(const ChrRecord *chr)
 {

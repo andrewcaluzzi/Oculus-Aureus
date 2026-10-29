@@ -94,6 +94,7 @@ extern int portModeActive(void);                    /* port_mode.c */
 extern s32 portHostageNotAGuard(ChrRecord *chr);    /* port_hostage.c: a live hostage (WAIT / FOLLOW) of a game mode: a chr search must skip it */
 extern s32 portArenaChrIsEnemy(const ChrRecord *chr);   /* port_arenamode.c: an enemy spawned by the arena mode */
 extern s32 portArenaDirect(const ChrRecord *chr);       /* port_arenamode.c: an arena enemy that uses the A5 direct route / retarget (not with GE_ARENA_OLDAI=1) */
+extern s32 portArenaDirectCd(void);                     /* port_arenamode.c: what blocks the direct route: path blockers, and on a stock MP map the props too */
 extern void portArenaNoteShot(ChrRecord *chr);          /* port_arenamode.c: first-shot range log */
 extern s32 portArenaKeepAway(const ChrRecord *chr);     /* port_arenamode.c (drop A7): a knife thrower on a keep-distance retreat: do not re-plot toward Bond */
 extern s32 portArenaKnifeRetreat(ChrRecord *chr);       /* port_arenamode.c (drop A7): start the retreat run; 1 = started */
@@ -3033,6 +3034,17 @@ waypoint *chrlvStanPathRelated(coord3d *arg0, StandTile *arg1)
     waypoint *wayp = NULL;
     s32 *n = NULL;
 
+#ifndef TARGET_N64
+    {   /* PORT: a stock multiplayer map run by the arena has a floor-made path graph (port_mpnav.c): it picks the waypoint itself */
+        extern waypoint *portMpNavNearest(coord3d *pos, StandTile *stan);
+        waypoint *mw = portMpNavNearest(arg0, arg1);
+
+        if (mw != NULL)
+        {
+            return mw;
+        }
+    }
+#endif
     tile = stanFillSearch(arg1, check_if_any_path_preset_lies_on_tile);
     if (tile != NULL)
     {
@@ -3918,8 +3930,8 @@ s32 plot_course_for_actor(ChrRecord *self, coord3d *arg1, StandTile *stan, SPEED
        * what made enemies zig-zag round the pit. A blocked line (pillars, low walls) still uses the stock route. A re-plot of the course
        * the chr is already on keeps its speed (the stock plot resets it to 0 and the chr stutters). */
         if (stan != NULL && prop->stan != NULL && portArenaDirect(self)
-            && sub_GAME_7F030128(self, &prop->pos, prop->stan, arg1, stan, CDTYPE_PATHBLOCKER)
-            && sub_GAME_7F0301FC(self, &prop->pos, prop->stan, arg1, self->chrwidth * 1.2f, CDTYPE_PATHBLOCKER))
+            && sub_GAME_7F030128(self, &prop->pos, prop->stan, arg1, stan, portArenaDirectCd())
+            && sub_GAME_7F0301FC(self, &prop->pos, prop->stan, arg1, self->chrwidth * 1.2f, portArenaDirectCd()))
         {
             f32 oldspeed = self->act_gopos.speed;
 

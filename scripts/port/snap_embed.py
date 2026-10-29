@@ -40,6 +40,7 @@ SIM_PORT = {
     'port_whacky.c',      # arena Whacky: minion launchers, the minions' brains, the anim-rate / line-mode flags it set
     'port_uimenu.c',      # the generic mode menu layer: the hand-off to the next stage (settings, difficulty, GE_* vars), the named prefs
     'port_levelgen_select.c',   # which generated level fills the levelgen slot at a stage load (no state of its own: the environment)
+    'port_mpnav.c',   # the arena on a stock MP map: how many pads the map has of its own (the path graph itself lives in the stage pool)
 
     # input latches the sim reads (held / edge / zoom state per pad); its live accumulators are excluded by portSnapLive()
     'joy_port.c',

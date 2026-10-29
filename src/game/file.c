@@ -153,6 +153,11 @@ void set_selected_difficulty(DIFFICULTY difficulty)
 
 void set_solo_and_ptr_briefing(LEVELID stage)
 {
+#ifndef TARGET_N64
+    extern s32 g_PortMpSetup;   /* front.c: the next stage loads its MP setup; only a launch by an MP-setup name sets it again */
+
+    g_PortMpSetup = 0;
+#endif
     gamemode = GAMEMODE_SOLO;
     selected_stage = stage;
 #ifdef TARGET_N64

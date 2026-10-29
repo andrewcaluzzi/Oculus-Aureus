@@ -790,6 +790,14 @@ static int portLuaPadsCount(lua_State *L)
     return 1;
 }
 
+/* pads.base() -> how many of pads.count() are the stage's own (on a stock MP map run by the arena the rest are floor nodes of its path graph) */
+static int portLuaPadsBase(lua_State *L)
+{
+    portLuaNeedStage(L, "pads.base");
+    lua_pushinteger(L, portLuaGamePadBase());
+    return 1;
+}
+
 static int portLuaPadsPos(lua_State *L)
 {
     portLuaNeedStage(L, "pads.pos");
@@ -1483,7 +1491,7 @@ static int portLuaModeKeepLocks(lua_State *L)
 
 static const luaL_Reg sModeLib[] ={ { "name", portLuaModeName }, { "env_flag", portLuaModeEnvFlag }, { "keep_locks", portLuaModeKeepLocks },
                                     { NULL, NULL } };
-static const luaL_Reg sPadsLib[] = { { "count", portLuaPadsCount }, { "pos", portLuaPadsPos },
+static const luaL_Reg sPadsLib[] = { { "count", portLuaPadsCount }, { "base", portLuaPadsBase }, { "pos", portLuaPadsPos },
                                      { "far_from", portLuaPadsFarFrom }, { NULL, NULL } };
 static const luaL_Reg sSpawnLib[] = { { "hostage", portLuaSpawnHostage }, { "guard", portLuaSpawnGuard }, { NULL, NULL } };
 static const luaL_Reg sZoneLib[] = { { "add", portLuaZoneAdd }, { "move", portLuaZoneMove }, { "remove", portLuaZoneRemove },
