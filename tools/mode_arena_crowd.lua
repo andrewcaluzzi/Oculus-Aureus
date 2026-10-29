@@ -267,6 +267,8 @@ function ARENA_CROWD.new(S, H)
     end
   end
 
+  function X.double_on() return double_until ~= nil end   -- (arena plus: the modifier is shared with Q DAMAGE)
+
   local function sponsor_gift(force)
     if not force and now - sponsor_t < C.sponsor_cooldown then return false end
     if sponsor_item and spawn.item_alive(sponsor_item.h) then return false end

@@ -80,6 +80,19 @@ local ROWS = {
   { id = "centre", group = "ECONOMY", label = "CENTRE DROPS", scored = true, default = 2,
     choices = { { "SCARCE", 1 }, { "NORMAL", 2 }, { "GENEROUS", 3 }, { "OFF", 0 } },
     desc = "The ammo box in the middle of the pit (every 60 / 40 / 25 s) and the armour after waves." },
+  -- PLUS (arena plus, tools/arena_plus.lua). Not scored: they change the balance, but every score key stays what it was
+  { id = "credits", group = "ECONOMY", label = "CREDITS", scored = false, default = 1,
+    choices = { { "ON", true }, { "OFF", false } },
+    desc = "Kills pay credits (more for headshots, long shots, multi-kills). Shown on the panel and the debrief. The crate needs them." },
+  { id = "powerups", group = "ECONOMY", label = "POWER-UPS", scored = false, default = 1,
+    choices = { { "ON", true }, { "OFF", false } },
+    desc = "A kill may drop a power-up for 20 s: max ammo, insta-kill, double credits, a nuke, Q damage. Walk over it." },
+  { id = "crate", group = "ECONOMY", label = "Q-BRANCH CRATE", scored = false, default = 1,
+    choices = { { "ON", true }, { "OFF", false } },
+    desc = "Q waits in the pit. Press USE near him to pay credits for a random weapon. Rarely the Golden Gun, sometimes a dud." },
+  { id = "cards", group = "ECONOMY", label = "REQUISITIONS", scored = false, default = 1,
+    choices = { { "ON", true }, { "OFF", false } },
+    desc = "After every cleared wave, choose one of three cards: a perk that stays for the run." },
   -- CROWD
   { id = "crowd", group = "CROWD", label = "CROWD", scored = false, default = 3,
     choices = { { "EMPTY", 0 }, { "SMALL 50", 50 }, { "NORMAL 150", 150 }, { "BIG 300", 300 }, { "HUGE 500", 500 } },
@@ -217,6 +230,11 @@ function D.settings(v)
   if ce == 0 then S.ammo_every, S.armour_center = 0, false
   elseif ce == 1 then S.ammo_every, S.armour_chance = 60, 0.10
   elseif ce == 3 then S.ammo_every, S.armour_chance, S.ammo_max_center = 25, 0.50, 4 end
+  -- arena plus (default on; written only when off, so a classic run's settings stay what they were)
+  if not val(v, "credits") then S.credits = false end
+  if not val(v, "powerups") then S.powerups = false end
+  if not val(v, "crate") then S.crate = false end
+  if not val(v, "cards") then S.cards = false end
   -- crowd
   S.crowd_real = val(v, "crowd")
   S.crowd_impostors = val(v, "impostors")

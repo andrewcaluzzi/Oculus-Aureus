@@ -629,6 +629,9 @@ if(GE_VIDEO)
             ${CMAKE_SOURCE_DIR}/tools/mode_arena_crowd.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/_arena_crowd.lua
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/tools/arena_theme.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/_arena_theme.lua
+        # arena plus (batch A): credits, power-ups, the Q-Branch crate, the Requisition cards (the cards use the generic menu layer below)
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/tools/arena_plus.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/_arena_plus.lua
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/tools/mode_arena_chaos.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/arena-chaos.lua
         COMMAND ${CMAKE_COMMAND} -E copy_if_different

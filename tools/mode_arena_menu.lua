@@ -142,6 +142,7 @@ local function items_advanced()
       if r.group == g then
         local dim = ((r.id == "downed" or r.id == "bot_skill") and not D.val(M.v, "players"))
                     or (r.id == "intensity" and not D.val(M.v, "mutators") and not D.val(M.v, "elites"))
+                    or (r.id == "crate" and not D.val(M.v, "credits"))   -- (the crate is paid in credits)
         it[#it + 1] = { kind = "choice", col = col, label = r.label, value = D.label(M.v, r.id), row = r.id, desc = r.desc, dim = dim and 1 or 0 }
       end
     end
@@ -187,6 +188,13 @@ local function postgame_view(t)
   if (r.elites or 0) > 0 or (r.mutators or 0) > 0 then
     info[#info + 1] = { T.s_elites, tostring(r.elites or 0) }
     info[#info + 1] = { T.s_mut, tostring(r.mutators or 0) }
+  end
+  if (r.credits or -1) >= 0 then   -- arena plus: the credits and the requisitions of the run
+    info[#info + 1] = { T.s_credits, tostring(r.credits) }
+    info[#info + 1] = { T.s_spent, tostring(r.spent or 0) }
+  end
+  for i, c in ipairs(r.cards or {}) do   -- (the few most stacked: { name, count })
+    info[#info + 1] = { i == 1 and T.s_cards or "", string.format("%s x%d", c[1], c[2]) }
   end
   local bars = {}
   for _, w in ipairs(r.wave_list or {}) do bars[#bars + 1] = { w[1], w[3] } end

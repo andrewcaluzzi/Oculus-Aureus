@@ -15,7 +15,7 @@ rm -f $OUT/shots/*.bmp
 M=$B/Data/Scripts/modes
 for f in mode_hub:hub hub_defs:_hub_defs ui_menu:_ui_menu \
          mode_arena:arena arena_flow:_arena_flow arena_menu_defs:_arena_menu_defs mode_arena_menu:arena-menu mode_arena_scores:_arena_scores \
-         mode_arena_crowd:_arena_crowd arena_polish:_arena_polish arena_theme:_arena_theme arena_coop:_arena_coop \
+         mode_arena_crowd:_arena_crowd arena_polish:_arena_polish arena_theme:_arena_theme arena_coop:_arena_coop arena_plus:_arena_plus ui_menu:_ui_menu \
          mode_heist:heist mode_heist_menu:heist-menu heist_theme:_heist_theme heist_menu_defs:_heist_menu_defs heist_flow:_heist_flow \
          heist_debrief:heist_debrief heist_planning:heist_planning heist_lib:heist_lib heist_bank_map:heist_bank_map; do
   cp "$P/tools/${f%%:*}.lua" "$M/${f##*:}.lua"

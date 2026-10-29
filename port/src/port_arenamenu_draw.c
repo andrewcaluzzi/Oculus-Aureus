@@ -270,7 +270,7 @@ static s32 itemH(s32 screen, s32 kind)
 {
     if (kind == AMI_HEADER) return 18;
     if (kind == AMI_PRESET) return 30;
-    if (kind == AMI_CHOICE) return screen == AMV_ADVANCED ? 16 : 22;
+    if (kind == AMI_CHOICE) return screen == AMV_ADVANCED ? 14 : 22;   /* (14: arena plus added a group, the right column ran off the bottom at 16) */
     if (kind == AMI_PRIMARY) return 36;
     return 22;
 }

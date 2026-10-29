@@ -76,6 +76,12 @@
 --                   range        3000   3600   4200   4800   5500
 --                 Clamped in C (port_cooplogic.c): reaction 0..3, aim error 0..30, turn 30..1440, range 300..20000. The start menu's
 --                 BOT SKILL row sets coop_bot_skill. Sim state only, so co-op state hashes stay the same run to run
+--   credits / powerups / crate / cards   (arena plus, tools/arena_plus.lua, included below; each a start-menu row, all true by default):
+--                 credits = kills pay credits (tier, wave, stylish bonuses) shown on the panel and the debrief; powerups = a kill may drop one
+--                 (4%, one on the field, 20 s): MAX AMMO, INSTA-KILL, DOUBLE CREDITS, NUKE, Q DAMAGE; crate = Q in the pit sells a random weapon
+--                 for credits (USE); cards = three Requisition cards after every cleared wave but the last, one is taken and stays for the
+--                 run. Every number is in the D table at the top of arena_plus.lua; ARENA_SETTINGS.plus = { key = value } overrides. They change
+--                 the balance and the score keys stay as they were
 --   first_wave    test hook: start at this wave;  debug_track / debug_clear_after: test hooks
 --   test_keys     true = the wave-jump hotkeys work (or set GE_ARENA_TESTKEYS=1): PageDown/PageUp = next/back wave and clear the
 --                 live enemies, with Shift = start it on top of them (never in netplay); End = the fog, Insert = the THUNDERBALL rain,
@@ -211,6 +217,10 @@ local S = {
   hud_scale       = 0.65,        -- the wave panel's size (1 = the console font's size; 0.25 .. 1.5)
   hud_anchor      = "top_left",  -- its corner: "top_left" or "top_right"
   hud_margin      = 4,           -- its gap to the screen edges, console units (the console space is 480 high)
+  credits         = true,        -- arena plus (_arena_plus.lua): kills pay credits ...
+  powerups        = true,        -- ... a kill may drop a power-up ...
+  crate           = true,        -- ... Q-Branch's crate sells weapons for the credits ...
+  cards           = true,        -- ... and a cleared wave offers three Requisition cards
 }
 local REACT_DEFAULT = S.REACT
 if type(ARENA_SETTINGS) == "table" then
@@ -342,6 +352,8 @@ local pit_foe_i, pit_order = 0, nil
 local gates = { {}, {}, {}, {} }      -- gate -> pad ids, mouth pad first (gate 1 = +x, 2 = +z, 3 = -x, 4 = -z)
 local gate_next = { 0, 0, 0, 0 }
 local E = {}                          -- tracked enemies: { chr=, boss=, dead_at= }
+local EBY = {}                        -- chr -> its record in E (arena plus asks who a damage event's victim is)
+local PL = nil                        -- arena plus (_arena_plus.lua), made below once the wave state exists
 local queue, qi = {}, 1               -- this wave's spawn list
 local wave, wave_title, phase = 0, "", "delay"
 local phase_t = 0                     -- seconds in the current phase
@@ -394,6 +406,8 @@ end
 local function update_panel()
   if not (S.hud_style and arena.panel) then return end
   local crowd_v, tier, tier_name, toast, dbl = -1, 3, "", "", 0
+  local plus_credits, plus_chips = -1, nil
+  if PL then plus_credits, plus_chips = PL.panel() end   -- arena plus: the credits row and the power-up timer chips
   if CR then
     local ok, f, t, n, ts, d = pcall(CR.panel_info)   -- (not a7(): it passes on one return value)
     if ok and f then crowd_v, tier, tier_name, toast, dbl = f, t, n, ts, d end
@@ -401,6 +415,7 @@ local function update_panel()
   pcall(arena.panel, { wave = wave, waves = (S.mode == "fixed") and S.waves or 0, title = wave_title, mutator = MUT.title() or "",
     kills = kills, left = alive_count() + (#queue - qi + 1), elites = a7(ELI.count) or 0, time = mmss(elapsed),
     phase = ended and "over" or phase, crowd = crowd_v, tier = tier, tier_name = tier_name, toast = toast, double_secs = dbl,
+    credits = plus_credits, chips = plus_chips,
     phase_label = PANEL_WORDS[phase] or "", idle_title = PANEL_WORDS.idle_title or "", idle_sub = PANEL_WORDS.idle_sub or "" })
 end
 
@@ -413,11 +428,13 @@ local function refresh_hud()
     hud.set(1, string.format("WAVE %d%s  %s%s", wave, of, wave_title, mt and ("  + " .. mt) or ""))
   end
   local left = alive_count() + (#queue - qi + 1)
+  local plus_txt = ""   -- arena plus: the plain rows carry the credits (the styled panel has a row of its own)
+  if PL and not (S.hud_style and arena.panel) then plus_txt = "   " .. PL.hud_text() end
   if phase == "fight" then
     local ne = a7(ELI.count) or 0   -- A7: live affix elites
-    hud.set(2, string.format("KILLS %d   LEFT %d   TIME %s%s", kills, left, mmss(elapsed), ne > 0 and ("   ELITES " .. ne) or ""))
+    hud.set(2, string.format("KILLS %d   LEFT %d   TIME %s%s%s", kills, left, mmss(elapsed), ne > 0 and ("   ELITES " .. ne) or "", plus_txt))
   else
-    hud.set(2, string.format("KILLS %d   TIME %s", kills, mmss(elapsed)))
+    hud.set(2, string.format("KILLS %d   TIME %s%s", kills, mmss(elapsed), plus_txt))
   end
   hud.set(3, flash)
   if CR then hud.set(4, a7(CR.hud) or "") end   -- A8: the crowd's mood and the last toast
@@ -708,6 +725,7 @@ local function spawn_one(entry)
       local c = spawn.chr(pad, spec)
       if c then
         E[#E + 1] = { chr = c, boss = entry.boss, born = elapsed, tier = spec._tier }
+        EBY[c] = E[#E]
         a7(MUT.spawned, c, spec, entry)   -- A7
         a7(ELI.spawned, c, spec, entry)
         if WH then a7(WH.spawned, c, spec, entry) end   -- Whacky: elite glow, the golden champion, the wave's colours
@@ -976,6 +994,22 @@ CR = ARENA_CROWD.new(S, {
 })
 ARENA_CROWD.live = CR   -- test hook: presets reach the live module (CR.set, CR.tier, CR.sponsor ...)
 
+-- arena plus (batch A, _arena_plus.lua): credits, power-ups, the Q-Branch crate, the Requisition cards; its hooks are the PL.* calls
+if pcall(include, "_arena_plus") and ARENA_PLUS and ARENA_PLUS.new then
+  PL = ARENA_PLUS.new(S, {
+    say = function(t, secs) say(t, secs) end,
+    wave = function() return wave end,
+    bond_ok = bond_ok,
+    enemy = function(c) return EBY[c] end,
+    each_live = function(fn) for _, e in ipairs(E) do if not e.dead_at then fn(e) end end end,
+    react = function(trigger) return react(trigger) end,
+    mut_mod = function(k) local d = MUT.cur; return d and d.mods and d.mods[k] or nil end,   -- a modifier the wave's mutator holds
+    double_on = function() return CR.double_on and CR.double_on() end,                         -- the sponsor's double damage
+  })
+  ARENA_PLUS.live = PL   -- test hook: presets reach the live module (PL.drop, PL.roll, PL.offer ...)
+  if not PL.on then PL = nil end
+end
+
 -- --------------------------------------------------------------- pickups ----
 
 -- Centre pickups (drop A6): real items on the floor in the middle of the pit (spawn.item), collected by running over them.
@@ -1151,6 +1185,7 @@ local function start_wave(w)
   qi = 1
   phase, phase_t = "fight", 0
   a7(CR.wave_start, w, queue, is_boss(w))   -- A8: before the mutator roll (double damage never overlaps one); may add the HATED pack
+  if PL then a7(PL.wave_start, w) end        -- arena plus: the cards that act at a wave's start
   local mt = a7(MUT.wave_start, w, queue, is_boss(w))   -- A7: maybe a mutator, maybe some affix elites (both edit the queue's specs)
   local ne = a7(ELI.wave_start, w, queue) or 0
   say(string.format("WAVE %d: %s%s", w, wave_title, mt and (" - " .. mt) or ""), 6)
@@ -1184,9 +1219,15 @@ local function finish(win)
   local crowd_line = a7(CR.finish, win)   -- A8: double damage off, the summary
   local sc = a7(ARENA_SCORES.finish, S, { win = win, wave = wave, kills = kills, time = elapsed,   -- A7: bests, medal, report page
     extra = (ELI.made > 0 or MUT.rolled > 0) and string.format("Elites slain %d   Mutators %d", ELI.killed, MUT.rolled) or crowd_line })
+  if PL then   -- arena plus: the credits and requisitions on the report page (the lines are cut at 8) and in the post-game
+    PL.close()
+    if sc and type(sc.debrief) == "table" then
+      for _, l in ipairs(PL.debrief_lines()) do if #sc.debrief < 8 then sc.debrief[#sc.debrief + 1] = l end end
+    end
+  end
   -- the start menu's post-game (_arena_flow.lua): the run's stats; true = it ends the mission itself after the crowd's cheer
   local flow_win = ARENA_FLOW and a7(ARENA_FLOW.finish, win, { wave = wave, kills = kills, time = elapsed, title = wave_title, sc = sc,
-    elites = ELI.killed, mutators = MUT.rolled, waves = (S.mode == "fixed") and S.waves or 0 })
+    elites = ELI.killed, mutators = MUT.rolled, waves = (S.mode == "fixed") and S.waves or 0, plus = PL and PL.summary() or nil })
   if win then
     say(string.format("ARENA CLEARED! KILLS %d  TIME %s", kills, mmss(elapsed)), 30)
     if sc then a7(arena.debrief, sc.debrief) end   -- before mission.win: the report page is drawn right after
@@ -1214,11 +1255,13 @@ local function wave_cleared()
   a7(MUT.wave_end, "cleared")   -- A7: the mutator ends with its wave
   a7(CR.wave_cleared, wave, is_boss(wave))   -- A8: the clean-wave bonus
   if CO then CO.wave_cleared(wave) end
+  if PL then a7(PL.wave_cleared, wave) end   -- arena plus: the credit interest
   if final_wave() then finish(true); return end
   phase, phase_t = "breather", 0
   local sup = give_supplies()
   say(string.format("WAVE %d CLEARED. %s", wave, sup), math.max(4, S.breather - 3))
   if sup == "" then say(string.format("WAVE %d CLEARED", wave), math.max(4, S.breather - 3)) end
+  if PL then a7(PL.offer, wave) end          -- arena plus: the Requisition cards (the run holds until one is taken)
 end
 
 -- Test jump (the test_key event): start wave `wave + dir` now. clear = remove the live enemies first (spawn.remove: no kills, drops or
@@ -1254,7 +1297,7 @@ local TEST_KEYS = { next = { 1, true }, back = { -1, true }, ["next+"] = { 1, fa
 
 local preview_i = 0
 local ARENA_KEYS = { next = true, back = true, ["next+"] = true, ["back+"] = true, callout = true, ["callout+"] = true, fog = true, rain = true,
-  strike = true }
+  strike = true, powerup = true, credits = true }
 local keys_off_said = false
 local function test_key(name)
   if not (S.test_keys or mode.env_flag("GE_ARENA_TESTKEYS")) then
@@ -1295,6 +1338,10 @@ local function test_key(name)
     -- Shift+Insert: a THUNDERBALL lightning strike now, near Bond (rain or not): the crackle, then the flash, the bolt and the blast
     local x, z = ARENA_MUTATORS.strike(true)
     print(string.format("ge: arena: TEST strike %s", x and string.format("near Bond at (%.0f, %.0f)", x, z) or "refused"))
+    return
+  end
+  if name == "powerup" or name == "credits" then   -- Delete / Shift+Delete (arena plus): a power-up at Bond's feet, +500 credits
+    if PL then a7(PL.test, name) end
     return
   end
   local k = TEST_KEYS[name]
@@ -1422,6 +1469,7 @@ on("stage_start", function(stage)
     end
     a7(arena.fog, 0)          -- A7: the Colosseum's own sky, and no report-page lines from an earlier run
     a7(arena.debrief, {})
+    if PL then a7(PL.stage_start) end   -- arena plus: the floor pads, the AR markers, Q in the pit
     local best = a7(ARENA_SCORES.best_line, S)
     say(string.format("GET READY - WAVE 1 IN %d%s", S.start_delay, best and ("   " .. best) or ""), S.start_delay)
     if CO then CO.stage_start() end
@@ -1442,6 +1490,7 @@ on("chr_died", function(victim, killer)
       end
       local ok, err = pcall(kill_heal, victim, killer, e)
       if not ok then print("ge: arena: kill heal error:", err) end
+      if PL then a7(PL.kill, victim, killer, e) end   -- arena plus: the credits, maybe a power-up
       local et = a7(ELI.died, victim, elapsed)   -- A7: an affix elite: announce it (and arm an explosive corpse)
       if et then say(et, 3) end
       if e.boss then say("BOSS DOWN!", 4) end
@@ -1473,6 +1522,10 @@ on("tick", function(dt)
     if not ok and not crowd_err then crowd_err = true; print("ge: arena: crowd tick error:", err) end
     return
   end
+  if PL and PL.held() then   -- arena plus: the Requisition cards hold the run (nothing advances; the crowd keeps its fidgets)
+    crowd_tick()
+    return
+  end
   elapsed = elapsed + dt
   if S.reactions then react_vitals() end
   phase_t = phase_t + dt
@@ -1485,6 +1538,7 @@ on("tick", function(dt)
   if WH then a7(WH.tick, dt, elapsed, phase, wave) end
   a7(CR.tick, dt, elapsed, phase)   -- A8: the crowd's mood, its gifts and penalties
   if CO then CO.tick(dt, phase) end
+  if PL then a7(PL.tick, dt, phase) end   -- arena plus: power-ups, timers, the crate (after the others: it holds enemy_health last)
 
   -- safety net: an enemy that vanished without a death event counts as gone; corpses are removed after a while
   local keep_s = S.corpse_keep

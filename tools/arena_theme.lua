@@ -145,6 +145,58 @@ ARENA_THEME = {
   },
 }
 
+-- ---- arena plus (tools/arena_plus.lua): credits, power-ups, the Q-Branch crate and the Requisition cards ----------------------------
+-- Callout titles are film titles not used above; the sub line (36 characters at most) says what it does. Chip and marker labels are short.
+ARENA_THEME.plus = {
+  credits = "CREDITS",
+  -- power-ups: key = the internal kind. title = the centre callout, sub = its line (%d = seconds / kills), chip = the HUD timer chip,
+  -- label = the floor marker (the distance is added), say = the message strip
+  powerups = {
+    maxammo = { title = "COMPLIMENTS OF FELIX LEITER", sub = "EVERY CLIP FULL", chip = "", label = "MAX AMMO", say = "MAX AMMO" },
+    insta   = { title = "GOLDFINGER", sub = "EVERY HIT KILLS  %d S", chip = "INSTA-KILL", label = "INSTA-KILL", say = "INSTA-KILL" },
+    double  = { title = "DIAMONDS ARE FOREVER", sub = "DOUBLE CREDITS  %d S", chip = "2X CREDITS", label = "2X CREDITS", say = "DOUBLE CREDITS" },
+    nuke    = { title = "SKYFALL", sub = "%d ENEMIES ELIMINATED", chip = "", label = "NUKE", say = "NUKE" },
+    qdamage = { title = "Q'S SPECIAL ISSUE", sub = "4X DAMAGE  %d S", chip = "Q DAMAGE", label = "Q DAMAGE", say = "Q DAMAGE" },
+  },
+  insta_boss = "BOSSES TAKE 4X",          -- the sub line of INSTA-KILL's callout is joined with this
+  drop = "Q-BRANCH DROP: %s",             -- a power-up lands on the sand
+  gone = "THE %s IS GONE",                 -- ... and was not collected
+  -- the Q-Branch crate (Q, in the pit)
+  crate = {
+    marker = "Q-BRANCH  %d",                          -- the floor marker, with the price
+    prompt = "USE: Q-BRANCH CRATE - %d CREDITS",       -- near Q, enough credits
+    poor   = "Q-BRANCH CRATE - %d CREDITS (YOU HAVE %d)", -- near Q, not enough
+    got    = "Q-BRANCH ISSUE: %s",                     -- a weapon rolled
+    golden = "THE MAN WITH THE GOLDEN GUN",             -- the 2% roll: the callout (the sub line says Q-BRANCH ISSUE)
+    dud    = "Q-BRANCH",                                -- a dud: the callout title; the sub line is one of the quips
+    quips  = { "Do try to be careful with it, 007.", "Pay attention, 007.", "I never joke about my work, 007.",
+               "Grow up, 007.", "Bring it back in one piece." },
+    weapons = { dd44 = "DD44 DOSTOVEI", klobb = "KLOBB", kf7 = "KF7 SOVIET", zmg = "ZMG (9MM)", ar33 = "AR33 ASSAULT RIFLE",
+                d5k = "D5K DEUTSCHE", rcp90 = "RC-P90", phantom = "PHANTOM", shotgun = "SHOTGUN", autoshot = "AUTOMATIC SHOTGUN",
+                cougar = "COUGAR MAGNUM", sniper = "SNIPER RIFLE", rocket = "ROCKET LAUNCHER", grenadelauncher = "GRENADE LAUNCHER",
+                laser = "MOONRAKER LASER", goldengun = "THE GOLDEN GUN" },
+  },
+  -- Requisition cards: id = { name, one line (shown on the card), the effect per stack (%s filled by the module), "x" stack tag }
+  cards = {
+    kicker = "Q BRANCH  -  REQUISITION", title = "REQUISITION", subtitle = "WAVE %d CLEARED. CHOOSE ONE ISSUE; IT STAYS FOR THE RUN.",
+    footer = "W S / STICK: MOVE    FIRE / A / ENTER: TAKE IT    MOUSE: POINT, CLICK",
+    dossier = "ISSUED SO FAR", none = "NOTHING YET", credits = "CREDITS", owned = "OWNED x%d", fresh = "NEW", picked = "REQUISITION: %s",
+    clips    = { "EXTENDED CLIPS",   "Magazines hold half as much again." },
+    armour   = { "SAVILE ROW LINING", "Armour back to full at the start of every wave." },
+    medic    = { "MI6 FIELD MEDIC", "Health creeps back, a little every second." },
+    vampire  = { "BLOOD MONEY",      "Every hit you land heals a little." },
+    batteries = { "Q'S BATTERIES",   "Power-ups last half as long again." },
+    airdrop  = { "AIRDROP PRIORITY", "Power-ups drop far more often." },
+    discount = { "MI6 ACCOUNT",      "The Q-Branch crate costs less." },
+    briefing = { "DOUBLE-O STATUS",  "Every wave opens with a burst of Q Damage." },
+    swiss    = { "SWISS ACCOUNT",    "Interest on your credits after every wave." },
+    cache    = { "LEITER'S CACHE",   "Ammo topped up at the start of every wave." },
+    bounty   = { "BLOOD BOUNTY",     "Every kill pays more credits." },
+  },
+  -- the debrief
+  d_credits = "CREDITS EARNED", d_spent = "CREDITS SPENT", d_cards = "REQUISITIONS",
+}
+
 -- ---- the start menu (the briefing, Q Branch) and the post-game (the debrief): tools/mode_arena_menu.lua, tools/arena_menu_defs.lua ----
 -- (the settings rows' own labels and help lines stay with their values in arena_menu_defs.lua)
 ARENA_THEME.menu = {
@@ -184,7 +236,7 @@ ARENA_THEME.menu = {
   best_chip = "NEW BEST", new_medal = "NEW!", chart = "KILLS PER WAVE", legend = "GOLD BOSS   PURPLE MUTATOR   RED THE LAST STAND",
   s_wave = "WAVE REACHED", s_kills = "CONFIRMED KILLS", s_time = "MISSION TIME", s_acc = "ACCURACY", s_heads = "HEADSHOTS",
   s_multi = "BEST MULTI-KILL", s_streak = "BEST STREAK", s_peak = "CROWD PEAK", s_hits = "HITS TAKEN", s_elites = "ELITES ELIMINATED",
-  s_mut = "SPECTRE MUTATORS",
+  s_mut = "SPECTRE MUTATORS", s_credits = "CREDITS EARNED", s_spent = "CREDITS SPENT", s_cards = "REQUISITIONS",
 }
 
 -- a favour toast's text for an internal label ("STREAK 7" / "BOOM x3" keep their number)

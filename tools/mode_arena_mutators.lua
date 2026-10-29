@@ -219,8 +219,10 @@ function ARENA_MUTATORS.new(S)
     end
     M.cur, M.name, M.last, M.saved = d, name, name, {}
     M.rolled = M.rolled + 1
+    local PLX = ARENA_PLUS and ARENA_PLUS.live
     for k, v in pairs(d.mods or {}) do
-      M.saved[k] = mods.get(k)
+      -- (arena plus holds enemy_health at 25 for Q DAMAGE / INSTA-KILL: the value to put back is what it replaced, not 25)
+      M.saved[k] = (k == "enemy_health" and PLX and PLX.boosted()) and PLX.user_health() or mods.get(k)
       mods.set(k, v)
     end
     if d.fog then arena.fog(S.mutator_fog_far or 2600, 0x70, 0x70, 0x78) end

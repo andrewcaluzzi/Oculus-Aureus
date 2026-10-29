@@ -105,6 +105,9 @@ function F.finish(win, r)
     elites = r.elites or 0, mutators = r.mutators or 0, label = F.label, preset = F.preset, coop = bond.count() > 1,
     key = (AS and AS.score_key) or "",
   }
+  if r.plus then   -- arena plus: the credits and the requisitions ({ { name, count }, ... }, the few most stacked)
+    res.credits, res.spent, res.cards = r.plus.earned, r.plus.spent, r.plus.cards
+  end
   local list = {}
   local from = math.max(1, #ST.waves - 63)
   for i = from, #ST.waves do list[#list + 1] = ST.waves[i] end

@@ -10,7 +10,7 @@ B=$1
 OUT=$B/amenu
 mkdir -p $OUT
 for f in mode_arena:arena arena_flow:_arena_flow arena_menu_defs:_arena_menu_defs mode_arena_menu:arena-menu mode_arena_scores:_arena_scores \
-         mode_arena_crowd:_arena_crowd arena_polish:_arena_polish arena_theme:_arena_theme arena_coop:_arena_coop; do
+         mode_arena_crowd:_arena_crowd arena_polish:_arena_polish arena_theme:_arena_theme arena_coop:_arena_coop arena_plus:_arena_plus ui_menu:_ui_menu; do
   cp "$R/tools/${f%%:*}.lua" "$B/Data/Scripts/modes/${f##*:}.lua"
 done
 cp $R/tests/arena_menu/amenu_drive.lua $B/Data/Scripts/zz_amenu_drive.lua
