@@ -17,7 +17,9 @@
 -- Test hooks: ARENA_MENU (the live state), ARENA_MENU.press(mask) (a board event as if pressed), ARENA_MENU.go(screen).
 
 include("_arena_menu_defs")
+pcall(include, "_hub_defs")   -- the main menu hub's: when it opened this lobby, EXIT is MAIN MENU (a build without the hub has none)
 local D = ARENA_MENU_DEFS
+local function exit_text(label, desc) if HUB_DEFS then return HUB_DEFS.exit_text(label, desc) end return label, desc end
 local UP, DOWN, LEFT, RIGHT, SELECT, BACK, START = 1, 2, 4, 8, 16, 32, 64
 
 local M = { screen = "main", cursor = 0, v = D.defaults(), dirty = true, t = 0, quiet = 0.4, busy = false, last = { main = 0 } }
@@ -96,7 +98,8 @@ local function items_main()
   end
   it[#it + 1] = { kind = "choice", label = D.BY_ID.difficulty.label, value = D.label(M.v, "difficulty"), row = "difficulty", desc = D.BY_ID.difficulty.desc }
   it[#it + 1] = { kind = "button", label = T.qbranch, act = "advanced", desc = T.qbranch_desc }
-  it[#it + 1] = { kind = "button", label = T.to_mi6, act = "quit", desc = T.to_mi6_desc }
+  local xl, xd = exit_text(T.to_mi6, T.to_mi6_desc)
+  it[#it + 1] = { kind = "button", label = xl, act = "quit", desc = xd }
   it[#it + 1] = { kind = "primary", col = 2, label = T.begin, sub = T.begin_sub, act = "start", desc = T.begin_desc }
   return it
 end
@@ -152,10 +155,11 @@ end
 
 local function result_items()
   local r = result or {}
+  local xl, xd = exit_text(T.to_mi6, T.to_mi6_desc)
   return {
     { kind = "primary", label = T.retry, act = "retry", desc = T.retry_desc .. (r.label or "") },
     { kind = "button", label = T.new_assignment, act = "main", desc = T.new_assignment_desc },
-    { kind = "button", label = T.to_mi6, act = "quit", desc = T.to_mi6_desc },
+    { kind = "button", label = xl, act = "quit", desc = xd },
   }
 end
 
@@ -314,6 +318,11 @@ local function activate(it, ev)
   elseif a == "quit" then
     M.busy = true
     sfx(SFX.back)
+    if HUB_DEFS and HUB_DEFS.from_hub() then   -- the hub opened this lobby: back to it (a stage load)
+      log("MAIN MENU")
+      if not HUB_DEFS.to_hub() then M.busy = false end
+      return
+    end
     log("EXIT the game")
     if not amenu.exit() then M.busy = false end
   elseif a == "retry" then retry()

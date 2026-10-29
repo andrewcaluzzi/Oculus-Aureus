@@ -22,6 +22,7 @@ typedef struct UiLaunch
     char preset[24];                /* the menu's preset / job id */
     char label[64];                 /* what the debrief calls the run */
     char lobby[16];                 /* the lobby's page ("menu", "postgame"; "" = a run, not the lobby) */
+    char stage[16];                 /* the stage slot to load ("colosseum", "levelgen", "control"; "" = the same slot again) */
     int difficulty;                 /* the stage's difficulty 0..3 (-1 = leave the front end's) */
     int seq;                        /* set by the hand-off: counts launches this session (tests tell runs apart) */
     int nenv;
@@ -34,6 +35,9 @@ void portUiMenuDisarm(void);
 int  portUiMenuLaunchNow(const UiLaunch *next);
 int  portUiMenuQuitNow(void);
 int  portUiMenuAfterStage(int prev);          /* front.c: chained after the arena's (prev = its answer) */
+const char *portUiMenuTakeStage(void);        /* front.c: the stage slot the hand-off asked for ("" = none), once */
+int  portUiHub(void);                         /* 1 = this session came from the main menu hub (a lobby's EXIT becomes MAIN MENU) */
+void portUiHubSet(int on);
 const UiLaunch *portUiMenuCurrent(void);
 void portUiMenuRetrySet(const UiLaunch *l);
 const UiLaunch *portUiMenuRetry(void);

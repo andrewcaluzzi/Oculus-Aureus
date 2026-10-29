@@ -16,8 +16,10 @@
 
 include("_ui_menu")
 include("_heist_menu_defs")
+pcall(include, "_hub_defs")   -- the main menu hub's: when it opened this lobby, EXIT is MAIN MENU (a build without the hub has none)
 local U, D = UI_MENU, HEIST_MENU_DEFS
 local T, TD = D.T, D.TD
+local function exit_text(label, desc) if HUB_DEFS then return HUB_DEFS.exit_text(label, desc) end return label, desc end
 if levelgen and levelgen.current() ~= levelgen.default() then include("levelgen_layout_" .. levelgen.current()) else include("levelgen_layout") end
 
 local cur = ui and ui.current() or nil
@@ -114,7 +116,8 @@ local function page_main()
   local it = card_items()
   it[#it + 1] = { kind = "choice", row = "difficulty", label = D.BY_ID.difficulty.label, desc = D.BY_ID.difficulty.desc }
   it[#it + 1] = { kind = "button", label = T.qbranch, act = "page:settings", desc = T.qbranch_desc }
-  it[#it + 1] = { kind = "button", label = T.to_mi6, act = "quit", desc = T.to_mi6_desc }
+  local xl, xd = exit_text(T.to_mi6, T.to_mi6_desc)
+  it[#it + 1] = { kind = "button", label = xl, act = "quit", desc = xd }
   it[#it + 1] = { kind = "primary", col = 2, label = T.begin, sub = T.begin_sub, act = "start", desc = M.val("planning") and T.begin_desc or T.begin_desc_noplan }
   return { layout = "lobby", items = it, title = T.title, kicker = T.kicker, subtitle = T.subtitle, info = info_main(),
            info_title = T.dossier, info_sub = job().name, cursor_act = "start", new_medal = TD.new_medal }
@@ -192,10 +195,11 @@ local function page_debrief()
   table.sort(chips, function(a, b) if a[2] ~= b[2] then return a[2] > b[2] end return a[1] < b[1] end)
   t.chips = chips
   t.chips_title = string.format(TD.chips, earned, #chips)
+  local xl, xd = exit_text(TD.to_mi6, TD.to_mi6_desc)
   t.items = {
     { kind = "primary", label = TD.again, act = "again", desc = TD.again_desc .. (r.label or "") },
     { kind = "button", label = TD.new_job, act = "page:main", desc = TD.new_job_desc },
-    { kind = "button", label = TD.to_mi6, act = "quit", desc = TD.to_mi6_desc },
+    { kind = "button", label = xl, act = "quit", desc = xd },
   }
   return t
 end
@@ -270,8 +274,13 @@ M = U.new{
     elseif a == "quit" then
       M.busy = true
       sfx(SFX.back)
-      M.log("EXIT the game")
       save()
+      if HUB_DEFS and HUB_DEFS.from_hub() then   -- the hub opened this lobby: back to it (a stage load)
+        M.log("MAIN MENU")
+        if not HUB_DEFS.to_hub() then M.busy = false end
+        return
+      end
+      M.log("EXIT the game")
       if not ui.exit() then M.busy = false end
     elseif a == "reset" then
       local keep = M.v.difficulty

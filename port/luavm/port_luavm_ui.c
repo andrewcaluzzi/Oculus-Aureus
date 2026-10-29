@@ -2,8 +2,9 @@
  * "Generic ui layer"; tools/ui_menu.lua is the Lua half). C side: port/src/port_uimenu.c (the hand-off between stages, the named
  * preference files) and port/src/port_uimenu_draw.c (the drawing, presentation). Also the `levelgen` table (port_levelgen_select.c).
  *
- *   ui.launch{mode=, settings=, preset=, label=, lobby=, difficulty=, env={GE_X="v"}} -> bool   end this stage and start the same stage
- *                                     slot again (no mission report) with that mode (GE_MODE), settings text (a Lua table constructor),
+ *   ui.launch{mode=, settings=, preset=, label=, lobby=, stage=, difficulty=, env={GE_X="v"}} -> bool   end this stage and start the same
+ *                                     stage slot again (stage = "colosseum", "levelgen", "control" ...: that slot instead; the names of GE_STAGE)
+ *                                     (no mission report) with that mode (GE_MODE), settings text (a Lua table constructor),
  *                                     difficulty (0..3; nil leaves it) and GE_* variables (up to 8; a variable set for one launch and not
  *                                     the next goes back to what it was). lobby = the lobby's page ("menu", "postgame"; "" = a run)
  *   ui.arm{...}                       the same launch, for when this stage ends by itself (a run: the win, the fail, an abort)
@@ -20,6 +21,9 @@
  *   ui.save_prefs(name, {key = v})    replace it and write the file (values become strings)
  *   ui.view{...}                      the menu as it is now (presentation; port_uimenu_draw.c, tools/ui_menu.lua)
  *   ui.escape_back(on)                Escape is the board's BACK while the lobby holds the controls (not the watch)
+ *   ui.hub([on]) -> bool              the session came from the main menu hub (tools/mode_hub.lua); a lobby's EXIT becomes MAIN MENU
+ *   ui.opt(key) -> {n, index, text}   one of the port's options for a settings page (allowlist: volumes, mouse sensitivity, FOV ...);
+ *   ui.opt_set(key, index) -> bool    index 1-based; applied live and written to midas.ini the way the Options pages do
  *   ui.netplay() -> bool              a netplay session (the menu flow is off there)
  *   ui.state() -> menu_up, gameplay_has_pointer, mouse_captured   (tests)
  *   levelgen.current() -> name        the generated level on the levelgen slot this stage ("bank", "casino")
@@ -76,6 +80,7 @@ static void readLaunch(lua_State *L, int t, UiLaunch *out)
     optField(L, t, "preset", out->preset, sizeof(out->preset));
     optField(L, t, "label", out->label, sizeof(out->label));
     optField(L, t, "lobby", out->lobby, sizeof(out->lobby));
+    optField(L, t, "stage", out->stage, sizeof(out->stage));
     out->difficulty = intField(L, t, "difficulty", -1);
     out->seq = intField(L, t, "seq", 0);
     lua_getfield(L, t, "env");
@@ -137,6 +142,7 @@ static void pushLaunch(lua_State *L, const UiLaunch *l)
     lua_pushstring(L, l->preset); lua_setfield(L, -2, "preset");
     lua_pushstring(L, l->label); lua_setfield(L, -2, "label");
     lua_pushstring(L, l->lobby); lua_setfield(L, -2, "lobby");
+    lua_pushstring(L, l->stage); lua_setfield(L, -2, "stage");
     lua_pushinteger(L, l->seq); lua_setfield(L, -2, "seq");
     if (l->difficulty >= 0) { lua_pushinteger(L, l->difficulty); lua_setfield(L, -2, "difficulty"); }
     lua_createtable(L, 0, l->nenv);
@@ -159,6 +165,69 @@ static int lExit(lua_State *L)
     lua_pushboolean(L, 1);
     return 1;
 }
+/* ui.hub([on]) -> bool: whether the session came from the main menu hub (tools/mode_hub.lua); a given argument sets it. The lobbies read
+ * it to turn their EXIT into MAIN MENU. A process flag: it lives across stage loads, a launcher starts it off */
+static int lHub(lua_State *L)
+{
+    if (lua_gettop(L) >= 1 && portModeActive()) portUiHubSet(lua_toboolean(L, 1));
+    lua_pushboolean(L, portUiHub());
+    return 1;
+}
+
+/* ui.opt(key) -> { n =, index =, text = {...} } | nil, ui.opt_set(key, index) -> bool: the port's own options (port_options.c, the table
+ * the Options pages draw: applied live, written to midas.ini in place) for a settings page. Index is 1-based. SECURITY (scripts are mods
+ * too): only the keys below, never a path, the ROM, a bind or a netplay switch. */
+extern int portOptFind(const char *key);
+extern int portOptValueCount(int i);
+extern const char *portOptValueTextAt(int i, int idx);
+extern int portOptValueIndexNear(int i, int dir);
+extern int portOptSetIndex(int i, int idx);
+
+static const char *const kOptAllow[] = { "music_volume", "sfx_volume", "mouse_sens_x", "mouse_sens_y", "look_updown", "hfov_wide",
+                                         "always_crosshair", "mission_timer", "show_fps", NULL };
+
+static int optIndexOf(const char *key)
+{
+    int k;
+
+    for (k = 0; kOptAllow[k] != NULL; k++) if (strcmp(kOptAllow[k], key) == 0) return portOptFind(key);
+    return -1;
+}
+
+static int lOpt(lua_State *L)
+{
+    const int i = optIndexOf(luaL_checkstring(L, 1));
+    int n, k, cur;
+
+    if (i < 0 || !portModeActive()) return 0;
+    n = portOptValueCount(i);
+    cur = portOptValueIndexNear(i, 0);
+    lua_createtable(L, 0, 3);
+    lua_pushinteger(L, n); lua_setfield(L, -2, "n");
+    lua_pushinteger(L, cur < 0 ? 1 : (cur >= n ? n : cur + 1)); lua_setfield(L, -2, "index");
+    lua_createtable(L, n, 0);
+    for (k = 0; k < n; k++)
+    {
+        const char *t = portOptValueTextAt(i, k);
+        size_t len = 0;
+
+        while (t[len] != '\0' && t[len] != '\n') len++;   /* (the table's rows end in a newline) */
+        lua_pushlstring(L, t, len);
+        lua_rawseti(L, -2, k + 1);
+    }
+    lua_setfield(L, -2, "text");
+    return 1;
+}
+
+static int lOptSet(lua_State *L)
+{
+    const int i = optIndexOf(luaL_checkstring(L, 1));
+
+    if (i < 0 || !portModeActive() || portNetActive()) { lua_pushboolean(L, 0); return 1; }
+    lua_pushboolean(L, portOptSetIndex(i, (int) luaL_checkinteger(L, 2) - 1));
+    return 1;
+}
+
 static int lNetplay(lua_State *L) { lua_pushboolean(L, portNetActive()); return 1; }
 static int lEscape(lua_State *L) { portUiMenuEscapeBack(lua_toboolean(L, 1)); return 0; }
 
@@ -454,7 +523,7 @@ void portLuaUiRegister(lua_State *L)
     static const luaL_Reg lib[] = {
         { "launch", lLaunch }, { "arm", lArm }, { "disarm", lDisarm }, { "quit", lQuit }, { "exit", lExit }, { "current", lCurrent }, { "retry", lRetry },
         { "result", lResult }, { "prefs", lPrefs }, { "save_prefs", lSavePrefs }, { "view", lView }, { "escape_back", lEscape },
-        { "netplay", lNetplay }, { "state", lState }, { NULL, NULL } };
+        { "netplay", lNetplay }, { "state", lState }, { "hub", lHub }, { "opt", lOpt }, { "opt_set", lOptSet }, { NULL, NULL } };
     static const luaL_Reg lg[] = { { "current", lLgCurrent }, { "default", lLgDefault }, { "has", lLgHas }, { NULL, NULL } };
 
     luaL_newlib(L, lib);

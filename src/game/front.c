@@ -2575,7 +2575,12 @@ void init_menu05_fileselect(void)
     int i;
 
     prev_keypresses = FALSE;
-
+#ifndef TARGET_N64
+    {   /* PORT: proof the Files screen came up (tests/hub: GOLDENEYE 007 on the main menu hands off to it) */
+        extern int printf(const char *, ...);
+        printf("ge: front: Files screen up\n");
+    }
+#endif
 
     if (selected_folder_num < FOLDER1)
     {
@@ -17066,6 +17071,27 @@ void init_menu0C_missionfailed(void)
     sArenaMenuSkip = am != 0;
     if (am != 0)
     {
+      if (am == 1)
+      {   /* the hand-off may ask for another stage slot (the main menu hub's Control, the Colosseum, the levelgen rooms) */
+        extern const char *portUiMenuTakeStage(void);
+        extern s32 portStageByName(const char *name);
+        const char *sn = portUiMenuTakeStage();
+
+        if (sn[0] != '\0')
+        {
+          const s32 id = portStageByName(sn);
+
+          if (id >= 0)
+          {
+            set_solo_and_ptr_briefing(id);
+          }
+          else
+          {
+            extern int printf(const char *, ...);
+            printf("ge: uimenu: stage '%s' is not a stage; loading the same slot again\n", sn);
+          }
+        }
+      }
       frontChangeMenu(am == 1 ? MENU_RUN_STAGE : MENU_FILE_SELECT, 1);
       return;
     }
@@ -18991,6 +19017,24 @@ static const struct { const char *name; s32 id; } stages[] = {
         { "colosseum", LEVELID_EAR },     { "ear", LEVELID_EAR },  /* generated arena (port/colosseum) */
         { "levelgen", LEVELID_LEE },      { "lee", LEVELID_LEE },  /* generated rooms (port/levelgen, tools/gen_level.py) */
 };
+
+/** The level id of a stage name in the table above ("control", "colosseum" ...), -1 when it is not one. The mode menus' hand-off asks (port_uimenu.c). */
+s32 portStageByName(const char *name)
+{
+    s32 k, j;
+
+    for (k = 0; k < (s32) (sizeof(stages) / sizeof(stages[0])); k++)
+    {
+        for (j = 0; stages[k].name[j] != '\0' && name[j] == stages[k].name[j]; j++)
+        {
+        }
+        if (stages[k].name[j] == '\0' && name[j] == '\0')
+        {
+            return stages[k].id;
+        }
+    }
+    return -1;
+}
 
 /** 1 when `id` is a level the direct launch knows (the solo missions and Flatland's slot). Netplay validates network-supplied ids with it. */
 s32 portNetStageValid(s32 id)

@@ -51,6 +51,8 @@ static s32 sRetryOk;
 static s32 sSeq;
 static char sResult[UI_RESULT_LEN];
 static s32 sEscOn, sEscEpoch = -1000;
+static char sStage[16];         /* the stage slot the hand-off asked for, until front.c takes it */
+static s32 sHub;                /* the main menu hub (tools/mode_hub.lua) started this session's lobbies: ui.hub() */
 
 static void cpy(char *d, size_t n, const char *s) { snprintf(d, n, "%s", s != NULL ? s : ""); }
 
@@ -136,6 +138,15 @@ int portUiLaunchSanitize(UiLaunch *l)
     {
         portConLogf("ge: uimenu: launch refused: mode name '%.40s' is not a mode\n", l->mode);
         return 0;
+    }
+    l->stage[sizeof(l->stage) - 1] = '\0';
+    for (i = 0; l->stage[i] != '\0'; i++)
+    {   /* a stage name from front.c's direct-launch table (resolved there; an unknown one is ignored): a-z 0-9 only */
+        if (!((l->stage[i] >= 'a' && l->stage[i] <= 'z') || (l->stage[i] >= '0' && l->stage[i] <= '9')))
+        {
+            portConLogf("ge: uimenu: launch refused: stage name '%.16s' is not a stage\n", l->stage);
+            return 0;
+        }
     }
     if (l->nenv < 0 || l->nenv > UI_ENV_N) l->nenv = 0;
     for (i = 0; i < l->nenv; i++)
@@ -259,12 +270,15 @@ int portUiMenuAfterStage(int prev)
     if (a == UI_ARM_QUIT)
     {
         envApply(&(UiLaunch) { 0 });   /* (nothing of the last launch's variables outlives the menus) */
+        envPut("GE_MODE", "");         /* (the missions picked from the Files screen are the stock ones, not the lobby's mode) */
+        sHub = 0;
         portConLogf("ge: uimenu: after the stage: to the title menus\n");
         return 2;
     }
     sNext.seq = ++sSeq;
     envApply(&sNext);
     envPut("GE_MODE", sNext.mode);
+    cpy(sStage, sizeof(sStage), sNext.stage);
     if (sNext.difficulty >= 0 && sNext.difficulty <= 3) set_selected_difficulty(sNext.difficulty);
     sCur = sNext;
     sCurEpoch = g_portCoopEpoch + 1;   /* the next stage start (portCoopStageBegin counts every one) */
@@ -274,6 +288,18 @@ int portUiMenuAfterStage(int prev)
     portConLogf("\n");
     return 1;
 }
+
+const char *portUiMenuTakeStage(void)
+{
+    static char t[sizeof(sStage)];
+
+    cpy(t, sizeof(t), sStage);
+    sStage[0] = '\0';
+    return t;
+}
+
+void portUiHubSet(int on) { sHub = on ? 1 : 0; }
+int portUiHub(void) { return sHub && !portNetActive(); }
 
 const UiLaunch *portUiMenuCurrent(void) { return (sCurEpoch == g_portCoopEpoch && portModeActive()) ? &sCur : NULL; }
 

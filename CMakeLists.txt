@@ -711,6 +711,12 @@ if(GE_VIDEO)
             ${CMAKE_SOURCE_DIR}/tools/heist_flow.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/_heist_flow.lua
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/tools/mode_heist_menu.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/heist-menu.lua)
+    # the main menu hub (GE_MODE=hub, Play Midas.bat): the mode and its words / tables, which the arena and heist lobbies read too
+    add_custom_command(TARGET ge POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/tools/hub_defs.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/_hub_defs.lua
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/tools/mode_hub.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/hub.lua)
     if(GE_LEVELGEN_HAS_EXTRA)
         add_custom_command(TARGET ge POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different

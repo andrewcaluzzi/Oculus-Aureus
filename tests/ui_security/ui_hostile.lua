@@ -46,6 +46,8 @@ if not cur then
       stage = 1
       check("a launch with a path for a mode is refused", ui.launch({ mode = "../../evil" }) == false)
       check("a launch with a dotted mode is refused", ui.launch({ mode = "heist.lua" }) == false)
+      check("a launch with a path for a stage is refused", ui.launch({ mode = "ui_hostile", stage = "../dam" }) == false)
+      check("a launch with a capital stage is refused", ui.launch({ mode = "ui_hostile", stage = "Dam" }) == false)
       local launched = ui.launch({ mode = "ui_hostile", lobby = "stage2", difficulty = 99, env = {
         GE_UIMENU_DIR = "/tmp/pwn", GE_LUA_TEST = "/tmp/pwn.lua", GE_MODS = "x", GE_ROMDATA = "0", GE_PROFILE = "pwn", GE_NOMENUSAVE = "1",
         GE_COOP_P2 = "replay:/etc/passwd", GE_SEED = "7;rm", GE_LEVELGEN = "bank" } })
