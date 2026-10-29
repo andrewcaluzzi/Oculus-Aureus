@@ -24,8 +24,8 @@ D.T = {
   d_mode = "OPERATION", d_where = "WHERE", d_best = "BEST ON FILE", d_none = "NO RUNS YET", d_solo = "SOLO ONLY",
   groups = { AUDIO = "SOUND", CONTROLS = "CONTROLS", VIEW = "VIEW AND HUD" },
   tiles = {
-    arena = { name = "ARENA", place = "THE COLOSSEUM", blurb = "Wave after wave in the pit, SPECTRE rigging the games. Alone or with a partner.",
-              more = "Presets, mutators, elites, the crowd. Q Branch has every setting." },
+    arena = { name = "ARENA", place = "THE COLOSSEUM + 7 MAPS", blurb = "Wave after wave, SPECTRE rigging the games. Alone or with a partner.",
+              more = "The Colosseum, or the Temple, Complex, Caves, Library, Stack, Basement and Facility. Presets, mutators, elites; Q Branch has every setting." },
     heist = { name = "HEIST", place = "JANUS BANK AND LE GRAND CASINO", blurb = "Plan the job in the van, then rob Janus: keys, cameras, the vault.",
               more = "Stealth or loud. Two jobs, every setting in Q Branch." },
     goldeneye = { name = "GOLDENEYE 007", place = "THE ORIGINAL", blurb = "The campaign and stock multiplayer, from the Files screen.",

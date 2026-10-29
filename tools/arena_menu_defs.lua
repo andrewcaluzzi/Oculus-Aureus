@@ -19,10 +19,17 @@ local D = ARENA_MENU_DEFS
 -- (tools/arena_theme.lua; AC: the whole arena Bond-themed), with the medal names (ARENA_THEME.medals). Only the settings rows' own
 -- labels and help lines are here, beside their values.
 include("_arena_theme")
+include("_arena_maps")   -- the Colosseum and the stock multiplayer maps (tools/arena_maps.lua): the ARENA row's choices
 local T = ARENA_THEME.menu
 D.T = T
 
+local MAP_CHOICES = {}   -- { name, map id } in ARENA_MAPS.LIST order, the Colosseum first (the default)
+for i, m in ipairs(ARENA_MAPS.LIST) do MAP_CHOICES[i] = { (ARENA_THEME.maps[m.id] or { m.id:upper() })[1], m.id } end
+
 local ROWS = {
+  -- ARENA: where the run is fought. On the start menu's main page, not in Q Branch (group "MAP" is on no page of its own). Not scored: the
+  -- presets stay presets on any map; the best-score key gets the map instead (score_key)
+  { id = "map", group = "MAP", label = ARENA_THEME.maps.row[1], scored = false, default = 1, choices = MAP_CHOICES, desc = ARENA_THEME.maps.row[2] },
   -- RUN
   { id = "pacing", group = "RUN", label = "PACING", scored = true, default = 1,
     choices = { { "20 WAVES", { mode = "fixed", waves = 20 } }, { "10 WAVES", { mode = "fixed", waves = 10 } },
@@ -167,6 +174,15 @@ end
 
 local DIFF_SUFFIX = { [0] = "_trainee", [1] = "", [2] = "_00", [3] = "_007" }
 D.DIFF_SUFFIX = DIFF_SUFFIX
+-- the map (tools/arena_maps.lua) the ARENA row picks; its entry has `stage` unless it is the Colosseum
+function D.map_of(v) return ARENA_MAPS.BY_ID[val(v, "map")] or ARENA_MAPS.LIST[1] end
+function D.on_map(v) return D.map_of(v).stage ~= nil end
+-- the best-scores suffix of a map: none for the Colosseum (its bests keep their keys), "_temple" ... for a stock map
+function D.map_suffix(v)
+  local m = D.map_of(v)
+  return (m.key ~= "") and ("_" .. m.key) or ""
+end
+
 function D.score_key(v)
   local p = D.preset_of(v)
   local base
@@ -175,7 +191,7 @@ function D.score_key(v)
     local pace = val(v, "pacing")
     base = "custom_" .. (pace.mode == "endless" and "endless" or ("fixed" .. pace.waves))
   end
-  return base .. DIFF_SUFFIX[val(v, "difficulty")]
+  return base .. DIFF_SUFFIX[val(v, "difficulty")] .. D.map_suffix(v)
 end
 
 -- the menu's values -> ARENA_SETTINGS (only what differs from the arena's own defaults is set, so a classic run is a plain run)
@@ -240,6 +256,12 @@ function D.settings(v)
   S.crowd_impostors = val(v, "impostors")
   S.crowd_favour = val(v, "favour")
   S.crowd_screams = val(v, "screams")
+  -- a stock map (written only then, so a Colosseum run's settings stay what they were): no stands, so no crowd, no back rows, no favour
+  local map = D.map_of(v)
+  if map.stage then
+    S.map = map.id
+    S.crowd_real, S.crowd_impostors, S.crowd_favour, S.crowd_screams = 0, 0, false, false
+  end
   -- markers
   local m = val(v, "markers")
   S.pickup_markers = m and true or false

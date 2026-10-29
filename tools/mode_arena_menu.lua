@@ -69,7 +69,9 @@ local function best(key)
   if not b.runs and not b.best_wave then return nil end
   return b
 end
-local function preset_key(p) return p.key .. DIFF_SUFFIX[D.val(M.v, "difficulty")] end
+local function preset_key(p) return p.key .. DIFF_SUFFIX[D.val(M.v, "difficulty")] .. D.map_suffix(M.v) end   -- (bests are per map)
+local TM = ARENA_THEME.maps
+local function map_name(def) return (TM[def.id] or { def.id:upper() })[1] end
 local function preset_endless(p) return (p.set.pacing or 1) == 4 end
 local function best_line(p)
   local b = best(preset_key(p))
@@ -92,7 +94,8 @@ end
 local function run_label()
   local p = D.preset_of(M.v)
   local d = D.val(M.v, "difficulty")
-  return (p and p.name or T.custom) .. (d ~= 1 and (" - " .. D.label(M.v, "difficulty")) or ""), p
+  local def = D.map_of(M.v)
+  return (p and p.name or T.custom) .. (d ~= 1 and (" - " .. D.label(M.v, "difficulty")) or "") .. (def.stage and (" - " .. map_name(def)) or ""), p
 end
 
 local function items_main()
@@ -104,6 +107,8 @@ local function items_main()
                     desc = p.desc .. (p.id:match("^coop") and T.coop_note or "") }
   end
   it[#it + 1] = { kind = "choice", label = D.BY_ID.difficulty.label, value = D.label(M.v, "difficulty"), row = "difficulty", desc = D.BY_ID.difficulty.desc }
+  local def = D.map_of(M.v)
+  it[#it + 1] = { kind = "choice", label = D.BY_ID.map.label, value = D.label(M.v, "map"), row = "map", desc = (TM[def.id] or { "", "" })[2] .. "  " .. D.BY_ID.map.desc }
   it[#it + 1] = { kind = "button", label = T.qbranch, act = "advanced", desc = T.qbranch_desc }
   local xl, xd = exit_text(T.to_mi6, T.to_mi6_desc)
   it[#it + 1] = { kind = "button", label = xl, act = "quit", desc = xd }
@@ -121,7 +126,8 @@ local function info_main()
     { T.d_team, D.label(M.v, "players") },
     { T.d_cap, D.label(M.v, "cap") },
     { T.d_kit, D.label(M.v, "loadout") .. "   " .. T.d_heal .. " " .. D.label(M.v, "healing") },
-    { T.d_crowd, D.label(M.v, "crowd") .. "   " .. ((D.val(M.v, "favour")) and T.d_fav_on or T.d_fav_off) },
+    D.on_map(M.v) and { TM.where, map_name(D.map_of(M.v)) }   -- (a stock map has no crowd: its name takes the crowd's line)
+      or { T.d_crowd, D.label(M.v, "crowd") .. "   " .. ((D.val(M.v, "favour")) and T.d_fav_on or T.d_fav_off) },
     { "", "" },
   }
   local b = best(D.score_key(M.v))
@@ -147,10 +153,13 @@ local function items_advanced()
     it[#it + 1] = { kind = "header", col = col, label = T.groups[g] or g }
     for _, r in ipairs(D.ROWS) do
       if r.group == g then
+        local nocrowd = D.on_map(M.v) and (r.group == "CROWD")   -- the stock maps have no stands: the crowd's rows are dimmed
         local dim = ((r.id == "downed" or r.id == "bot_skill") and not D.val(M.v, "players"))
                     or (r.id == "intensity" and not D.val(M.v, "mutators") and not D.val(M.v, "elites"))
                     or (r.id == "crate" and not D.val(M.v, "credits"))   -- (the crate is paid in credits)
-        it[#it + 1] = { kind = "choice", col = col, label = r.label, value = D.label(M.v, r.id), row = r.id, desc = r.desc, dim = dim and 1 or 0 }
+                    or nocrowd
+        it[#it + 1] = { kind = "choice", col = col, label = r.label, value = D.label(M.v, r.id), row = r.id, dim = dim and 1 or 0,
+                        desc = r.desc .. (nocrowd and TM.dim_note or "") }
       end
     end
     if g == "PLAYERS" then
@@ -246,7 +255,7 @@ local function show()
   local sel = M.items[M.cursor]
   t.desc = sel and sel.desc or ""
   if M.screen == "main" then
-    t.title, t.kicker = T.title, T.kicker
+    t.title, t.kicker = D.on_map(M.v) and map_name(D.map_of(M.v)) or T.title, T.kicker
     t.subtitle = T.subtitle
     t.info, t.info_sub = info_main()
     t.info_title = T.dossier
@@ -291,9 +300,10 @@ local function launch()
   M.busy = true
   sfx(SFX.start)
   if crowd and crowd.cheer then pcall(crowd.cheer, 3, 1.0) end
-  log("START %s (%s): coop %s slots %s key %s, %d bytes", label, p and p.id or "custom", tostring(coop), tostring(slots), S.score_key, #text)
+  local map = D.map_of(M.v)   -- a stock map loads its own stage (the lobby sits on the Colosseum or on the hub's Control)
+  log("START %s (%s): coop %s slots %s key %s map %s, %d bytes", label, p and p.id or "custom", tostring(coop), tostring(slots), S.score_key, map.id, #text)
   if not amenu.launch({ mode = "arena", settings = text, preset = p and p.id or "custom", label = label, coop = coop, slots = slots,
-                        stage = HOST and "colosseum" or nil }) then
+                        stage = map.stage or (HOST and "colosseum" or nil) }) then
     M.busy = false
     log("launch refused")
   end
@@ -304,7 +314,7 @@ local function retry()
   local r = amenu.retry()
   if not r then log("no run to retry"); return end
   r.lobby = ""
-  if HOST then r.stage = "colosseum" end
+  if HOST and (r.stage == nil or r.stage == "") then r.stage = "colosseum" end   -- (a run on a stock map retries on its stage)
   M.busy = true
   sfx(SFX.start)
   if crowd and crowd.cheer then pcall(crowd.cheer, 3, 1.0) end

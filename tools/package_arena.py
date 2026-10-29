@@ -37,7 +37,7 @@ TOP_LINUX = ["ProjectMidas", "gamecontrollerdb.txt", "gamecontrollerdefault.txt"
 MODES = ["arena.lua", "arena-endless.lua", "arena-chaos.lua", "arena-chaos-endless.lua", "arena-coop.lua", "arena-coop-chaos.lua",
          "_arena_polish.lua", "_arena_mutators.lua", "_arena_elites.lua", "_arena_scores.lua", "_arena_coop.lua", "_arena_crowd.lua",
          "_arena_theme.lua", "arena-menu.lua", "_arena_menu_defs.lua", "_arena_flow.lua", "arena-whacky.lua", "_arena_whacky.lua",
-         "arena-bench.lua", "arena-bench-live.lua", "_arena_plus.lua", "_ui_menu.lua"]
+         "arena-bench.lua", "arena-bench-live.lua", "_arena_plus.lua", "_ui_menu.lua", "_arena_maps.lua"]
 FROM_REPO = {"README-FORK.md": "README-FORK.md", "LICENSE": "LICENSE.txt", "tools/THIRD_PARTY_NOTICES.txt": "THIRD_PARTY_NOTICES.txt",
              "tools/Data_README.txt": "Data/README.txt", "tools/Mods_README.txt": "Mods/README.txt",
              "tools/Sounds_README.txt": "Data/Sounds/README.txt"}

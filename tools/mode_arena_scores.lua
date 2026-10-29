@@ -90,7 +90,8 @@ function ARENA_SCORES.finish(S, r)
   elseif rec then out.hud2 = string.format("BEST: WAVE %d  KILLS %d", math.floor(ow or 0), math.floor(ok or 0))
   else out.hud2 = "" end
   local d = out.debrief
-  d[#d + 1] = (S.mode == "endless") and "Arena: endless" or string.format("Arena: %d waves - %s", S.waves, r.win and "CLEARED" or "fell")
+  local where = S.map_name and (S.map_name .. ": ") or "Arena: "   -- (a stock map names itself, tools/arena_maps.lua)
+  d[#d + 1] = (S.mode == "endless") and (where .. "endless") or string.format("%s%d waves - %s", where, S.waves, r.win and "CLEARED" or "fell")
   d[#d + 1] = string.format("Wave %d   Kills %d   Time %s", r.wave, r.kills, mmss(r.time))
   d[#d + 1] = "Medal: " .. (mname or "none")
   if #out.news > 0 then d[#d + 1] = "NEW BEST: " .. table.concat(out.news, ", ")

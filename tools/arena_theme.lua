@@ -239,6 +239,22 @@ ARENA_THEME.menu = {
   s_mut = "SPECTRE MUTATORS", s_credits = "CREDITS EARNED", s_spent = "CREDITS SPENT", s_cards = "REQUISITIONS", s_credits_both = "CREDITS EARNED / SPENT",
 }
 
+-- ---- the maps (tools/arena_maps.lua): the Colosseum and the stock multiplayer maps. { name, one line } by map id; `row` is the start menu's
+-- ARENA row; `dim_note` ends the help of a row a stock map has no use for (no crowd, no gates) ----
+ARENA_THEME.maps = {
+  row = { "ARENA", "Where the games are held. The Colosseum has its crowd and its gates. On a stock multiplayer map the enemies come out of the dark, out of your sight; there is no crowd." },
+  dim_note = "  Not on the stock maps: no crowd, no gates.",
+  where = "ARENA", on_map = "%s  -  %s",
+  colosseum = { "THE COLOSSEUM", "The pit, the crowd, SPECTRE's games." },
+  temple    = { "THE TEMPLE", "Stone halls and old courts. They come out of the shadows." },
+  complex   = { "THE COMPLEX", "Corridors, cells and the machinery between. Every corner is a gun." },
+  caves     = { "THE CAVES", "Wet tunnels and dark chambers. Keep your back to the rock." },
+  library   = { "THE LIBRARY", "Shelves, aisles and stairs, floor on floor. They come between the stacks." },
+  stack     = { "THE STACK", "The upper floors of the library. The aisles run both ways." },
+  basement  = { "THE BASEMENT", "The lower floor of the library: close, dark, and one way up." },
+  facility  = { "THE FACILITY", "The plant, floor after floor. Nowhere to settle." },
+}
+
 -- a favour toast's text for an internal label ("STREAK 7" / "BOOM x3" keep their number)
 function ARENA_THEME.label(key)
   local L = ARENA_THEME.labels

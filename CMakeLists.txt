@@ -629,6 +629,9 @@ if(GE_VIDEO)
             ${CMAKE_SOURCE_DIR}/tools/mode_arena_crowd.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/_arena_crowd.lua
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/tools/arena_theme.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/_arena_theme.lua
+        # the arena on the stock multiplayer maps (the ARENA row's choices, the pad rules); the maps' stages are loaded by their MP-setup names
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/tools/arena_maps.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/_arena_maps.lua
         # arena plus (batch A): credits, power-ups, the Q-Branch crate, the Requisition cards (the cards use the generic menu layer below)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/tools/arena_plus.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/_arena_plus.lua

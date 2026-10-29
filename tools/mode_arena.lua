@@ -245,6 +245,17 @@ end
 pcall(include, "_arena_theme")    -- the Bond theme: every player-facing name (arena_theme.lua -> ARENA_THEME); before the modules
 pcall(include, "_arena_polish")   -- drop A7: pickup markers, knife keep-distance, spectator seating (arena_polish.lua)
 
+-- a stock multiplayer map instead of the Colosseum (settings.map = "temple" ..., tools/arena_maps.lua; the stage is loaded by its MP-setup name,
+-- GE_STAGE=mptemple): no stands, so no crowd and no gates. The enemies appear on walkable pads out of Bond's sight, the centre drops and Q's
+-- crate go to pads chosen from the map's floor when it loads. MAP is nil on the Colosseum, and every branch below is then what it was.
+pcall(include, "_arena_maps")
+local MAP = (S.map and ARENA_MAPS) and ARENA_MAPS.new(S, S.map) or nil
+if MAP then
+  S.map_name = MAP.name
+  S.crowd, S.crowd_real, S.crowd_impostors, S.crowd_favour, S.crowd_screams, S.reactions = 0, 0, 0, false, false, false
+  S.corpse_limit = math.min(S.corpse_limit or 160, 160)   -- (the stage has 300 chr slots, not the Colosseum's 600: port_flatland.c)
+end
+
 -- drop A7 modules: separate files with small hooks below (search "A7")
 include("_arena_mutators")
 include("_arena_elites")
@@ -401,7 +412,7 @@ end
 local PANEL_WORDS = {}   -- the theme's words for the phases (delay / fight / breather) and the idle panel
 do
   local pw = type(ARENA_THEME) == "table" and ARENA_THEME.panel or {}
-  PANEL_WORDS = { delay = pw.get_ready, fight = pw.fight, breather = pw.breather, idle_title = pw.idle_title, idle_sub = pw.idle_sub }
+  PANEL_WORDS = { delay = pw.get_ready, fight = pw.fight, breather = pw.breather, idle_title = MAP and MAP.name or pw.idle_title, idle_sub = pw.idle_sub }
 end
 local function update_panel()
   if not (S.hud_style and arena.panel) then return end
@@ -421,7 +432,7 @@ end
 
 local function refresh_hud()
   if wave == 0 then
-    hud.set(1, "COLOSSEUM")
+    hud.set(1, MAP and MAP.name or "COLOSSEUM")
   else
     local of = (S.mode == "fixed") and ("/" .. S.waves) or ""
     local mt = MUT.title()   -- A7: the wave's mutator
@@ -703,7 +714,63 @@ local function far_gates()
   return { order[1], order[2] }
 end
 
+-- on a stock map: a few pads in turn (out of Bond's sight, 15 m off, spread over the floor: tools/arena_maps.lua), facing the nearest Bond
+local function spawn_on_map(entry)
+  local skip = {}
+  for _ = 1, 6 do
+    local pad, fx, fz = MAP.spawn_pad(entry, skip)
+    if not pad then return false end
+    local spec = entry.spec
+    spec.face = { fx, fz }
+    spec.knife_range = spec.knife_range or S.knife_range
+    spec.knife_cooldown = spec.knife_cooldown or S.knife_cooldown
+    spec.sight = spec.sight or S.sight
+    if ARENA_POLISH then ARENA_POLISH.tweak_spec(spec) end
+    local c = spawn.chr(pad, spec)
+    if c then
+      E[#E + 1] = { chr = c, boss = entry.boss, born = elapsed, tier = spec._tier, pad = pad, spec = spec, entry = entry }
+      EBY[c] = E[#E]
+      a7(MUT.spawned, c, spec, entry)
+      a7(ELI.spawned, c, spec, entry)
+      if WH then a7(WH.spawned, c, spec, entry) end
+      return true
+    end
+    skip[pad] = true   -- (occupied, or no floor under it)
+  end
+  return false
+end
+
+-- on a stock map an enemy that has not got anywhere (a door it cannot open, a snag in the floor) is not allowed to hold the wave up: one that has
+-- moved less than stuck_move in stuck_secs, that is not firing and is not a marksman or a sentry, is put on a new pad out of sight
+local stuck_acc, stuck_n, door_acc = 0, 0, 0
+local ACT_FIRING = { [8] = true, [9] = true, [10] = true }   -- spawn.where's actiontype: ATTACK, ATTACKWALK, ATTACKROLL
+local function map_stuck_check()
+  local C = MAP.cfg
+  for _, e in ipairs(E) do
+    if not e.dead_at and not e.gone and e.spec and (e.spec.behaviour == "chase" or e.spec.behaviour == "rush") then
+      local x, z, act = spawn.where(e.chr)
+      if x then
+        if not e.mx or (x - e.mx) ^ 2 + (z - e.mz) ^ 2 > C.stuck_move ^ 2 or ACT_FIRING[act] then
+          e.mx, e.mz, e.mt = x, z, elapsed
+        elseif elapsed - e.mt >= C.stuck_secs then
+          e.mt = elapsed
+          local old = e.chr
+          e.dead_at, e.gone = elapsed, true   -- (not a kill: the record is retired, the enemy moved)
+          spawn.remove(old)
+          local entry = { n = 1, spec = e.spec, boss = e.boss, gates = e.entry and e.entry.gates or nil }
+          stuck_n = stuck_n + 1
+          local placed = spawn_on_map(entry)
+          if not placed then table.insert(queue, qi, entry) end   -- (no pad right now: it comes in again with the next spawns)
+          print(string.format("ge: arena: STUCK chr %d at (%.0f, %.0f) act %s for %.0f s: moved to a new pad (%s), %d so far", old, x, z, tostring(act),
+            C.stuck_secs, placed and "ok" or "NO PAD", stuck_n))
+        end
+      end
+    end
+  end
+end
+
 local function spawn_one(entry)
+  if MAP then return spawn_on_map(entry) end
   local g
   if entry.gates == "far" then
     local f = far_gates()
@@ -1005,6 +1072,8 @@ if pcall(include, "_arena_plus") and ARENA_PLUS and ARENA_PLUS.new then
     react = function(trigger) return react(trigger) end,
     mut_mod = function(k) local d = MUT.cur; return d and d.mods and d.mods[k] or nil end,   -- a modifier the wave's mutator holds
     double_on = function() return CR.double_on and CR.double_on() end,                         -- the sponsor's double damage
+    map_floor = MAP and function() return MAP.floor_pads end or nil,   -- a stock map: the pads of its floor, and Q's (arena_plus.lua)
+    map_crate = MAP and function() return MAP.crate end or nil,
   })
   ARENA_PLUS.live = PL   -- test hook: presets reach the live module (PL.drop, PL.roll, PL.offer ...)
   if not PL.on then PL = nil end
@@ -1215,6 +1284,10 @@ local function finish(win)
   if ended then return end
   ended = true
   print(string.format("ge: arena: %s wave %d kills %d time %s", win and "WON" or "OVER", wave, kills, mmss(elapsed)))
+  if MAP then
+    local used, relaxed = MAP.stats()
+    print(string.format("ge: arena: MAP %s: %d enemies placed (%d on a relaxed pick), %d stuck enemies moved", MAP.name, used, relaxed, stuck_n))
+  end
   a7(MUT.wave_end, "run over")   -- A7: no mutator outlives the run
   local crowd_line = a7(CR.finish, win)   -- A8: double damage off, the summary
   local sc = a7(ARENA_SCORES.finish, S, { win = win, wave = wave, kills = kills, time = elapsed,   -- A7: bests, medal, report page
@@ -1414,6 +1487,24 @@ ARENA_HOOKS = {
 on("stage_start", function(stage)
   local ok, err = pcall(function()
     local seats = {}
+    if MAP then   -- a stock multiplayer map: the walkable pads of its floor, no stands and no gates
+      local n = MAP.build()
+      centre_pads = MAP.centre_pads
+      for _, c in ipairs(MAP.cands) do pit_pads[#pit_pads + 1] = c.id end   -- (the benchmark hooks' floor pads)
+      print(string.format("ge: arena: MAP %s (%s): %d walkable pads of %d (%d the map's own), mode %s, waves %d, boss every %d; %d centre pads around pad %s, Q's pad %s",
+        MAP.name, MAP.stage, n, pads.count(), MAP.base, S.mode, S.waves, S.boss_every, #centre_pads, MAP.centre and MAP.centre.id or "-", MAP.crate and MAP.crate.id or "-"))
+      if n < 8 then
+        hud.set(1, "ARENA MODE: no walkable floor on this map")
+        ended = true
+        return
+      end
+      print(string.format("ge: arena: MAP doors opened: %d", MAP.doors_open()))
+      -- the MP setups arm Bond with his fists: the pistol the Colosseum's start gives him
+      local gun = MAP.cfg.gun
+      for p = 0, bond.count() - 1 do
+        if gun then pcall(bond.give, p, gun[1], gun[2]); pcall(bond.equip, p, gun[1]) end
+      end
+    else
     for i = 0, pads.count() - 1 do
       local x, y, z = pads.pos(i)
       if x and y > 1 then
@@ -1442,6 +1533,7 @@ on("stage_start", function(stage)
       hud.set(1, "ARENA MODE: run it on the Colosseum (GE_STAGE=colosseum)")
       ended = true
       return
+    end
     end
     seats_all = seats
     -- the stock game fades a dead chr out and removes it after 1.5 s: to keep bodies longer than the default 4 s (or for good) it must not
@@ -1605,6 +1697,19 @@ on("tick", function(dt)
     print(string.format("ge: arena: crowd of %d placed at t=%.2f", #crowd, elapsed))
   end
   crowd_tick()
+
+  if MAP then   -- the doors stay open (tools/arena_maps.lua doors_open): they close by themselves after a while
+    door_acc = door_acc + dt
+    if door_acc >= 1 then door_acc = 0; pcall(MAP.doors_open) end
+  end
+  if MAP and phase == "fight" then
+    stuck_acc = stuck_acc + dt
+    if stuck_acc >= 2 then
+      stuck_acc = 0
+      local okm, errm = pcall(map_stuck_check)
+      if not okm then print("ge: arena: stuck check error:", errm) end
+    end
+  end
 
   if phase == "delay" then
     if phase_t >= S.start_delay then start_wave(S.first_wave or 1) end   -- first_wave: test hook (jump straight to a wave)

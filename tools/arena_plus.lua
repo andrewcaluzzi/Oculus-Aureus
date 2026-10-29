@@ -179,6 +179,10 @@ function ARENA_PLUS.new(S, H)
   -- the pit floor pads (the loot prop and Q stand on one); the stands are raised (y > 1) and the gates are past 4500
   local function gather_pads()
     floor_pads = {}
+    if H.map_floor then   -- a stock multiplayer map (tools/arena_maps.lua): the walkable pads of its floor
+      for _, f in ipairs(H.map_floor()) do floor_pads[#floor_pads + 1] = f end
+      return
+    end
     for i = 0, pads.count() - 1 do
       local x, y, z = pads.pos(i)
       if x and y <= 1 and math.abs(x) <= 4500 and math.abs(z) <= 4500 then floor_pads[#floor_pads + 1] = { id = i, x = x, y = y, z = z } end
@@ -186,8 +190,11 @@ function ARENA_PLUS.new(S, H)
   end
   local function nearest_pad(x, z)
     local best, bd
+    local by
+    if H.map_floor then local _, y = bond.pos(0); by = y end   -- (a map has storeys: a pad on Bond's own is worth more than one nearer through the floor)
     for _, f in ipairs(floor_pads) do
       local d = (f.x - x) ^ 2 + (f.z - z) ^ 2
+      if by then d = d + (3 * (f.y - by)) ^ 2 end
       if not bd or d < bd or (d == bd and f.id < best.id) then best, bd = f, d end
     end
     return best
@@ -598,7 +605,7 @@ function ARENA_PLUS.new(S, H)
       pcall(ar.reset)
     end
     if C.crate then
-      local f = nearest_pad(C.crate_spot[1], C.crate_spot[2])
+      local f = H.map_crate and H.map_crate() or (not H.map_crate and nearest_pad(C.crate_spot[1], C.crate_spot[2]))
       if f then
         local c = spawn.chr(f.id, { skin = C.crate_skin, weapon = "none", behaviour = "spectator", face = { 0, 0 } })
         if c then q = { chr = c, pad = f.id, x = f.x, y = f.y, z = f.z } end

@@ -11,7 +11,7 @@
 -- GE_INPUTPLAY) unless GE_ARENA_MENU=1, and with ARENA_SETTINGS.postgame = false. The stats are Lua sim state; the result text
 -- crosses the stage load through C.
 
-include("_arena_menu_defs")
+include("_arena_menu_defs")   -- (it includes the maps' table, tools/arena_maps.lua, too)
 pcall(include, "_hub_defs")   -- the main menu hub's (a build without it has none): where a hub session's run returns to
 local D = ARENA_MENU_DEFS
 ARENA_FLOW = {}
@@ -77,9 +77,14 @@ end
 -- (a session the main menu hub started: its run is on the Colosseum slot, and the hub's Control stage hosts the lobby that follows)
 local function from_hub() return HUB_DEFS ~= nil and HUB_DEFS.from_hub() end
 
+-- a run on a stock multiplayer map (settings.map, tools/arena_maps.lua) has the map's stage; its retry loads that again and the lobby
+-- that follows it is on the Colosseum (the hub's own stage in a hub session)
+local MAPDEF = AS and AS.map and ARENA_MAPS.BY_ID[AS.map] or nil
+if MAPDEF and not MAPDEF.stage then MAPDEF = nil end
+
 local function retry_spec()
   return { mode = name, settings = F.settings_text, preset = F.preset, label = F.label, coop = mode.env_flag("GE_COOP"),
-           slots = cur and cur.slots or nil, stage = from_hub() and "colosseum" or nil }
+           slots = cur and cur.slots or nil, stage = (MAPDEF and MAPDEF.stage) or (from_hub() and "colosseum" or nil) }
 end
 
 local function lobby(page)
@@ -88,7 +93,7 @@ local function lobby(page)
     l.coop = false
     return l
   end
-  return { mode = "arena-menu", lobby = page, preset = F.preset, label = F.label, coop = false }
+  return { mode = "arena-menu", lobby = page, preset = F.preset, label = F.label, coop = false, stage = MAPDEF and "colosseum" or nil }
 end
 
 function F.finish(win, r)
