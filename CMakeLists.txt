@@ -281,6 +281,36 @@ set(GE_LEVELGEN_DIR "port/levelgen" CACHE STRING "the generated level on the lev
 port_add_asset_seg(${GE_LEVELGEN_DIR}/bg_levelgen_all_p.c bg_lee_all_p_seg)
 port_add_asset_direct(${GE_LEVELGEN_DIR}/Tbg_levelgen_all_p_stanZ.c Tbg_levelgen_all_p_stanZ)
 port_add_asset_direct(${GE_LEVELGEN_DIR}/UsetuplevelgenZ.c UsetuplevelgenZ)
+# A second generated level on the same slot, picked at stage load (GE_LEVELGEN=<name>; port/src/port_levelgen_select.c): the casino
+# job by default. Its three files are compiled under their own symbols (objcopy --redefine-sym), so both levels are in one exe and a
+# mode switches between them at runtime. GE_LEVELGEN_EXTRA="" leaves it out.
+set(GE_LEVELGEN_EXTRA "port/levelgen_casino" CACHE STRING "a second generated level for the levelgen slot, chosen at runtime (GE_LEVELGEN=<name>); empty = none")
+set(GE_LEVELGEN_EXTRA_NAME "casino" CACHE STRING "the second level's name (GE_LEVELGEN value, symbol suffix, levelgen_layout_<name>.lua)")
+set(GE_LEVELGEN_DEFAULT_NAME "bank" CACHE STRING "the name of the GE_LEVELGEN_DIR level (levelgen.current())")
+function(port_add_asset_direct_as src oldsym sym)
+    set(obj ${ASSET_OBJ_DIR}/${sym}.o)
+    add_custom_command(OUTPUT ${obj}
+        COMMAND ${CMAKE_C_COMPILER} ${ASSET_C_FLAGS} -c ${CMAKE_SOURCE_DIR}/${src} -o ${obj}.raw
+        COMMAND ${CMAKE_OBJCOPY} --redefine-sym ${ASSET_SYM_PREFIX}${oldsym}=${ASSET_SYM_PREFIX}${sym} ${obj}.raw ${obj}.ren
+        COMMAND ${CMAKE_OBJCOPY} -G ${ASSET_SYM_PREFIX}${sym} ${obj}.ren ${obj}
+        DEPENDS ${CMAKE_SOURCE_DIR}/${src}
+                ${CMAKE_SOURCE_DIR}/src/bondtypes.h
+                ${CMAKE_SOURCE_DIR}/src/bondconstants.h
+                ${CMAKE_SOURCE_DIR}/src/bondaicommands.h
+                ${CMAKE_SOURCE_DIR}/src/aicommands2.h
+        COMMENT "asset ${sym} (from ${oldsym})" VERBATIM)
+    port_asset_record(${obj} ${sym})
+endfunction()
+set(GE_LEVELGEN_HAS_EXTRA OFF)
+if(GE_LEVELGEN_EXTRA AND NOT GE_LEVELGEN_EXTRA STREQUAL GE_LEVELGEN_DIR AND EXISTS ${CMAKE_SOURCE_DIR}/${GE_LEVELGEN_EXTRA}/UsetuplevelgenZ.c)
+    set(GE_LEVELGEN_HAS_EXTRA ON)
+    set(_lgx ${GE_LEVELGEN_EXTRA_NAME})
+    list(APPEND PORT_ASSET_KEEP_SYMS bg_lee_${_lgx}_all_p_seg Tbg_levelgen_${_lgx}_all_p_stanZ Usetuplevelgen${_lgx}Z)
+    port_add_asset_seg(${GE_LEVELGEN_EXTRA}/bg_levelgen_all_p.c bg_lee_${_lgx}_all_p_seg)
+    port_add_asset_direct_as(${GE_LEVELGEN_EXTRA}/Tbg_levelgen_all_p_stanZ.c Tbg_levelgen_all_p_stanZ Tbg_levelgen_${_lgx}_all_p_stanZ)
+    port_add_asset_direct_as(${GE_LEVELGEN_EXTRA}/UsetuplevelgenZ.c UsetuplevelgenZ Usetuplevelgen${_lgx}Z)
+    message(STATUS "levelgen: '${GE_LEVELGEN_DEFAULT_NAME}' (${GE_LEVELGEN_DIR}) and '${_lgx}' (${GE_LEVELGEN_EXTRA}), chosen at runtime by GE_LEVELGEN")
+endif()
 get_property(ASSET_OBJS_KEEP GLOBAL PROPERTY PORT_ASSET_OBJS_KEEP)
 get_property(ASSET_OBJS_SERVED GLOBAL PROPERTY PORT_ASSET_OBJS_SERVED)
 # GE_ROMDATA_FALLBACK OFF: drop the served asset objects (models/bg/setups/
@@ -472,6 +502,12 @@ set_property(SOURCE ${PORT_SRC} APPEND PROPERTY COMPILE_OPTIONS
 
 add_executable(ge ${GAME_SRC} ${ENGINE_SRC} ${GU_SRC} ${PORT_SRC}
                ${ASSET_LOOSE_SRC} ${ASSET_OBJS} ${FAST3D_SRC})
+# the runtime choice of the generated level (port/src/port_levelgen_select.c): the names, and the extra level when it is compiled in
+set(_lgdefs "GE_LEVELGEN_DEFAULT_NAME=\"${GE_LEVELGEN_DEFAULT_NAME}\"")
+if(GE_LEVELGEN_HAS_EXTRA)
+    list(APPEND _lgdefs "GE_LEVELGEN_EXTRA_NAME=\"${GE_LEVELGEN_EXTRA_NAME}\"" "GE_LEVELGEN_EXTRA_SYM=${GE_LEVELGEN_EXTRA_NAME}")
+endif()
+set_property(SOURCE ${CMAKE_SOURCE_DIR}/port/src/port_levelgen_select.c APPEND PROPERTY COMPILE_DEFINITIONS ${_lgdefs})
 # The executable is named ProjectMidas, but the CMake target stays `ge` so build
 # scripts keep working, and ge_direct.log/Profiles keep their names.
 set_target_properties(ge PROPERTIES OUTPUT_NAME ProjectMidas)
@@ -662,6 +698,25 @@ if(GE_VIDEO)
             ${CMAKE_SOURCE_DIR}/tools/bot/heist_bot.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/heist_bot.lua
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/tools/bot/heist_bot_cells.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/heist_bot_cells.lua)
+    # the generic menu layer (tools/ui_menu.lua) and the heist's start menu / debrief on it: the lobby mode, its rows, its words, the
+    # run side heist.lua includes; and the extra generated level's layout (levelgen.current() names it)
+    add_custom_command(TARGET ge POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/tools/ui_menu.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/_ui_menu.lua
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/tools/heist_theme.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/_heist_theme.lua
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/tools/heist_menu_defs.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/_heist_menu_defs.lua
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/tools/heist_flow.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/_heist_flow.lua
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/tools/mode_heist_menu.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/heist-menu.lua)
+    if(GE_LEVELGEN_HAS_EXTRA)
+        add_custom_command(TARGET ge POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                ${CMAKE_SOURCE_DIR}/${GE_LEVELGEN_EXTRA}/levelgen_layout.lua
+                $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/levelgen_layout_${GE_LEVELGEN_EXTRA_NAME}.lua)
+    endif()
     # the player bot's level plans (port_playerbot.c reads Data/BotPlans/<stage>.plan)
     file(GLOB GE_BOT_PLANS CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/tools/bot/plans/*.plan)
     if(GE_BOT_PLANS)
@@ -693,6 +748,7 @@ if(GE_VIDEO)
                 "${CMAKE_SOURCE_DIR}/launchers/Arena Benchmark (Live).bat"
                 "${CMAKE_SOURCE_DIR}/launchers/Arena Benchmark (Late Waves).bat"
                 "${CMAKE_SOURCE_DIR}/launchers/Play Heist.bat"
+                "${CMAKE_SOURCE_DIR}/launchers/Play Casino.bat"
                 "${CMAKE_SOURCE_DIR}/launchers/Walk Janus Bank.bat"
                 "$<TARGET_FILE_DIR:ge>"
             VERBATIM)

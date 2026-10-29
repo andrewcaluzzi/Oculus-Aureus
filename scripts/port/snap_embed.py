@@ -38,6 +38,8 @@ SIM_PORT = {
     'port_arenacrowd.c',  # arena A8: last Bond hit per chr, blast owners, the held-gun / spectator hit queue (crowd favour)
     'port_arenamenu.c',   # arena start menu / post-game: the hand-off to the next stage (its settings), the menu's preferences
     'port_whacky.c',      # arena Whacky: minion launchers, the minions' brains, the anim-rate / line-mode flags it set
+    'port_uimenu.c',      # the generic mode menu layer: the hand-off to the next stage (settings, difficulty, GE_* vars), the named prefs
+    'port_levelgen_select.c',   # which generated level fills the levelgen slot at a stage load (no state of its own: the environment)
 
     # input latches the sim reads (held / edge / zoom state per pad); its live accumulators are excluded by portSnapLive()
     'joy_port.c',
@@ -68,6 +70,7 @@ PRES_PORT = {
     'port_arenahud.c', 'port_hudstyle.c',   # the arena's wave panel and callouts, the shared HUD drawing helpers (presentation)
 }
 PRES_PORT |= {'port_arenamenu_draw.c'}   # the arena start menu / post-game drawing, its animation stamps, the mouse: presentation
+PRES_PORT |= {'port_uimenu_draw.c'}   # the generic mode menu layer's drawing, its animation stamps, the mouse: presentation
 PRES_PORT |= {'port_arhud.c'}   # the AR overlay / diagnostics (marks, bubbles, toggles): presentation, never rewound
 PRES_PORT |= {'port_hidden.c'}  # GE_HIDDEN hidden-window switch (port/README-headless.md): process setting, never rewound
 PRES_PORT |= {'port_debrief.c'}   # the heist DEBRIEF panel (content, view, input capture): presentation, never rewound

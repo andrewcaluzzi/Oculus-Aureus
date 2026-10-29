@@ -1750,6 +1750,38 @@ static void koTick(f32 dt)
     sKoBusy = busy;
 }
 
+/* chraction.c triggered_on_shot_hit, a lethal hit: 1 = `c` was knocked out, so it dies where it lies (AC's playtest 2026-10-28: a
+ * KO'd guard who was then shot stood up to play the stock death animation). It goes straight to ACT_DIE on the KO pose held at its
+ * last frame (chrlvTickDie then makes it ACT_DEAD at once); the caller still drops its guns and counts the death. 0 = not knocked out */
+int portHeistKoDies(ChrRecord *c)
+{
+    extern void chrStopFiring(ChrRecord *self);
+
+    if (sKoBusy <= 0 || c == NULL || c->model == NULL || !portModeActive() || !koIsDown(c->chrnum)) return 0;
+    koPose(c, 0);   /* (back on the lying pose's last frame, should the killing hit have started a flinch) */
+    chrStopFiring(c);
+    c->actiontype = ACT_DIE;
+    c->act_die.notifychrindex = 0;
+    c->act_die.thudframe1 = -1.0f;
+    c->act_die.thudframe2 = -1.0f;
+    c->act_die.timeextra = 0.0f;
+    c->sleep = 0;
+    printf("ge: heist: knocked-out chr %d killed where it lies\n", (int) c->chrnum);
+    return 1;
+}
+
+/* test.ko_pose: 1 = the chr's model is on the knock-out animation, 0 = another; -1 = no such chr (reads only) */
+int portHeistKoPose(int chrnum, float *frame, float *end, int *action)
+{
+    ChrRecord *c = portModeActive() ? chrFindByLiteralId(chrnum) : NULL;
+
+    if (c == NULL || c->model == NULL) return -1;
+    *frame = modelGetAnimFrame(c->model);
+    *end = modelGetAnimEndFrame(c->model);
+    *action = c->actiontype;
+    return (s32) (intptr_t) c->model->anim == animation_table_ptrs1[KO_ANIM] ? 1 : 0;
+}
+
 int portHeistKnockOut(int chrnum, int player)
 {
     ChrRecord *c = chrFindByLiteralId(chrnum);

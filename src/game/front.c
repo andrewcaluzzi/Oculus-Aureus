@@ -17060,7 +17060,8 @@ void init_menu0C_missionfailed(void)
      * report the Colosseum loads again at once (1), or "quit to title" goes to the Files screen (2). This is the first menu after a
      * stage ends (MENU_RUN_STAGE's handler queued it when the stage launched). */
     extern s32 portArenaMenuAfterStage(void);
-    const s32 am = portArenaMenuAfterStage();
+    extern int portUiMenuAfterStage(int prev);   /* the generic mode menus (port_uimenu.c), when the arena's did not take it */
+    const s32 am = portUiMenuAfterStage(portArenaMenuAfterStage());
 
     sArenaMenuSkip = am != 0;
     if (am != 0)

@@ -6835,6 +6835,7 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
         extern s32 get_is_ramrom_flag(void);
         extern void portRamromEscapeExit(const char *reason); /* ramromreplay.c */
         extern int portArenaMenuEscape(int p);                /* port_arenamenu.c */
+        extern int portUiMenuEscape(int p);                   /* port_uimenu.c */
 
         if (portSimEscPressed())   /* the local player's Escape key, or under lockstep the current player's record */
         {
@@ -6846,6 +6847,9 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
             }
             else if (portArenaMenuEscape(get_cur_playernum()))
             {   /* PORT: the arena's lobby (port_arenamenu.c) holds the controls: Escape is its board's BACK, not the watch */
+            }
+            else if (portUiMenuEscape(get_cur_playernum()))
+            {   /* PORT: a mode's lobby on the generic menu layer (port_uimenu.c): likewise */
             }
             else if (getPlayerCount() >= 2)
             {   /* With the MP menu up, send B to close it, because START there

@@ -1971,9 +1971,9 @@ void proplvreset2(enum LEVELID stageId)
             g_ptrStageSetupFile = &UsetupcolosseumZ;
         }
         else if (stageId == LEVELID_LEE)
-        {   /* PORT: the generated level (port/levelgen), same arrangement */
-            extern stagesetup UsetuplevelgenZ;
-            g_ptrStageSetupFile = &UsetuplevelgenZ;
+        {   /* PORT: the generated level (port/levelgen), same arrangement; which one is chosen at load (port_levelgen_select.c) */
+            extern stagesetup *portLevelgenSetup(void);
+            g_ptrStageSetupFile = portLevelgenSetup();
         }
         else
 #endif

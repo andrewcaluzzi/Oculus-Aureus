@@ -420,6 +420,24 @@ static int koIs(lua_State *L) { needStage(L, "ko.is"); lua_pushboolean(L, portHe
 static int koSlaps(lua_State *L) { needStage(L, "ko.slaps"); lua_pushinteger(L, portHeistKoSlaps((int) luaL_checkinteger(L, 1))); return 1; }
 static int koWake(lua_State *L) { needStage(L, "ko.wake"); lua_pushboolean(L, portHeistKoWake((int) luaL_checkinteger(L, 1))); return 1; }
 
+/* test.ko_pose(chr) -> on_ko_anim, frame, end_frame, actiontype: whether the chr's model is on the knock-out (lying) animation, and where
+ * in it (a test reads it every tick: a KO'd chr killed where it lies must never leave it) */
+static int koTestPose(lua_State *L)
+{
+    extern int portHeistKoPose(int chrnum, float *frame, float *end, int *action);
+    float f = 0.0f, e = 0.0f;
+    int act = -1, on;
+
+    needStage(L, "test.ko_pose");
+    on = portHeistKoPose((int) luaL_checkinteger(L, 1), &f, &e, &act);
+    if (on < 0) return 0;
+    lua_pushboolean(L, on);
+    lua_pushnumber(L, f);
+    lua_pushnumber(L, e);
+    lua_pushinteger(L, act);
+    return 4;
+}
+
 /* ko.count() -> knocked out now, knock-outs this stage, wakes this stage */
 static int koCount(lua_State *L)
 {
@@ -823,7 +841,7 @@ void portLuaHeistRegister(lua_State *L)
     static const luaL_Reg bondAdd[] = { { "has_key", bondHasKey }, { "keys", bondKeys }, { "equip", bondEquip }, { "weapon", bondWeapon }, { NULL, NULL } };
     /* test hooks (modding/lua.md "The test table"): never for a shipped mode */
     static const luaL_Reg testAdd[] = { { "heard", spawnHeard }, { "fire_stats", spawnFireStats }, { "gadget_used", bondTestGadget },
-        { "face", bondFace }, { "shot_noise", bondTestNoise }, { "slap", koTestSlap }, { "obj_damage", objTestDamage }, { NULL, NULL } };
+        { "face", bondFace }, { "shot_noise", bondTestNoise }, { "slap", koTestSlap }, { "obj_damage", objTestDamage }, { "ko_pose", koTestPose }, { NULL, NULL } };
     static const luaL_Reg missionAdd[] = { { "difficulty", missionDifficulty }, { NULL, NULL } };
     static const luaL_Reg modeAdd[] = { { "per_player_keys", modePerPlayerKeys }, { "body_check", modeBodyCheck }, { "slaps_to_ko", modeSlapsToKo },
         { "guards_wake", modeGuardsWake }, { "hold_fire", modeHoldFire }, { NULL, NULL } };

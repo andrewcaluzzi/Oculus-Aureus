@@ -2353,6 +2353,11 @@ Gfx *portConRender(Gfx *gdl)
 
             gdl = portArenaMenuRender(gdl);
         }
+        {   /* a mode's menus on the generic layer (port_uimenu_draw.c) */
+            extern Gfx *portUiMenuRender(Gfx *gdl);
+
+            gdl = portUiMenuRender(gdl);
+        }
     }
     {   /* heist: the DEBRIEF panel, on every screen until dismissed (port_debrief.c) */
         extern Gfx *portDebriefRender(Gfx *gdl);

@@ -1136,6 +1136,11 @@ void load_bg_file(LEVEL_INDEX levelid)
         s32 bgidx = fileGetIndex((u8 *) bgname);
         (void) size;
         (void) header;
+        if (levelid == LEVELID_LEE)
+        {   /* PORT: the levelgen slot's bg is the level chosen at this load (port_levelgen_select.c) */
+            extern void portLevelgenSelectBg(s32 bgidx);
+            portLevelgenSelectBg(bgidx);
+        }
         ptr_bg_data = (s32) obGetBGFileData((u8 *) bgname);
         {
             extern void portHwNoteBgHeader(s32 bgidx);
@@ -1168,9 +1173,9 @@ void load_bg_file(LEVEL_INDEX levelid)
         gptr_stan = (s32) Tbg_colosseum_all_p_stanZ;
     }
     else if (levelid == LEVELID_LEE)
-    {   /* PORT: the generated level (port/levelgen), same arrangement */
-        extern u8 Tbg_levelgen_all_p_stanZ[];
-        gptr_stan = (s32) Tbg_levelgen_all_p_stanZ;
+    {   /* PORT: the generated level (port/levelgen), same arrangement; which one is chosen at load (port_levelgen_select.c) */
+        extern u8 *portLevelgenStan(void);
+        gptr_stan = (s32) portLevelgenStan();
     }
     else
 #endif
