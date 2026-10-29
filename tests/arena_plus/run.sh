@@ -21,6 +21,7 @@ export DISPLAY=:99 GE_MODE=$TEST GE_STAGE=colosseum GE_SKIPINTRO=1 GE_NOINISAVE=
 export GE_FRAMES=${1:-40000} GE_FULLHEIGHT=0 GE_EDGEINSET=1 GE_CHEATS=invuln
 export GE_ARENA_CARDS=ui GE_UIMENU_DIR=$OUT GE_NOMENUSAVE=1 GE_SCOREFILE=$OUT/scores.ini GE_NOSCORESAVE=1
 if [ "${FAST:-1}" = 1 ]; then export GE_NOSLEEP=1 GE_CLOCKSCALE=20; fi
+if [ "$TEST" = plus-soak ]; then unset GE_ARENA_CARDS; fi   # (the soak takes its cards at once: nobody presses a key)
 for kv in $2; do export "$kv"; done   # extra env, e.g. "GE_SHOT=100"
 L=$OUT/plus.log
 cd $OUT/shots

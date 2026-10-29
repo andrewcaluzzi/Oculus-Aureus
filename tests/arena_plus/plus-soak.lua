@@ -10,6 +10,8 @@ ARENA_SETTINGS = { mode = "fixed", waves = 20, boss_every = 5, breather = 2, sta
   plus = { pu_chance = 0.12 } }
 include("arena")
 
+-- (drawing is what a soak under Xvfb pays for: the spectators, the corpses and the effects are built but not drawn; the sim is the same)
+on("stage_start", function() if bench and bench.hide then pcall(bench.hide, { "spectators", "corpses", "impostors", "fx", "live" }) end end)
 local PL = ARENA_PLUS and ARENA_PLUS.live
 local t, born, seen_kind, since = 0, {}, {}, nil
 local PARTS = { "head", "body", "body", "limb", "gun" }
