@@ -143,6 +143,9 @@ static int arenaSpawnChr(lua_State *L)
         lua_getfield(L, 2, "speed");
         if (!lua_isnil(L, -1)) s.speed = (int) luaL_checknumber(L, -1);
         lua_pop(L, 1);
+        lua_getfield(L, 2, "shotbond");   /* the stock accuracy build-up he starts with (0..1; 1 = his first shot hits) */
+        if (!lua_isnil(L, -1)) { s.hasShotbond = 1; s.shotbond = (float) luaL_checknumber(L, -1); }
+        lua_pop(L, 1);
         lua_getfield(L, 2, "behaviour");
         if (!lua_isnil(L, -1)) s.behaviour = luaL_checkoption(L, -1, "chase", sBehaviours);
         lua_pop(L, 1);
@@ -193,6 +196,18 @@ static int arenaSpawnHeadshot(lua_State *L)
 {
     needStage(L, "spawn.headshot");
     lua_pushboolean(L, portLuaGameChrHeadshot((int) luaL_checkinteger(L, 1)));
+    return 1;
+}
+
+/* spawn.shots(chr) -> n | nil: the shots an arena enemy has fired since it spawned, hit or miss (nil for a chr that is not one) */
+static int arenaSpawnShots(lua_State *L)
+{
+    int n;
+
+    needStage(L, "spawn.shots");
+    n = portLuaGameChrShots((int) luaL_checkinteger(L, 1));
+    if (n < 0) return 0;
+    lua_pushinteger(L, n);
     return 1;
 }
 
@@ -1316,7 +1331,7 @@ void portLuaArenaRegister(lua_State *L)
 
     static const luaL_Reg polishAdd[] = { { "markers", arenaSpawnMarkers }, { "marker_sync", arenaSpawnMarkerSync }, { NULL, NULL } };   /* drop A7 */
     static const luaL_Reg spawnA8[] = { { "item_marker", arenaSpawnItemMarker }, { "last_hit", arenaSpawnLastHit },   /* drop A8 */
-        { "hit_events", arenaSpawnHitEvents }, { "disarm", arenaSpawnDisarm }, { "owned_guns", arenaSpawnOwnedGuns }, { NULL, NULL } };
+        { "hit_events", arenaSpawnHitEvents }, { "shots", arenaSpawnShots }, { "disarm", arenaSpawnDisarm }, { "owned_guns", arenaSpawnOwnedGuns }, { NULL, NULL } };
     static const luaL_Reg testA8[] = { { "shoot", arenaSpawnShoot }, { NULL, NULL } };   /* test hook */
     static const luaL_Reg bondA8[] = { { "shots", arenaBondShots }, { NULL, NULL } };
     static const luaL_Reg arenaA8[] = { { "sfx", arenaSfx }, { "hud", arenaHud }, { "hud_layout", arenaHudLayout }, { "panel", arenaPanel }, { "callout", arenaCallout },

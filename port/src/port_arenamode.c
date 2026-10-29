@@ -51,7 +51,7 @@ extern s32 get_max_ammo_for_type(s32 type);
 #define SIGHT_DEFAULT           15000.0f  /* A5: chr->visionrange in world units (the Colosseum is 9000 across) */
 
 /* per arena chr: its knife numbers and whether it has fired yet (first-shot range log) */
-typedef struct { s32 chrnum; u8 enemy, knifer, fired, spectator, stockroute, headshot; f32 knifeRange, knifeCooldown, engage; f32 keepDist; s32 keepUntil; } ArenaInfo;
+typedef struct { s32 chrnum; u8 enemy, knifer, fired, spectator, stockroute, headshot; u16 shots; f32 knifeRange, knifeCooldown, engage; f32 keepDist; s32 keepUntil; } ArenaInfo;
 static ArenaInfo sInfo[INFO_N];
 
 static ArenaInfo *infoGet(s32 chrnum)
@@ -260,6 +260,14 @@ int portLuaGameChrHeadshot(int chrnum)
     return a != NULL && a->headshot;
 }
 
+/* shots an arena enemy has fired since it spawned (every queued shot, hit or miss); -1 when it is not one */
+int portLuaGameChrShots(int chrnum)
+{
+    ArenaInfo *a = (chrnum >= ARENA_CHRNUM0) ? infoGet((s32)chrnum) : NULL;
+
+    return (a != NULL && a->enemy) ? (int)a->shots : -1;
+}
+
 /* a spectator the arena mode seated in the stands (invincible, no autoaim, no shadow: the flags portLuaGameSpawnChr gives only the crowd);
  * chr.c skips the movement collision test for these (drop A7) */
 s32 portArenaChrCrowd(const ChrRecord *chr)
@@ -339,7 +347,15 @@ void portArenaNoteShot(ChrRecord *chr)
     PropRecord *bp;
     f32 dx, dz;
 
-    if (a == NULL || !a->enemy || a->fired)
+    if (a == NULL || !a->enemy)
+    {
+        return;
+    }
+    if (a->shots < 0xFFFF)
+    {
+        a->shots++;   /* spawn.shots: the sniper duel tells a fired shot from an aimed one */
+    }
+    if (a->fired)
     {
         return;
     }
@@ -591,6 +607,10 @@ int portLuaGameSpawnChr(int pad, const PortLuaChrSpec *s)
     if (s->speed >= 0)
     {
         chr->speedrating = (s8)(s->speed > 100 ? 100 : s->speed);
+    }
+    if (s->hasShotbond)
+    {
+        chr->shotbondsum = s->shotbond < 0.0f ? 0.0f : (s->shotbond > 1.0f ? 1.0f : s->shotbond);
     }
     if (w != NULL)
     {
