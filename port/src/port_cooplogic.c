@@ -239,3 +239,50 @@ int portCoopBotTrigger(int want, int usesAmmo, int mag, int blocked)
 {
     return (want && !blocked && (!usesAmmo || mag > 0)) ? 1 : 0;
 }
+
+void portCoopBotSkillPreset(int step, PortCoopBotSkill *out)
+{
+    static const PortCoopBotSkill k[PORT_COOP_BOT_SKILL_MAX] = {
+        { 0.80f, 9.0f, 120.0f, 3000.0f },   /* 1 ROOKIE */
+        { 0.55f, 6.0f, 180.0f, 3600.0f },   /* 2 AGENT */
+        { 0.35f, 4.0f, 240.0f, 4200.0f },   /* 3 SECRET AGENT */
+        { 0.18f, 2.0f, 300.0f, 4800.0f },   /* 4 00 AGENT */
+        { 0.0f, 0.0f, 360.0f, 5500.0f },    /* 5 007: the bot as built */
+    };
+
+    if (step < PORT_COOP_BOT_SKILL_MIN) step = PORT_COOP_BOT_SKILL_MIN;
+    if (step > PORT_COOP_BOT_SKILL_MAX) step = PORT_COOP_BOT_SKILL_MAX;
+    *out = k[step - 1];
+}
+
+static float clampf(float v, float lo, float hi, float nanv)
+{
+    if (!(v == v)) return nanv;   /* NaN */
+    return v < lo ? lo : (v > hi ? hi : v);
+}
+
+void portCoopBotSkillClamp(PortCoopBotSkill *k)
+{
+    k->reaction = clampf(k->reaction, 0.0f, 3.0f, 0.0f);
+    k->aimError = clampf(k->aimError, 0.0f, 30.0f, 0.0f);
+    k->turn = clampf(k->turn, 30.0f, 1440.0f, 360.0f);
+    k->range = clampf(k->range, 300.0f, 20000.0f, 5500.0f);
+}
+
+int portCoopBotReact(int acquired, int visible, int reactFields, int *left)
+{
+    if (acquired) {
+        *left = reactFields > 0 ? reactFields : 0;
+    }
+    if (visible && *left > 0) {
+        (*left)--;
+        return 0;   /* (the tick it reaches 0 still holds: it fires from the next one, reactFields ticks after it acquired) */
+    }
+    return *left <= 0 ? 1 : 0;
+}
+
+float portCoopBotAimRoll(unsigned int bits, float amp)
+{
+    if (!(amp > 0.0f)) return 0.0f;
+    return amp * ((float) (bits >> 8) * (2.0f / 16777215.0f) - 1.0f);   /* the top 24 bits -> -1..1 */
+}

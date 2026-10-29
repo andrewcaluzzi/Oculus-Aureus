@@ -6,7 +6,7 @@
 -- Phase 2 (8 s): Bond 0 stands behind the bot: the bot fires (control: the scene does let it shoot). Bond 0 must be unhurt throughout.
 -- Run with run_coop.sh, no GE_COOP_GOD, ~1700 frames. Result line: "ge: arena: TEST ff RESULT PASS|FAIL ...".
 ARENA_SETTINGS = { mode = "endless", boss_every = 0, crowd = 0, start_delay = 2, breather = 60, ammo_every = 0, armour_chance = 0,
-                   coop_debug = true, debug_queue = function(w) return {} end }
+                   coop_debug = true, coop_bot_skill = 5, debug_queue = function(w) return {} end }   -- (skill 5: the bot as built)
 include("arena-coop")
 
 -- the enemy: spawned by the test in the open pit 1200-1800 from the bot (a gate enemy is out of its sight most of the time)

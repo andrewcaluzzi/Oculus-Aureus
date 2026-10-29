@@ -19,6 +19,13 @@ typedef struct {
     float grace;         /* seconds of no damage after a revive */
     int   bleedout;      /* PORT_AC_BLEED_* */
     int   debug;         /* bot / rule debug log */
+    /* the partner bot's skill (port_cooplogic.h PortCoopBotSkill): a step 1..5 (5 = the bot as built), and its knobs; a negative
+     * knob takes the step's value. The game half clamps them. */
+    int   botSkill;
+    float botReaction;   /* seconds before it fires at a newly acquired target */
+    float botAimError;   /* degrees of aim wobble and extra fire cone */
+    float botTurn;       /* degrees a second it turns at most */
+    float botRange;      /* units it engages from */
 } PortArenaCoopRules;
 
 /* engine hooks (port_coop.c, bondview2.c) */

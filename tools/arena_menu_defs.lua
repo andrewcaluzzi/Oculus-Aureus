@@ -58,6 +58,10 @@ local ROWS = {
   { id = "downed", group = "PLAYERS", label = "CO-OP DOWNED", scored = true, default = 1,
     choices = { { "BACK NEXT WAVE", "wave" }, { "OUT FOR THE RUN", "run" }, { "RUN ENDS", "end" }, { "NO REVIVES", "off" } },
     desc = "Co-op: a Bond out of health goes down; stand by him 3 s to revive. If he bleeds out (30 s): this." },
+  -- (not scored: co-op keeps no best scores, and a solo run must not turn custom over it)
+  { id = "bot_skill", group = "PLAYERS", label = "BOT SKILL", scored = false, default = 4,
+    choices = { { "ROOKIE", 1 }, { "AGENT", 2 }, { "SECRET AGENT", 3 }, { "00 AGENT", 4 }, { "007", 5 } },
+    desc = "Co-op: how good your partner is. Lower: slower to react and turn, a shakier aim, a shorter reach. 007: the sharpest." },
   -- ENEMIES
   { id = "cap", group = "ENEMIES", label = "ENEMIES AT ONCE", scored = true, default = 2,
     choices = { { "FEW 10", 10 }, { "NORMAL 16", 16 }, { "MANY 24", 24 }, { "SWARM 32", 32 } },
@@ -195,6 +199,7 @@ function D.settings(v)
     S.coop = true
     local dn = val(v, "downed")
     if dn == "off" then S.coop_down = false else S.coop_bleedout = dn end
+    S.coop_bot_skill = val(v, "bot_skill")
   end
   -- enemies
   S.knife_keep = val(v, "knife_keep")

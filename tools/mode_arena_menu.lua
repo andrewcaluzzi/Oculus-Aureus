@@ -137,7 +137,8 @@ local function items_advanced()
     it[#it + 1] = { kind = "header", col = col, label = T.groups[g] or g }
     for _, r in ipairs(D.ROWS) do
       if r.group == g then
-        local dim = (r.id == "downed" and not D.val(M.v, "players")) or (r.id == "intensity" and not D.val(M.v, "mutators") and not D.val(M.v, "elites"))
+        local dim = ((r.id == "downed" or r.id == "bot_skill") and not D.val(M.v, "players"))
+                    or (r.id == "intensity" and not D.val(M.v, "mutators") and not D.val(M.v, "elites"))
         it[#it + 1] = { kind = "choice", col = col, label = r.label, value = D.label(M.v, r.id), row = r.id, desc = r.desc, dim = dim and 1 or 0 }
       end
     end

@@ -47,6 +47,8 @@ if [ "$2" = coop ]; then   # run.sh <frames> coop: the co-op variant
   chk "co-op picked" "MENUTEST coop pick: screen main cursor 11 preset coop"
   chk "two Bonds" "MENUTEST coop run: 2 Bonds"
   chk "co-op rules on" "ge: arena: co-op ON (2 Bonds)"
+  chk "the menu's bot skill in the run's settings" "flow settings:.*coop_bot_skill=4"
+  chk "the menu's bot skill reached the bot" "ge: arena: coop bot skill 4: reaction 0.18s"
   chk "debrief" "MENUTEST coop postgame: screen postgame"
   chk "quit" "after the stage: to the title menus"
   echo "amenu coop: $pass passed, $fail failed"

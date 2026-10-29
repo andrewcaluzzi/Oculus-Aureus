@@ -80,9 +80,16 @@ typedef struct {
     f32 yawErr;
     s32 blocked;         /* ticks it held fire because another Bond was in the line of fire */
     s32 dryFires;        /* empty-gun clicks of this Bond's gun (gunfire.c, portArenaCoopNoteDryFire) */
+    /* its skill at work (sSkill): the reaction countdown, and the aim wobble (degrees off the target, easing to a goal re-rolled now
+     * and then from its own RNG; only drawn when the aim error is above 0) */
+    s32 lastTarget, reactLeft, aimRoll;
+    u8 lastLos;
+    f32 aimYaw, aimPitch, aimGoalYaw, aimGoalPitch;
 } BotState;
 
 static BotState sBot[NP];
+static PortCoopBotSkill sSkill;   /* the partner bot's knobs (coop.rules bot_*), clamped; step 5 until a mode sets them */
+static s32 sSkillStep;
 
 enum { ACT_IDLE, ACT_FIGHT, ACT_FOLLOW, ACT_REVIVE, ACT_GOAL, ACT_DOWN, ACT_LOOT, ACT_N };
 static const char *const sActNames[] = { "idle", "fight", "follow", "revive", "goal", "down", "loot" };
@@ -106,12 +113,15 @@ void portArenaCoopReset(void)
     memset(sBot, 0, sizeof(sBot));
     for (i = 0; i < NP; i++) {
         sBot[i].target = -1;
+        sBot[i].lastTarget = -1;
         sBot[i].rng = 0x9E3779B9u ^ (u32) (i * 7919 + 1);
         sBot[i].strafeDir = 1;
         sBot[i].unstickDir = 1;
     }
     sBypass = 0;
     sDowns = sRevives = sBleeds = 0;
+    sSkillStep = PORT_COOP_BOT_SKILL_TOP;
+    portCoopBotSkillPreset(sSkillStep, &sSkill);
 }
 
 static u32 botRng(BotState *b)
@@ -345,10 +355,11 @@ unsigned portArenaCoopHash(char *dump, int cap)
 
 /* ---- the partner bot ------------------------------------------------------------------------------------------------------------ */
 
-#define BOT_RANGE      5500.0f   /* engage from here (the pit is 9000 across) */
+/* (the range it engages from is sSkill.range: 5500 at skill 5; the pit is 9000 across) */
 #define BOT_FOLLOW_FAR 1000.0f   /* start walking to the partner */
 #define BOT_FOLLOW_OK  500.0f    /* ...and stop here */
-#define BOT_FIRE_CONE  6.0f      /* degrees of yaw error to fire */
+#define BOT_FIRE_CONE  6.0f      /* degrees of yaw error to fire (plus sSkill.aimError) */
+#define BOT_AIM_EASE   0.15f     /* the aim wobble moves this share of the way to its goal a tick */
 
 static f32 wrap180(f32 a)
 {
@@ -398,7 +409,7 @@ static void botPick(BotState *b, struct player *me)
         dx = c->prop->pos.x - me->prop->pos.x;
         dz = c->prop->pos.z - me->prop->pos.z;
         d2 = dx * dx + dz * dz;
-        if (d2 > BOT_RANGE * BOT_RANGE * 2.0f) {
+        if (d2 > sSkill.range * sSkill.range * 2.0f) {
             continue;
         }
         vis = canSee(c, me);
@@ -543,7 +554,7 @@ void portArenaBotPad(int mi, int pi, unsigned short *buttons, signed char *sx, s
     ChrRecord *tc;
     f32 mvx = 0.0f, mvz = 0.0f, speed = 0.0f, th, fx, fz, tdist = 0.0f;
     f32 wantYaw = 0.0f, wantPitch = 0.0f;
-    s32 haveYaw = FALSE, fire = FALSE, blocker = -1;
+    s32 haveYaw = FALSE, fire = FALSE, blocker = -1, ready, acquired;
 
     *buttons = 0;
     *sx = *sy = 0;
@@ -567,6 +578,15 @@ void portArenaBotPad(int mi, int pi, unsigned short *buttons, signed char *sx, s
         botPick(b, me);
         tc = liveEnemy(b->target);
     }
+    /* skill: the reaction time runs from a new target or one that came back into sight (sim state and its own RNG only) */
+    {
+        s32 vis = tc != NULL && b->los;
+
+        acquired = b->target != b->lastTarget || (vis && !b->lastLos);
+        b->lastTarget = b->target;
+        b->lastLos = (u8) vis;
+        ready = portCoopBotReact(acquired, vis, (s32) (sSkill.reaction * 60.0f + 0.5f), &b->reactLeft);
+    }
     if (tc != NULL) {
         f32 dx = tc->prop->pos.x - me->prop->pos.x, dz = tc->prop->pos.z - me->prop->pos.z;
         f32 dy = (tc->prop->pos.y + 20.0f) - me->prop->pos.y;   /* (chest of the chr vs Bond's eye prop; autoaim does the rest) */
@@ -576,6 +596,21 @@ void portArenaBotPad(int mi, int pi, unsigned short *buttons, signed char *sx, s
         wantPitch = wrap180(__builtin_atan2f(dy, tdist > 1.0f ? tdist : 1.0f) * (180.0f / 3.14159265f));   /* (the game's atan2f is 0..2pi) */
         haveYaw = TRUE;
         blocker = botBlocker(mi, me, tc, tdist, fx, fz);
+        if (sSkill.aimError > 0.0f) {   /* skill: it aims off the target by a wobble that drifts (a fresh target starts off by it) */
+            if (acquired || --b->aimRoll <= 0) {
+                b->aimGoalYaw = portCoopBotAimRoll(botRng(b), sSkill.aimError);
+                b->aimGoalPitch = portCoopBotAimRoll(botRng(b), 0.5f * sSkill.aimError);
+                b->aimRoll = 15 + (s32) (botRng(b) % 30u);
+                if (acquired) {
+                    b->aimYaw = b->aimGoalYaw;
+                    b->aimPitch = b->aimGoalPitch;
+                }
+            }
+            b->aimYaw += (b->aimGoalYaw - b->aimYaw) * BOT_AIM_EASE;
+            b->aimPitch += (b->aimGoalPitch - b->aimPitch) * BOT_AIM_EASE;
+            wantYaw = wrap180(wantYaw + b->aimYaw);
+            wantPitch += b->aimPitch;
+        }
     }
 
     if ((b->tick % 30u) == 0) {
@@ -709,17 +744,18 @@ void portArenaBotPad(int mi, int pi, unsigned short *buttons, signed char *sx, s
     }
 
     /* look: ease the yaw and pitch toward the wanted angles (milli-degrees per tick, like the mouse) */
+    /* (skill: the most it turns a tick is sSkill.turn degrees a second, pitch half of it; 360 = 6000 / 3000 milli-degrees a tick) */
     if (haveYaw) {
-        f32 err = wrap180(wantYaw - me->vv_theta), y = err * 350.0f;
+        f32 err = wrap180(wantYaw - me->vv_theta), y = err * 350.0f, cap = sSkill.turn * 1000.0f / 60.0f;
 
         b->yawErr = err;
-        *yawMilli = (int) (y > 6000.0f ? 6000.0f : (y < -6000.0f ? -6000.0f : y));
+        *yawMilli = (int) (y > cap ? cap : (y < -cap ? -cap : y));
     }
     {
         f32 cur = me->vv_verta > 180.0f ? me->vv_verta - 360.0f : me->vv_verta;
-        f32 perr = (tc != NULL ? wantPitch : 0.0f) - cur, pm = perr * 300.0f;
+        f32 perr = (tc != NULL ? wantPitch : 0.0f) - cur, pm = perr * 300.0f, cap = sSkill.turn * 1000.0f / 120.0f;
 
-        *pitchMilli = (int) (pm > 3000.0f ? 3000.0f : (pm < -3000.0f ? -3000.0f : pm));
+        *pitchMilli = (int) (pm > cap ? cap : (pm < -cap ? -cap : pm));
     }
 
     /* walk: the world direction as forward + sideways stick from the facing (the PC stick strafes) */
@@ -768,7 +804,9 @@ void portArenaBotPad(int mi, int pi, unsigned short *buttons, signed char *sx, s
             b->cycleWait = 40;
             b->upCycles++;
         }
-        if (tc != NULL && b->los && tdist < BOT_RANGE && b->yawErr < BOT_FIRE_CONE && b->yawErr > -BOT_FIRE_CONE) {
+        /* (skill: not before its reaction time is up, within its range, and the cone is wider by its aim error) */
+        if (tc != NULL && b->los && ready && tdist < sSkill.range && b->yawErr < BOT_FIRE_CONE + sSkill.aimError &&
+            b->yawErr > -(BOT_FIRE_CONE + sSkill.aimError)) {
             fire = (w > ITEM_KNIFE) || tdist < 180.0f;
             if (fire && blocker >= 0) {
                 b->blocked++;
@@ -817,9 +855,25 @@ void portLuaGameCoopRules(const PortArenaCoopRules *r)
     if (sCfg.radius <= 0.0f) sCfg.radius = 170.0f;
     if (sCfg.reviveHealth <= 0.0f || sCfg.reviveHealth > 1.0f) sCfg.reviveHealth = 0.35f;
     if (sCfg.grace < 0.0f) sCfg.grace = 0.0f;
+    /* the bot's skill: the step's knobs, each one given (not negative) instead, all clamped */
+    {
+        PortCoopBotSkill k;
+
+        sSkillStep = sCfg.botSkill < PORT_COOP_BOT_SKILL_MIN ? PORT_COOP_BOT_SKILL_MIN
+                                                               : (sCfg.botSkill > PORT_COOP_BOT_SKILL_MAX ? PORT_COOP_BOT_SKILL_MAX : sCfg.botSkill);
+        portCoopBotSkillPreset(sSkillStep, &k);
+        if (sCfg.botReaction >= 0.0f) k.reaction = sCfg.botReaction;
+        if (sCfg.botAimError >= 0.0f) k.aimError = sCfg.botAimError;
+        if (sCfg.botTurn >= 0.0f) k.turn = sCfg.botTurn;
+        if (sCfg.botRange >= 0.0f) k.range = sCfg.botRange;
+        portCoopBotSkillClamp(&k);
+        sSkill = k;
+    }
     portConLogf("ge: arena: coop rules %s: bleed %.0fs revive %.1fs radius %.0f health %.2f grace %.1fs bleedout %d (co-op %d)\n",
                 sCfg.on ? "on" : "off", (double) sCfg.bleed, (double) sCfg.revive, (double) sCfg.radius, (double) sCfg.reviveHealth,
                 (double) sCfg.grace, sCfg.bleedout, portCoopActive());
+    portConLogf("ge: arena: coop bot skill %d: reaction %.2fs aim error %.1f deg turn %.0f deg/s range %.0f\n", (int) sSkillStep,
+                (double) sSkill.reaction, (double) sSkill.aimError, (double) sSkill.turn, (double) sSkill.range);
 }
 
 int portLuaGameCoopActive(void)

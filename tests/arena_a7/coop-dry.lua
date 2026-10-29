@@ -3,7 +3,7 @@
 -- (gunfire.c): at most one per emptied magazine may click before the reload (the fix releases the trigger first: expect 0).
 -- Run with run_coop.sh, no GE_COOP_GOD, ~2400 frames. Result line: "ge: arena: TEST dry RESULT PASS|FAIL ...".
 ARENA_SETTINGS = { mode = "endless", boss_every = 0, crowd = 0, start_delay = 2, breather = 60, ammo_every = 0, armour_chance = 0,
-                   coop_debug = true, debug_queue = function(w) return {} end }
+                   coop_debug = true, coop_bot_skill = 5, debug_queue = function(w) return {} end }   -- (skill 5: the bot as built)
 include("arena-coop")
 
 -- the enemy: spawned by the test in the open pit 1200-1800 from the bot (a gate enemy is out of its sight most of the time)

@@ -62,6 +62,20 @@
 --   crowd         (A8) may also be a table { count = 150, favour = true, ... }: count = the real spectators, the rest the crowd favour settings
 --                 (drop A8, _arena_crowd.lua: points, tiers, drift, gifts, the HATED penalty, the emperor's thumb). crowd = { favour = false }
 --                 or crowd_favour = false turns the favour off (on by default in every arena preset)
+--   coop_bot_skill   (co-op, tools/arena_coop.lua) the partner bot's skill, 1..5 (default 4): 1 ROOKIE, 2 AGENT, 3 SECRET AGENT,
+--                 4 00 AGENT, 5 007 (the bot as first built). It presets four knobs; each may be set on its own and wins over the step:
+--                   coop_bot_reaction   seconds before it fires at a target it has just acquired or got back in sight
+--                   coop_bot_aim_error  degrees it aims off the target (a drifting wobble from the bot's own seeded RNG) and of extra
+--                                       fire cone, so it misses more
+--                   coop_bot_turn       degrees a second it turns at most onto a target (pitch half of it)
+--                   coop_bot_range      units it engages from
+--                         step:  1      2      3      4      5
+--                   reaction     0.80   0.55   0.35   0.18   0
+--                   aim_error    9      6      4      2      0
+--                   turn         120    180    240    300    360
+--                   range        3000   3600   4200   4800   5500
+--                 Clamped in C (port_cooplogic.c): reaction 0..3, aim error 0..30, turn 30..1440, range 300..20000. The start menu's
+--                 BOT SKILL row sets coop_bot_skill. Sim state only, so co-op state hashes stay the same run to run
 --   first_wave    test hook: start at this wave;  debug_track / debug_clear_after: test hooks
 --   test_keys     true = the wave-jump hotkeys work (or set GE_ARENA_TESTKEYS=1): PageDown/PageUp = next/back wave and clear the
 --                 live enemies, with Shift = start it on top of them (never in netplay); End = the fog, Insert = the THUNDERBALL rain,

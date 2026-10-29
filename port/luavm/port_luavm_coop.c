@@ -1,7 +1,9 @@
 /* port_luavm_coop.c - Lua bindings for arena co-op (drop A7, modding/arena.md "Drop A7 co-op"): the global `coop` table.
  * Game half: port/src/port_arenacoop.c. Everything is inert outside a mode (nil / false / 0).
  *
- *   coop.rules{ on=true, bleed=30, revive=3, radius=170, revive_health=0.35, grace=2, bleedout="wave"|"run"|"end", debug=false }
+ *   coop.rules{ on=true, bleed=30, revive=3, radius=170, revive_health=0.35, grace=2, bleedout="wave"|"run"|"end", debug=false,
+ *               bot_skill=5, bot_reaction=, bot_aim_error=, bot_turn=, bot_range= }   (the partner bot's skill 1..5 and its knobs;
+ *                                                                                    a knob not given takes the step's value)
  *   coop.active() -> bool                       the rules are on in a two-Bond stage
  *   coop.state(p) -> "up"|"down"|"dead"|"out", secs_left, revive_frac     (secs_left / revive_frac only while down)
  *   coop.release(p) -> bool                     a bled-out Bond ("out") respawns beside his partner now
@@ -69,6 +71,19 @@ static int coopRules(lua_State *L)
     lua_getfield(L, 1, "debug");
     r.debug = lua_toboolean(L, -1);
     lua_pop(L, 1);
+    /* the partner bot's skill: a step (default 5, the bot as built) and the knobs it presets; a knob given here wins (the game half
+     * fills the negative ones from the step and clamps everything) */
+    lua_getfield(L, 1, "bot_skill");
+    {
+        lua_Integer s = lua_isnil(L, -1) ? 5 : luaL_checkinteger(L, -1);
+
+        r.botSkill = s < 1 ? 1 : (s > 5 ? 5 : (int) s);
+    }
+    lua_pop(L, 1);
+    r.botReaction = optField(L, "bot_reaction", -1.0f);
+    r.botAimError = optField(L, "bot_aim_error", -1.0f);
+    r.botTurn = optField(L, "bot_turn", -1.0f);
+    r.botRange = optField(L, "bot_range", -1.0f);
     portLuaGameCoopRules(&r);
     return 0;
 }
