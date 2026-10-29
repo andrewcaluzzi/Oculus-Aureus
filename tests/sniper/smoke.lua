@@ -4,7 +4,7 @@
 -- Env: GE_SNIPER_SHOTS=1 takes pictures (a glint, the round callout).
 if mode.env_flag("GE_SNIPER_SHOTS") then SNIPER_SETTINGS = { band_hi = 8500 } end   -- (the pictures: the nearest perches, so a figure shows at all)
 if mode.env_flag("GE_SNIPER_LOSE") then   -- the loss path quickly: a marksman who nearly always hits and moves fast (round 1 five times over: "ROUND 1/5" still)
-  local hard = { foe = 1, snipers = 1, rushers = 0, hit = 0.9, glint = 1.0, hide = { 2, 3 } }
+  local hard = { foe = 1, snipers = 1, rushers = 0, hit = 0.9, glint = 1.0, dwell = { 6, 8 }, volley_gap = { 2, 3 }, volley_shots = { 1, 1 } }
   SNIPER_SETTINGS = { rounds_table = { hard, hard, hard, hard, hard }, first_delay = 1 }
 end
 include("sniper")
@@ -15,15 +15,24 @@ local SHOTS = mode.env_flag("GE_SNIPER_SHOTS")
 local LOSE = mode.env_flag("GE_SNIPER_LOSE")   -- nobody shoots back: Bond sits (no invuln cheat) until the marksmen kill him: the loss path
 local rush_t = {}
 local rlog = 0
+local blog
+
 local shot_at = {}
 local function snap(tag, at) shot_at[#shot_at + 1] = { tag = tag, at = at } end
 
+on("stage_start", function() print(string.format("SMOKE fog: props are drawn out to %.0f units", probe.fog())) end)
 on("tick", function(dt)
   t = t + dt
+  if t <= 12.1 and math.floor(t) ~= (blog or -1) then   -- Bond's position each second of the first 12 s: no warps after the stage starts
+    blog = math.floor(t)
+    local x, y, z = bond.pos(0)
+    print(string.format("SMOKE bondpos t=%d (%.0f, %.0f, %.0f)", blog, x or -1, y or -1, z or -1))
+  end
   for i = #shot_at, 1, -1 do
     if t >= shot_at[i].at then
       if bench and bench.shot then bench.shot() end
       print("SMOKE shot " .. shot_at[i].tag)
+      if shot_at[i].tag == "perch" then local d = test.rooms_drawn and test.rooms_drawn(0) or {}; print("SMOKE perch rooms drawn now: " .. table.concat(d, ",")) end
       table.remove(shot_at, i)
     end
   end
@@ -48,7 +57,19 @@ on("tick", function(dt)
       if bench and bench.look then pcall(bench.look, 0, math.deg(math.atan(-(px - bx), (pz - bz))), 1) end
       snap("glint", t + 1.0)
     end
-    if f.st == "fire" and f.chr and spawn.alive(f.chr) then
+    if f.st == "scan" and not f.scan_t then f.scan_t = t end
+    if f.st == "scan" and SHOTS and not f.snapped2 and ST.round == 1 and f.perch and t - (f.scan_t or t) >= 3 then   -- the marksman on his perch, Bond looking at him
+      f.snapped2 = true
+      local px, pz = f.perch.x, f.perch.z
+      local bx, _, bz = bond.pos(0)
+      local _, _, _, ey = gadget.aim(0)
+      local pitch = -math.deg(math.atan(((ey or 0) - (f.perch.y + 20)) / math.sqrt((px - bx) ^ 2 + (pz - bz) ^ 2)))
+      if bench and bench.look then pcall(bench.look, 0, math.deg(math.atan(-(px - bx), (pz - bz))), pitch) end
+      local drawn = test.rooms_drawn and test.rooms_drawn(0) or {}
+      print(string.format("SMOKE perch: foe at (%.0f, %.0f) %.0f m, pitch %.1f, his room %s, rooms drawn: %s", px, pz, math.sqrt((px - bx) ^ 2 + (pz - bz) ^ 2) / 100, pitch, tostring(spawn.room(f.chr)), table.concat(drawn, ",")))
+      snap("perch", t + 0.8)
+    end
+    if f.st ~= "wait" and f.st ~= "run" and f.chr and spawn.alive(f.chr) then
       f.test_seen = f.test_seen or t
       local ready = not LOSE and (ST.round > 1 or ST.relocs >= 1) and t - f.test_seen >= 0.4 and rush_t[ST.round] and t - rush_t[ST.round] >= 9
       if ready then

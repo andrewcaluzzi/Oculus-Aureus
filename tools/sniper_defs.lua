@@ -51,28 +51,29 @@ D.RUSHER_SKINS = { "russian_soldier", "russian_infantry", "siberian_guard2", "ar
 D.RUSHER_GUNS = { "ak47", "kf7", "d5k" }
 
 -- the ladder. foe = FOES index (the second sniper of a round takes the next foe's skin); hit = the chance that the marksman's shot hits (a coin tossed per perch: the stock accuracy build-up is far too slow at 60 to 150 m for one shot a perch); glint = seconds
--- the glint shows before he fires; hide = seconds he stays gone after a shot (min, max); rushers = how many come, rush_at = seconds into the
+-- the glint shows before he fires; dwell = seconds a marksman stays on a perch (min, max), volley_gap = seconds between his glints, volley_shots = shots a glint looses (min, max); rushers = how many come, rush_at = seconds into the
 -- round they arrive
 D.ROUNDS = {
-  { foe = 1, snipers = 1, rushers = 0, hit = 0.35, glint = 1.6, hide = { 5, 7 } },
-  { foe = 2, snipers = 1, rushers = 0, hit = 0.45, glint = 1.3, hide = { 4, 6 } },
-  { foe = 3, snipers = 1, rushers = 2, hit = 0.50, glint = 1.2, hide = { 4, 6 }, rush_at = 10 },
-  { foe = 4, snipers = 2, rushers = 0, hit = 0.55, glint = 1.1, hide = { 4, 6 }, second_at = 4 },
-  { foe = 5, snipers = 2, rushers = 3, hit = 0.65, glint = 1.0, hide = { 3.5, 5 }, second_at = 3, rush_at = 12 },
+  { foe = 1, snipers = 1, rushers = 0, hit = 0.35, glint = 1.6, dwell = { 14, 20 }, volley_gap = { 6, 9 }, volley_shots = { 1, 1 } },
+  { foe = 2, snipers = 1, rushers = 0, hit = 0.45, glint = 1.3, dwell = { 12, 18 }, volley_gap = { 5, 8 }, volley_shots = { 1, 2 } },
+  { foe = 3, snipers = 1, rushers = 2, hit = 0.50, glint = 1.2, dwell = { 12, 16 }, volley_gap = { 5, 8 }, volley_shots = { 1, 2 }, rush_at = 10 },
+  { foe = 4, snipers = 2, rushers = 0, hit = 0.55, glint = 1.1, dwell = { 10, 15 }, volley_gap = { 4, 7 }, volley_shots = { 1, 2 }, second_at = 4 },
+  { foe = 5, snipers = 2, rushers = 3, hit = 0.65, glint = 1.0, dwell = { 10, 14 }, volley_gap = { 4, 6 }, volley_shots = { 1, 2 }, second_at = 3, rush_at = 12 },
 }
 
 D.S = {
   breather = 5,          -- seconds between a won round and the next callout
   first_delay = 3,       -- seconds from the callout to the first glint
-  post_shot = 1.0,       -- seconds he stays after his shot (the kill window for a quick Bond) before he moves
   fire_timeout = 4.5,    -- a stand-in that has not fired this long after the glint is moved (no line, or he lost his aim)
   glint_sfx = { 160, 0.9, 1.7 },   -- stock sound id, volume, pitch (BING, high)
   band_lo = 6000, band_hi = 15000, -- a perch is 60 to 150 m from Bond (world units are cm)
-  hide_cone = 38,        -- a new perch is at least this many degrees off the centre of Bond's view when it is picked ...
-  move_ang = 25,         -- ... and at least this many degrees round from the perch he left
+  move_min = 1000, move_max = 3500,   -- the next perch is this far (units) from the one he leaves: a run of a few seconds
+  run_timeout = 25,      -- a runner that has not arrived by then is put on the new perch
+  hide_cone = 38,        -- rushers arrive at least this many degrees off the centre of Bond's view
   rush_min = 2800, rush_max = 5500,   -- rushers arrive this far from Bond, out of his cone
   sweep_batch = 12,      -- pads probed per game tick by the sight sweep
   sight = 25000,         -- chr->visionrange for every enemy
+  foe_scale = 1.5,       -- the marksmen are drawn this much bigger (spawn.scale): a man at 40 to 80 m is a speck otherwise
   foe_hp = 1.0,          -- marksman health multiplier (1 = a guard; the sniper rifle kills a guard in one body shot)
   hit_damage = 0.42,     -- what one marksman hit takes off Bond, as a fraction of a full health bar (the rifle's damage is set to give this on any difficulty)
   heal_each_round = true,
@@ -82,10 +83,13 @@ D.S = {
 
 -- Bond's perch: pads tried in order, the first with the most pads in the band that see it (decided at run time). High ground on the
 -- ridge above the start: its sweep (tests/sniper/matrix.sh) saw 60 to 75 pads in the 60 to 150 m band from these.
-D.BOND = { pads = { 140, 158, 129, 124, 54, 53, 139 }, yaw_toward = "centroid", pitch = -3 }
+D.BOND = { pads = { 53, 54 }, yaw_toward = "centroid", pitch = -3 }
 
 -- the enemy perches: any waypoint pad inside the band with a clear line to Bond's perch, at least `y_min` high (the lowest pads are the
 -- river bed), minus the banned, with the favoured counted twice
-D.PERCH = { y_min = 60, ban = {}, prefer = {} }
+D.PERCH = { y_min = 60, ban = {}, prefer = {},
+  -- the survey (tests/sniper/geom.sh, Bond on pad 53): waypoint pads 38 to 79 m off (a man is drawn and seen no farther than about 65 m: the stage's fog) that the stan line AND the drawn geometry (probe.los, both ways,
+  -- eye to head and to rifle) say see Bond. A pad the stan line alone sees is a place a marksman could hit a Bond who cannot see him: left out.
+  pads = { 50, 84, 101, 108, 116, 117, 118, 120, 146, 151, 152, 153, 155, 157, 158, 159, 160, 161, 168, 169, 170, 171, 172, 173, 177 } }
 
 function D.key() return "surface" end   -- the best-score key (one stage for now); the file is Data/Saves/ui/sniper_bests.ini

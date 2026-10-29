@@ -33,11 +33,11 @@ rm -f $OUT/shots/*.bmp
 # 2. the glint and the debrief
 GE_CLOCKSCALE=20 GE_MODE=sniper-smoke GE_STAGE=surface GE_CHEATS=invuln GE_SNIPER_SHOTS=1 GE_FRAMES=${1:-9000} timeout 900 $B/ProjectMidas > $OUT/shots_run.log 2>&1
 grep -a "SMOKE shot\|SNSHOT" $OUT/shots_run.log
-n=0
+set -- $(grep -a "SMOKE shot" $OUT/shots_run.log | sed "s/.*shot //") debrief
 for f in $(ls $OUT/shots/*.bmp 2>/dev/null | sort); do
-  n=$((n+1))
-  case $n in 1) nm=glint;; 2) nm=debrief;; *) nm=extra$n;; esac
+  nm=${1:-extra}; shift
   convert "$f" -resize 640x360! -quality 82 "$OUT/jpg/$nm.jpg"
+  if [ "$nm" = perch ]; then convert "$f" -gravity center -crop 35%x35%+0+0 +repage -resize 640x360! -quality 82 "$OUT/jpg/perch-zoom.jpg"; fi
 done
 rm -f $OUT/shots/*.bmp
 rm -f $M/sniper-smoke.lua $B/Data/Scripts/zz_sniper_shots.lua

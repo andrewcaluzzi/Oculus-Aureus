@@ -94,7 +94,8 @@ end
 local function sweep_for(bp)
   local px, py, pz = pads.pos(bp)
   local seen = {}
-  local ids = pads.far_from(px, pz, S.band_lo, S.band_hi, true)
+  local ids = (D.PERCH.pads and #D.PERCH.pads > 0) and D.PERCH.pads or pads.far_from(px, pz, S.band_lo, S.band_hi, true)
+
   table.sort(ids)
   local i = 1
   while i <= #ids do
@@ -121,22 +122,14 @@ local function sweep_for(bp)
 end
 
 local sweep_co = coroutine.create(function()
-  local best, bseen
-  for _, bp in ipairs(D.BOND.pads) do
-    local px = pads.pos(bp)
-    if px then
-      bond.warp(0, bp)
-      for _ = 1, 4 do coroutine.yield() end
-      local seen = sweep_for(bp)
-      log("sweep: Bond's perch pad %d sees %d perches in the %d to %d m band", bp, #seen, S.band_lo // 100, S.band_hi // 100)
-      if not best or #seen > #bseen then best, bseen = bp, seen end
-      if S.perch_enough and #seen >= S.perch_enough then break end
-    end
-  end
-  if not best then return nil end
-  bond.warp(0, best)
+  local bp
+  for _, p in ipairs(D.BOND.pads) do if pads.pos(p) then bp = p; break end end
+  if not bp then return nil end
+  bond.warp(0, bp)   -- the one warp of the run (Bond starts on the stage's own start pad)
   for _ = 1, 4 do coroutine.yield() end
-  return best, bseen
+  local seen = sweep_for(bp)
+  log("Bond's perch pad %d: %d of the %d listed perches see him (stan line)", bp, #seen, #(D.PERCH.pads or {}))
+  return bp, seen
 end)
 
 -- ------------------------------------------------------------ the perches ---
@@ -145,22 +138,21 @@ local function bond_xyz()
   if x then bx, by, bz = x, y, z end
 end
 
--- pick a perch for foe f: not the other foes' pads or the last one; out of the middle of Bond's view and round from the last; relaxed in steps
-local function choose_perch(f)
-  bond_xyz()
-  local v = view_yaw()
+-- pick a perch for foe f: a pad that sees Bond, not another foe's, not the one he stands on; with `near` (his current pad) one he can walk to in
+-- a few seconds (move_min to move_max units off), else any
+local function choose_perch(f, near)
   local busy = {}
   for _, o in ipairs(ST.foes) do if o ~= f and o.perch then busy[o.perch.pad] = true end end
-  for step = 1, 4 do
-    local cone = (step == 1 and S.hide_cone) or (step == 2 and S.hide_cone / 2) or 0
-    local gap = (step <= 2 and S.move_ang) or (step == 3 and S.move_ang / 2) or 0
+  for step = 1, 2 do
     local list = {}
     for _, p in ipairs(ST.perches) do
-      if not busy[p.pad] and not (f.last_pad == p.pad) then
-        local b = bearing(p.x, p.z)
-        local okv = not v or math.abs(wrap(b - v)) >= cone
-        local okg = not f.last_bearing or math.abs(wrap(b - f.last_bearing)) >= gap
-        if okv and okg then
+      if not busy[p.pad] and not (near and near.pad == p.pad) then
+        local ok = true
+        if near and step == 1 then
+          local d = math.sqrt((p.x - near.x) ^ 2 + (p.z - near.z) ^ 2)
+          ok = d >= S.move_min and d <= S.move_max
+        end
+        if ok then
           list[#list + 1] = p
           if p.prefer then list[#list + 1] = p end
         end
@@ -168,7 +160,7 @@ local function choose_perch(f)
     end
     if #list > 0 then
       local p = list[math.random(#list)]
-      if step > 1 then log("perch pad %d picked with the rules relaxed to step %d", p.pad, step) end
+      if step > 1 and near then log("perch pad %d picked beyond the walking range", p.pad) end
       return p, bearing(p.x, p.z)
     end
   end
@@ -185,75 +177,110 @@ end
 
 local function glint_label(f) return "GLINT" .. (f.n > 1 and (" " .. f.n) or "") end
 
-local function standin(f)
+-- the marksman: a real "snipe" chr that AIMS at Bond all the time but whose shots are held (spawn.hold) until the glint is over, so he can be
+-- hunted, seen aiming and shot; he stays on a perch for the round's dwell seconds, loosing one or two shots whenever a glint has run out.
+local function marksman(f, pad)
   local _, skin = foe_def(f)
-  return spawn.chr(f.perch.pad, { skin = skin, weapon = "sniperrifle", behaviour = "spectator", face = { bx, bz } })
+  local c = spawn.chr(pad, { skin = skin, weapon = "sniperrifle", behaviour = "snipe", health = S.foe_hp, sight = S.sight, face = { bx, bz } })
+  if c then spawn.hold(c, true); pcall(spawn.scale, c, S.foe_scale or 1) end
+  return c
 end
 
--- the shot's fate is a coin tossed here (the seeded RNG): the stock accuracy build-up (chr->shotbondsum, a hit when it reaches 1) grows by a
--- few hundredths a shot at 60 to 150 m, so a marksman who fires once per perch would never hit; a start of 1 makes his first shot the hit
-local function marksman(f)
+-- the runner: the same man, a stock guard with his shots held, walking (running) along the ground to the next perch (spawn.go on the stock route)
+local function runner(f, pad)
   local _, skin = foe_def(f)
-  if f.will_hit == nil then f.will_hit = math.random() < rnd.hit end
-  return spawn.chr(f.perch.pad, { skin = skin, weapon = "sniperrifle", behaviour = "snipe", shotbond = f.will_hit and 1 or 0, health = S.foe_hp,
-                                  sight = S.sight, face = { bx, bz } })
+  local c = spawn.chr(pad, { skin = skin, weapon = "sniperrifle", behaviour = "hold", health = S.foe_hp, sight = 50, hearing = 0.01, face = { bx, bz } })
+  if c then spawn.hold(c, true); pcall(spawn.scale, c, S.foe_scale or 1) end
+  return c
+end
+
+local function arrive(f)
+  local p, b = choose_perch(f, nil)
+  if not p then f.t = now + 1; return end
+  local c = marksman(f, p.pad)
+  if not c then f.t = now + 0.5; return end
+  f.perch, f.bearing, f.chr = p, b, c
+  f.st, f.arrive_at = "scan", now
+  f.dwell_end = now + rand_in(rnd.dwell)
+  f.volley_at = now + rand_in(rnd.volley_gap)
+  f.volleys = 0
+  log("ARRIVE: foe %d on pad %d at %.0f m, %s, stays %.0f s", f.n, p.pad, p.d / 100, clock_of(b), f.dwell_end - now)
 end
 
 local function start_glint(f)
-  local p, b = choose_perch(f)
-  if not p then f.t = now + 1; return end
-  f.perch, f.bearing = p, b
-  local c = standin(f)
-  if not c then f.perch = nil; f.t = now + 0.5; return end
-  f.chr, f.st, f.glint_end = c, "glint", now + rnd.glint
+  f.st, f.glint_end = "glint", now + rnd.glint
+  f.will_hit = math.random() < rnd.hit
   ST.glints = ST.glints + 1
+  local p = f.perch
   if ar then
     pcall(ar.on, true)
     pcall(ar.point, p.x, p.y + 150, p.z, glint_label(f), 0xFFE060FF)
   end
   sfx(S.glint_sfx)
+  local b = bearing(p.x, p.z)
   toast(string.format(T.glint, clock_of(b), math.floor(p.d / 100)))
   callout(string.format(T.glint_big, clock_of(b, T.clock_fmt_big)), 2, string.format(T.glint_m, math.floor(p.d / 100)), math.max(1.2, rnd.glint + 0.4))
-  log("GLINT %d: foe %d on pad %d at %.0f m, bearing %.0f, %s, %.1f s before the shot", ST.glints, f.n, p.pad, p.d / 100, b, clock_of(b), rnd.glint)
+  log("GLINT %d: foe %d on pad %d at %.0f m, %s, %.1f s before the shot", ST.glints, f.n, p.pad, p.d / 100, clock_of(b), rnd.glint)
 end
 
-local function fire_stage(f)
+local function release(f)
+  local goal = math.random(rnd.volley_shots[1], rnd.volley_shots[2])
+  spawn.shotbond(f.chr, f.will_hit and 1 or 0)   -- (the coin: see the header; the 1st shot of the volley is the one that can hit)
+  spawn.hold(f.chr, false)
+  f.st, f.s0, f.goal, f.fire_at = "fire", spawn.shots(f.chr) or 0, goal, now
+  log("foe %d lets %d shot(s) go from pad %d (%s)", f.n, goal, f.perch.pad, f.will_hit and "a hit" or "a miss")
+end
+
+local function start_move(f)
+  local p, b = choose_perch(f, f.perch)
+  if not p then f.dwell_end = now + 5; return end
   spawn.remove(f.chr)
-  f.chr = nil
-  if ar then pcall(ar.unpoint, glint_label(f)) end
-  local c = marksman(f)
-  if not c then f.glint_end = now + 0.25; return end   -- (a retry a tick later: the pad was only just freed)
-  f.chr, f.st, f.swap_at, f.fired = c, "fire", now, false
-  log("foe %d: the marksman takes the shot from pad %d (chr %d)", f.n, f.perch.pad, c)
-end
-
-local function relocate(f, why)
+  local c = runner(f, f.perch.pad)
+  if not c then f.dwell_end = now + 1; return end
+  f.chr, f.st, f.to, f.run_t0 = c, "run", p, now
+  f.last_pad, f.last_bearing = f.perch.pad, f.bearing
   ST.relocs = ST.relocs + 1
-  if f.chr then spawn.remove(f.chr) end
-  f.chr = nil
-  if ar then pcall(ar.unpoint, glint_label(f)) end
-  f.last_pad, f.last_bearing = f.perch and f.perch.pad, f.bearing
-  f.perch, f.st, f.will_hit = nil, "wait", nil
-  f.t = now + rand_in(rnd.hide)
+  local x, z = spawn.where(c)
+  log("MOVE %d: foe %d leaves pad %d (%.0f, %.0f) after %.1f s on the perch, for pad %d (%.0f, %.0f): %.0f units on foot", ST.relocs, f.n, f.perch.pad, f.perch.x, f.perch.z,
+    now - (f.arrive_at or now), p.pad, p.x, p.z,
+    math.sqrt((p.x - f.perch.x) ^ 2 + (p.z - f.perch.z) ^ 2))
+  if not spawn.go(c, p.pad, true) then log("spawn.go refused: foe %d will be placed on the new perch", f.n); f.run_t0 = now - S.run_timeout + 1 end
   toast(T.gone)
-  log("RELOCATE %d: foe %d leaves pad %s (%s), back in %.1f s", ST.relocs, f.n, tostring(f.last_pad), why, f.t - now)
 end
 
 local function foe_tick(f)
   if f.st == "wait" then
-    if now >= f.t then start_glint(f) end
-  elseif f.st == "glint" then
-    if now >= f.glint_end then fire_stage(f) end
-  elseif f.st == "fire" then
+    if now >= f.t then arrive(f) end
+  elseif f.st == "scan" then
     if not f.chr then return end
-    local n = spawn.shots(f.chr)
-    if n and n > 0 and not f.fired then
-      f.fired, f.fired_at = true, now
-      ST.shots = ST.shots + 1
-      log("SHOT: foe %d fired from pad %d, %.1f s after the swap", f.n, f.perch.pad, now - f.swap_at)
+    if now >= f.dwell_end and f.volleys >= 1 then start_move(f)
+    elseif now >= f.volley_at then start_glint(f) end
+  elseif f.st == "glint" then
+    if now >= f.glint_end then release(f) end
+  elseif f.st == "fire" then
+    local n = spawn.shots(f.chr) or 0
+    if n - f.s0 >= f.goal or now - f.fire_at >= S.fire_timeout then
+      spawn.hold(f.chr, true)
+      if ar then pcall(ar.unpoint, glint_label(f)) end
+      f.volleys = f.volleys + 1
+      ST.shots = ST.shots + (n - f.s0)
+      log("SHOT: foe %d fired %d from pad %d", f.n, n - f.s0, f.perch.pad)
+      f.st, f.volley_at = "scan", now + rand_in(rnd.volley_gap)
     end
-    if f.fired and now - f.fired_at >= S.post_shot then relocate(f, "fired")
-    elseif not f.fired and now - f.swap_at >= S.fire_timeout then relocate(f, "no shot in " .. S.fire_timeout .. " s") end
+  elseif f.st == "run" then
+    local x, z = spawn.where(f.chr)
+    if x and now - (f.rlog or -9) >= 2 then f.rlog = now; log("RUN foe %d at (%.0f, %.0f), %.0f from pad %d", f.n, x, z, math.sqrt((x - f.to.x) ^ 2 + (z - f.to.z) ^ 2), f.to.pad) end
+    local close = x and math.sqrt((x - f.to.x) ^ 2 + (z - f.to.z) ^ 2) < 180
+    if close or not x or now - f.run_t0 >= S.run_timeout then
+      spawn.remove(f.chr)
+      local c = marksman(f, f.to.pad)
+      if not c then f.run_t0 = now - S.run_timeout + 0.5; return end
+      log("SETTLE: foe %d on pad %d after %.1f s on foot%s", f.n, f.to.pad, now - f.run_t0, close and "" or " (timed out short of it)")
+      f.chr, f.perch, f.bearing, f.st, f.to, f.arrive_at = c, f.to, bearing(f.to.x, f.to.z), "scan", nil, now
+      f.dwell_end = now + rand_in(rnd.dwell)
+      f.volley_at = now + rand_in(rnd.volley_gap)
+      f.volleys = 0
+    end
   end
 end
 
