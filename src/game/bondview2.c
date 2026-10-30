@@ -8569,6 +8569,13 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
                 if (g_CurrentPlayer->speedsideways < -cap) g_CurrentPlayer->speedsideways = -cap;
             }
         }
+        { /* PORT: the sniper duel's PRONE crawls (port_sniper.c; 1 unless prone) */
+            extern f32 portSniperMoveScale(s32 p);
+            f32 k = portSniperMoveScale(get_cur_playernum());
+
+            g_CurrentPlayer->speedforwards *= k;
+            g_CurrentPlayer->speedsideways *= k;
+        }
 #endif
         g_CurrentPlayer->speedforwards *= 1.08f;
         g_CurrentPlayer->speedforwards *= g_CurrentPlayer->speedboost;

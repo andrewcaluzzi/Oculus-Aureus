@@ -163,6 +163,7 @@ end
 
 local function glint_id(f) return f.n - 1 end
 local function marker_id(f) return 8 + f.n - 1 end
+local function tag_id(f) return 16 + f.n - 1 end
 
 local function arrive(f)
   local p, why, n_seen = choose_perch(f)
@@ -177,8 +178,9 @@ local function arrive(f)
   f.perch, f.chr = p, c
   f.st, f.arrive_at = "scan", now
   f.dwell_end = now + rand_in(rnd.dwell)
-  f.volley_at = now + rand_in(rnd.volley_gap) * 0.6
+  f.volley_at = now + rand_in(S.min_gap)
   f.volleys = 0
+  f.meter, f.full_logged = S.detect_start, false
   ST.arrivals = ST.arrivals + 1
   local d = math.sqrt((p.x - bx) ^ 2 + (p.z - bz) ^ 2) / 100
   log("ARRIVE %d: foe %d on %s (pad %d) at %.0f m from Bond, unseen: %s; %d nearer-ranked perches were in view; stays %.0f s",
@@ -193,7 +195,8 @@ local function start_glint(f)
   f.will_hit = math.random() < (f.close and S.close_hit or rnd.hit)
   f.st, f.glint_end = "glint", now + (f.close and math.min(rnd.glint, 0.9) or rnd.glint)
   ST.glints = ST.glints + 1
-  f.glint_x, f.glint_y, f.glint_z = p.x, p.y + 155 * S.foe_scale, p.z
+  local cx, cz = spawn.where(f.chr)   -- (where he really stands: a chr is not always on its pad's centre)
+  f.glint_x, f.glint_y, f.glint_z = cx or p.x, p.y + 155 * S.foe_scale, cz or p.z
   if S.glint_sfx and sound and sound.play_sfx then pcall(sound.play_sfx, S.glint_sfx[1], S.glint_sfx[2], S.glint_sfx[3]) end
   log("GLINT %d: foe %d on %s at %.0f m%s, %.1f s before the shot (%s)", ST.glints, f.n, p.name, d / 100, f.close and " (CLOSE RANGE)" or "",
     f.glint_end - now, f.will_hit and "it will hit" or "it will miss")
@@ -211,13 +214,15 @@ local function after_shot(f, n)
   f.volleys = f.volleys + 1
   ST.shots = ST.shots + n
   local p = f.perch
-  f.mark_x, f.mark_y, f.mark_z, f.mark_t = p.x, p.y + 110 * S.foe_scale, p.z, now
+  local mx, mz = spawn.where(f.chr)
+  f.mark_x, f.mark_y, f.mark_z, f.mark_t = mx or p.x, p.y + 110 * S.foe_scale, mz or p.z, now
   bond_xyz()
   local d = math.sqrt((p.x - bx) ^ 2 + (p.z - bz) ^ 2) / 100
   notice(string.format(T.shot_from, clock_of(p.x, p.z), math.floor(d)), 4, 2)
   log("SHOT: foe %d fired %d from %s (%.0f m)%s", f.n, n, p.name, d, f.close and " at close range" or "")
   f.st = "scan"
-  f.volley_at = now + (f.close and rand_in(S.close_gap) or rand_in(rnd.volley_gap))
+  f.meter, f.full_logged = S.detect_after, false   -- (he has to find Bond again, partly)
+  f.volley_at = now + (f.close and rand_in(S.close_gap) or rand_in(S.min_gap))
 end
 
 local function leave(f)
@@ -230,6 +235,7 @@ local function leave(f)
   spawn.remove(f.chr)
   ST.relocs = ST.relocs + 1
   log("LEAVE %d: foe %d off %s after %.0f s, unseen: %s", ST.relocs, f.n, p.name, now - f.arrive_at, why)
+  if f.tagged then f.tagged = nil; sniper.point(tag_id(f), "off"); log("TAG off: foe %d moved", f.n) end
   f.chr, f.last, f.perch = nil, p, nil
   f.st, f.t = "wait", now + rand_in(S.hide)
   return true
@@ -237,22 +243,54 @@ end
 
 local function geom_clear(f) return geom_line(f.perch) end
 
-local function foe_tick(f)
+-- DETECTION: how fast marksman f is spotting Bond now (meter units a second; the meter fills at 1). Bond's stance (prone < crouch <
+-- stand), his speed (running high), his scope (a raised rifle scope pointed his way glints to him; the binoculars never do), the
+-- distance, the weather and thermal (ST.weather_k, ST.thermal_k: phase 3 sets them). The parts are kept for the debug line.
+local function detect_gain(f)
+  local _, _, _, stance = sniper.view(0)
+  local aiming, item = sniper.view(0)
+  local yaw, _, ex, _, ez = eye()
+  local p = f.perch
+  local d = math.sqrt((p.x - ex) ^ 2 + (p.z - ez) ^ 2)
+  local k_st = S.detect_stance[(stance or 0) + 1] or 1
+  local k_mv = S.detect_still + (S.detect_run - S.detect_still) * math.min(1, (ST.speed or 0) / S.run_speed)
+  local k_sc = 1
+  if aiming and item == ITEM_RIFLE and yaw and math.abs(wrap(bearing_from(ex, ez, p.x, p.z) - yaw)) <= S.scope_glint_cone then k_sc = S.detect_scope end
+  local k_d = math.max(S.detect_dist_k[1], math.min(S.detect_dist_k[2], S.detect_ref_dist / math.max(d, 100)))
+  local k_close = d < S.close_range and S.close_detect or 1
+  local gain = S.detect_rate * k_st * k_mv * k_sc * k_d * k_close * (ST.weather_k or 1) * (ST.thermal_k or 1)
+  f.dparts = string.format("stance %s x%.2f, move %.0f/s x%.2f, scope x%.1f, %.0f m x%.2f%s, weather x%.2f, thermal x%.2f", tostring(stance), k_st,
+    ST.speed or 0, k_mv, k_sc, d / 100, k_d, k_close > 1 and " CLOSE" or "", ST.weather_k or 1, ST.thermal_k or 1)
+  return gain
+end
+
+local function foe_tick(f, dt)
   if f.st == "wait" then
     if now >= f.t then arrive(f) end
   elseif f.st == "scan" then
     if not f.chr then return end
     bond_xyz()
     local close = math.sqrt((f.perch.x - bx) ^ 2 + (f.perch.z - bz) ^ 2) < S.close_range
-    if now >= f.dwell_end and f.volleys >= 1 and not close then
+    local line = combat.los(f.chr, 0) and geom_clear(f)
+    if line then
+      f.line_t = now
+      f.gain = detect_gain(f)
+      f.meter = math.min(1, (f.meter or 0) + f.gain * dt)
+    else
+      f.gain = -S.detect_decay
+      f.dparts = "no line to Bond (hidden)"
+      f.meter = math.max(0, (f.meter or 0) - S.detect_decay * dt)
+    end
+    if f.meter >= 1 and not f.full_logged then
+      f.full_logged = true
+      log("SPOTTED: foe %d on %s has Bond (%s)", f.n, f.perch.name, f.dparts or "")
+    end
+    if now >= f.dwell_end and f.volleys >= 1 and not close and f.meter < 1 then
       if not leave(f) then f.dwell_end = now + 1 end
-    elseif now >= f.volley_at then
-      if combat.los(f.chr, 0) and geom_clear(f) then f.line_t = now; start_glint(f)
-      else
-        f.volley_at = now + 1.0
-        -- no line to Bond: after 8 s on the perch (or past his dwell) he moves on
-        if now - f.arrive_at >= 8 and now - (f.line_t or f.arrive_at) >= 8 then leave(f) end
-      end
+    elseif line and f.meter >= 1 and now >= f.volley_at then
+      start_glint(f)
+    elseif not line and now - f.arrive_at >= 8 and now - (f.line_t or f.arrive_at) >= 8 then
+      leave(f)   -- no line to Bond for 8 s: he moves on (only while unseen)
     end
   elseif f.st == "glint" then
     if now >= f.glint_end then release(f) end
@@ -315,6 +353,7 @@ local function loadout()
   sniper.binoculars(true)
   sniper.zoom_limit("sniperrifle", S.scope_min_fov)
   sniper.zoom_limit("camera", S.binoc_min_fov)
+  sniper.prone_tune(S.prone_eye, S.prone_speed, S.prone_sway)
 end
 
 on("stage_start", function()
@@ -349,6 +388,31 @@ on("ui_tick", function(dt)
   local aiming, item = sniper.view(0)
   local binoc = aiming and item == ITEM_CAMERA
   if binoc ~= ST.binoc_up and crosshair and crosshair.hide then ST.binoc_up = binoc; pcall(crosshair.hide, binoc and true or false) end
+  -- TAGGING: the binoculars held on a marksman for S.tag_secs pin a quiet tag on him until he moves (presentation)
+  local yaw, pitch, ex, ey, ez = eye()
+  for _, f in ipairs(ST.foes) do
+    if binoc and yaw and f.chr and f.perch and not f.tagged then
+      local p = f.perch
+      local hy = p.y + 100 * S.foe_scale
+      local hd = math.sqrt((p.x - ex) ^ 2 + (p.z - ez) ^ 2)
+      local dyaw = math.abs(wrap(bearing_from(ex, ez, p.x, p.z) - yaw))
+      local dp = math.abs(math.deg(math.atan(hy - ey, hd)) - pitch)
+      if dyaw <= S.tag_cone and dp <= S.tag_cone * 1.5 and probe.los(ex, ey, ez, p.x, hy, p.z) then
+        f.tag_t = (f.tag_t or 0) + dt
+        if f.tag_t >= S.tag_secs then
+          f.tagged = true
+          local tx, tz = spawn.where(f.chr)
+          sniper.point(tag_id(f), "tag", tx or p.x, hy, tz or p.z, 0.8, S.tag_px)
+          notice(string.format(T.tagged, math.floor(hd / 100)), 3, 2)
+          log("TAG: foe %d on %s tagged after %.1f s on the binoculars (%.0f m)", f.n, p.name, f.tag_t, hd / 100)
+        end
+      else
+        f.tag_t = 0
+      end
+    else
+      f.tag_t = 0
+    end
+  end
   -- the glint's pulse, the markers' fade
   for _, f in ipairs(ST.foes) do
     if f.st == "glint" and f.glint_x then
@@ -370,6 +434,11 @@ on("tick", function(dt)
     local u = ST["notice_until" .. line]
     if u and now >= u then ST["notice_until" .. line] = nil; hud.set(line, "") end
   end
+  if ST.rise_at and now >= ST.rise_at then
+    ST.rise_at = nil
+    sniper.prone(0, false)
+    log("PRONE: up")
+  end
   if ended then
     if ST.end_at and now >= ST.end_at then
       ST.end_at = nil
@@ -382,7 +451,10 @@ on("tick", function(dt)
   elseif ST.phase == "between" and now >= ST.next_at then start_round(ST.round + 1)
   elseif ST.phase == "round" then
     run_t = run_t + dt
-    for _, f in ipairs(ST.foes) do foe_tick(f) end
+    local x, _, z = bond.pos(0)   -- Bond's speed (units a second, on the ground), for the detection
+    if x and ST.last_x then ST.speed = math.sqrt((x - ST.last_x) ^ 2 + (z - ST.last_z) ^ 2) / dt end
+    ST.last_x, ST.last_z = x, z
+    for _, f in ipairs(ST.foes) do foe_tick(f, dt) end
     local left = rnd.snipers - ST.killed
     hud.panel({ string.format(T.panel_round, ST.round, N_ROUNDS), string.format(T.panel_left, left),
                 string.format(T.panel_hits, math.max(0, (ST.hits_allowed or 0) - ST.hits_taken)) })
@@ -396,7 +468,8 @@ on("tick", function(dt)
       local s = string.format("%d:%s", f.n, f.st)
       if f.perch and f.chr then
         local seen = bond_sees(f.perch.x, f.perch.y, f.perch.z)
-        s = s .. string.format("@%s%s", f.perch.name, seen and "(SEEN)" or "")
+        s = s .. string.format("@%s%s%s", f.perch.name, seen and "(SEEN)" or "", f.tagged and "(TAGGED)" or "")
+        log("DETECT foe %d on %s: meter %.2f, %+.3f/s (%s)", f.n, f.perch.name, f.meter or 0, f.gain or 0, f.dparts or "")
       end
       parts[#parts + 1] = s
     end
@@ -411,6 +484,7 @@ on("chr_died", function(victim, killer)
     if f.chr == victim and f.st ~= "dead" then
       f.st, f.chr = "dead", nil
       sniper.point(glint_id(f), "off")
+      if f.tagged then f.tagged = nil; sniper.point(tag_id(f), "off") end
       ST.killed = ST.killed + 1
       local hs = spawn.headshot(victim)
       if hs then stats.headshots = stats.headshots + 1 end
@@ -434,6 +508,27 @@ on("damage", function(victim, attacker, amount)
       return
     end
   end
+end)
+
+-- PRONE: the use key (nothing to use out on the snow) goes down flat, or starts getting up (slow: S.prone_rise seconds)
+local function set_prone(on)
+  if on then
+    ST.rise_at = nil
+    sniper.prone(0, true)
+    notice(T.prone, 2, 2)
+    log("PRONE: down")
+  elseif sniper.prone(0) and not ST.rise_at then
+    ST.rise_at = now + S.prone_rise
+    notice(T.rising, 2, 2)
+    log("PRONE: getting up (%.1f s)", S.prone_rise)
+  end
+end
+SNIPER2.set_prone = set_prone   -- (the tests)
+
+on("use", function(p, proptype)
+  if p ~= 0 or proptype ~= -1 or ended then return end
+  if bond.use_key and not bond.use_key(0) then return end   -- (the use bind, not B / reload)
+  set_prone(not sniper.prone(0) or ST.rise_at ~= nil)
 end)
 
 on("bond_died", function()

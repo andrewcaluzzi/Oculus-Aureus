@@ -20,8 +20,78 @@ if CLOSE then
   local near = { foe = 1, snipers = 1, hit = 0.2, glint = 1.0, dwell = { 60, 80 }, volley_gap = { 3, 4 } }
   SNIPER2_SETTINGS.rounds_table = { near }
 end
+local DETECT = mode.env_flag("GE_SNIPER_DETECT")   -- the detection meter: Bond stands, runs, scopes, goes prone, hides
+if DETECT then
+  local slow = { foe = 1, snipers = 1, hit = 0.0, glint = 1.0, dwell = { 200, 200 }, volley_gap = { 3, 4 } }
+  SNIPER2_SETTINGS.rounds_table = { slow }
+  SNIPER2_SETTINGS.detect_after = 0.0
+end
 include("sniper-v2")
 local ST, S = SNIPER2, SNIPER2.S
+
+-- the detection run: phases of 7 s once the marksman is on his perch with a line to Bond; the gain (meter a second) averaged per phase
+if DETECT then
+  local phases = { "stand", "run", "scope", "prone", "hidden", "tag" }
+  local tag_init = false
+  local ph_i, ph_t, sum, n, x0, z0, hide_pad = 0, 0, 0, 0, nil, nil, nil
+  local tt = 0
+  on("tick", function(dt)
+    tt = tt + dt
+    local f = ST.foes[1]
+    if not (f and f.chr and f.perch) then pcall(bench.look, 0, 180, 0); return end
+    local _, _, _, ex, ey, ez = pcall(gadget.aim, 0)
+    if ph_i == 0 then
+      if not f.line_t then return end
+      ph_i, ph_t = 1, tt
+      x0, _, z0 = bond.pos(0)
+      print(string.format("SMOKE detect: foe on %s, phases begin", f.perch.name))
+    end
+    local name = phases[ph_i]
+    if not name then return end
+    local p = f.perch
+    local yaw = math.deg(math.atan(-(p.x - ex), (p.z - ez)))
+    local pitch = math.deg(math.atan((p.y + 300) - ey, math.sqrt((p.x - ex) ^ 2 + (p.z - ez) ^ 2)))
+    if name == "stand" then pcall(bench.look, 0, yaw, pitch)
+    elseif name == "run" then
+      local tx = x0 + ((math.floor((tt - ph_t) / 2) % 2 == 0) and 2500 or -2500)
+      test.walk(0, tx, z0)
+    elseif name == "scope" then test.walk_stop(); test.aim(0, true, 7); pcall(bench.look, 0, yaw, pitch)
+    elseif name == "prone" then test.aim(0, false, 0); if not sniper.prone(0) then ST.set_prone(true) end
+    elseif name == "hidden" then
+      if not hide_pad then   -- a pad near Bond the marksman's perch cannot see (the drawn ground in the way)
+        local bx, _, bz = bond.pos(0)
+        for _, id in ipairs(LEVEL.grid) do
+          local x, y, z = pads.pos(id)
+          if math.sqrt((x - bx) ^ 2 + (z - bz) ^ 2) < 6000 and not probe.los(p.x, p.y + 310, p.z, x, y + 60, z) and not probe.los(p.x, p.y + 310, p.z, x, y + 165, z) then hide_pad = id; break end
+        end
+        if hide_pad then bond.warp(0, hide_pad); print("SMOKE detect: hidden on pad " .. hide_pad) else print("SMOKE detect: no hidden pad near") end
+      end
+    elseif name == "tag" then   -- back on b1, standing, the binoculars on him
+      if not tag_init then
+        tag_init = true
+        ST.set_prone(false)
+        bond.warp(0, LEVEL.pads.b1)
+        pcall(bond.equip, 0, "camera")
+      end
+      if tt - ph_t >= 2 then test.aim(0, true, S.binoc_min_fov); pcall(bench.look, 0, yaw, math.deg(math.atan((p.y + 200) - ey, math.sqrt((p.x - ex) ^ 2 + (p.z - ez) ^ 2)))) end
+    end
+    if tt - ph_t >= 1.5 then sum, n = sum + (f.gain or 0), n + 1 end   -- (1.5 s to settle into the stance / speed)
+    if (name == "tag" or name == "prone") and tt - ph_t >= 5.5 and not ST["shot_" .. name] and mode.env_flag("GE_SNIPER_SHOTS") then
+      ST["shot_" .. name] = true
+      if name == "prone" then pcall(bench.look, 0, yaw, pitch) end
+      bench.shot()
+      print("SMOKE shot " .. name)
+    end
+    if tt - ph_t >= 7 then
+      local _, _, _, fy = bond.pos(0)
+      local bxx, byy = bond.pos(0)
+      print(string.format("SMOKE DETECT %s: average %+.3f a second, meter %.2f, Bond's eye %.0f over his feet (%s)", name, n > 0 and sum / n or 0,
+        f.meter or 0, (ey or 0) - (byy or 0), f.dparts or ""))
+      ph_i, ph_t, sum, n = ph_i + 1, tt, 0, 0
+      if name == "run" then test.walk_stop() end
+    end
+  end)
+end
 local t = 0
 local yaws = { 0, 60, 150, -120, 20, -40, 180, 90 }
 local look_i, look_t = 0, 0
@@ -109,14 +179,14 @@ on("tick", function(dt)
       snap("marker", t + 1.5)
     end
     -- the win path: shoot him once he has fired twice
-    if not LOSE and not CLOSE and here and f.volleys >= 2 and f.st == "scan" then
+    if not LOSE and not CLOSE and not DETECT and here and f.volleys >= 2 and f.st == "scan" then
       for _ = 1, 40 do if spawn.alive(f.chr) then test.shoot(f.chr, "body", "sniperrifle", 0) end end
       if f.chr and spawn.alive(f.chr) then spawn.kill(f.chr) end
       print(string.format("SMOKE killed foe %d of round %d", f.n, ST.round))
     end
   end
   -- the view turns round every 3 s, after the checks above (not while a picture is being lined up)
-  if not CLOSE and (not SHOTS or ST.glints == 0) and t - look_t >= 3 then
+  if not CLOSE and not DETECT and (not SHOTS or ST.glints == 0) and t - look_t >= 3 then
     look_t = t
     look_i = look_i % #yaws + 1
     pcall(bench.look, 0, yaws[look_i], 0)

@@ -257,7 +257,9 @@ static struct RSP {
     bool lights_changed;
 
     uint32_t geometry_mode;
-    int16_t fog_mul, fog_offset;
+    /* floats holding the RSP's s16 fog factor (every use converts to float); a generated level's metric fog band can set a factor
+     * wider than s16 through portGfxFogFloat. Stock frames hold exactly the s16 values, so they draw as before. */
+    float fog_mul, fog_offset;
 
     uint32_t extra_geometry_mode;
 
@@ -3408,6 +3410,21 @@ static bool gfx_float_mtx_find(const int32_t* addr, float out[4][4]) {
     return false;
 }
 
+/* A generated level's fog factor past the s16 range (bgfog.c portLevelFogMetres: a narrow band in depth gives a fog that thickens over
+ * hundreds of metres; the s16 factor allows bands no narrower than 3.95 thousandths). The game sends the clamped s16 pair as always and
+ * hands the floats here with that pair; a G_MW_FOG carrying exactly that pair takes the floats. Stock levels never set it. */
+static bool gfx_fog_f_on;
+static int16_t gfx_fog_f_smul, gfx_fog_f_sofs;
+static float gfx_fog_f_mul, gfx_fog_f_ofs;
+
+extern "C" void portGfxFogFloat(int on, int smul, int sofs, float mul, float ofs) {
+    gfx_fog_f_on = on != 0;
+    gfx_fog_f_smul = (int16_t)smul;
+    gfx_fog_f_sofs = (int16_t)sofs;
+    gfx_fog_f_mul = mul;
+    gfx_fog_f_ofs = ofs;
+}
+
 static void gfx_sp_matrix(uint8_t parameters, const int32_t* addr) {
     if (roc_capturing != nullptr && roc_capturing_kind == 0) {
         roc_capture_bad = true; /* room cache: one MP matrix per list (parts re-run their MTX in the walk) */
@@ -3730,7 +3747,7 @@ static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx* verti
                     }
                     if (++fogverts >= 20000) {
                         fprintf(stderr, "fog: mul=%d off=%d maxzw=%f fog@max=%f w@max=%f\n",
-                                rsp.fog_mul, rsp.fog_offset, maxzw, fogatmax, watmax);
+                                (int)rsp.fog_mul, (int)rsp.fog_offset, maxzw, fogatmax, watmax);
                         fflush(stderr);
                         fogverts = 0;
                         maxzw = -2.0f;
@@ -5453,10 +5470,17 @@ static void gfx_sp_moveword(uint8_t index, uint16_t offset, uintptr_t data) {
             rsp.current_num_lights = (data - 0x80000000U) / 32;
             rsp.lights_changed = 1;
             break;
-        case G_MW_FOG:
-            rsp.fog_mul = (int16_t)(data >> 16);
-            rsp.fog_offset = (int16_t)data;
+        case G_MW_FOG: {
+            const int16_t m = (int16_t)(data >> 16), o = (int16_t)data;
+
+            rsp.fog_mul = m;
+            rsp.fog_offset = o;
+            if (gfx_fog_f_on && m == gfx_fog_f_smul && o == gfx_fog_f_sofs) {   /* the level's wide factor (portGfxFogFloat) */
+                rsp.fog_mul = gfx_fog_f_mul;
+                rsp.fog_offset = gfx_fog_f_ofs;
+            }
             break;
+        }
         case G_MW_SEGMENT: {
             // offset = segment*4; the array has 16 slots. The old `& 0xff`
             // mask let a misdecoded moveword write up to 1KB past the array

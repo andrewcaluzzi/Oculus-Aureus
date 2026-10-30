@@ -1596,6 +1596,13 @@ void gunSetBondWeaponSway(f32 breathing, f32 arg1, f32 arg2, f32 arg3)
     {
         g_CurrentPlayer->gunposamplitude = 0.5f * sp50;
     }
+#ifndef TARGET_N64
+    {   /* PORT: the sniper duel's PRONE steadies the gun (port_sniper.c; 1 unless prone) */
+        extern f32 portSniperSwayScale(s32 p);
+
+        g_CurrentPlayer->gunposamplitude *= portSniperSwayScale(get_cur_playernum());
+    }
+#endif
 
     for (i = 0; i < g_ClockTimer; i++)
     {

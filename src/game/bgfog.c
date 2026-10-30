@@ -80,16 +80,18 @@ static f32 g_PropFogRegB = 0.0f;
  * every fogLoadLevelEnvironment clears it, so no stock stage ever uses it. */
 static s32 sPortFogPosF;
 static f32 sPortFogMn, sPortFogMx;
+static EnvironmentRecord *sLevelFogEnv;           /* a generated level's own environment record (portLevelFogMetres moves its fog) */
 
 void portFogSetPositionF(s32 on, f32 mn, f32 mx)
 {
-    sPortFogPosF = on && (mx - mn) >= 3.95f;   /* the s16 fog factor 128000 / (mx - mn) */
+    /* the s16 fog factor 128000 / (mx - mn) needs a band 3.95 wide; a generated level's metric band may be narrower (the renderer
+     * takes its float factor: portGfxFogFloat) */
+    sPortFogPosF = on && ((mx - mn) >= 3.95f || (sLevelFogEnv != NULL && (mx - mn) > 0.0f));
     sPortFogMn = mn;
     sPortFogMx = mx;
 }
 
 extern void portLevelgenFloatCameraSet(s32 on);   /* port_levelgen_select.c: the float camera matrix (bondview2.c) */
-static EnvironmentRecord *sLevelFogEnv;           /* a generated level's own environment record (portLevelFogMetres moves its fog) */
 void portLevelFogMetres(f32 start, f32 full);
 #endif
 
@@ -556,7 +558,7 @@ void portLevelFogMetres(f32 start, f32 full)
     k1 = 500.0f * 2.0f * F * n / (F - n);
     mn = k0 - k1 / start;
     mx = (full > start) ? k0 - k1 / full : k0;
-    if (mx - mn < 3.95f) mx = mn + 3.95f;
+    if (mx - mn < 0.05f) mx = mn + 0.05f;   /* (narrower than the s16 factor's 3.95 is fine: gfx_pc.cpp takes the float factor) */
     sLevelFogStart = start;
     sLevelFogFull = full;
     portFogSetPositionF(1, mn, mx);
@@ -634,7 +636,7 @@ void fogLoadLevelEnvironment(s32 level_id, s32 arg1)
         {   /* the sniper snowfield (tools/levelgen/build_snowfield.py): Surface's own record out of the (ROM-served) table, its sky,
              * clouds and fog colour, with the far plane moved out to 660 m for the 500 m sight lines (the slot is level scale 1,
              * visibility scale 1: the planes are world units), no near-fog fade of props (a marksman is drawn to the far plane), and
-             * a default haze set in metres (portLevelFogMetres: it starts at 180 m and thickens out to the perimeter, as Surface's own
+             * a default haze set in metres (portLevelFogMetres: none nearer than 220 m, full at 860 m: half at 350 m, 85% at the perimeter, as Surface's own
              * soft edges, scaled to the field; the mode and its storms move it). The near plane is 50 (0.5 m): with the near plane at
              * 10 every distance past 100 m sits within one thousandth of depth and the fog could only be flat (a hard edge at the
              * perimeter); at 50 the band spreads over the field. GE_SNOW_OLDFOG=1 is the first prototype's (near 10, a flat band). */
@@ -667,7 +669,7 @@ void fogLoadLevelEnvironment(s32 level_id, s32 arg1)
                     }
                     else
                     {
-                        portLevelFogMetres(18000.0f, 0.0f);   /* (loads the environment) */
+                        portLevelFogMetres(22000.0f, 86000.0f);   /* (loads the environment) */
                     }
                     return;
                 }
@@ -858,10 +860,15 @@ Gfx *fogSetRenderFogColor(Gfx *gdl, s32 arg1)
     {   /* the float positions (the arena fog): the same factor gSPFogPosition computes, without its whole-number rounding */
         f32 fm = 128000.0f / (sPortFogMx - sPortFogMn);
         f32 fo = ((500.0f - sPortFogMn) * 256.0f) / (sPortFogMx - sPortFogMn);
+        f32 wfm = fm, wfo = fo;
+        extern void portGfxFogFloat(int on, int smul, int sofs, float mul, float ofs);   /* gfx_pc.cpp */
 
         if (fm > 32767.0f) fm = 32767.0f;
         if (fo < -32768.0f) fo = -32768.0f;
         if (fo > 32767.0f) fo = 32767.0f;
+        /* a generated level's metric band (portLevelFogMetres) may be narrower than the s16 factor allows: the renderer takes the
+         * floats for this pair; every other caller (the arena fog) turns that off */
+        portGfxFogFloat(sLevelFogEnv != NULL && (wfm != fm || wfo != fo), (s16) fm, (s16) fo, wfm, wfo);
         gDPSetFogColor(gdl++, g_CurrentEnvironment.Red, g_CurrentEnvironment.Green, g_CurrentEnvironment.Blue, 0xff);
         gSPFogFactor(gdl++, (s16) fm, (s16) fo);
         gSPSetGeometryMode(gdl++, G_FOG);

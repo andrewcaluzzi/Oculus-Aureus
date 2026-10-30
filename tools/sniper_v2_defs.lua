@@ -14,6 +14,7 @@ D.T = {
   title = "SNIPER DUEL", place = "SEVERNAYA SNOWFIELD",
   round = "Round %d of %d  -  %s, %s", round_won = "Round %d won", you_win = "All targets down", down = "You are down",
   shot_from = "Shot from %s, %d m", hit = "Hit  -  %d left", moved = "He has moved", two = "%d rifles out there",
+  prone = "Prone", rising = "Getting up", tagged = "Tagged  -  %d m",
   panel_round = "ROUND %d / %d", panel_left = "TARGETS %d", panel_hits = "HITS LEFT %d", panel_time = "TIME %s",
   clock = { "12", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11" }, clock_fmt = "%s o'clock",
 }
@@ -54,15 +55,30 @@ D.S = {
   view_margin = 6, view_aspect = 2.0,
   first_delay = { 3, 6 }, second_after = { 6, 12 },   -- seconds before the first / each next marksman of a round sets up
   hide = { 4, 8 },          -- seconds a marksman is gone between perches
+  -- DETECTION: each marksman fills a meter on Bond (0..1) while he has a line to him; he glints and fires only when it is full, then
+  -- it drops to detect_after. Per second: detect_rate x stance x movement x scope x distance x close x weather x thermal; it decays
+  -- at detect_decay a second while Bond is hidden from him.
+  detect_rate = 0.25,                       -- the meter a second at the reference: standing, walking pace, unscoped, at detect_ref_dist
+  detect_stance = { 1.0, 0.7, 0.5, 0.2 },   -- stand, crouch, squat, prone
+  detect_still = 0.5, detect_run = 2.0, run_speed = 450,   -- standing still x0.5 .. at run_speed units a second and faster x2
+  detect_scope = 2.0, scope_glint_cone = 20,   -- Bond's raised rifle scope pointed within this many degrees of him: x2 (his lens glints)
+  detect_ref_dist = 30000, detect_dist_k = { 0.5, 2.0 },   -- x (ref / distance), clamped
+  close_detect = 6,                         -- inside close_range: x6 (he sees you)
+  detect_decay = 0.12, detect_start = 0.0, detect_after = 0.45,
+  min_gap = { 2, 4 },                       -- seconds at least between two of his shots
+  -- PRONE (the use key): the eye 135 units under standing (the squat is 100), crawl speed, steady aim; getting up takes prone_rise s
+  prone_eye = -135, prone_speed = 0.22, prone_sway = 0.25, prone_rise = 1.2,
+  -- TAGGING: the binoculars held within tag_cone degrees of a marksman for tag_secs pin a tag on him until he moves
+  tag_cone = 1.2, tag_secs = 1.0, tag_px = 3,
   breather = 6,             -- seconds between a won round and the next
   fire_timeout = 4.5,       -- a released shot that has not come in this long is given up
   -- the glint: a small white flare at his scope (alpha pulses), the marker after a shot (a quiet diamond that fades out)
   glint_px = 2, marker_secs = 6, marker_px = 3,
   glint_sfx = nil,          -- a stock sound for the glint ({ id, volume, pitch }); nil = silent
-  -- the default haze, in metres from the eye: no fog nearer than [1], full fog at [2] (0 = as far as the band reaches: it never goes
-  -- full on the map). The fog thickens with distance (in 1 / distance): at 180 / 0 a marksman at 500 m is about 45% fogged, the
-  -- perimeter about half. The storms (phase 3) move it.
-  fog = { 180, 0 },
+  -- the default haze, in metres from the eye: no fog nearer than [1], full fog at [2] (0 = as far as the band reaches). The fog
+  -- thickens in 1 / distance: at 220 / 860 it is about 50% at 350 m, 75% at 500 m, 85% at the perimeter (600 m), Surface's soft
+  -- edges scaled to the field. The storms (phase 3) move it.
+  fog = { 220, 860 },
   foe_scale = 2.0,          -- the marksmen are drawn this much bigger (spawn.scale caps at 2)
   sight = 60000,            -- chr->visionrange for every marksman (units): the far perches are 500 m off
   foe_hp = 1.0,

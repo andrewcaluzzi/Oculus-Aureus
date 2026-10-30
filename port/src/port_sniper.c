@@ -31,6 +31,7 @@
 
 #define SN_MAX_P   4
 #define SN_POINTS 24
+#define SN_GFX_MARGIN 600   /* free display-list commands kept back while the overlay draws (the tail and the HUD after it) */
 
 extern int portLocalPlayer(void);
 extern Mtxf *camGetWorldToScreenMtxf(void);
@@ -177,6 +178,10 @@ f32 portSniperSwayScale(s32 p)
 int portSniperPoint(int id, int kind, float x, float y, float z, float alpha, float size)
 {
     if (id < 0 || id >= SN_POINTS) return 0;
+    if (!(size == size)) size = 0.0f;          /* NaN: the default size */
+    if (size < 0.0f) size = 0.0f;
+    if (size > 32.0f) size = 32.0f;           /* (the drawing's command count grows with it) */
+    if (!(x == x && y == y && z == z && alpha == alpha)) kind = 0;
     sPts[id].on = kind > 0 && alpha > 0.0f;
     sPts[id].kind = kind;
     sPts[id].x = x;
@@ -267,6 +272,7 @@ static Gfx *binocMask(Gfx *gdl)
         s32 hw = h > 0.0f ? (s32) sqrtf(h) : 0;
         s32 l0 = cxl - hw, l1 = cxl + hw, r0 = cxr - hw, r1 = cxr + hw;
 
+        if (dynGetFreeGfx2(gdl) < SN_GFX_MARGIN) break;   /* (never past the frame's display list) */
         gdl = rect(gdl, 0, y, l0, y + band, col);
         if (r0 > l1) gdl = rect(gdl, l1, y, r0, y + band, col);
         else l1 = r0;
@@ -361,6 +367,7 @@ Gfx *portSniperOverlay(Gfx *gdl)
         w[0] = sPts[i].x;
         w[1] = sPts[i].y;
         w[2] = sPts[i].z;
+        if (dynGetFreeGfx2(gdl) < SN_GFX_MARGIN) break;   /* (a point is at most ~150 commands at size 32) */
         if (project(w, &sx, &sy)) gdl = drawPoint(gdl, &sPts[i], (s32) sx, (s32) sy);
     }
     if (binoc) gdl = binocMask(gdl);

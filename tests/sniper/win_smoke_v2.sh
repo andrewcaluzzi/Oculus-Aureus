@@ -27,6 +27,14 @@ if grep -aq "SMOKE VIOLATION" "$L"; then echo "FAIL a marksman appeared or vanis
 if [ -n "$GE_SNIPER_LOSE" ]; then
   chk "Bond is hit" "ge: sniper2: HIT 1 of"
   chk "the run ends with Bond down" "ge: sniper2: END: DOWN"
+elif [ -n "$GE_SNIPER_DETECT" ]; then
+  chk "the meter is measured standing" "SMOKE DETECT stand"
+  chk "... running" "SMOKE DETECT run"
+  chk "... scoping" "SMOKE DETECT scope"
+  chk "... prone" "SMOKE DETECT prone"
+  chk "... hidden (it falls)" "SMOKE DETECT hidden: average -"
+  chk "the binoculars tag him" "ge: sniper2: TAG: foe 1"
+  grep -a "SMOKE DETECT\|SMOKE detect\|ge: sniper2: TAG\|ge: sniper2: PRONE\|ge: sniper2: SPOTTED" "$L" | cut -c1-260
 elif [ -n "$GE_SNIPER_CLOSE" ]; then
   chk "close-range glints" "GLINT .*(CLOSE RANGE)"
 else
