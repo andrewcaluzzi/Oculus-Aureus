@@ -3374,6 +3374,40 @@ static void gfx_matrix_mul(float res[4][4], const float a[4][4], const float b[4
     memcpy(res, tmp, sizeof(tmp));
 }
 
+/* Float matrices for a level whose world passes the fixed-point range (the sniper snowfield: bondview2.c, matrixmath.c). The game
+ * builds its matrices in floats and stores them as s15.16 Mtx for the RSP: +-32767 at most. On the snowfield (550 m long at level
+ * scale 1) the world camera matrix (projection x view, clamped to +-32000) passes that at the scope's zoom (the eye ~2000 units off
+ * the origin x the 7-degree scope's 16x projection scale: the world is moved off the screen and only the sky is left), and a room's
+ * or a chr's matrix (its position relative to Bond's room) passes it beyond ~330 m (the s16 integer part wraps: the far rooms and
+ * marksmen are drawn somewhere else). The game hands the floats here with the Mtx's address and its fixed contents; a load of exactly
+ * that Mtx (address and contents) uses the floats. Other levels never register one. */
+#define GFX_FLOAT_MTX_SLOTS 1024
+static struct { const int32_t* addr; int32_t fixed[16]; float m[4][4]; } gfx_float_mtx[GFX_FLOAT_MTX_SLOTS];
+static bool gfx_float_mtx_any;
+
+static inline unsigned gfx_float_mtx_slot(const void* addr) {
+    return (unsigned)(((uintptr_t)addr >> 6) * 2654435761u) % GFX_FLOAT_MTX_SLOTS;
+}
+
+extern "C" void portGfxFloatMtx(const void* fixedaddr, const float m[4][4]) {
+    unsigned k = gfx_float_mtx_slot(fixedaddr);
+
+    gfx_float_mtx_any = true;
+    gfx_float_mtx[k].addr = (const int32_t*)fixedaddr;
+    memcpy(gfx_float_mtx[k].fixed, fixedaddr, sizeof(gfx_float_mtx[k].fixed));
+    memcpy(gfx_float_mtx[k].m, m, sizeof(gfx_float_mtx[k].m));
+}
+
+static bool gfx_float_mtx_find(const int32_t* addr, float out[4][4]) {
+    unsigned k = gfx_float_mtx_slot(addr);
+
+    if (gfx_float_mtx[k].addr == addr && memcmp(gfx_float_mtx[k].fixed, addr, sizeof(gfx_float_mtx[k].fixed)) == 0) {
+        memcpy(out, gfx_float_mtx[k].m, sizeof(gfx_float_mtx[k].m));
+        return true;
+    }
+    return false;
+}
+
 static void gfx_sp_matrix(uint8_t parameters, const int32_t* addr) {
     if (roc_capturing != nullptr && roc_capturing_kind == 0) {
         roc_capture_bad = true; /* room cache: one MP matrix per list (parts re-run their MTX in the walk) */
@@ -3396,6 +3430,9 @@ static void gfx_sp_matrix(uint8_t parameters, const int32_t* addr) {
             matrix[i][j] = (int32_t)((int_part & 0xffff0000) | (frac_part >> 16)) / 65536.0f;
             matrix[i][j + 1] = (int32_t)((int_part << 16) | (frac_part & 0xffff)) / 65536.0f;
         }
+    }
+    if (gfx_float_mtx_any) {
+        gfx_float_mtx_find(addr, matrix);   /* the unclamped camera matrix, when the game registered this Mtx */
     }
 #else
     // For a modified GBI where fixed point values are replaced with floats

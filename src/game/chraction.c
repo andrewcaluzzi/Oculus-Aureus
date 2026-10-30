@@ -2717,7 +2717,17 @@ bool handles_shot_actors(ChrRecord *self, s32 hitpart, coord3d *vector, s32 weap
         {
             playerNum = get_cur_playernum();
             set_cur_player(getPlayerPointerIndex(self->prop));
+#ifndef TARGET_N64
+            {   /* PORT: the sniper duel's exact hits (port_sniper.c portSniperBondHitDamage) know this is a shot on Bond */
+                extern void portSniperAiHit(s32 on);
+
+                portSniperAiHit(1);
+                record_damage_kills(damageToCause * 0.125f, vector->x, vector->z, playerNum, 1);
+                portSniperAiHit(0);
+            }
+#else
             record_damage_kills(damageToCause * 0.125f, vector->x, vector->z, playerNum, 1);
+#endif
             set_cur_player(playerNum);
         }
         else
@@ -6967,7 +6977,17 @@ void chrlvUpdateShotbondsum(ChrRecord *self, s32 *arg1, s32 *arg2, ITEM_IDS item
                 t2 *= 3.0f;
             }
 
+#ifndef TARGET_N64
+            {   /* PORT: the sniper duel's exact hits (port_sniper.c portSniperBondHitDamage) know this is an AI shot on Bond */
+                extern void portSniperAiHit(s32 on);
+
+                portSniperAiHit(1);
+                bondviewCallRecordDamageKills(t2, subroty, -1, 1);
+                portSniperAiHit(0);
+            }
+#else
             bondviewCallRecordDamageKills(t2, subroty, -1, 1);
+#endif
 
             self->shotbondsum = 0.0f;
 

@@ -1,0 +1,40 @@
+#!/bin/sh
+# Hidden Windows smoke of the SNIPER DUEL v2 on the snowfield (Git Bash; no window: GE_HIDDEN=1): tests/sniper/smoke_v2.lua.
+# usage: win_smoke_v2.sh <build dir, e.g. E:/midas-wt/sniper/build_win_sniperv2> [frames] ["GE_X=y ..."]
+#   (default)                          the win path: Bond invulnerable, each marksman shot dead after he has fired twice
+#   "GE_SNIPER_LOSE=1 GE_CHEATS="      the loss path: Bond mortal, the marksmen hit often
+#   "GE_SNIPER_CLOSE=1"                close range: Bond walked to within 60 m of a marksman
+#   "GE_SNIPER_SHOTS=1"                pictures (BMPs in the current folder)
+# Prints the checks, the key log lines and "exit <code>". The log is <build>/Data/sniper2_smoke.log.
+B=${1:?build dir}
+cp "$(dirname "$0")/smoke_v2.lua" "$B/Data/Scripts/modes/sniper2-smoke.lua"
+export GE_HIDDEN=1 GE_STAGE=levelgen GE_LEVELGEN=snowfield GE_NOINTRO=1 GE_STAGE_AFTER=1 GE_MODE=sniper2-smoke GE_FRAMES=${2:-9000}
+export GE_CHEATS=invuln GE_NOINISAVE=1 GE_NOMENUSAVE=1 GE_SEED=7 GE_NOMSGBOX=1
+for kv in $3; do export "$kv"; done
+L="$B/Data/sniper2_smoke.log"
+if [ -n "$SHOTDIR" ]; then mkdir -p "$SHOTDIR"; cd "$SHOTDIR" || exit 1; fi   # (pictures land in the working folder)
+"$B/ProjectMidas.exe" > "$L" 2>&1
+echo "exit $?"
+rm -f "$B/Data/Scripts/modes/sniper2-smoke.lua"
+pass=0; fail=0
+chk() { if grep -aq "$2" "$L"; then echo "PASS $1"; pass=$((pass+1)); else echo "FAIL $1"; fail=$((fail+1)); fi; }
+chk "the duel starts" "ge: sniper2: stage start"
+chk "round 1 begins" "ge: sniper2: ROUND 1/"
+chk "a marksman arrives unseen" "ge: sniper2: ARRIVE 1: foe 1 on .* unseen"
+chk "a glint" "ge: sniper2: GLINT 1:"
+chk "a shot" "ge: sniper2: SHOT: foe 1 fired\|ge: sniper2: HIT 1 of"
+if grep -aq "SMOKE VIOLATION" "$L"; then echo "FAIL a marksman appeared or vanished in view"; fail=$((fail+1)); else echo "PASS no marksman appeared or vanished in view ($(grep -ac 'SMOKE appear' "$L") appearances, $(grep -ac 'SMOKE vanish' "$L") departures checked)"; pass=$((pass+1)); fi
+if [ -n "$GE_SNIPER_LOSE" ]; then
+  chk "Bond is hit" "ge: sniper2: HIT 1 of"
+  chk "the run ends with Bond down" "ge: sniper2: END: DOWN"
+elif [ -n "$GE_SNIPER_CLOSE" ]; then
+  chk "close-range glints" "GLINT .*(CLOSE RANGE)"
+else
+  chk "a marksman moves (leaves unseen)" "ge: sniper2: LEAVE 1:"
+  chk "Bond kills him" "ge: sniper2: KILL: foe 1 down"
+  chk "round 1 won" "ge: sniper2: ROUND 1 WON"
+fi
+if grep -aq "ge: lua: .*error" "$L"; then echo "FAIL a Lua error"; grep -a "ge: lua: .*error" "$L" | head -3; fail=$((fail+1)); else echo "PASS no Lua errors"; pass=$((pass+1)); fi
+echo "-- log"
+grep -a "ge: sniper2: \(stage\|perches\|ROUND\|ARRIVE\|LEAVE\|GLINT\|SHOT\|KILL\|HIT\|END\|foe\)\|SMOKE \(appear\|vanish\|close\|VIOL\|bond\|start\|killed\)" "$L" | cut -c1-230 | head -${LINES_MAX:-70}
+echo "sniper2: $pass passed, $fail failed"

@@ -126,6 +126,11 @@ void portHeistStageReset(void)
         portGadgetsReset();
     }
     {
+        extern void portSniperReset(void);   /* port_sniper.c: the sniper duel's zoom limits, prone, its overlay */
+
+        portSniperReset();
+    }
+    {
         extern void portInterlockReset(void);   /* port_interlock.c: mantraps and sally ports (section 29) */
 
         portInterlockReset();

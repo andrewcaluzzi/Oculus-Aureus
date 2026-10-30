@@ -87,6 +87,10 @@ void portFogSetPositionF(s32 on, f32 mn, f32 mx)
     sPortFogMn = mn;
     sPortFogMx = mx;
 }
+
+extern void portLevelgenFloatCameraSet(s32 on);   /* port_levelgen_select.c: the float camera matrix (bondview2.c) */
+static EnvironmentRecord *sLevelFogEnv;           /* a generated level's own environment record (portLevelFogMetres moves its fog) */
+void portLevelFogMetres(f32 start, f32 full);
 #endif
 
 /**
@@ -531,6 +535,47 @@ void fogRemoved7F0BAA5C(s32 a)
 }
 
 
+#ifndef TARGET_N64
+/* PORT: a generated level's fog band in world distances (level-agnostic: the sniper snowfield; the jungle can take it): no fog nearer
+ * than `start`, full fog at `full` (0 or past what the band can reach: as far as it goes; the fog may never be full on the map). The
+ * distances become the float fog positions of the level's own near and far planes (the fog factor runs in 1/distance: position(d) =
+ * 500 ((F + n) / (F - n) + 1 - 2Fn / ((F - n) d))); a band narrower than the s16 fog factor allows (3.95 thousandths) is widened at its
+ * far end. Only a level whose environment set sLevelFogEnv takes it: a stock stage never does. Presentation (the fog colour's blend). */
+static f32 sLevelFogStart = -1.0f, sLevelFogFull = -1.0f;
+
+void portLevelFogMetres(f32 start, f32 full)
+{
+    EnvironmentRecord *e = sLevelFogEnv;
+    f32 n, F, k0, k1, mn, mx;
+
+    if (e == NULL || start <= 0.0f) return;
+    n = e->Visibility.BlendMultiplier;
+    F = e->Visibility.FarFog;
+    if (!(F > n && n > 0.0f)) return;
+    k0 = 500.0f * ((F + n) / (F - n) + 1.0f);
+    k1 = 500.0f * 2.0f * F * n / (F - n);
+    mn = k0 - k1 / start;
+    mx = (full > start) ? k0 - k1 / full : k0;
+    if (mx - mn < 3.95f) mx = mn + 3.95f;
+    sLevelFogStart = start;
+    sLevelFogFull = full;
+    portFogSetPositionF(1, mn, mx);
+    fogLoadCurrentEnvironment(e);
+    {
+        extern void portConLogf(const char *fmt, ...);
+        portConLogf("ge: fog: level band %.0f .. %.0f units: positions %.3f .. %.3f (near %.0f, far %.0f)\n", start, full, mn, mx, n, F);
+    }
+}
+
+s32 portLevelFogGet(f32 *start, f32 *full)
+{
+    if (sLevelFogEnv == NULL) return 0;
+    *start = sLevelFogStart;
+    *full = sLevelFogFull;
+    return 1;
+}
+#endif
+
 /**
  * Address 0x7F0BAA64.
 */
@@ -545,6 +590,8 @@ void fogLoadLevelEnvironment(s32 level_id, s32 arg1)
 
 #ifndef TARGET_N64
     sPortFogPosF = 0;   /* a stage's own environment: the record's whole-number fog positions */
+    sLevelFogEnv = NULL;   /* (a generated level's own environment sets it: portLevelFogMetres) */
+    portLevelgenFloatCameraSet(0);   /* the fixed-point camera matrix (the snowfield below turns the float one on) */
     if (level_id == LEVELID_SHO)
     {
         level_id = LEVELID_SURFACE; /* PORT: Flatland (port/flatland) takes Surface's sky and fog */
@@ -585,28 +632,43 @@ void fogLoadLevelEnvironment(s32 level_id, s32 arg1)
 
         if (portLevelgenSkyIsSurface())
         {   /* the sniper snowfield (tools/levelgen/build_snowfield.py): Surface's own record out of the (ROM-served) table, its sky,
-             * clouds and fog colour, with the far plane moved out to 450 m for the 300 m sight lines (the slot is level scale 1,
+             * clouds and fog colour, with the far plane moved out to 660 m for the 500 m sight lines (the slot is level scale 1,
              * visibility scale 1: the planes are world units), no near-fog fade of props (a marksman is drawn to the far plane), and
-             * the fog band slid back (float positions) so the far end hazes to about a third instead of vanishing. */
+             * a default haze set in metres (portLevelFogMetres: it starts at 180 m and thickens out to the perimeter, as Surface's own
+             * soft edges, scaled to the field; the mode and its storms move it). The near plane is 50 (0.5 m): with the near plane at
+             * 10 every distance past 100 m sits within one thousandth of depth and the fog could only be flat (a hard edge at the
+             * perimeter); at 50 the band spreads over the field. GE_SNOW_OLDFOG=1 is the first prototype's (near 10, a flat band). */
             static EnvironmentRecord snow_env;
             EnvironmentRecord *r;
+            extern char *getenv(const char *);
 
             for (r = &fog_tables[0]; r->Id != 0; r++)
             {
                 if (r->Id == LEVELID_SURFACE)
                 {
+                    s32 oldfog = getenv("GE_SNOW_OLDFOG") != NULL;
+
                     snow_env = *r;
                     snow_env.Id = LEVELID_LEE;
-                    snow_env.Visibility.BlendMultiplier = 10.0f;
-                    snow_env.Visibility.FarFog = 45000.0f;
+                    snow_env.Visibility.BlendMultiplier = oldfog ? 10.0f : 50.0f;
+                    snow_env.Visibility.FarFog = 66000.0f;
                     snow_env.Visibility.Nfd.NearFog = 0.0f;
                     snow_env.Fog.DifferenceFromFarIntensity = 996;
                     snow_env.Fog.FarIntensity = 1000;
-                    portFogSetPositionF(1, 998.5f, 1002.5f);
+                    portLevelgenFloatCameraSet(1);   /* the world's coordinates pass the fixed-point camera matrix at a narrow zoom */
                     g_EnvironmentFoundp = &snow_env;
                     g_EnvironmentMainp = &snow_env;
                     g_EnvironmentAltp = &snow_env;
-                    fogLoadCurrentEnvironment(&snow_env);
+                    sLevelFogEnv = &snow_env;
+                    if (oldfog)
+                    {
+                        portFogSetPositionF(1, 998.5f, 1002.5f);
+                        fogLoadCurrentEnvironment(&snow_env);
+                    }
+                    else
+                    {
+                        portLevelFogMetres(18000.0f, 0.0f);   /* (loads the environment) */
+                    }
                     return;
                 }
             }

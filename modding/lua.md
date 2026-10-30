@@ -651,6 +651,22 @@ end)
 - `bench.*` (`run_start`, `note`, `begin`, `tag`, `pools`, `finish`, `look`, `sweep`, `sweep_off`, `last`, `exit`): the arena frame-time benchmark (modding/arena.md, `tools/mode_arena_bench.lua`).
 - `simprof.phase(name)`, `simprof.count(key)`: only when `GE_PROFILE_SIM` is set (32-bit Linux builds); otherwise the table is nil (`tests/heist/run_simprof.sh`).
 
+### The sniper duel: `sniper.*`
+
+`port/src/port_sniper.c`, `port/luavm/port_luavm_sniper.c`; used by `tools/mode_sniper_v2.lua` (modding/sniper.md). Sim state is reset at every stage start.
+
+| Call | Notes |
+| --- | --- |
+| `sniper.zoom_limit(item, fov)` | The narrowest field of view (degrees) `"sniperrifle"` or `"camera"` zooms to (stock 7). Raises on another item. Sim. |
+| `sniper.view(p)` | `aiming, item, fov, stance`: aim mode, the `ITEM_*` id in his right hand, the field of view now, the stance (0 stand, 1 crouch, 2 squat, 3 prone). |
+| `sniper.prone(p [, on])`, `sniper.prone_tune(eye, speed, sway)` | PRONE, a stance under the squat: set / read; the eye offset (-160..-100), the move-speed and sway scales. Sim. |
+| `sniper.no_unarmed(on)` | The weapon cycle steps over the bare hands (they stay in the inventory as the empty-gun fallback). Sim. |
+| `sniper.bond_hit(frac)` | An AI shot on Bond takes exactly `frac` of a health bar (0: the stock damage, which varies with the part struck). Sim. |
+| `sniper.fog([start_m [, full_m]])` | A generated level's fog band in metres from the eye (no fog nearer than start, full at full; 0: as far as the band reaches); returns the band, nothing on a level without one. Presentation. |
+| `sniper.point(id, kind, x, y, z [, alpha [, size]])`, `sniper.clear()` | Overlay points 0..23 at world positions: `"glint"` (a white flare), `"marker"` (a quiet diamond), `"tag"` (brackets), `"off"`. Presentation. |
+| `sniper.binoculars(on)`, `sniper.thermal(on [, dim])` | The lens frame while the camera is raised in aim mode; the thermal dim. Presentation. |
+| `test.aim(p, on [, fov])` | Aim mode forced on at that zoom (the real scope or binoculars in a hidden run). |
+
 ### Arena Whacky: `chrfx.*` (presentation) and `whacky.*` (sim)
 
 `port/luavm/port_luavm_whacky.c`, `port/src/port_chrfx.c`, `port/src/port_whacky.c`; used by `tools/arena_whacky.lua` (modding/arena.md, Whacky).

@@ -81,6 +81,13 @@ s32 portLevelgenSkyIsSurface(void)
     return strcmp(portLevelgenVariant(), "snowfield") == 0;
 }
 
+/* bondview2.c: the world's camera matrix goes to the renderer as floats too (gfx_pc.cpp), set by bgfog.c at each stage's environment load:
+ * on only while the levelgen slot holds the snowfield, whose coordinates pass the fixed-point Mtx range at a narrow zoom */
+static s32 sFloatCamera;
+
+void portLevelgenFloatCameraSet(s32 on) { sFloatCamera = on; }
+s32 portLevelgenFloatCamera(void) { return sFloatCamera; }
+
 /* bg.c load_bg_file, the levelgen slot: the stan to use */
 u8 *portLevelgenStan(void)
 {

@@ -1215,6 +1215,17 @@ void advance_through_inventory(void)
     else
     {
         bondinvCycleForward(&nextright, &nextleft, FALSE);
+#ifndef TARGET_N64
+        {   /* PORT: the sniper duel's loadout (port_sniper.c): the weapon cycle steps over the bare hands (they stay in the inventory,
+             * the fallback when every gun is empty) */
+            extern s32 portSniperNoUnarmed(void);
+
+            if (portSniperNoUnarmed() && nextright == ITEM_UNARMED && nextleft == ITEM_UNARMED)
+            {
+                bondinvCycleForward(&nextright, &nextleft, FALSE);
+            }
+        }
+#endif
     }
 
     gunRequestHandWeaponChange(GUNRIGHT, nextright, 1);
@@ -1238,6 +1249,16 @@ void backstep_through_inventory(void)
     else
     {
         bondinvCycleBackward(&nextright, &nextleft, FALSE);
+#ifndef TARGET_N64
+        {   /* PORT: as advance_through_inventory: the sniper duel's cycle steps over the bare hands */
+            extern s32 portSniperNoUnarmed(void);
+
+            if (portSniperNoUnarmed() && nextright == ITEM_UNARMED && nextleft == ITEM_UNARMED)
+            {
+                bondinvCycleBackward(&nextright, &nextleft, FALSE);
+            }
+        }
+#endif
     }
 
     gunRequestHandWeaponChange(GUNRIGHT, nextright, -1);
@@ -1443,20 +1464,27 @@ void camera_sniper_zoom_out(f32 zoom)
 	}
 }
 
+#ifndef TARGET_N64
+extern f32 portSniperMinFov(s32 item);   /* port_sniper.c: the narrowest zoom (stock 7 degrees; the sniper duel tunes it) */
+#define GUN_MIN_ZOOM(item) portSniperMinFov(item)
+#else
+#define GUN_MIN_ZOOM(item) 7.0f
+#endif
+
 void camera_sniper_zoom_in(f32 zoom)
 {
 	if (get_item_in_hand_or_watch_menu(GUNRIGHT) == ITEM_SNIPERRIFLE) {
 		g_CurrentPlayer->sniper_zoom /= gunZoomStepFactor(zoom);
-		if (g_CurrentPlayer->sniper_zoom < 7.0f) {
-			g_CurrentPlayer->sniper_zoom = 7.0f;
+		if (g_CurrentPlayer->sniper_zoom < GUN_MIN_ZOOM(ITEM_SNIPERRIFLE)) {
+			g_CurrentPlayer->sniper_zoom = GUN_MIN_ZOOM(ITEM_SNIPERRIFLE);
 		}
 	}
 	else
 	{
 		if (get_item_in_hand_or_watch_menu(GUNRIGHT) == ITEM_CAMERA) {
 			g_CurrentPlayer->camera_zoom /= gunZoomStepFactor(zoom);
-			if (g_CurrentPlayer->camera_zoom < 7.0f) {
-				g_CurrentPlayer->camera_zoom = 7.0f;
+			if (g_CurrentPlayer->camera_zoom < GUN_MIN_ZOOM(ITEM_CAMERA)) {
+				g_CurrentPlayer->camera_zoom = GUN_MIN_ZOOM(ITEM_CAMERA);
 			}
 		}
 	}

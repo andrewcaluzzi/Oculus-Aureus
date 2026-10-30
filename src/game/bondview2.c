@@ -8303,6 +8303,24 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
         chrCheckGuardsHeardSound(noiseRadius);
     }
 
+#ifndef TARGET_N64
+    {   /* PORT: test.aim (port_sniper.c): aim mode forced on with a set zoom, so a hidden run looks through the real scope */
+        extern s32 portSniperForcedAim(s32 p, f32 *fov);
+        f32 forcefov = 0.0f;
+
+        if (portSniperForcedAim(get_cur_playernum(), &forcefov))
+        {
+            g_CurrentPlayer->insightaimmode = 1;
+            moveData.aiming = 1;
+            moveData.zooming = 1;
+            if (forcefov > 0.0f)
+            {
+                g_CurrentPlayer->sniper_zoom = forcefov;
+                g_CurrentPlayer->camera_zoom = forcefov;
+            }
+        }
+    }
+#endif
     gunSetSightVisible(GUNSIGHTREASON_NOTAIMING, moveData.aiming);
 
     if (moveData.zoomOutFovPersec > 0)
@@ -10315,6 +10333,13 @@ void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
             // removed?
             currentPlayerGetCrouchPos();
         }
+#ifndef TARGET_N64
+        {   /* PORT: the sniper duel's PRONE (port_sniper.c): a third, lower stance below the squat */
+            extern f32 portSniperEyeOffset(s32 p, f32 stock);
+
+            sp2AC = portSniperEyeOffset(get_cur_playernum(), sp2AC);
+        }
+#endif
 
         if (sp2AC != g_CurrentPlayer->ducking_height_offset)
         {
@@ -11923,6 +11948,9 @@ void bondviewUpdateCameraMatrices(coord3d* cam_pos, coord3d* cam_look_dir, coord
     Mtxf sp60;
     s32 j;
     s32 i;
+#ifndef TARGET_N64
+    Mtxf floatcam;
+#endif
 
     i = bondviewGetCurrentPlayersRoom();
     bondviewUpdateCurrentRoomPosition(i);
@@ -11968,6 +11996,9 @@ void bondviewUpdateCameraMatrices(coord3d* cam_pos, coord3d* cam_look_dir, coord
 
     projmtx = currentPlayerGetProjectionMatrixF();
     matrix_4x4_multiply(projmtx, &spC4, &sp60);
+#ifndef TARGET_N64
+    floatcam = sp60;   /* (the unclamped camera matrix: see below) */
+#endif
 
 	for (i = 0; i < 4; i++)
     {
@@ -11985,6 +12016,20 @@ void bondviewUpdateCameraMatrices(coord3d* cam_pos, coord3d* cam_look_dir, coord
 	}
 
     guMtxF2L((f32 (*)[4]) &sp60, temp_s0);
+#ifndef TARGET_N64
+    {   /* PORT: a generated level whose world runs past the fixed-point range (the sniper snowfield, 2x Surface's size at level scale 1):
+         * the clamp above moves the whole world off the screen once the camera matrix's translation row passes 32000 (the eye ~2000 units
+         * off the origin through the 7-degree scope's 16x projection: the "inverted lens" AC saw when zoomed and panning up). The renderer
+         * takes the unclamped floats for this Mtx instead (gfx_pc.cpp gfx_sp_matrix). Every other level keeps the fixed-point matrix. */
+        extern s32 portLevelgenFloatCamera(void);
+        extern void portGfxFloatMtx(const void *fixedaddr, const float m[4][4]);
+
+        if (portLevelgenFloatCamera())
+        {
+            portGfxFloatMtx(temp_s0, floatcam.m);
+        }
+    }
+#endif
     set_BONDdata_field_10E0((s32) temp_s0);
 
     scale = bgGetLevelVisibilityScale();
@@ -13784,6 +13829,10 @@ void record_damage_kills(f32 damage_amount, f32 vectorx, f32 vectorz, s32 player
     { /* PORT: modifier enemy_damage scales what Bond takes (1.0f at the default) */
         extern f32 portModEnemyDamageScale(void);
         damage_dealt *= portModEnemyDamageScale();
+    }
+    { /* PORT: the sniper duel's exact hits: an AI shot takes the set fraction of a bar (port_sniper.c; off unless the mode sets it) */
+        extern f32 portSniperBondHitDamage(f32 dmg, f32 actual_health);
+        damage_dealt = portSniperBondHitDamage(damage_dealt, g_CurrentPlayer->actual_health);
     }
 #endif
 

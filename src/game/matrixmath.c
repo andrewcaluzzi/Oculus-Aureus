@@ -497,6 +497,31 @@ void matrix_4x4_f32_to_s32(f32 mf[4][4], s32 ms[4][4])
     f32 *src = (f32 *)mf;
     s32 *dst = (s32 *)ms;
     s32 i;
+#ifndef TARGET_N64
+    /* PORT: a level past the fixed-point range (the sniper snowfield: port_levelgen_select.c portLevelgenFloatCamera): a matrix with an
+     * element the s15.16 Mtx cannot hold (a far room's or a far chr's position relative to Bond's room) goes to the renderer as floats
+     * too (gfx_pc.cpp). The floats are kept before the conversion (the callers convert in place). */
+    extern s32 portLevelgenFloatCamera(void);
+    extern void portGfxFloatMtx(const void *fixedaddr, const float m[4][4]);
+    f32 keep[4][4];
+    s32 big = 0;
+
+    if (portLevelgenFloatCamera())
+    {
+        for (i = 0; i < 16; i++)
+        {
+            if (src[i] >= 32767.0f || src[i] <= -32768.0f)
+            {
+                big = 1;
+                break;
+            }
+        }
+        if (big)
+        {
+            for (i = 0; i < 16; i++) ((f32 *) keep)[i] = src[i];
+        }
+    }
+#endif
 
     for (i = 0; i < 8; i += 1)
     {
@@ -507,6 +532,12 @@ void matrix_4x4_f32_to_s32(f32 mf[4][4], s32 ms[4][4])
         dst[(i + 0) + 0] = (e1 & 0xffff0000) | (((u32)e2) >> 16);
         dst[(i + 0) + 8] = (e1 << 16) | (e2 & 0xffff);
     }
+#ifndef TARGET_N64
+    if (big)
+    {
+        portGfxFloatMtx(ms, (const float (*)[4]) keep);
+    }
+#endif
 }
 
 /*

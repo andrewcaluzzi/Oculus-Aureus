@@ -1930,6 +1930,11 @@ static lua_State *portLuaState(void)
 
         portLuaWhackyRegister(sL);
     }
+    {   /* the sniper duel: the `sniper` table (port_luavm_sniper.c, port/src/port_sniper.c) */
+        extern void portLuaSniperRegister(lua_State *L);
+
+        portLuaSniperRegister(sL);
+    }
     lua_pushcfunction(sL, portLuaOn);
     lua_setglobal(sL, "on");
     lua_pushcfunction(sL, portLuaInclude);

@@ -15136,7 +15136,16 @@ bool posIsOnScreen(PropRecord *prop, coord3d *pos, f32 arg2, bool arg3)
                     f32 ydiff = pos->y - campos->y;
                     f32 zdiff = pos->z - campos->z;
 
+#ifndef TARGET_N64
+                    /* PORT: the 320 m cut is the fixed-point matrices' range (a prop's matrix holds its position relative to the
+                     * camera); a level whose far matrices go to the renderer as floats (the sniper snowfield: gfx_pc.cpp,
+                     * matrixmath.c) draws its marksmen out to the far plane instead */
+                    extern s32 portLevelgenFloatCamera(void);
+
+                    if (!portLevelgenFloatCamera() && xdiff * xdiff + ydiff * ydiff + zdiff * zdiff > 32000 * 32000)
+#else
                     if (xdiff * xdiff + ydiff * ydiff + zdiff * zdiff > 32000 * 32000)
+#endif
                     {
                         result = FALSE;
                     }

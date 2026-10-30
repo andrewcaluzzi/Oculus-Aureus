@@ -2298,6 +2298,11 @@ Gfx *portConRender(Gfx *gdl)
 
             gdl = portGadgetsOverlay(gdl);
         }
+        {
+            extern Gfx *portSniperOverlay(Gfx *gdl);   /* the sniper duel: glints, markers, tags, the binoculars' lens frame */
+
+            gdl = portSniperOverlay(gdl);
+        }
         {   /* the AR specs and the diagnostics layer (port_arhud.c) */
             extern Gfx *portArHudRender(Gfx *gdl);
             gdl = portArHudRender(gdl);
