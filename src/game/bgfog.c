@@ -538,11 +538,12 @@ void fogRemoved7F0BAA5C(s32 a)
 
 
 #ifndef TARGET_N64
-/* PORT: a generated level's fog band in world distances (level-agnostic: the sniper snowfield; the jungle can take it): no fog nearer
- * than `start`, full fog at `full` (0 or past what the band can reach: as far as it goes; the fog may never be full on the map). The
- * distances become the float fog positions of the level's own near and far planes (the fog factor runs in 1/distance: position(d) =
- * 500 ((F + n) / (F - n) + 1 - 2Fn / ((F - n) d))); a band narrower than the s16 fog factor allows (3.95 thousandths) is widened at its
- * far end. Only a level whose environment set sLevelFogEnv takes it: a stock stage never does. Presentation (the fog colour's blend). */
+/* PORT: a generated level's fog band in world distances (level-agnostic: the sniper snowfield and jungle): no fog nearer than `start`,
+ * full fog at `full` (0 or past what the band can reach: as far as it goes; the fog may never be full on the map). The distances
+ * become the float fog positions of the level's own near and far planes (the fog factor runs in 1/distance: position(d) =
+ * 500 ((F + n) / (F - n) + 1 - 2Fn / ((F - n) d))); a band narrower than the s16 fog factor allows (3.95 thousandths) is carried as
+ * floats (gfx_pc.cpp portGfxFogFloat). Only a level whose environment set sLevelFogEnv takes it: a stock stage never does.
+ * Presentation (the fog colour's blend). */
 static f32 sLevelFogStart = -1.0f, sLevelFogFull = -1.0f;
 
 void portLevelFogMetres(f32 start, f32 full)
@@ -593,7 +594,7 @@ void fogLoadLevelEnvironment(s32 level_id, s32 arg1)
 #ifndef TARGET_N64
     sPortFogPosF = 0;   /* a stage's own environment: the record's whole-number fog positions */
     sLevelFogEnv = NULL;   /* (a generated level's own environment sets it: portLevelFogMetres) */
-    portLevelgenFloatCameraSet(0);   /* the fixed-point camera matrix (the snowfield below turns the float one on) */
+    portLevelgenFloatCameraSet(0);   /* the fixed-point camera matrix (a long-range sniper stage below turns the float one on) */
     if (level_id == LEVELID_SHO)
     {
         level_id = LEVELID_SURFACE; /* PORT: Flatland (port/flatland) takes Surface's sky and fog */
@@ -631,41 +632,52 @@ void fogLoadLevelEnvironment(s32 level_id, s32 arg1)
          * colour shows only through a gap in the geometry). Static, as for the Colosseum above. */
         static EnvironmentFoglessRecord levelgen_env;
         extern s32 portLevelgenSkyIsSurface(void);   /* port_levelgen_select.c */
+        extern s32 portLevelgenSkyIsJungle(void);    /* port_levelgen_select.c */
+        s32 sky_level = portLevelgenSkyIsSurface() ? LEVELID_SURFACE : portLevelgenSkyIsJungle() ? LEVELID_JUNGLE : 0;
 
-        if (portLevelgenSkyIsSurface())
+        if (sky_level != 0)
         {   /* the sniper snowfield (tools/levelgen/build_snowfield.py): Surface's own record out of the (ROM-served) table, its sky,
              * clouds and fog colour, with the far plane moved out to 660 m for the 500 m sight lines (the slot is level scale 1,
              * visibility scale 1: the planes are world units), no near-fog fade of props (a marksman is drawn to the far plane), and
              * a default haze set in metres (portLevelFogMetres: none nearer than 220 m, full at 860 m: half at 350 m, 85% at the perimeter, as Surface's own
              * soft edges, scaled to the field; the mode and its storms move it). The near plane is 50 (0.5 m): with the near plane at
              * 10 every distance past 100 m sits within one thousandth of depth and the fog could only be flat (a hard edge at the
-             * perimeter); at 50 the band spreads over the field. GE_SNOW_OLDFOG=1 is the first prototype's (near 10, a flat band). */
+             * perimeter); at 50 the band spreads over the field. GE_SNOW_OLDFOG=1 is the first prototype's (near 10, a flat band).
+             * The sniper jungle (tools/levelgen/build_jungle.py): the same with Jungle's own record (its sky and green-brown fog
+             * colour), the far plane at 560 m and a lighter default haze (none nearer than 200 m, full at 900 m, past the far plane:
+             * 40% at 300 m, 75% at 500 m; in a heavier one Jungle's dark fog colour already hid a man at 100 m). GE_JUNGLE_OLDFOG=1 is
+             * its first prototype's. Both are long-range sniper stages: the float matrices on (port_levelgen_select.c). */
             static EnvironmentRecord snow_env;
             EnvironmentRecord *r;
             extern char *getenv(const char *);
 
             for (r = &fog_tables[0]; r->Id != 0; r++)
             {
-                if (r->Id == LEVELID_SURFACE)
+                if (r->Id == sky_level)
                 {
-                    s32 oldfog = getenv("GE_SNOW_OLDFOG") != NULL;
+                    s32 jungle = sky_level == LEVELID_JUNGLE;
+                    s32 oldfog = getenv(jungle ? "GE_JUNGLE_OLDFOG" : "GE_SNOW_OLDFOG") != NULL;
 
                     snow_env = *r;
                     snow_env.Id = LEVELID_LEE;
                     snow_env.Visibility.BlendMultiplier = oldfog ? 10.0f : 50.0f;
-                    snow_env.Visibility.FarFog = 66000.0f;
+                    snow_env.Visibility.FarFog = jungle ? 56000.0f : 66000.0f;
                     snow_env.Visibility.Nfd.NearFog = 0.0f;
                     snow_env.Fog.DifferenceFromFarIntensity = 996;
                     snow_env.Fog.FarIntensity = 1000;
-                    portLevelgenFloatCameraSet(1);   /* the world's coordinates pass the fixed-point camera matrix at a narrow zoom */
+                    portLevelgenFloatCameraSet(1);   /* the world's coordinates pass the fixed-point matrices at a narrow zoom / far off */
                     g_EnvironmentFoundp = &snow_env;
                     g_EnvironmentMainp = &snow_env;
                     g_EnvironmentAltp = &snow_env;
                     sLevelFogEnv = &snow_env;
                     if (oldfog)
                     {
-                        portFogSetPositionF(1, 998.5f, 1002.5f);
+                        portFogSetPositionF(1, jungle ? 998.4f : 998.5f, jungle ? 1002.4f : 1002.5f);
                         fogLoadCurrentEnvironment(&snow_env);
+                    }
+                    else if (jungle)
+                    {
+                        portLevelFogMetres(20000.0f, 90000.0f);   /* (loads the environment) */
                     }
                     else
                     {

@@ -311,6 +311,20 @@ if(GE_LEVELGEN_EXTRA AND NOT GE_LEVELGEN_EXTRA STREQUAL GE_LEVELGEN_DIR AND EXIS
     port_add_asset_direct_as(${GE_LEVELGEN_EXTRA}/UsetuplevelgenZ.c UsetuplevelgenZ Usetuplevelgen${_lgx}Z)
     message(STATUS "levelgen: '${GE_LEVELGEN_DEFAULT_NAME}' (${GE_LEVELGEN_DIR}) and '${_lgx}' (${GE_LEVELGEN_EXTRA}), chosen at runtime by GE_LEVELGEN")
 endif()
+# A third generated level on the slot, the same way (the sniper build: the snowfield and the jungle in one exe). Empty = none.
+set(GE_LEVELGEN_EXTRA2 "" CACHE STRING "a third generated level for the levelgen slot (GE_LEVELGEN=<name>); empty = none")
+set(GE_LEVELGEN_EXTRA2_NAME "" CACHE STRING "the third level's name (GE_LEVELGEN value, symbol suffix, levelgen_layout_<name>.lua)")
+set(GE_LEVELGEN_HAS_EXTRA2 OFF)
+if(GE_LEVELGEN_HAS_EXTRA AND GE_LEVELGEN_EXTRA2 AND GE_LEVELGEN_EXTRA2_NAME AND NOT GE_LEVELGEN_EXTRA2_NAME STREQUAL GE_LEVELGEN_EXTRA_NAME
+   AND EXISTS ${CMAKE_SOURCE_DIR}/${GE_LEVELGEN_EXTRA2}/UsetuplevelgenZ.c)
+    set(GE_LEVELGEN_HAS_EXTRA2 ON)
+    set(_lgx2 ${GE_LEVELGEN_EXTRA2_NAME})
+    list(APPEND PORT_ASSET_KEEP_SYMS bg_lee_${_lgx2}_all_p_seg Tbg_levelgen_${_lgx2}_all_p_stanZ Usetuplevelgen${_lgx2}Z)
+    port_add_asset_seg(${GE_LEVELGEN_EXTRA2}/bg_levelgen_all_p.c bg_lee_${_lgx2}_all_p_seg)
+    port_add_asset_direct_as(${GE_LEVELGEN_EXTRA2}/Tbg_levelgen_all_p_stanZ.c Tbg_levelgen_all_p_stanZ Tbg_levelgen_${_lgx2}_all_p_stanZ)
+    port_add_asset_direct_as(${GE_LEVELGEN_EXTRA2}/UsetuplevelgenZ.c UsetuplevelgenZ Usetuplevelgen${_lgx2}Z)
+    message(STATUS "levelgen: and '${_lgx2}' (${GE_LEVELGEN_EXTRA2})")
+endif()
 get_property(ASSET_OBJS_KEEP GLOBAL PROPERTY PORT_ASSET_OBJS_KEEP)
 get_property(ASSET_OBJS_SERVED GLOBAL PROPERTY PORT_ASSET_OBJS_SERVED)
 # GE_ROMDATA_FALLBACK OFF: drop the served asset objects (models/bg/setups/
@@ -506,6 +520,9 @@ add_executable(ge ${GAME_SRC} ${ENGINE_SRC} ${GU_SRC} ${PORT_SRC}
 set(_lgdefs "GE_LEVELGEN_DEFAULT_NAME=\"${GE_LEVELGEN_DEFAULT_NAME}\"")
 if(GE_LEVELGEN_HAS_EXTRA)
     list(APPEND _lgdefs "GE_LEVELGEN_EXTRA_NAME=\"${GE_LEVELGEN_EXTRA_NAME}\"" "GE_LEVELGEN_EXTRA_SYM=${GE_LEVELGEN_EXTRA_NAME}")
+endif()
+if(GE_LEVELGEN_HAS_EXTRA2)
+    list(APPEND _lgdefs "GE_LEVELGEN_EXTRA2_NAME=\"${GE_LEVELGEN_EXTRA2_NAME}\"" "GE_LEVELGEN_EXTRA2_SYM=${GE_LEVELGEN_EXTRA2_NAME}")
 endif()
 set_property(SOURCE ${CMAKE_SOURCE_DIR}/port/src/port_levelgen_select.c APPEND PROPERTY COMPILE_DEFINITIONS ${_lgdefs})
 # The executable is named ProjectMidas, but the CMake target stays `ge` so build
@@ -738,12 +755,20 @@ if(GE_VIDEO)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/tools/sniper_v2_defs.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/_sniper_v2_defs.lua
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            ${CMAKE_SOURCE_DIR}/tools/mode_sniper_v2.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/sniper-v2.lua)
+            ${CMAKE_SOURCE_DIR}/tools/mode_sniper_v2.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/sniper-v2.lua
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/tools/mode_sniper_jungle.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/sniper-jungle.lua)
     if(GE_LEVELGEN_HAS_EXTRA)
         add_custom_command(TARGET ge POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 ${CMAKE_SOURCE_DIR}/${GE_LEVELGEN_EXTRA}/levelgen_layout.lua
                 $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/levelgen_layout_${GE_LEVELGEN_EXTRA_NAME}.lua)
+    endif()
+    if(GE_LEVELGEN_HAS_EXTRA2)
+        add_custom_command(TARGET ge POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                ${CMAKE_SOURCE_DIR}/${GE_LEVELGEN_EXTRA2}/levelgen_layout.lua
+                $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/levelgen_layout_${GE_LEVELGEN_EXTRA2_NAME}.lua)
     endif()
     # the player bot's level plans (port_playerbot.c reads Data/BotPlans/<stage>.plan)
     file(GLOB GE_BOT_PLANS CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/tools/bot/plans/*.plan)
@@ -782,6 +807,7 @@ if(GE_VIDEO)
                 "${CMAKE_SOURCE_DIR}/launchers/Play Sniper Ridge.bat"
                 "${CMAKE_SOURCE_DIR}/launchers/Play Sniper Snowfield.bat"
                 "${CMAKE_SOURCE_DIR}/launchers/Play Sniper v2.bat"
+                "${CMAKE_SOURCE_DIR}/launchers/Play Sniper Jungle.bat"
                 "${CMAKE_SOURCE_DIR}/launchers/Walk Janus Bank.bat"
                 "$<TARGET_FILE_DIR:ge>"
             VERBATIM)

@@ -415,6 +415,8 @@ end
 -- ----------------------------------------------------------------- events ---
 on("stage_start", function()
   bond_xyz()
+  local fog = S.fog or SD.fog   -- a generated level's default haze in metres {start, full} (sniper.fog); S.fog from the settings wins
+  if fog and sniper and sniper.fog then pcall(sniper.fog, fog[1], fog[2]) end
   if ar then
     pcall(ar.on, true)
     for _, l in ipairs({ "suspicion", "speech", "keys", "doors", "cameras", "radar" }) do pcall(ar.layer, l, false) end

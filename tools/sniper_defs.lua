@@ -105,6 +105,15 @@ D.STAGES = {
             layout = "levelgen_layout_snowfield", bond_names = { "b1", "b2", "b3", "b4", "b5" },
             perch_names = { "m3", "m4", "m5", "m6", "m7", "m8", "f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "m1", "m2" },
             foe_scale = 2.0, all_perches = true, geom_los = true },
+  -- the jungle prototype (tools/levelgen/build_jungle.py, Play Sniper Jungle.bat; not on the card: its own build): a 410 m wide jungle valley.
+  -- Every perch is 250 to 355 m from Bond (the hunters' ridge f*, the flank ridges w* / e*, the knolls k*). The stan line (the AI's sight)
+  -- is stopped by the trees (props) and the thickets / boulders (stan holes) under it however high it runs, so the listed perches are the
+  -- ones whose line to b1 the generator keeps clear of both; geom_los adds the drawn ground
+  jungle = { key = "jungle", name = "SNIPER JUNGLE", card = "JUNGLE", stage = "levelgen", env = { GE_LEVELGEN = "jungle" },
+            layout = "levelgen_layout_jungle", bond_names = { "b1", "b2", "b3", "b4", "b5" },
+            perch_names = { "f2", "f3", "f4", "f5", "f7", "f9", "w1", "w2", "e1", "e3", "k1", "k2", "k3", "k5", "k7" },
+            foe_scale = 2.0, all_perches = true, geom_los = true,
+            fog = { 200, 900 } },   -- the default haze in metres (sniper.fog: none nearer than 200 m, full at 900 m, past the 560 m far plane: 40% at 300 m, 75% at 500 m)
 }
 D.STAGE_ORDER = { "ridge", "surface" }
 function D.key(id) return (D.STAGES[id or "surface"] or D.STAGES.surface).key end   -- the best-score key (ui prefs sniper_bests: <key>_rounds ...)

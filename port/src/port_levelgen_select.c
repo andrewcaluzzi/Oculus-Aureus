@@ -42,16 +42,25 @@ extern u8 LG_CAT(Tbg_levelgen_, GE_LEVELGEN_EXTRA_SYM, _all_p_stanZ)[];
 extern stagesetup LG_CAT(Usetuplevelgen, GE_LEVELGEN_EXTRA_SYM, Z);
 extern u8 LG_CAT(bg_lee_, GE_LEVELGEN_EXTRA_SYM, _all_p_seg)[];
 #endif
+#ifdef GE_LEVELGEN_EXTRA2_NAME
+/* a third level (GE_LEVELGEN_EXTRA2: the sniper build carries the snowfield and the jungle), the same way */
+extern u8 LG_CAT(Tbg_levelgen_, GE_LEVELGEN_EXTRA2_SYM, _all_p_stanZ)[];
+extern stagesetup LG_CAT(Usetuplevelgen, GE_LEVELGEN_EXTRA2_SYM, Z);
+extern u8 LG_CAT(bg_lee_, GE_LEVELGEN_EXTRA2_SYM, _all_p_seg)[];
+#endif
 
-static int useExtra(void)
+static int useExtra(void)   /* 0 the default level, 1 the extra, 2 the second extra */
 {
-#ifdef GE_LEVELGEN_EXTRA_NAME
     const char *e = getenv("GE_LEVELGEN");
 
-    return e != NULL && strcmp(e, GE_LEVELGEN_EXTRA_NAME) == 0;
-#else
-    return 0;
+    if (e == NULL) return 0;
+#ifdef GE_LEVELGEN_EXTRA_NAME
+    if (strcmp(e, GE_LEVELGEN_EXTRA_NAME) == 0) return 1;
 #endif
+#ifdef GE_LEVELGEN_EXTRA2_NAME
+    if (strcmp(e, GE_LEVELGEN_EXTRA2_NAME) == 0) return 2;
+#endif
+    return 0;
 }
 
 const char *portLevelgenDefaultName(void) { return GE_LEVELGEN_DEFAULT_NAME; }
@@ -59,7 +68,10 @@ const char *portLevelgenDefaultName(void) { return GE_LEVELGEN_DEFAULT_NAME; }
 const char *portLevelgenVariant(void)
 {
 #ifdef GE_LEVELGEN_EXTRA_NAME
-    if (useExtra()) return GE_LEVELGEN_EXTRA_NAME;
+    if (useExtra() == 1) return GE_LEVELGEN_EXTRA_NAME;
+#endif
+#ifdef GE_LEVELGEN_EXTRA2_NAME
+    if (useExtra() == 2) return GE_LEVELGEN_EXTRA2_NAME;
 #endif
     return GE_LEVELGEN_DEFAULT_NAME;
 }
@@ -71,6 +83,9 @@ int portLevelgenHas(const char *name)
 #ifdef GE_LEVELGEN_EXTRA_NAME
     if (strcmp(name, GE_LEVELGEN_EXTRA_NAME) == 0) return 1;
 #endif
+#ifdef GE_LEVELGEN_EXTRA2_NAME
+    if (strcmp(name, GE_LEVELGEN_EXTRA2_NAME) == 0) return 1;
+#endif
     return 0;
 }
 
@@ -81,8 +96,15 @@ s32 portLevelgenSkyIsSurface(void)
     return strcmp(portLevelgenVariant(), "snowfield") == 0;
 }
 
-/* bondview2.c: the world's camera matrix goes to the renderer as floats too (gfx_pc.cpp), set by bgfog.c at each stage's environment load:
- * on only while the levelgen slot holds the snowfield, whose coordinates pass the fixed-point Mtx range at a narrow zoom */
+/* the same for the sniper jungle (tools/levelgen/build_jungle.py): Jungle's sky and fog */
+s32 portLevelgenSkyIsJungle(void)
+{
+    return strcmp(portLevelgenVariant(), "jungle") == 0;
+}
+
+/* bondview2.c, matrixmath.c, propobj.c: the world's matrices go to the renderer as floats too (gfx_pc.cpp) and the 320 m prop draw cut
+ * is lifted. Set by bgfog.c at each stage's environment load: on while the levelgen slot holds a long-range sniper stage (the snowfield,
+ * the jungle: bgfog.c's sky_level), whose coordinates pass the fixed-point Mtx range at a narrow zoom or past ~330 m */
 static s32 sFloatCamera;
 
 void portLevelgenFloatCameraSet(s32 on) { sFloatCamera = on; }
@@ -92,7 +114,10 @@ s32 portLevelgenFloatCamera(void) { return sFloatCamera; }
 u8 *portLevelgenStan(void)
 {
 #ifdef GE_LEVELGEN_EXTRA_NAME
-    if (useExtra()) return LG_CAT(Tbg_levelgen_, GE_LEVELGEN_EXTRA_SYM, _all_p_stanZ);
+    if (useExtra() == 1) return LG_CAT(Tbg_levelgen_, GE_LEVELGEN_EXTRA_SYM, _all_p_stanZ);
+#endif
+#ifdef GE_LEVELGEN_EXTRA2_NAME
+    if (useExtra() == 2) return LG_CAT(Tbg_levelgen_, GE_LEVELGEN_EXTRA2_SYM, _all_p_stanZ);
 #endif
     return Tbg_levelgen_all_p_stanZ;
 }
@@ -102,7 +127,10 @@ stagesetup *portLevelgenSetup(void)
 {
     portConLogf("ge: levelgen: the levelgen slot holds '%s' this stage\n", portLevelgenVariant());
 #ifdef GE_LEVELGEN_EXTRA_NAME
-    if (useExtra()) return &LG_CAT(Usetuplevelgen, GE_LEVELGEN_EXTRA_SYM, Z);
+    if (useExtra() == 1) return &LG_CAT(Usetuplevelgen, GE_LEVELGEN_EXTRA_SYM, Z);
+#endif
+#ifdef GE_LEVELGEN_EXTRA2_NAME
+    if (useExtra() == 2) return &LG_CAT(Usetuplevelgen, GE_LEVELGEN_EXTRA2_SYM, Z);
 #endif
     return &UsetuplevelgenZ;
 }
@@ -113,7 +141,10 @@ void portLevelgenSelectBg(s32 bgidx)
     u8 *want = bg_lee_all_p_seg;
 
 #ifdef GE_LEVELGEN_EXTRA_NAME
-    if (useExtra()) want = LG_CAT(bg_lee_, GE_LEVELGEN_EXTRA_SYM, _all_p_seg);
+    if (useExtra() == 1) want = LG_CAT(bg_lee_, GE_LEVELGEN_EXTRA_SYM, _all_p_seg);
+#endif
+#ifdef GE_LEVELGEN_EXTRA2_NAME
+    if (useExtra() == 2) want = LG_CAT(bg_lee_, GE_LEVELGEN_EXTRA2_SYM, _all_p_seg);
 #endif
     if (bgidx >= 0) file_resource_table[bgidx].hw_address = want;
 }
