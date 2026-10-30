@@ -112,7 +112,8 @@ D.STAGES = {
   jungle = { key = "jungle", name = "SNIPER JUNGLE", card = "JUNGLE", stage = "levelgen", env = { GE_LEVELGEN = "jungle" },
             layout = "levelgen_layout_jungle", bond_names = { "b1", "b2", "b3", "b4", "b5" },
             perch_names = { "f2", "f3", "f4", "f5", "f7", "f9", "w1", "w2", "e1", "e3", "k1", "k2", "k3", "k5", "k7" },
-            foe_scale = 2.0, all_perches = true, geom_los = true },
+            foe_scale = 2.0, all_perches = true, geom_los = true,
+            fog = { 200, 900 } },   -- the default haze in metres (sniper.fog: none nearer than 200 m, full at 900 m, past the 560 m far plane: 40% at 300 m, 75% at 500 m)
 }
 D.STAGE_ORDER = { "ridge", "surface" }
 function D.key(id) return (D.STAGES[id or "surface"] or D.STAGES.surface).key end   -- the best-score key (ui prefs sniper_bests: <key>_rounds ...)

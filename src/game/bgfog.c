@@ -80,13 +80,18 @@ static f32 g_PropFogRegB = 0.0f;
  * every fogLoadLevelEnvironment clears it, so no stock stage ever uses it. */
 static s32 sPortFogPosF;
 static f32 sPortFogMn, sPortFogMx;
+static EnvironmentRecord *sLevelFogEnv;           /* a generated level's own environment record (portLevelFogMetres moves its fog) */
 
 void portFogSetPositionF(s32 on, f32 mn, f32 mx)
 {
-    sPortFogPosF = on && (mx - mn) >= 3.95f;   /* the s16 fog factor 128000 / (mx - mn) */
+    /* the s16 fog factor 128000 / (mx - mn) needs a band 3.95 wide; a generated level's metric band may be narrower (the renderer
+     * takes its float factor: portGfxFogFloat) */
+    sPortFogPosF = on && ((mx - mn) >= 3.95f || (sLevelFogEnv != NULL && (mx - mn) > 0.0f));
     sPortFogMn = mn;
     sPortFogMx = mx;
 }
+
+void portLevelFogMetres(f32 start, f32 full);
 #endif
 
 /**
@@ -531,6 +536,47 @@ void fogRemoved7F0BAA5C(s32 a)
 }
 
 
+#ifndef TARGET_N64
+/* PORT: a generated level's fog band in world distances (level-agnostic): no fog nearer than `start`, full fog at `full` (0 or past
+ * what the band can reach: as far as it goes). The distances become the float fog positions of the level's own near and far planes
+ * (the fog factor runs in 1/distance: position(d) = 500 ((F + n) / (F - n) + 1 - 2Fn / ((F - n) d))); a band narrower than the s16
+ * fog factor allows (3.95 thousandths) is carried as floats (gfx_pc.cpp portGfxFogFloat). Only a level whose environment set
+ * sLevelFogEnv takes it: a stock stage never does. Presentation (the fog colour's blend). */
+static f32 sLevelFogStart = -1.0f, sLevelFogFull = -1.0f;
+
+void portLevelFogMetres(f32 start, f32 full)
+{
+    EnvironmentRecord *e = sLevelFogEnv;
+    f32 n, F, k0, k1, mn, mx;
+
+    if (e == NULL || start <= 0.0f) return;
+    n = e->Visibility.BlendMultiplier;
+    F = e->Visibility.FarFog;
+    if (!(F > n && n > 0.0f)) return;
+    k0 = 500.0f * ((F + n) / (F - n) + 1.0f);
+    k1 = 500.0f * 2.0f * F * n / (F - n);
+    mn = k0 - k1 / start;
+    mx = (full > start) ? k0 - k1 / full : k0;
+    if (mx - mn < 0.05f) mx = mn + 0.05f;
+    sLevelFogStart = start;
+    sLevelFogFull = full;
+    portFogSetPositionF(1, mn, mx);
+    fogLoadCurrentEnvironment(e);
+    {
+        extern void portConLogf(const char *fmt, ...);
+        portConLogf("ge: fog: level band %.0f .. %.0f units: positions %.3f .. %.3f (near %.0f, far %.0f)\n", start, full, mn, mx, n, F);
+    }
+}
+
+s32 portLevelFogGet(f32 *start, f32 *full)
+{
+    if (sLevelFogEnv == NULL) return 0;
+    *start = sLevelFogStart;
+    *full = sLevelFogFull;
+    return 1;
+}
+#endif
+
 /**
  * Address 0x7F0BAA64.
 */
@@ -545,6 +591,7 @@ void fogLoadLevelEnvironment(s32 level_id, s32 arg1)
 
 #ifndef TARGET_N64
     sPortFogPosF = 0;   /* a stage's own environment: the record's whole-number fog positions */
+    sLevelFogEnv = NULL;   /* (a generated level's own environment sets it: portLevelFogMetres) */
     if (level_id == LEVELID_SHO)
     {
         level_id = LEVELID_SURFACE; /* PORT: Flatland (port/flatland) takes Surface's sky and fog */
@@ -595,26 +642,41 @@ void fogLoadLevelEnvironment(s32 level_id, s32 arg1)
              * colour already hid a man at 100 m). */
             static EnvironmentRecord snow_env;
             EnvironmentRecord *r;
+            extern char *getenv(const char *);
 
             for (r = &fog_tables[0]; r->Id != 0; r++)
             {
                 if (r->Id == sky_level)
                 {
+                    /* the jungle: near plane 50 (0.5 m) and a default haze in metres (portLevelFogMetres: none nearer than 200 m, full at
+                     * 900 m, past the 560 m far plane: 40% at 300 m, 75% at 500 m). With the near plane at 10 every distance past 100 m sits within one thousandth
+                     * of depth and the fog could only be flat (a hard edge); at 50 the band spreads over the map. GE_JUNGLE_OLDFOG=1
+                     * is the first prototype's (near 10, a flat band). */
+                    s32 oldfog = sky_level != LEVELID_JUNGLE || getenv("GE_JUNGLE_OLDFOG") != NULL;
+
                     snow_env = *r;
                     snow_env.Id = LEVELID_LEE;
-                    snow_env.Visibility.BlendMultiplier = 10.0f;
+                    snow_env.Visibility.BlendMultiplier = oldfog ? 10.0f : 50.0f;
                     snow_env.Visibility.FarFog = sky_level == LEVELID_JUNGLE ? 56000.0f : 45000.0f;
                     snow_env.Visibility.Nfd.NearFog = 0.0f;
                     snow_env.Fog.DifferenceFromFarIntensity = 996;
                     snow_env.Fog.FarIntensity = 1000;
-                    if (sky_level == LEVELID_JUNGLE)
-                        portFogSetPositionF(1, 998.4f, 1002.4f);
-                    else
-                        portFogSetPositionF(1, 998.5f, 1002.5f);
                     g_EnvironmentFoundp = &snow_env;
                     g_EnvironmentMainp = &snow_env;
                     g_EnvironmentAltp = &snow_env;
-                    fogLoadCurrentEnvironment(&snow_env);
+                    if (oldfog)
+                    {
+                        if (sky_level == LEVELID_JUNGLE)
+                            portFogSetPositionF(1, 998.4f, 1002.4f);
+                        else
+                            portFogSetPositionF(1, 998.5f, 1002.5f);
+                        fogLoadCurrentEnvironment(&snow_env);
+                    }
+                    else
+                    {
+                        sLevelFogEnv = &snow_env;
+                        portLevelFogMetres(20000.0f, 90000.0f);   /* (loads the environment) */
+                    }
                     return;
                 }
             }
@@ -804,10 +866,15 @@ Gfx *fogSetRenderFogColor(Gfx *gdl, s32 arg1)
     {   /* the float positions (the arena fog): the same factor gSPFogPosition computes, without its whole-number rounding */
         f32 fm = 128000.0f / (sPortFogMx - sPortFogMn);
         f32 fo = ((500.0f - sPortFogMn) * 256.0f) / (sPortFogMx - sPortFogMn);
+        f32 wfm = fm, wfo = fo;
+        extern void portGfxFogFloat(int on, int smul, int sofs, float mul, float ofs);   /* gfx_pc.cpp */
 
         if (fm > 32767.0f) fm = 32767.0f;
         if (fo < -32768.0f) fo = -32768.0f;
         if (fo > 32767.0f) fo = 32767.0f;
+        /* a generated level's metric band (portLevelFogMetres) may be narrower than the s16 factor allows: the renderer takes the
+         * floats for this pair; every other caller (the arena fog) turns that off */
+        portGfxFogFloat(sLevelFogEnv != NULL && (wfm != fm || wfo != fo), (s16) fm, (s16) fo, wfm, wfo);
         gDPSetFogColor(gdl++, g_CurrentEnvironment.Red, g_CurrentEnvironment.Green, g_CurrentEnvironment.Blue, 0xff);
         gSPFogFactor(gdl++, (s16) fm, (s16) fo);
         gSPSetGeometryMode(gdl++, G_FOG);
