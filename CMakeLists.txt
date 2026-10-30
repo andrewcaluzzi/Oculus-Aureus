@@ -734,7 +734,9 @@ if(GE_VIDEO)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/tools/mode_sniper_ridge.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/sniper-ridge.lua
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            ${CMAKE_SOURCE_DIR}/tools/mode_sniper_snowfield.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/sniper-snowfield.lua)
+            ${CMAKE_SOURCE_DIR}/tools/mode_sniper_snowfield.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/sniper-snowfield.lua
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/tools/mode_sniper_jungle.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/sniper-jungle.lua)
     if(GE_LEVELGEN_HAS_EXTRA)
         add_custom_command(TARGET ge POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -777,6 +779,7 @@ if(GE_VIDEO)
                 "${CMAKE_SOURCE_DIR}/launchers/Play Sniper Duel.bat"
                 "${CMAKE_SOURCE_DIR}/launchers/Play Sniper Ridge.bat"
                 "${CMAKE_SOURCE_DIR}/launchers/Play Sniper Snowfield.bat"
+                "${CMAKE_SOURCE_DIR}/launchers/Play Sniper Jungle.bat"
                 "${CMAKE_SOURCE_DIR}/launchers/Walk Janus Bank.bat"
                 "$<TARGET_FILE_DIR:ge>"
             VERBATIM)

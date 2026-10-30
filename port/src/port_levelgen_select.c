@@ -81,6 +81,12 @@ s32 portLevelgenSkyIsSurface(void)
     return strcmp(portLevelgenVariant(), "snowfield") == 0;
 }
 
+/* the same for the sniper jungle (tools/levelgen/build_jungle.py): Jungle's sky and fog */
+s32 portLevelgenSkyIsJungle(void)
+{
+    return strcmp(portLevelgenVariant(), "jungle") == 0;
+}
+
 /* bg.c load_bg_file, the levelgen slot: the stan to use */
 u8 *portLevelgenStan(void)
 {
