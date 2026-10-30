@@ -1,6 +1,7 @@
 #!/bin/sh
 # Hidden Windows smoke of the SNIPER DUEL v2 on the snowfield (Git Bash; no window: GE_HIDDEN=1): tests/sniper/smoke_v2.lua.
 # usage: win_smoke_v2.sh <build dir, e.g. E:/midas-wt/sniper/build_win_sniperv2> [frames] ["GE_X=y ..."]
+#   "GE_LEVELGEN=jungle"               the same on the jungle (a build with the jungle level)
 #   (default)                          the win path: Bond invulnerable, each marksman shot dead after he has fired twice
 #   "GE_SNIPER_LOSE=1 GE_CHEATS="      the loss path: Bond mortal, the marksmen hit often
 #   "GE_SNIPER_CLOSE=1"                close range: Bond walked to within 60 m of a marksman
@@ -28,9 +29,13 @@ if [ -n "$GE_SNIPER_LOSE" ]; then
   chk "Bond is hit" "ge: sniper2: HIT 1 of"
   chk "the run ends with Bond down" "ge: sniper2: END: DOWN"
 elif [ -n "$GE_SNIPER_P3" ]; then
-  chk "the storm rolls in" "ge: sniper2: STORM: rolling in"
-  chk "... reaches full" "ge: sniper2: STORM: full"
-  chk "... clears" "ge: sniper2: STORM: calm"
+  if grep -aq "ge: sniper2: stage start: .*storms off" "$L"; then
+    echo "SKIP the storm (this stage has none: S.storm = false)"
+  else
+    chk "the storm rolls in" "ge: sniper2: STORM: rolling in"
+    chk "... reaches full" "ge: sniper2: STORM: full"
+    chk "... clears" "ge: sniper2: STORM: calm"
+  fi
   chk "thermal on (Q)" "ge: sniper2: THERMAL: on for"
   chk "thermal off after its time" "ge: sniper2: THERMAL: off"
   chk "round 1 won" "ge: sniper2: ROUND 1 WON"

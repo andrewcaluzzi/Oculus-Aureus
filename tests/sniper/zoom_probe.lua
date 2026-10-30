@@ -1,9 +1,10 @@
 -- The zoom bug probe (sniper v2): Bond on his start with the REAL sniper scope forced on (test.aim) at a set zoom, pitching up step by step,
 -- one picture a step. With GE_SKY_PROBE=1 the sky code logs the eye height against the sky (cloud plane) height and which screen corners
 -- look up into it. Stage: the snowfield (GE_STAGE=levelgen GE_LEVELGEN=snowfield) or stock Surface (Bond on pad 53, looking at the far slope).
-local SNOW = levelgen and levelgen.current and levelgen.current() == "snowfield"
+local LG = levelgen and levelgen.current and levelgen.current()
+local SNOW = LG == "snowfield" or LG == "jungle"   -- (a generated sniper stage: Bond on b1 looking at f3)
 local P = nil
-if SNOW then include("levelgen_layout_snowfield"); P = LEVEL.pads end
+if SNOW then include("levelgen_layout_" .. LG); P = LEVEL.pads end
 local steps = { { 7, -2 }, { 7, 1 }, { 7, 3 }, { 15, 1 }, { 30, 1 }, { 0, 1 }, { 0, 5 }, { 0, 12 }, { 7, 12 } }   -- { zoom fov (0 = not aiming), pitch }
 local i, ph, t = 0, 0, 0
 local yaw = SNOW and 0 or 200
@@ -21,7 +22,7 @@ on("tick", function(dt)
       yaw = math.deg(math.atan(-(x1 - x0), (z1 - z0)))
     end
     i, ph = 1, -8
-    print(string.format("ZPROBE start: %s, Bond on pad %d, yaw %.1f", SNOW and "snowfield" or "surface", pad, yaw))
+    print(string.format("ZPROBE start: %s, Bond on pad %d, yaw %.1f", SNOW and LG or "surface", pad, yaw))
     return
   end
   ph = ph + 1

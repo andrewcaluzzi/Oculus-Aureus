@@ -104,3 +104,28 @@ D.PERCHES = { "m1", "m2", "m3", "m4", "m5", "m6", "m7", "m8", "m9", "m10", "f1",
               "w1", "w2", "e1", "e2", "r1", "r2", "r3", "r5", "r6" }
 D.BOND = { "b1" }
 D.key = "snowfield2"   -- the best-score key (ui prefs sniper_bests)
+
+-- THE STAGES: the generated level in the levelgen slot picks one (levelgen.current(), i.e. GE_LEVELGEN; SNIPER2_SETTINGS.stage forces
+-- one). Per stage: layout (the levelgen layout the mode includes: LEVEL.pads), perches / bond (named pads), place (the words), key (the
+-- best-score key), and any S key (perch_band, fog, storm, storm_fog, flush_dist, ...) and T key (storm_in, flush, ...) to override.
+-- Every stage gets the float matrices (the zoom fix) and the lifted 320 m prop cut from the C side (bgfog.c: a levelgen sniper stage).
+D.STAGES = {
+  snowfield = { layout = "levelgen_layout_snowfield", perches = D.PERCHES, bond = D.BOND, key = D.key, place = "SEVERNAYA SNOWFIELD",
+                S = {}, T = {} },
+  -- the SNIPER JUNGLE (tools/levelgen/build_jungle.py): a 408 x 408 m valley (play area +-20400 units), Bond's ridge in the south (b1 at
+  -- z -17600). Its perches run 249 to 353 m from b1: the hunters' ridge f* (327..353), the flanks w* / e* (261..340), the knolls k*
+  -- (249..348). The stan line (the AI's sight: combat.los) is stopped by the trees and the thickets under it, so the list is the
+  -- perches whose line to b1 the generator keeps clear (its LANE_PERCHES) plus f3, k5, k7 (checked in game: tools/sniper_defs.lua).
+  jungle = { layout = "levelgen_layout_jungle", bond = { "b1" }, key = "jungle2", place = "SNIPER JUNGLE",
+             perches = { "f2", "f3", "f4", "f5", "f7", "f9", "w1", "w2", "e1", "e3", "k1", "k2", "k3", "k5", "k7" },
+             S = {
+               perch_band = { 240, 360 },   -- every jungle perch (the far ones first: the arrival takes the farthest unseen)
+               fog = { 200, 900 },          -- Jungle's dark olive fog: 40% at 300 m, 75% at 500 m (a heavier one hides a man at 100 m)
+               -- no snowstorm in the jungle. storm = true gives a mist bank instead (the same fog roll-in, the words below); its
+               -- band must stay light, Jungle's fog colour is near black
+               storm = false, storm_fog = { 60, 260 },
+               flush_dist = { 6000, 13000 },   -- the grunts start 60 to 130 m off (the valley floor below Bond's ridge)
+             },
+             T = { storm_in = "Mist coming in", storm_out = "The mist is lifting", flush = "They are sending men up the ridge",
+                   panel_flush = "MEN ON THE RIDGE %d" } },
+}

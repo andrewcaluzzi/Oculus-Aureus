@@ -1,7 +1,9 @@
--- The SNIPER DUEL v2 on the SEVERNAYA SNOWFIELD (GE_MODE=sniper-v2 GE_STAGE=levelgen GE_LEVELGEN=snowfield; shipped as
--- Data/Scripts/modes/sniper-v2.lua; launcher Play Sniper v2.bat). A battle from afar: Bond with a sniper rifle and binoculars on the
--- south shoulder of a 400 x 550 m snowfield, a ladder of rounds against named marksmen on the far slopes. The words and numbers are
--- tools/sniper_v2_defs.lua (SNIPER2_DEFS); `SNIPER2_SETTINGS = { key = value }` set before include("sniper-v2") overrides D.S.
+-- The SNIPER DUEL v2 on the SEVERNAYA SNOWFIELD or the SNIPER JUNGLE (GE_MODE=sniper-v2 GE_STAGE=levelgen GE_LEVELGEN=snowfield | jungle;
+-- shipped as Data/Scripts/modes/sniper-v2.lua; launchers Play Sniper v2.bat, Play Sniper v3.bat, Play Sniper v3 Jungle.bat). A battle
+-- from afar: Bond with a sniper rifle and binoculars on the south shoulder of a 400 x 550 m snowfield (or the south ridge of a 408 m
+-- jungle valley), a ladder of rounds against named marksmen on the far slopes. The words and numbers are tools/sniper_v2_defs.lua
+-- (SNIPER2_DEFS; D.STAGES the per-stage layout, perches and overrides); `SNIPER2_SETTINGS = { key = value }` set before
+-- include("sniper-v2") overrides D.S (stage = "jungle" forces a stage).
 --
 --   ARRIVAL: a marksman takes the farthest free perch in the band (S.perch_band) that Bond cannot see now: outside his view cone (his
 --     field of view now, a margin added: zoomed in, the cone is narrow) or hidden by the drawn ground. Nobody appears in view.
@@ -18,19 +20,31 @@
 --   THE RUN: a round is won when its marksmen are dead; Bond dies and the run ends (the stock mission screen).
 
 include("_sniper_v2_defs")
-include("levelgen_layout_snowfield")
-local D, T = SNIPER2_DEFS, SNIPER2_DEFS.T
+local D = SNIPER2_DEFS
+-- the stage: the generated level the slot holds (GE_LEVELGEN=snowfield | jungle), or SNIPER2_SETTINGS.stage; its layout, perches,
+-- words and numbers (D.STAGES) over the shared ones
+local SETTINGS = type(SNIPER2_SETTINGS) == "table" and SNIPER2_SETTINGS or {}
+local STAGE_ID = SETTINGS.stage or (levelgen and levelgen.current and levelgen.current()) or "snowfield"
+if not D.STAGES[STAGE_ID] then STAGE_ID = "snowfield" end
+local SD = D.STAGES[STAGE_ID]
+include(SD.layout)
+
+local T = {}
+for k, v in pairs(D.T) do T[k] = v end
+for k, v in pairs(SD.T or {}) do T[k] = v end
+T.place = SD.place or T.place
 
 local S = {}
 for k, v in pairs(D.S) do S[k] = v end
-for k, v in pairs(type(SNIPER2_SETTINGS) == "table" and SNIPER2_SETTINGS or {}) do S[k] = v end
+for k, v in pairs(SD.S or {}) do S[k] = v end
+for k, v in pairs(SETTINGS) do S[k] = v end
 local ROUNDS = S.rounds_table or D.ROUNDS
 local N_ROUNDS = math.min(S.rounds or #ROUNDS, #ROUNDS)
 local ITEM_CAMERA, ITEM_RIFLE = 40, 17
 
 local function log(fmt, ...) print(string.format("ge: sniper2: " .. fmt, ...)) end
 
-SNIPER2 = { S = S, rounds = N_ROUNDS }   -- (the tests read it)
+SNIPER2 = { S = S, rounds = N_ROUNDS, stage = STAGE_ID }   -- (the tests read it)
 local ST = SNIPER2
 ST.phase = "ready"       -- ready | round | between | over
 ST.round = 0
@@ -94,8 +108,8 @@ end
 -- ------------------------------------------------------------ the perches ---
 local function build_perches()
   local list = {}
-  local sx, _, sz = pads.pos(LEVEL.pads[D.BOND[1]])
-  for _, name in ipairs(D.PERCHES) do
+  local sx, _, sz = pads.pos(LEVEL.pads[SD.bond[1]])
+  for _, name in ipairs(SD.perches) do
     local id = LEVEL.pads[name]
     if id then
       local x, y, z = pads.pos(id)
@@ -551,8 +565,9 @@ on("stage_start", function()
   if S.fog then sniper.fog(S.fog[1], S.fog[2]) end
   ST.fog = { sniper.fog() }
   build_perches()
-  log("stage start: %s, %d rounds; difficulty %d: %d marksman hit(s) kill (one hit takes %.0f%% of a bar); scope zoom limit %.1f deg, binoculars %.1f deg; "
-    .. "close range %.0f m (hit %.0f%%)", T.place, N_ROUNDS, diff, n, frac * 100, S.scope_min_fov, S.binoc_min_fov, S.close_range / 100, S.close_hit * 100)
+  log("stage start: %s (stage %s), %d rounds; difficulty %d: %d marksman hit(s) kill (one hit takes %.0f%% of a bar); scope zoom limit %.1f deg, binoculars %.1f deg; "
+    .. "close range %.0f m (hit %.0f%%); fog %s; storms %s", T.place, STAGE_ID, N_ROUNDS, diff, n, frac * 100, S.scope_min_fov, S.binoc_min_fov,
+    S.close_range / 100, S.close_hit * 100, table.concat(ST.fog, " .. "), S.storm and "on" or "off")
   ST.next_at = now + 2
 end)
 

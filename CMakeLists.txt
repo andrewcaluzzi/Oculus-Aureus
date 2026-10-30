@@ -807,6 +807,7 @@ if(GE_VIDEO)
                 "${CMAKE_SOURCE_DIR}/launchers/Play Sniper Ridge.bat"
                 "${CMAKE_SOURCE_DIR}/launchers/Play Sniper Snowfield.bat"
                 "${CMAKE_SOURCE_DIR}/launchers/Play Sniper v2.bat"
+                "${CMAKE_SOURCE_DIR}/launchers/Play Sniper v2 Jungle.bat"
                 "${CMAKE_SOURCE_DIR}/launchers/Play Sniper Jungle.bat"
                 "${CMAKE_SOURCE_DIR}/launchers/Walk Janus Bank.bat"
                 "$<TARGET_FILE_DIR:ge>"

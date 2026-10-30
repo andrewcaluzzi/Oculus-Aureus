@@ -665,7 +665,9 @@ void fogLoadLevelEnvironment(s32 level_id, s32 arg1)
                     snow_env.Visibility.Nfd.NearFog = 0.0f;
                     snow_env.Fog.DifferenceFromFarIntensity = 996;
                     snow_env.Fog.FarIntensity = 1000;
-                    portLevelgenFloatCameraSet(1);   /* the world's coordinates pass the fixed-point matrices at a narrow zoom / far off */
+                    /* the world's coordinates pass the fixed-point matrices at a narrow zoom / far off (GE_FLOATMTX_OFF=1: the stock
+                     * fixed-point path, for a before/after picture of the zoom bug) */
+                    portLevelgenFloatCameraSet(getenv("GE_FLOATMTX_OFF") == NULL);
                     g_EnvironmentFoundp = &snow_env;
                     g_EnvironmentMainp = &snow_env;
                     g_EnvironmentAltp = &snow_env;
