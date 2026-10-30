@@ -26,8 +26,51 @@ if DETECT then
   SNIPER2_SETTINGS.rounds_table = { slow }
   SNIPER2_SETTINGS.detect_after = 0.0
 end
+local P3 = mode.env_flag("GE_SNIPER_P3")   -- phase 3: a quick storm cycle, the thermal view (Q pressed by the test), the flush-out
+if P3 then
+  SNIPER2_SETTINGS.storm_calm, SNIPER2_SETTINGS.storm_hold, SNIPER2_SETTINGS.storm_ramp = { 6, 8 }, { 10, 12 }, 4
+  SNIPER2_SETTINGS.thermal_cooldown = 10
+end
 include("sniper-v2")
 local ST, S = SNIPER2, SNIPER2.S
+
+-- grunts of a flush-out: shot once they have been coming for 10 s (the log shows them closing in first); the thermal presses
+local grunt_seen = {}
+local p3_t, q_done, snap_th, snap_storm = 0, {}, false, false
+on("tick", function(dt)
+  p3_t = p3_t + dt
+  if ST.phase == "flush" then
+    for _, g in ipairs(ST.grunts or {}) do
+      if g.chr and spawn.alive(g.chr) then
+        grunt_seen[g.chr] = grunt_seen[g.chr] or p3_t
+        if not LOSE and p3_t - grunt_seen[g.chr] >= 10 then
+          for _ = 1, 20 do if spawn.alive(g.chr) then test.shoot(g.chr, "body", "ak47", 0) end end
+          if spawn.alive(g.chr) then spawn.kill(g.chr) end
+          print("SMOKE shot a grunt down")
+        end
+      end
+    end
+  end
+  if P3 then
+    for _, at in ipairs({ 20, 22, 36 }) do   -- on, again while on, again after it went off (recharging or ready)
+      if p3_t >= at and not q_done[at] then q_done[at] = true; test.sniper_q(0); print(string.format("SMOKE pressed Q at %.0f s", p3_t)) end
+    end
+    if mode.env_flag("GE_SNIPER_SHOTS") then
+      if ST.thermal_until and not snap_th and ST.heat and #ST.heat > 0 then
+        local f = ST.foes[1]
+        if f and f.perch then
+          local _, _, _, ex, ey, ez = pcall(gadget.aim, 0)
+          local d = math.sqrt((f.perch.x - ex) ^ 2 + (f.perch.z - ez) ^ 2)
+          test.aim(0, true, 12)
+          pcall(bench.look, 0, math.deg(math.atan(-(f.perch.x - ex), (f.perch.z - ez))), math.deg(math.atan((f.perch.y + 200) - ey, d)))
+        end
+        snap_th = p3_t
+      end
+      if snap_th and snap_th ~= true and p3_t >= snap_th + 0.75 then snap_th = true; bench.shot(); print("SMOKE shot thermal") end
+      if (ST.storm or 0) >= 1 and not snap_storm then snap_storm = true; bench.shot(); print("SMOKE shot storm") end
+    end
+  end
+end)
 
 -- the detection run: phases of 7 s once the marksman is on his perch with a line to Bond; the gain (meter a second) averaged per phase
 if DETECT then

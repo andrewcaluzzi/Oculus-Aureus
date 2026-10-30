@@ -661,9 +661,10 @@ end)
 | `sniper.view(p)` | `aiming, item, fov, stance`: aim mode, the `ITEM_*` id in his right hand, the field of view now, the stance (0 stand, 1 crouch, 2 squat, 3 prone). |
 | `sniper.prone(p [, on])`, `sniper.prone_tune(eye, speed, sway)` | PRONE, a stance under the squat: set / read; the eye offset (-160..-100), the move-speed and sway scales. Sim. |
 | `sniper.no_unarmed(on)` | The weapon cycle steps over the bare hands (they stay in the inventory as the empty-gun fallback). Sim. |
+| `sniper.claim_q(on)`, `sniper.q_presses([p])` | The next_inventory key (Q) is counted for the script instead of cycling the inventory; the presses since the last call (taken). `test.sniper_q([p])` presses it. |
 | `sniper.bond_hit(frac)` | An AI shot on Bond takes exactly `frac` of a health bar (0: the stock damage, which varies with the part struck). Sim. |
 | `sniper.fog([start_m [, full_m]])` | A generated level's fog band in metres from the eye (no fog nearer than start, full at full; 0: as far as the band reaches); returns the band, nothing on a level without one. Presentation. |
-| `sniper.point(id, kind, x, y, z [, alpha [, size]])`, `sniper.clear()` | Overlay points 0..23 at world positions: `"glint"` (a white flare), `"marker"` (a quiet diamond), `"tag"` (brackets), `"off"`. Presentation. |
+| `sniper.point(id, kind, x, y, z [, alpha [, size]])`, `sniper.clear()` | Overlay points 0..47 at world positions: `"glint"` (a white flare), `"marker"` (a quiet diamond), `"tag"` (brackets), `"heat"` (a warm person shape, the feet at x, y, z, `size` metres tall), `"off"`; size clamped to 0..32. Presentation. |
 | `sniper.binoculars(on)`, `sniper.thermal(on [, dim])` | The lens frame while the camera is raised in aim mode; the thermal dim. Presentation. |
 | `test.aim(p, on [, fov])` | Aim mode forced on at that zoom (the real scope or binoculars in a hidden run). |
 

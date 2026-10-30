@@ -6,13 +6,16 @@
  *                                            (0 stand, 1 crouch, 2 squat, 3 prone); nothing when there is no such Bond
  *   sniper.prone(p [, on]) -> bool           PRONE (a third stance under the squat: the eye lower, slow, steady): set and return
  *   sniper.prone_tune(eye, speed, sway)      the eye offset (-160..-100 units; the squat is -100), the move-speed scale, the sway scale
- *   sniper.point(id, kind, x, y, z [, alpha [, size]])   an overlay point, id 0..23: kind "glint" (a white flare), "marker" (a quiet
- *                                            diamond), "tag" (brackets), "off"; alpha 0..1 (0 hides it), size in HUD pixels
+ *   sniper.point(id, kind, x, y, z [, alpha [, size]])   an overlay point, id 0..47: kind "glint" (a white flare), "marker" (a quiet
+ *                                            diamond), "tag" (brackets), "heat" (the thermal view's warm shape: x, y, z the feet, size its
+ *                                            height in metres), "off"; alpha 0..1 (0 hides it), size in HUD pixels (0..32)
  *   sniper.clear()                           every overlay point off
  *   sniper.binoculars(on)                    the lens frame while the camera is raised in aim mode
  *   sniper.thermal(on [, dim])               the thermal view's dim (0..0.9)
  *   sniper.no_unarmed(on)                    the weapon cycle steps over the bare hands (they stay as the empty-guns fallback)
  *   sniper.bond_hit(frac)                    an AI shot on Bond takes exactly frac of a health bar (0 = the stock damage)
+ *   sniper.claim_q(on), sniper.q_presses([p]) -> n   the next_inventory key (Q) counted for the script instead of cycling the
+ *                                            inventory; the presses since the last call (taken). test.sniper_q([p]) presses it.
  *   sniper.fog([start_m [, full_m]]) -> start_m, full_m   the generated level's fog band in metres (no fog nearer than start, full at
  *                                            full; 0 = as far as the band reaches): set and/or read; nothing on a level without one
  *   (presentation: point, clear, binoculars, thermal; sim: zoom_limit, prone, no_unarmed)
@@ -35,6 +38,8 @@ extern void portSniperThermal(int on, float dim);
 extern void portSniperTestAim(int p, int on, float fov);
 extern void portSniperSetNoUnarmed(int on);
 extern void portSniperSetBondHit(float frac);
+extern void portSniperClaimQ(int on);
+extern int portSniperQPresses(int p);
 extern void portLevelFogMetres(float start, float full);
 extern int portLevelFogGet(float *start, float *full);
 
@@ -80,10 +85,11 @@ static int snPoint(lua_State *L)
 {
     int id = (int) luaL_checkinteger(L, 1);
     const char *k = luaL_checkstring(L, 2);
-    int kind = strcmp(k, "glint") == 0 ? 1 : strcmp(k, "marker") == 0 ? 2 : strcmp(k, "tag") == 0 ? 3 : strcmp(k, "off") == 0 ? 0 : -1;
+    int kind = strcmp(k, "glint") == 0 ? 1 : strcmp(k, "marker") == 0 ? 2 : strcmp(k, "tag") == 0 ? 3 : strcmp(k, "heat") == 0 ? 4
+             : strcmp(k, "off") == 0 ? 0 : -1;
 
-    if (kind < 0) return luaL_error(L, "sniper.point: unknown kind '%s' (glint, marker, tag, off)", k);
-    if (id < 0 || id > 23) return luaL_error(L, "sniper.point: id %d out of 0..23", id);
+    if (kind < 0) return luaL_error(L, "sniper.point: unknown kind '%s' (glint, marker, tag, heat, off)", k);
+    if (id < 0 || id > 47) return luaL_error(L, "sniper.point: id %d out of 0..47", id);
     portSniperPoint(id, kind, (float) luaL_optnumber(L, 3, 0), (float) luaL_optnumber(L, 4, 0), (float) luaL_optnumber(L, 5, 0),
                     (float) luaL_optnumber(L, 6, 1.0), (float) luaL_optnumber(L, 7, 0));
     return 0;
@@ -91,6 +97,9 @@ static int snPoint(lua_State *L)
 
 static int snNoUnarmed(lua_State *L) { portSniperSetNoUnarmed(lua_toboolean(L, 1)); return 0; }
 static int snBondHit(lua_State *L) { portSniperSetBondHit((float) luaL_checknumber(L, 1)); return 0; }
+static int snClaimQ(lua_State *L) { portSniperClaimQ(lua_toboolean(L, 1)); return 0; }
+static int snQPresses(lua_State *L) { lua_pushinteger(L, portSniperQPresses((int) luaL_optinteger(L, 1, 0))); return 1; }
+static int snTestQ(lua_State *L) { extern int portSniperTakeNextInv(int p, int pressed); portSniperTakeNextInv((int) luaL_optinteger(L, 1, 0), 1); return 0; }
 
 static int snFog(lua_State *L)
 {
@@ -116,8 +125,8 @@ void portLuaSniperRegister(lua_State *L)
 {
     static const luaL_Reg lib[] = { { "zoom_limit", snZoomLimit }, { "view", snView }, { "prone", snProne }, { "prone_tune", snProneTune },
         { "point", snPoint }, { "clear", snClear }, { "binoculars", snBinoc }, { "thermal", snThermal }, { "no_unarmed", snNoUnarmed },
-        { "bond_hit", snBondHit }, { "fog", snFog }, { NULL, NULL } };
-    static const luaL_Reg testAdd[] = { { "aim", snTestAim }, { NULL, NULL } };
+        { "bond_hit", snBondHit }, { "fog", snFog }, { "claim_q", snClaimQ }, { "q_presses", snQPresses }, { NULL, NULL } };
+    static const luaL_Reg testAdd[] = { { "aim", snTestAim }, { "sniper_q", snTestQ }, { NULL, NULL } };
     extern void portLuaAddTo(lua_State *L, const char *lib, const luaL_Reg *reg);
 
     luaL_newlib(L, lib);

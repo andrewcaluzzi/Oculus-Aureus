@@ -30,7 +30,7 @@
 #include "port_mode.h"
 
 #define SN_MAX_P   4
-#define SN_POINTS 24
+#define SN_POINTS 48
 #define SN_GFX_MARGIN 600   /* free display-list commands kept back while the overlay draws (the tail and the HUD after it) */
 
 extern int portLocalPlayer(void);
@@ -54,6 +54,28 @@ static f32 sProneEye = -135.0f, sProneSpeed = 0.25f, sProneSway = 0.25f;
 static s32 sNoUnarmed;
 static s32 sAiHit;
 static f32 sHitFrac;
+static s32 sClaimQ, sQPresses[SN_MAX_P];
+
+/* joy_port.c: the next_inventory key's press (Q by default), while the duel claims it, is counted here instead of cycling the
+ * inventory (the mouse wheel still cycles the rifle and the binoculars). Returns 1 when it took the press. */
+s32 portSniperTakeNextInv(s32 p, s32 pressed)
+{
+    if (!sClaimQ || p < 0 || p >= SN_MAX_P) return 0;
+    if (pressed) sQPresses[p]++;
+    return 1;
+}
+
+void portSniperClaimQ(int on) { sClaimQ = on; }
+
+int portSniperQPresses(int p)
+{
+    int n;
+
+    if (p < 0 || p >= SN_MAX_P) return 0;
+    n = sQPresses[p];
+    sQPresses[p] = 0;
+    return n;
+}
 
 /* chraction.c: an AI shot is landing on a Bond (around its record_damage_kills call) */
 void portSniperAiHit(s32 on) { sAiHit = on; }
@@ -73,7 +95,7 @@ s32 portSniperNoUnarmed(void) { return sNoUnarmed; }
 void portSniperSetNoUnarmed(int on) { sNoUnarmed = on; }
 
 /* overlay (presentation) */
-typedef struct { s32 on, kind; f32 x, y, z, alpha, size; } SnPoint;   /* kind 1 glint, 2 marker, 3 tag */
+typedef struct { s32 on, kind; f32 x, y, z, alpha, size; } SnPoint;   /* kind 1 glint, 2 marker, 3 tag, 4 heat */
 static SnPoint sPts[SN_POINTS];
 static s32 sBinoc, sThermal;
 static f32 sThermalDim = 0.55f;
@@ -88,6 +110,8 @@ void portSniperReset(void)
     sNoUnarmed = 0;
     sAiHit = 0;
     sHitFrac = 0.0f;
+    sClaimQ = 0;
+    memset(sQPresses, 0, sizeof(sQPresses));
     memset(sPts, 0, sizeof(sPts));
     sBinoc = 0;
     sThermal = 0;
@@ -368,6 +392,26 @@ Gfx *portSniperOverlay(Gfx *gdl)
         w[1] = sPts[i].y;
         w[2] = sPts[i].z;
         if (dynGetFreeGfx2(gdl) < SN_GFX_MARGIN) break;   /* (a point is at most ~150 commands at size 32) */
+        if (sPts[i].kind == 4)
+        {   /* a heat shape (the thermal view): a person-shaped warm blob from the feet (x, y, z) to `size` metres up */
+            f32 hw[3], hx, hy;
+
+            hw[0] = w[0];
+            hw[1] = w[1] + sPts[i].size * 100.0f;
+            hw[2] = w[2];
+            if (project(w, &sx, &sy) && project(hw, &hx, &hy))
+            {
+                s32 h = (s32) (sy - hy), bw, x = (s32) sx, top = (s32) hy;
+                f32 a = sPts[i].alpha;
+
+                if (h < 3) h = 3;
+                bw = h / 4 + 1;
+                gdl = rect(gdl, x - bw - 1, top + h / 6, x + bw + 2, (s32) sy, withAlpha(0xFF9030FFu, a * 0.55f));   /* the glow */
+                gdl = rect(gdl, x - bw, top + h / 5, x + bw + 1, (s32) sy, withAlpha(0xFFD080FFu, a));           /* the body */
+                gdl = rect(gdl, x - bw / 2, top, x + bw / 2 + 1, top + h / 5 + 1, withAlpha(0xFFF0C0FFu, a));      /* the head */
+            }
+            continue;
+        }
         if (project(w, &sx, &sy)) gdl = drawPoint(gdl, &sPts[i], (s32) sx, (s32) sy);
     }
     if (binoc) gdl = binocMask(gdl);

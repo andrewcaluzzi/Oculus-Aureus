@@ -27,6 +27,19 @@ if grep -aq "SMOKE VIOLATION" "$L"; then echo "FAIL a marksman appeared or vanis
 if [ -n "$GE_SNIPER_LOSE" ]; then
   chk "Bond is hit" "ge: sniper2: HIT 1 of"
   chk "the run ends with Bond down" "ge: sniper2: END: DOWN"
+elif [ -n "$GE_SNIPER_P3" ]; then
+  chk "the storm rolls in" "ge: sniper2: STORM: rolling in"
+  chk "... reaches full" "ge: sniper2: STORM: full"
+  chk "... clears" "ge: sniper2: STORM: calm"
+  chk "thermal on (Q)" "ge: sniper2: THERMAL: on for"
+  chk "thermal off after its time" "ge: sniper2: THERMAL: off"
+  chk "round 1 won" "ge: sniper2: ROUND 1 WON"
+  chk "the flush-out sends grunts" "ge: sniper2: FLUSH: [1-9] grunts sent"
+  if grep -a "ge: sniper2: FLUSH grunt [0-9]* (chr" "$L" | grep -aq " SEEN "; then echo "FAIL a grunt started in Bond's view"; fail=$((fail+1)); else echo "PASS every grunt started out of Bond's view"; pass=$((pass+1)); fi
+  chk "the grunts close in" "ge: sniper2: FLUSH: [0-9] alive, the nearest"
+  chk "the flush-out ends" "ge: sniper2: FLUSH over"
+  chk "round 2 follows" "ge: sniper2: ROUND 2/"
+  grep -a "ge: sniper2: \(STORM\|THERMAL\|FLUSH\)\|SMOKE pressed" "$L" | cut -c1-220 | head -40
 elif [ -n "$GE_SNIPER_DETECT" ]; then
   chk "the meter is measured standing" "SMOKE DETECT stand"
   chk "... running" "SMOKE DETECT run"

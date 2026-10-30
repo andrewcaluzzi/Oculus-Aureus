@@ -1676,6 +1676,13 @@ void portJoyPortPlayerTick(void)
         attempt_reload_item_in_hand(GUNRIGHT);
         attempt_reload_item_in_hand(GUNLEFT);
     }
+    {   /* the sniper duel claims the next_inventory key (Q) for its thermal view (port_sniper.c; off unless the mode asks) */
+        extern s32 portSniperTakeNextInv(s32 p, s32 pressed);
+
+        if (nextinv && portSniperTakeNextInv(get_cur_playernum(), 1)) {
+            nextinv = 0;
+        }
+    }
     if (joyPortChordBack(pad, PORTACT_NEXT_INV)) {
         sShootTap[pad] = 0;   /* one step per tap */
         previnv = 1;

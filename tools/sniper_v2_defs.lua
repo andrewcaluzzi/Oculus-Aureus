@@ -15,6 +15,9 @@ D.T = {
   round = "Round %d of %d  -  %s, %s", round_won = "Round %d won", you_win = "All targets down", down = "You are down",
   shot_from = "Shot from %s, %d m", hit = "Hit  -  %d left", moved = "He has moved", two = "%d rifles out there",
   prone = "Prone", rising = "Getting up", tagged = "Tagged  -  %d m",
+  storm_in = "Snow coming in", storm_out = "The snow is clearing", thermal_on = "Thermal", thermal_wait = "Thermal recharging  -  %d s",
+  flush = "They are sending men up the hill", panel_flush = "MEN ON THE HILL %d",
+  panel_th_on = "THERMAL ON", panel_th_wait = "THERMAL %d s", panel_th_ready = "THERMAL READY  (Q)",
   panel_round = "ROUND %d / %d", panel_left = "TARGETS %d", panel_hits = "HITS LEFT %d", panel_time = "TIME %s",
   clock = { "12", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11" }, clock_fmt = "%s o'clock",
 }
@@ -30,13 +33,14 @@ D.FOES = {
 
 -- the ladder: one row a round. foe = FOES index (more rifles take the next foes' skins); snipers = how many marksmen hunt at once;
 -- hit = the chance a marksman's aimed shot hits (outside close range); glint = seconds the glint shows before the shot;
--- dwell = seconds on a perch before he wants to move (min, max); volley_gap = seconds between his glints (min, max)
+-- dwell = seconds on a perch before he wants to move (min, max); flush = grunts sent up the hill after the round is won (0: none)
+-- (when he fires is the detection meter's: S.detect_*)
 D.ROUNDS = {
-  { foe = 1, snipers = 1, hit = 0.35, glint = 1.6, dwell = { 18, 26 }, volley_gap = { 7, 11 } },
-  { foe = 2, snipers = 1, hit = 0.45, glint = 1.4, dwell = { 16, 24 }, volley_gap = { 6, 10 } },
-  { foe = 3, snipers = 2, hit = 0.45, glint = 1.4, dwell = { 16, 24 }, volley_gap = { 7, 11 } },
-  { foe = 4, snipers = 1, hit = 0.55, glint = 1.2, dwell = { 14, 20 }, volley_gap = { 5, 8 } },
-  { foe = 5, snipers = 3, hit = 0.50, glint = 1.2, dwell = { 14, 22 }, volley_gap = { 6, 10 } },
+  { foe = 1, snipers = 1, hit = 0.35, glint = 1.6, dwell = { 18, 26 }, flush = 3 },
+  { foe = 2, snipers = 1, hit = 0.45, glint = 1.4, dwell = { 16, 24 }, flush = 0 },
+  { foe = 3, snipers = 2, hit = 0.45, glint = 1.4, dwell = { 16, 24 }, flush = 4 },
+  { foe = 4, snipers = 1, hit = 0.55, glint = 1.2, dwell = { 14, 20 }, flush = 5 },
+  { foe = 5, snipers = 3, hit = 0.50, glint = 1.2, dwell = { 14, 22 }, flush = 0 },
 }
 
 D.S = {
@@ -70,6 +74,15 @@ D.S = {
   prone_eye = -135, prone_speed = 0.22, prone_sway = 0.25, prone_rise = 1.2,
   -- TAGGING: the binoculars held within tag_cone degrees of a marksman for tag_secs pin a tag on him until he moves
   tag_cone = 1.2, tag_secs = 1.0, tag_px = 3,
+  -- THE SNOWSTORM: calm storm_calm seconds, rolls in over storm_ramp, holds storm_hold, rolls out. The fog goes to storm_fog (metres,
+  -- as fog); the marksmen spot x storm_detect at full storm, but past half they use thermal (x foe_thermal). storm = false: none.
+  storm = true, storm_calm = { 70, 110 }, storm_ramp = 10, storm_hold = { 25, 40 }, storm_fog = { 30, 170 },
+  storm_detect = 0.3, foe_thermal = 2.0,
+  -- THERMAL (Q): seconds on, seconds to recharge after, how dark the world goes
+  thermal_secs = 8, thermal_cooldown = 25, thermal_dim = 0.65,
+  -- THE FLUSH-OUT (the round's flush): grunts start this far from Bond (units), at least flush_drop below him, out of his sight
+  flush_dist = { 6000, 13000 }, flush_drop = 150, flush_timeout = 90, flush_accuracy = 30,
+  flush_guns = { "ak47", "kf7", "d5k" }, flush_skins = { "russian_soldier", "russian_infantry", "siberian_guard2", "arctic_commando" },
   breather = 6,             -- seconds between a won round and the next
   fire_timeout = 4.5,       -- a released shot that has not come in this long is given up
   -- the glint: a small white flare at his scope (alpha pulses), the marker after a shot (a quiet diamond that fades out)

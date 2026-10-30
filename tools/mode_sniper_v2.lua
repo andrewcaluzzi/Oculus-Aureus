@@ -299,12 +299,185 @@ local function foe_tick(f, dt)
   end
 end
 
+-- ------------------------------------------------------------ the weather ---
+-- THE SNOWSTORM: calm for S.storm_calm seconds, the fog rolls in over S.storm_ramp, holds S.storm_hold, rolls out. The fog band moves
+-- from S.fog to S.storm_fog (metres); the marksmen's spotting is x S.storm_detect at full storm, but in a storm they go to thermal
+-- (x S.foe_thermal while the storm is past half).
+ST.storm = 0
+local storm_st, storm_t = "calm", nil
+local function storm_tick()
+  if not S.storm then return end
+  storm_t = storm_t or (now + rand_in(S.storm_calm))
+  if storm_st == "calm" and now >= storm_t then
+    storm_st, storm_t = "rising", now
+    notice(T.storm_in, 4, 2)
+    log("STORM: rolling in (%.0f s)", S.storm_ramp)
+  elseif storm_st == "rising" then
+    ST.storm = math.min(1, (now - storm_t) / S.storm_ramp)
+    if ST.storm >= 1 then storm_st, storm_t = "full", now + rand_in(S.storm_hold); log("STORM: full (fog %s)", table.concat({ sniper.fog() }, " .. ")) end
+  elseif storm_st == "full" and now >= storm_t then
+    storm_st, storm_t = "falling", now
+    notice(T.storm_out, 4, 2)
+    log("STORM: clearing")
+  elseif storm_st == "falling" then
+    ST.storm = math.max(0, 1 - (now - storm_t) / S.storm_ramp)
+    if ST.storm <= 0 then storm_st, storm_t = "calm", now + rand_in(S.storm_calm); log("STORM: calm (fog %s)", table.concat({ sniper.fog() }, " .. ")) end
+  end
+  ST.weather_k = 1 + (S.storm_detect - 1) * ST.storm
+  ST.thermal_k = ST.storm >= 0.5 and S.foe_thermal or 1
+end
+
+local applied_storm = -1
+local function storm_fog()   -- (ui_tick: the fog follows the storm level smoothly)
+  if not S.storm or math.abs(ST.storm - applied_storm) < 0.004 then return end
+  applied_storm = ST.storm
+  local a, b = S.fog[1], S.fog[2]
+  local c, d = S.storm_fog[1], S.storm_fog[2]
+  sniper.fog(a + (c - a) * ST.storm, b + (d - b) * ST.storm)
+end
+
+-- THERMAL (Q, the next_inventory key): S.thermal_secs of the world dimmed and every chr Bond has a line to drawn as a warm shape,
+-- then S.thermal_cooldown before it can be used again
+ST.grunts = {}
+local function heat_targets()
+  local list = {}
+  for _, f in ipairs(ST.foes) do if f.chr and f.perch then list[#list + 1] = { chr = f.chr, y = f.perch.y, h = 1.8 * S.foe_scale } end end
+  for _, g in ipairs(ST.grunts) do if g.chr and spawn.alive(g.chr) then list[#list + 1] = { chr = g.chr, h = 1.8 } end end
+  return list
+end
+
+local function thermal_tick()
+  local n = sniper.q_presses(0)
+  if n > 0 then
+    if ST.thermal_until and now < ST.thermal_until then
+      -- (already on)
+    elseif now < (ST.thermal_ready or 0) then
+      notice(string.format(T.thermal_wait, math.ceil(ST.thermal_ready - now)), 2, 2)
+      log("THERMAL: recharging, %.0f s left", ST.thermal_ready - now)
+    else
+      ST.thermal_until = now + S.thermal_secs
+      ST.thermal_ready = ST.thermal_until + S.thermal_cooldown
+      sniper.thermal(true, S.thermal_dim)
+      notice(T.thermal_on, 2, 2)
+      log("THERMAL: on for %.0f s (then %.0f s to recharge)", S.thermal_secs, S.thermal_cooldown)
+    end
+  end
+  if ST.thermal_until and now >= ST.thermal_until then
+    ST.thermal_until = nil
+    sniper.thermal(false)
+    for id = 24, 47 do sniper.point(id, "off") end
+    log("THERMAL: off")
+  end
+  if ST.thermal_until then   -- who is warm and in sight (the drawn ground hides them, the fog does not)
+    local _, _, ex, ey, ez = eye()
+    ST.heat = {}
+    for k, t in ipairs(heat_targets()) do
+      if k > 24 then break end
+      local x, z = spawn.where(t.chr)
+      if x then
+        local y = t.y
+        if not y then local _, gy = gadget.chr_yaw(t.chr); y = gy or 0 end
+        local seen = probe.los(ex, ey, ez, x, y + 100 * t.h / 2, z) or probe.los(ex, ey, ez, x, y + 100 * t.h - 20, z)
+        ST.heat[#ST.heat + 1] = { chr = t.chr, id = 23 + k, h = t.h, y = y, seen = seen }
+      end
+    end
+    if now - (ST.heat_log or -9) >= 2 then
+      ST.heat_log = now
+      local s = {}
+      for _, h in ipairs(ST.heat) do s[#s + 1] = string.format("chr %d %s", h.chr, h.seen and "warm" or "behind the ground") end
+      log("THERMAL: %d chrs: %s", #ST.heat, table.concat(s, ", "))
+    end
+  end
+end
+
+local function heat_draw()   -- (ui_tick: the shapes follow the chrs)
+  if not ST.thermal_until or not ST.heat then return end
+  for _, h in ipairs(ST.heat) do
+    local x, z = spawn.where(h.chr)
+    if x and h.seen then
+      sniper.point(h.id, "heat", x, h.y, z, 0.9, h.h)
+      if not ST.heat_dbg then ST.heat_dbg = true; log("THERMAL: heat shape %d at (%.0f, %.0f, %.0f), %.1f m tall", h.id, x, h.y or -1, z, h.h) end
+    else
+      sniper.point(h.id, "off")
+    end
+  end
+end
+
+-- THE FLUSH-OUT (between rounds, the round's `flush`): you started shooting snipers, so they send grunts up the hill to flush you out
+-- for the next one: a handful start at the bottom of the hill out of Bond's sight and storm him. The next round begins when they are down.
+local function flush_pads(n)
+  bond_xyz()
+  local good, loose = {}, {}
+  for _, id in ipairs(LEVEL.grid) do
+    local x, y, z = pads.pos(id)
+    local d = math.sqrt((x - bx) ^ 2 + (z - bz) ^ 2)
+    if d >= S.flush_dist[1] and d <= S.flush_dist[2] and not bond_sees(x, y, z) then
+      if y <= by - S.flush_drop then good[#good + 1] = id else loose[#loose + 1] = id end
+    end
+  end
+  local pool = (#good >= n) and good or loose
+  if #pool < n then for _, id in ipairs(good) do pool[#pool + 1] = id end end
+  local out = {}
+  for _ = 1, n do
+    if #pool == 0 then break end
+    out[#out + 1] = table.remove(pool, math.random(#pool))
+  end
+  return out, #good
+end
+
+local function start_flush(n)
+  ST.phase = "flush"
+  ST.flush_t0 = now
+  ST.grunts = {}
+  sniper.bond_hit(0)   -- (their rifles do their own damage)
+  local ids, ngood = flush_pads(n)
+  for k, pad in ipairs(ids) do
+    local gun = S.flush_guns[math.random(#S.flush_guns)]
+    local skin = S.flush_skins[math.random(#S.flush_skins)]
+    local ok, c = pcall(spawn.chr, pad, { skin = skin, weapon = gun, behaviour = "rush", accuracy = S.flush_accuracy, health = 1.0,
+                                          sight = S.sight, face = { bx, bz } })
+    if ok and c then
+      local x, y, z = pads.pos(pad)
+      ST.grunts[#ST.grunts + 1] = { chr = c, pad = pad }
+      local seen, why = bond_sees(x, y, z)
+      log("FLUSH grunt %d (chr %d) on pad %d, %.0f m from Bond, %.0f below him, %s (%s), %s", k, c, pad,
+        math.sqrt((x - bx) ^ 2 + (z - bz) ^ 2) / 100, (by - y) / 100, seen and "SEEN" or "unseen", why, gun)
+    end
+  end
+  notice(T.flush, 4, 1)
+  log("FLUSH: %d grunts sent up the hill (%d downhill pads out of sight)", #ST.grunts, ngood)
+  if #ST.grunts == 0 then ST.phase = "between"; ST.next_at = now + S.breather end
+end
+
+local function flush_tick()
+  local alive, near = 0, 1e9
+  bond_xyz()
+  for _, g in ipairs(ST.grunts) do
+    if g.chr and spawn.alive(g.chr) then
+      alive = alive + 1
+      local x, z = spawn.where(g.chr)
+      if x then near = math.min(near, math.sqrt((x - bx) ^ 2 + (z - bz) ^ 2) / 100) end
+    end
+  end
+  if now - (ST.flush_log or -9) >= 3 then ST.flush_log = now; log("FLUSH: %d alive, the nearest %.0f m from Bond", alive, near < 1e8 and near or -1) end
+  hud.panel({ string.format(T.panel_round, ST.round, N_ROUNDS), string.format(T.panel_flush, alive),
+              string.format(T.panel_hits, math.max(0, (ST.hits_allowed or 0) - ST.hits_taken)) })
+  if alive == 0 or now - ST.flush_t0 >= S.flush_timeout then
+    for _, g in ipairs(ST.grunts) do if g.chr and spawn.alive(g.chr) then spawn.remove(g.chr) end end
+    log("FLUSH over after %.0f s (%s)", now - ST.flush_t0, alive == 0 and "all down" or "timed out")
+    ST.grunts = {}
+    ST.phase = "between"
+    ST.next_at = now + S.breather
+  end
+end
+
 -- ------------------------------------------------------------ the rounds ---
 local function start_round(i)
   ST.round, rnd = i, ROUNDS[i]
   ST.phase = "round"
   round_t0 = now
   ST.foes, ST.killed = {}, 0
+  sniper.bond_hit(ST.hit_frac or 0)   -- (the marksmen's exact hits again, after a flush-out)
   local t0 = now + rand_in(S.first_delay)
   for n = 1, rnd.snipers do
     ST.foes[#ST.foes + 1] = { n = n, st = "wait", t = t0, volleys = 0 }
@@ -322,7 +495,10 @@ local function end_run(win)
   ended = true
   ST.phase = "over"
   for _, f in ipairs(ST.foes) do if f.chr then spawn.remove(f.chr); f.chr = nil end end
+  for _, g in ipairs(ST.grunts) do if g.chr and spawn.alive(g.chr) then spawn.remove(g.chr) end end
+  ST.grunts = {}
   sniper.clear()
+  sniper.thermal(false)
   local fired, hits = bond.shots(0)
   log("END: %s, %d/%d rounds won, %d:%02d, accuracy %d/%d, headshots %d, hits taken %d of %d%s", win and "WON" or "DOWN", stats.rounds, N_ROUNDS,
     math.floor(run_t) // 60, math.floor(run_t) % 60, hits or 0, math.max(fired or 0, hits or 0), stats.headshots, ST.hits_taken, ST.hits_allowed or 0,
@@ -337,9 +513,10 @@ local function round_won()
   stats.round_times[#stats.round_times + 1] = math.floor(now - round_t0 + 0.5)
   log("ROUND %d WON in %.1f s", ST.round, now - round_t0)
   if ST.round >= N_ROUNDS then end_run(true); return end
+  notice(string.format(T.round_won, ST.round), 4, 1)
+  if (rnd.flush or 0) > 0 then start_flush(rnd.flush); return end
   ST.phase = "between"
   ST.next_at = now + S.breather
-  notice(string.format(T.round_won, ST.round), 4, 1)
 end
 
 -- ----------------------------------------------------------------- events ---
@@ -354,6 +531,7 @@ local function loadout()
   sniper.zoom_limit("sniperrifle", S.scope_min_fov)
   sniper.zoom_limit("camera", S.binoc_min_fov)
   sniper.prone_tune(S.prone_eye, S.prone_speed, S.prone_sway)
+  sniper.claim_q(true)   -- (Q is the thermal view; the mouse wheel still swaps the rifle and the binoculars)
 end
 
 on("stage_start", function()
@@ -368,6 +546,7 @@ on("stage_start", function()
   local frac = 1.0 / n + 0.02
   weapon.set("sniperrifle", "damage", frac / (0.125 * dmod))
   sniper.bond_hit(frac)   -- (exact: the stock damage of an AI hit varies with the part it strikes)
+  ST.hit_frac = frac
   ST.hits_allowed = n
   if S.fog then sniper.fog(S.fog[1], S.fog[2]) end
   ST.fog = { sniper.fog() }
@@ -413,6 +592,8 @@ on("ui_tick", function(dt)
       f.tag_t = 0
     end
   end
+  storm_fog()
+  heat_draw()
   -- the glint's pulse, the markers' fade
   for _, f in ipairs(ST.foes) do
     if f.st == "glint" and f.glint_x then
@@ -447,17 +628,25 @@ on("tick", function(dt)
     end
     return
   end
+  storm_tick()
+  thermal_tick()
   if ST.phase == "ready" and now >= (ST.next_at or 0) then start_round(1)
   elseif ST.phase == "between" and now >= ST.next_at then start_round(ST.round + 1)
+  elseif ST.phase == "flush" then flush_tick()
   elseif ST.phase == "round" then
     run_t = run_t + dt
     local x, _, z = bond.pos(0)   -- Bond's speed (units a second, on the ground), for the detection
-    if x and ST.last_x then ST.speed = math.sqrt((x - ST.last_x) ^ 2 + (z - ST.last_z) ^ 2) / dt end
+    if x and ST.last_x then
+      ST.speed = math.sqrt((x - ST.last_x) ^ 2 + (z - ST.last_z) ^ 2) / dt
+      if ST.speed > 2000 then ST.speed = 0 end   -- (a warp, not a run)
+    end
     ST.last_x, ST.last_z = x, z
     for _, f in ipairs(ST.foes) do foe_tick(f, dt) end
     local left = rnd.snipers - ST.killed
+    local th = (ST.thermal_until and T.panel_th_on) or (now < (ST.thermal_ready or 0) and string.format(T.panel_th_wait, math.ceil(ST.thermal_ready - now)))
+      or T.panel_th_ready
     hud.panel({ string.format(T.panel_round, ST.round, N_ROUNDS), string.format(T.panel_left, left),
-                string.format(T.panel_hits, math.max(0, (ST.hits_allowed or 0) - ST.hits_taken)) })
+                string.format(T.panel_hits, math.max(0, (ST.hits_allowed or 0) - ST.hits_taken)), th })
   end
   if now - dbg_t >= S.debug_every then
     dbg_t = now
@@ -480,6 +669,9 @@ on("tick", function(dt)
 end)
 
 on("chr_died", function(victim, killer)
+  for k, g in ipairs(ST.grunts) do
+    if g.chr == victim then log("FLUSH grunt %d down", k); g.chr = nil; return end
+  end
   for _, f in ipairs(ST.foes) do
     if f.chr == victim and f.st ~= "dead" then
       f.st, f.chr = "dead", nil
