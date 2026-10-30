@@ -74,6 +74,13 @@ int portLevelgenHas(const char *name)
     return 0;
 }
 
+/* bgfog.c, the levelgen slot's environment: the sniper snowfield (tools/levelgen/build_snowfield.py) takes Surface's sky and fog;
+ * every other generated level keeps the slot's dark, fogless interior one */
+s32 portLevelgenSkyIsSurface(void)
+{
+    return strcmp(portLevelgenVariant(), "snowfield") == 0;
+}
+
 /* bg.c load_bg_file, the levelgen slot: the stan to use */
 u8 *portLevelgenStan(void)
 {

@@ -99,6 +99,12 @@ D.STAGES = {
   ridge = { key = "ridge", name = "SEVERNAYA RIDGE", card = "SEVERNAYA RIDGE", stage = "levelgen", env = { GE_LEVELGEN = "ridge" }, layout = "levelgen_layout_ridge",
             bond_names = { "sp4", "sp3", "sp5", "sp2", "sp6" }, perch_names = { "np1", "np2", "np3", "np4", "np5", "np6", "np7", "vp1", "vp2", "vp3", "vp4", "vp5", "vp6" },
             foe_scale = 2.0, all_perches = true },
+  -- the snowfield prototype (tools/levelgen/build_snowfield.py, Play Sniper Snowfield.bat; not on the card: its own build): a 340 m rolling
+  -- field; geom_los = a marksman glints / shoots only when the drawn ground (probe.los) is clear too, since the stan line ignores the hills
+  snowfield = { key = "snowfield", name = "SEVERNAYA SNOWFIELD", card = "SNOWFIELD", stage = "levelgen", env = { GE_LEVELGEN = "snowfield" },
+            layout = "levelgen_layout_snowfield", bond_names = { "b1", "b2", "b3", "b4", "b5" },
+            perch_names = { "m3", "m4", "m5", "m6", "m7", "m8", "f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "m1", "m2" },
+            foe_scale = 2.0, all_perches = true, geom_los = true },
 }
 D.STAGE_ORDER = { "ridge", "surface" }
 function D.key(id) return (D.STAGES[id or "surface"] or D.STAGES.surface).key end   -- the best-score key (ui prefs sniper_bests: <key>_rounds ...)

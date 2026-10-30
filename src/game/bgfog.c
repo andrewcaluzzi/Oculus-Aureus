@@ -581,6 +581,36 @@ void fogLoadLevelEnvironment(s32 level_id, s32 arg1)
     {   /* PORT: the generated level (port/levelgen, tools/gen_level.py): interiors, no fog, no sky (a near-black clear
          * colour shows only through a gap in the geometry). Static, as for the Colosseum above. */
         static EnvironmentFoglessRecord levelgen_env;
+        extern s32 portLevelgenSkyIsSurface(void);   /* port_levelgen_select.c */
+
+        if (portLevelgenSkyIsSurface())
+        {   /* the sniper snowfield (tools/levelgen/build_snowfield.py): Surface's own record out of the (ROM-served) table, its sky,
+             * clouds and fog colour, with the far plane moved out to 450 m for the 300 m sight lines (the slot is level scale 1,
+             * visibility scale 1: the planes are world units), no near-fog fade of props (a marksman is drawn to the far plane), and
+             * the fog band slid back (float positions) so the far end hazes to about a third instead of vanishing. */
+            static EnvironmentRecord snow_env;
+            EnvironmentRecord *r;
+
+            for (r = &fog_tables[0]; r->Id != 0; r++)
+            {
+                if (r->Id == LEVELID_SURFACE)
+                {
+                    snow_env = *r;
+                    snow_env.Id = LEVELID_LEE;
+                    snow_env.Visibility.BlendMultiplier = 10.0f;
+                    snow_env.Visibility.FarFog = 45000.0f;
+                    snow_env.Visibility.Nfd.NearFog = 0.0f;
+                    snow_env.Fog.DifferenceFromFarIntensity = 996;
+                    snow_env.Fog.FarIntensity = 1000;
+                    portFogSetPositionF(1, 998.5f, 1002.5f);
+                    g_EnvironmentFoundp = &snow_env;
+                    g_EnvironmentMainp = &snow_env;
+                    g_EnvironmentAltp = &snow_env;
+                    fogLoadCurrentEnvironment(&snow_env);
+                    return;
+                }
+            }
+        }
 
         levelgen_env.Id = LEVELID_LEE;
         levelgen_env.Red = 0x10;

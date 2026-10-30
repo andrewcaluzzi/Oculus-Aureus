@@ -259,6 +259,23 @@ local function start_move(f)
   toast(T.gone)
 end
 
+-- a stage with geom_los (the snowfield: the stan line walks the tiles flat, so it sees through a hill): the drawn ground must be clear
+-- too, his head to Bond's eye
+local function geom_clear(f)
+  if not SD.geom_los or not probe or not probe.los then return true end
+  local ok, _, _, ex, ey, ez = pcall(gadget.aim, 0)
+  if not ok or not ex then
+    local x, y, z = bond.pos(0)
+    if not x then return true end
+    ex, ey, ez = x, y + 150, z
+  end
+  local p = f.perch
+  local okc, clear = pcall(probe.los, p.x, p.y + 150, p.z, ex, ey, ez)
+  if not okc then return true end
+  if not clear then log("foe %d on pad %d: the stan line sees Bond, the ground is in the way: no glint", f.n, p.pad) end
+  return clear
+end
+
 local function foe_tick(f)
   if f.st == "wait" then
     if now >= f.t then arrive(f) end
@@ -266,7 +283,7 @@ local function foe_tick(f)
     if not f.chr then return end
     if now >= f.dwell_end and (f.volleys >= 1 or now >= f.dwell_end + 6) then start_move(f)
     elseif now >= f.volley_at then
-      if combat.los(f.chr, 0) then start_glint(f) else f.volley_at = now + 1.5 end   -- (no glint, no shot, while he has no line to Bond)
+      if combat.los(f.chr, 0) and geom_clear(f) then start_glint(f) else f.volley_at = now + 1.5 end   -- (no glint, no shot, while he has no line to Bond)
     end
   elseif f.st == "glint" then
     if now >= f.glint_end then release(f) end
