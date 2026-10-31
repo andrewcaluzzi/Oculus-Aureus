@@ -28,8 +28,10 @@ D.T = {
               more = "The Colosseum, or the Temple, Complex, Caves, Library, Stack, Basement and Facility. Presets, mutators, elites; Q Branch has every setting." },
     heist = { name = "HEIST", place = "JANUS BANK AND LE GRAND CASINO", blurb = "Plan the job in the van, then rob Janus: keys, cameras, the vault.",
               more = "Stealth or loud. Two jobs, every setting in Q Branch." },
-    sniper = { name = "SNIPER DUEL", place = "SEVERNAYA RIDGE + SURFACE  -  PROTOTYPE", blurb = "One rifle, a snowy ridge, and a named hunter on the far slopes.",
-               more = "Five rounds. A glint shows where a sniper has set up: shoot first or get down. He fires once, then moves. Later rounds add a second rifle and rushers." },
+    sniper = { name = "SNIPER DUEL", place = "RIDGE, SURFACE, SNOWFIELD, JUNGLE  -  PROTOTYPE", blurb = "One rifle and a named hunter on the far slopes. Four places to fight.",
+               more = "Five rounds. The ridge and Surface: a glint shows where he has set up, shoot first or get down. The snowfield and the jungle: hunters out to 500 m who glint only once they have you; go prone, use thermal, tag them through the binoculars." },
+    damplus = { name = "DAM+", place = "BYELOMORYE DAM, EXPANDED", blurb = "The Dam mission with more guards, new rooms and a way to the island.",
+                more = "A motor pool, a comms annex, a gallery inside the wall, the spillway balcony and the island lookout. Same objectives. No cheats." },
     goldeneye = { name = "GOLDENEYE 007", place = "THE ORIGINAL", blurb = "The campaign and stock multiplayer, from the Files screen.",
                   more = "Missions, multiplayer, the cheats, and the port's own options." },
   },
@@ -67,7 +69,27 @@ D.TILES = {
   { id = "arena", host = "arena" },
   { id = "heist", host = "heist" },
   { id = "sniper", host = "sniper" },
+  { id = "damplus", host = "damplus" },   -- (its card picks the difficulty; BEGIN starts the STOCK Dam mission with GE_DAMPLUS: tools/mode_damplus_menu.lua)
   { id = "goldeneye" },   -- (ui.quit: the stock front end)
+}
+
+-- DAM+: the stock Dam mission (no mode script, so its own guards and objectives) with GE_DAMPLUS for that one launch. The Dam+ parts
+-- (port/src/port_damplus.c: 1 = all of them, or a comma list of night, motor, comms, gallery, spill, island) and the difficulties
+D.DAMPLUS = {
+  stage = "dam", parts = "1",
+  T = { kicker = "MI6  -  SECTION 00  -  DAM+", title = "DAM+", dossier = "DOSSIER", d_where = "WHERE", d_diff = "DIFFICULTY", d_what = "WHAT IS NEW",
+        where = "BYELOMORYE DAM", what = "5 AREAS + NIGHT SHIFT", d_cheats = "CHEATS", cheats = "NONE",
+        begin = "BEGIN THE MISSION", begin_sub = "STOCK DAM, EXPANDED", begin_desc = "Start the Dam mission with every Dam+ area open.",
+        to_mi6 = "MAIN MENU", to_mi6_desc = "Back to the main menu.",
+        after = "When the mission is over, the stock report and the Files screen follow (restart the game for this menu).",
+        footer = "W S / STICK: MOVE    FIRE / A / ENTER: SELECT    ESC / B: BACK    MOUSE: POINT, CLICK" },
+  DIFFS = {
+    { name = "AGENT", blurb = "The fewest objectives, the softest guards.", diff = 0 },
+    { name = "SECRET AGENT", blurb = "More objectives, tougher guards.", diff = 1 },
+    { name = "00 AGENT", blurb = "All four objectives. The way the Dam+ launchers play it.", diff = 2 },
+    { name = "007", blurb = "All four objectives, the hardest guards.", diff = 3 },
+  },
+  default_diff = 3,   -- (the DIFFS index the card starts on: 00 AGENT)
 }
 
 function D.from_hub() return ui ~= nil and ui.hub ~= nil and ui.hub() end

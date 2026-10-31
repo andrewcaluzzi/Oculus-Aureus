@@ -1,6 +1,7 @@
 -- The MAIN MENU HUB (GE_MODE=hub on the stock Control stage; shipped as Data/Scripts/modes/hub.lua). Play Oculus Aureus.bat boots into it.
--- It is the top level over every mode: ARENA, HEIST and SNIPER DUEL open their start menus (the Arena's lobby, tools/mode_arena_menu.lua, the
--- Heist's, tools/mode_heist_menu.lua, and the Sniper Duel's card and debrief, tools/mode_sniper_menu.lua) HOSTED on this stage, GOLDENEYE 007
+-- It is the top level over every mode: ARENA, HEIST, SNIPER DUEL and DAM+ open their start menus (the Arena's lobby, tools/mode_arena_menu.lua, the
+-- Heist's, tools/mode_heist_menu.lua, the Sniper Duel's card and debrief, tools/mode_sniper_menu.lua: the ridge, Surface, the snowfield, the
+-- jungle; Dam+'s difficulty card, tools/mode_damplus_menu.lua: the stock Dam mission with GE_DAMPLUS) HOSTED on this stage, GOLDENEYE 007
 -- goes to the stock front end (the Files screen: the campaign,
 -- stock multiplayer), SETTINGS is the port's own options, EXIT closes the game. Built on the generic menu layer (tools/ui_menu.lua,
 -- port/src/port_uimenu*.c): the Arena's look.
@@ -44,7 +45,7 @@ local M
 local HOSTED = {}                 -- "arena" / "heist" -> the lobby's menu (host_open, host_tick)
 local active, want_back = nil, false   -- the lobby that is up; it asked to go back to the hub's page (done after its tick)
 for _, h in ipairs({ { "arena", "ARENA_MENU", "ARENA_MENU_HOST", "arena-menu" }, { "heist", "HEIST_MENU", "HEIST_MENU_HOST", "heist-menu" },
-                     { "sniper", "SNIPER_MENU", "SNIPER_MENU_HOST", "sniper-menu" } }) do
+                     { "sniper", "SNIPER_MENU", "SNIPER_MENU_HOST", "sniper-menu" }, { "damplus", "DAMPLUS_MENU", "DAMPLUS_MENU_HOST", "damplus-menu" } }) do
   _G[h[3]] = { back = function() want_back = true end }
   local ok, err = pcall(include, h[4])
   _G[h[3]] = nil

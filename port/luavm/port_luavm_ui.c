@@ -6,7 +6,9 @@
  *                                     stage slot again (stage = "colosseum", "levelgen", "control" ...: that slot instead; the names of GE_STAGE)
  *                                     (no mission report) with that mode (GE_MODE), settings text (a Lua table constructor),
  *                                     difficulty (0..3; nil leaves it) and GE_* variables (up to 8; a variable set for one launch and not
- *                                     the next goes back to what it was). lobby = the lobby's page ("menu", "postgame"; "" = a run)
+ *                                     the next goes back to what it was). lobby = the lobby's page ("menu", "postgame"; "" = a run).
+ *                                     mode = "0": the STOCK mission (no mode script: guards, objectives); when it ends the stock
+ *                                     report and the Files screen follow, and its variables are cleared (the hub's DAM+)
  *   ui.arm{...}                       the same launch, for when this stage ends by itself (a run: the win, the fail, an abort)
  *   ui.disarm()                       nothing after this stage (the stock report)
  *   ui.quit() -> bool                 end this stage and go to the Files screen

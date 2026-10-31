@@ -76,9 +76,10 @@ static void envPut(const char *k, const char *v)
 /* SECURITY: mode scripts (third-party mods included) choose these, and the next stage's process environment takes them. Only an
  * explicit ALLOWLIST of keys, each with its own value rule, is ever set: never a path, a script, a data directory or a test switch
  * (GE_UIMENU_DIR, GE_LUA_TEST, GE_ROM*, GE_MODS, GE_PROFILE, GE_NOMENUSAVE ... are all refused). */
-enum { EV_NAME, EV_DIGITS, EV_BOOL, EV_PUPPET };
+enum { EV_NAME, EV_DIGITS, EV_BOOL, EV_PUPPET, EV_LIST };
 static const struct { const char *key; s32 rule; } kEnvAllow[] = {
     { "GE_LEVELGEN", EV_NAME },     /* which generated level fills the levelgen slot (port_levelgen_select.c): a level name */
+    { "GE_DAMPLUS", EV_LIST },      /* Dam+ on stock Dam (port_damplus.c, read at each stage load): 1, or a comma list of its parts */
     { "GE_SEED", EV_DIGITS },       /* the run's deal (the solo Lua RNG's seed) */
     { "GE_COOP", EV_BOOL },         /* local co-op: a second Bond */
     { "GE_COOP_P2", EV_PUPPET },    /* what drives him: idle / walk / follow (never replay:<file>) */
@@ -109,6 +110,9 @@ int portUiEnvValueOk(const char *k, const char *v)
     case EV_PUPPET: return strcmp(v, "idle") == 0 || strcmp(v, "walk") == 0 || strcmp(v, "follow") == 0;
     case EV_DIGITS:
         for (p = v; *p != '\0'; p++, n++) if (n >= 9 || *p < '0' || *p > '9') return 0;
+        return 1;
+    case EV_LIST:   /* a-z 0-9 _ and commas, 0..23 ("" = unset) */
+        for (p = v; *p != '\0'; p++, n++) if (n >= 23 || !((*p >= 'a' && *p <= 'z') || (*p >= '0' && *p <= '9') || *p == '_' || *p == ',')) return 0;
         return 1;
     default:   /* EV_NAME: a-z 0-9 _, 1..23 */
         for (p = v; *p != '\0'; p++, n++) if (n >= 23 || !((*p >= 'a' && *p <= 'z') || (*p >= '0' && *p <= '9') || *p == '_')) return 0;
@@ -271,6 +275,17 @@ int portUiMenuAfterStage(int prev)
     }
     sArmed = UI_ARM_NONE;
     portUiMenuViewOff();
+    if (a == UI_ARM_NONE && strcmp(sCur.mode, "0") == 0)
+    {   /* a STOCK mission the menus launched (mode "0" = GE_MODE off: the hub's DAM+, tools/mode_damplus_menu.lua) is over: no script
+         * ran to arm anything, so the stock report and the Files screen follow, as from GOLDENEYE 007. Its variables (GE_DAMPLUS) go
+         * back to what they were, so a mission picked from the Files screen next is the stock one. */
+        envApply(&(UiLaunch) { 0 });
+        envPut("GE_MODE", "");
+        sCur.mode[0] = '\0';
+        sHub = 0;
+        portConLogf("ge: uimenu: after the stage: a stock mission from the menus is over: its variables are cleared (the stock report next)\n");
+        return 0;
+    }
     if (a == UI_ARM_NONE || portNetActive()) return 0;
     if (a == UI_ARM_QUIT)
     {

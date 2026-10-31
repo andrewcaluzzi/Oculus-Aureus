@@ -769,7 +769,9 @@ if(GE_VIDEO)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/tools/hub_defs.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/_hub_defs.lua
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            ${CMAKE_SOURCE_DIR}/tools/mode_hub.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/hub.lua)
+            ${CMAKE_SOURCE_DIR}/tools/mode_hub.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/hub.lua
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/tools/mode_damplus_menu.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/damplus-menu.lua)
     # the SNIPER DUEL on Surface (GE_MODE=sniper, Play Sniper Duel.bat): the run, its words / tables and its lobby (hosted by the hub)
     add_custom_command(TARGET ge POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
