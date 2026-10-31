@@ -173,6 +173,7 @@ def main():
         print("  " + x)
 
     # ---- no cart image ----
+    before = len(bad)
     bad += [f for f in files if f.lower().endswith(pa.CART_EXT)]
     for f in files:
         with open(f, "rb") as fh:
@@ -185,7 +186,7 @@ def main():
         if hits:
             bad.append(f"{f} ({hits} of {len(blocks)} sampled cart blocks)")
     report.append(f"cart check: no cart extension, no N64 header, none of {len(blocks)} sampled 4 KB blocks of the cart in any file"
-                  if not bad else "cart check: see the failures")
+                  if len(bad) == before else "cart check: FAILED: " + "; ".join(bad[before:]))
     print(report[-1])
 
     # ---- no cart data in the exe: tools/check_no_rom_data.py on the packaged exe (its exit code decides) ----

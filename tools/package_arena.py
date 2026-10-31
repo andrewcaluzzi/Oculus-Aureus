@@ -52,8 +52,9 @@ CHEATS_OK = {"Play Arena (Test Keys)": "GE_CHEATS=invuln,guns",
              "Arena Benchmark (Late Waves)": "GE_CHEATS=invuln"}
 # cheat-like settings: the environment switches, and Lua settings defaults that would make Bond unkillable or hand out everything
 CHEAT_ENV = re.compile(r"\b(GE_CHEATS|GE_COOP_GOD|GE_ARENA_GOD|GE_GOD|GE_INVULN)\b", re.I)
+# (a quoted "NONE" / "OFF" / "NO" / "FALSE" / "0" is a word for a menu, e.g. the Dam+ card's dossier line cheats = "NONE": not a cheat)
 CHEAT_LUA = re.compile(r"\b(invuln|invulnerable|invincible|god|godmode|god_mode|cheats|all_guns|infinite_health|no_damage)\s*=\s*"
-                       r"(true|[1-9]|\"[^\"]+\"|'[^']+'|\{)", re.I)
+                       r"(true|[1-9]|\"(?!(?:none|off|no|false|0)\")[^\"]+\"|'(?!(?:none|off|no|false|0)')[^']+'|\{)", re.I)
 CART_EXT = (".z64", ".v64", ".n64", ".rom")
 CART_MAGIC = (b"\x80\x37\x12\x40", b"\x37\x80\x40\x12", b"\x40\x12\x37\x80")   # z64, v64, n64 byte orders
 
