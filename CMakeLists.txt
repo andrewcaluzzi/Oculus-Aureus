@@ -273,20 +273,48 @@ port_add_asset_direct(port/flatland/UsetupflatlandZ.c UsetupflatlandZ)
 port_add_asset_seg(port/colosseum/bg_colosseum_all_p.c bg_ear_all_p_seg)
 port_add_asset_direct(port/colosseum/Tbg_colosseum_all_p_stanZ.c Tbg_colosseum_all_p_stanZ)
 port_add_asset_direct(port/colosseum/UsetupcolosseumZ.c UsetupcolosseumZ)
-# The generated level (lab, heist P2): tools/gen_level.py <layout.json> -> port/levelgen/, on the cut slot LEVELID_LEE
-# (bg symbol bg_lee_all_p_seg); see modding/levelgen.md.
-# GE_LEVELGEN_DIR (relative to the source dir): where the generated files are; tools/levelgen/preview.sh builds a level editor
-# preview from build_preview/levelgen without touching port/levelgen, and build_job2 puts the casino job here.
-set(GE_LEVELGEN_DIR "port/levelgen" CACHE STRING "the generated level on the levelgen slot (gen_level.py --out; port/levelgen = the bank, port/levelgen_casino = the casino job)")
-port_add_asset_seg(${GE_LEVELGEN_DIR}/bg_levelgen_all_p.c bg_lee_all_p_seg)
-port_add_asset_direct(${GE_LEVELGEN_DIR}/Tbg_levelgen_all_p_stanZ.c Tbg_levelgen_all_p_stanZ)
-port_add_asset_direct(${GE_LEVELGEN_DIR}/UsetuplevelgenZ.c UsetuplevelgenZ)
-# A second generated level on the same slot, picked at stage load (GE_LEVELGEN=<name>; port/src/port_levelgen_select.c): the casino
-# job by default. Its three files are compiled under their own symbols (objcopy --redefine-sym), so both levels are in one exe and a
-# mode switches between them at runtime. GE_LEVELGEN_EXTRA="" leaves it out.
-set(GE_LEVELGEN_EXTRA "port/levelgen_casino" CACHE STRING "a second generated level for the levelgen slot, chosen at runtime (GE_LEVELGEN=<name>); empty = none")
-set(GE_LEVELGEN_EXTRA_NAME "casino" CACHE STRING "the second level's name (GE_LEVELGEN value, symbol suffix, levelgen_layout_<name>.lua)")
-set(GE_LEVELGEN_DEFAULT_NAME "bank" CACHE STRING "the name of the GE_LEVELGEN_DIR level (levelgen.current())")
+# The generated levels (lab, heist P2): tools/gen_level.py <layout.json> -> port/levelgen*/, on the cut slot LEVELID_LEE; see
+# modding/levelgen.md. GE_LEVELGEN_LEVELS is the list of every generated level the exe carries, as name=dir entries (dir relative to
+# the source dir). The slot holds one of them per stage load, picked at runtime by GE_LEVELGEN=<name> (port/src/port_levelgen_select.c;
+# a launcher or the menus' hand-off sets it); an unknown or unset name gets the FIRST entry, the default (levelgen.default()). The
+# first level is compiled under the slot's own symbols (bg_lee_all_p_seg, Tbg_levelgen_all_p_stanZ, UsetuplevelgenZ), every other one
+# under its own (bg_lee_<name>_all_p_seg, Tbg_levelgen_<name>_all_p_stanZ, Usetuplevelgen<name>Z: objcopy --redefine-sym), and the
+# configure step writes the table the C side walks (levelgen_levels.h in the build dir). Each level's layout ships as
+# Data/Scripts/modes/levelgen_layout_<name>.lua, the first one also as levelgen_layout.lua. Every level's data is in the exe (a few
+# hundred KB to 1.5 MB each); one entry builds a one-level exe.
+# GE_LEVELGEN_DIR (legacy, one level): set, it replaces the list with "<GE_LEVELGEN_DEFAULT_NAME>=<dir>" (tools/levelgen/preview.sh
+# builds a level editor preview from build_preview/levelgen this way).
+set(GE_LEVELGEN_LEVELS "bank=port/levelgen;casino=port/levelgen_casino;ridge=port/levelgen_ridge;snowfield=port/levelgen_snowfield;jungle=port/levelgen_jungle"
+    CACHE STRING "every generated level for the levelgen slot, name=dir;name=dir (the first is the default; GE_LEVELGEN=<name> picks one at runtime)")
+set(GE_LEVELGEN_DIR "" CACHE STRING "legacy: ONE generated level for the slot (overrides GE_LEVELGEN_LEVELS with <GE_LEVELGEN_DEFAULT_NAME>=<dir>)")
+set(GE_LEVELGEN_DEFAULT_NAME "bank" CACHE STRING "legacy: the GE_LEVELGEN_DIR level's name (levelgen.current())")
+if(GE_LEVELGEN_DIR)
+    set(_lg_levels "${GE_LEVELGEN_DEFAULT_NAME}=${GE_LEVELGEN_DIR}")
+else()
+    set(_lg_levels ${GE_LEVELGEN_LEVELS})
+endif()
+set(GE_LEVELGEN_NAMES "")
+set(GE_LEVELGEN_DIRS "")
+foreach(_lg IN LISTS _lg_levels)
+    if(NOT _lg MATCHES "^([a-z0-9_]+)=(.+)$")
+        message(FATAL_ERROR "GE_LEVELGEN_LEVELS: '${_lg}' is not name=dir (the name: a-z 0-9 _)")
+    endif()
+    set(_lgn ${CMAKE_MATCH_1})
+    set(_lgd ${CMAKE_MATCH_2})
+    if(_lgn IN_LIST GE_LEVELGEN_NAMES)
+        message(FATAL_ERROR "GE_LEVELGEN_LEVELS: the name '${_lgn}' is used twice")
+    endif()
+    if(NOT EXISTS ${CMAKE_SOURCE_DIR}/${_lgd}/UsetuplevelgenZ.c)
+        message(FATAL_ERROR "GE_LEVELGEN_LEVELS: ${_lgd} has no generated level (UsetuplevelgenZ.c)")
+    endif()
+    list(APPEND GE_LEVELGEN_NAMES ${_lgn})
+    list(APPEND GE_LEVELGEN_DIRS ${_lgd})
+endforeach()
+list(LENGTH GE_LEVELGEN_NAMES _lg_count)
+if(_lg_count EQUAL 0)
+    message(FATAL_ERROR "GE_LEVELGEN_LEVELS is empty: the slot needs one level at least")
+endif()
+list(GET GE_LEVELGEN_DIRS 0 _lg_first_dir)
 function(port_add_asset_direct_as src oldsym sym)
     set(obj ${ASSET_OBJ_DIR}/${sym}.o)
     add_custom_command(OUTPUT ${obj}
@@ -301,30 +329,39 @@ function(port_add_asset_direct_as src oldsym sym)
         COMMENT "asset ${sym} (from ${oldsym})" VERBATIM)
     port_asset_record(${obj} ${sym})
 endfunction()
-set(GE_LEVELGEN_HAS_EXTRA OFF)
-if(GE_LEVELGEN_EXTRA AND NOT GE_LEVELGEN_EXTRA STREQUAL GE_LEVELGEN_DIR AND EXISTS ${CMAKE_SOURCE_DIR}/${GE_LEVELGEN_EXTRA}/UsetuplevelgenZ.c)
-    set(GE_LEVELGEN_HAS_EXTRA ON)
-    set(_lgx ${GE_LEVELGEN_EXTRA_NAME})
-    list(APPEND PORT_ASSET_KEEP_SYMS bg_lee_${_lgx}_all_p_seg Tbg_levelgen_${_lgx}_all_p_stanZ Usetuplevelgen${_lgx}Z)
-    port_add_asset_seg(${GE_LEVELGEN_EXTRA}/bg_levelgen_all_p.c bg_lee_${_lgx}_all_p_seg)
-    port_add_asset_direct_as(${GE_LEVELGEN_EXTRA}/Tbg_levelgen_all_p_stanZ.c Tbg_levelgen_all_p_stanZ Tbg_levelgen_${_lgx}_all_p_stanZ)
-    port_add_asset_direct_as(${GE_LEVELGEN_EXTRA}/UsetuplevelgenZ.c UsetuplevelgenZ Usetuplevelgen${_lgx}Z)
-    message(STATUS "levelgen: '${GE_LEVELGEN_DEFAULT_NAME}' (${GE_LEVELGEN_DIR}) and '${_lgx}' (${GE_LEVELGEN_EXTRA}), chosen at runtime by GE_LEVELGEN")
-endif()
-# A third generated level on the slot, the same way (the sniper build: the snowfield and the jungle in one exe). Empty = none.
-set(GE_LEVELGEN_EXTRA2 "" CACHE STRING "a third generated level for the levelgen slot (GE_LEVELGEN=<name>); empty = none")
-set(GE_LEVELGEN_EXTRA2_NAME "" CACHE STRING "the third level's name (GE_LEVELGEN value, symbol suffix, levelgen_layout_<name>.lua)")
-set(GE_LEVELGEN_HAS_EXTRA2 OFF)
-if(GE_LEVELGEN_HAS_EXTRA AND GE_LEVELGEN_EXTRA2 AND GE_LEVELGEN_EXTRA2_NAME AND NOT GE_LEVELGEN_EXTRA2_NAME STREQUAL GE_LEVELGEN_EXTRA_NAME
-   AND EXISTS ${CMAKE_SOURCE_DIR}/${GE_LEVELGEN_EXTRA2}/UsetuplevelgenZ.c)
-    set(GE_LEVELGEN_HAS_EXTRA2 ON)
-    set(_lgx2 ${GE_LEVELGEN_EXTRA2_NAME})
-    list(APPEND PORT_ASSET_KEEP_SYMS bg_lee_${_lgx2}_all_p_seg Tbg_levelgen_${_lgx2}_all_p_stanZ Usetuplevelgen${_lgx2}Z)
-    port_add_asset_seg(${GE_LEVELGEN_EXTRA2}/bg_levelgen_all_p.c bg_lee_${_lgx2}_all_p_seg)
-    port_add_asset_direct_as(${GE_LEVELGEN_EXTRA2}/Tbg_levelgen_all_p_stanZ.c Tbg_levelgen_all_p_stanZ Tbg_levelgen_${_lgx2}_all_p_stanZ)
-    port_add_asset_direct_as(${GE_LEVELGEN_EXTRA2}/UsetuplevelgenZ.c UsetuplevelgenZ Usetuplevelgen${_lgx2}Z)
-    message(STATUS "levelgen: and '${_lgx2}' (${GE_LEVELGEN_EXTRA2})")
-endif()
+# every GE_LEVELGEN_LEVELS entry: the first under the slot's own symbols, the rest renamed; and the C table (levelgen_levels.h)
+set(_lg_h "/* generated by CMakeLists.txt from GE_LEVELGEN_LEVELS: do not edit (port/src/port_levelgen_select.c includes it) */\n")
+set(_lg_rows "")
+set(_lg_i 0)
+foreach(_lgn IN LISTS GE_LEVELGEN_NAMES)
+    list(GET GE_LEVELGEN_DIRS ${_lg_i} _lgd)
+    if(_lg_i EQUAL 0)
+        set(_bg bg_lee_all_p_seg)
+        set(_st Tbg_levelgen_all_p_stanZ)
+        set(_su UsetuplevelgenZ)
+        port_add_asset_seg(${_lgd}/bg_levelgen_all_p.c ${_bg})
+        port_add_asset_direct(${_lgd}/Tbg_levelgen_all_p_stanZ.c ${_st})
+        port_add_asset_direct(${_lgd}/UsetuplevelgenZ.c ${_su})
+    else()
+        set(_bg bg_lee_${_lgn}_all_p_seg)
+        set(_st Tbg_levelgen_${_lgn}_all_p_stanZ)
+        set(_su Usetuplevelgen${_lgn}Z)
+        list(APPEND PORT_ASSET_KEEP_SYMS ${_bg} ${_st} ${_su})
+        port_add_asset_seg(${_lgd}/bg_levelgen_all_p.c ${_bg})
+        port_add_asset_direct_as(${_lgd}/Tbg_levelgen_all_p_stanZ.c Tbg_levelgen_all_p_stanZ ${_st})
+        port_add_asset_direct_as(${_lgd}/UsetuplevelgenZ.c UsetuplevelgenZ ${_su})
+    endif()
+    string(APPEND _lg_h "extern u8 ${_bg}[];\nextern u8 ${_st}[];\nextern stagesetup ${_su};\n")
+    string(APPEND _lg_rows "    { \"${_lgn}\", ${_bg}, ${_st}, &${_su} },\n")
+    math(EXPR _lg_i "${_lg_i} + 1")
+endforeach()
+string(APPEND _lg_h "#define LEVELGEN_LEVELS_INIT { \\\n${_lg_rows}}\n")
+string(REPLACE "},\n" "}, \\\n" _lg_h "${_lg_h}")
+file(WRITE ${CMAKE_BINARY_DIR}/generated/levelgen_levels.h.in "${_lg_h}")
+configure_file(${CMAKE_BINARY_DIR}/generated/levelgen_levels.h.in ${CMAKE_BINARY_DIR}/generated/levelgen_levels.h COPYONLY)   # (rewritten only when it changes)
+string(REPLACE ";" ", " _lg_say "${GE_LEVELGEN_NAMES}")
+list(GET GE_LEVELGEN_NAMES 0 _lg_first)
+message(STATUS "levelgen: ${_lg_count} levels on the slot (${_lg_say}), chosen at runtime by GE_LEVELGEN; the default is '${_lg_first}'")
 get_property(ASSET_OBJS_KEEP GLOBAL PROPERTY PORT_ASSET_OBJS_KEEP)
 get_property(ASSET_OBJS_SERVED GLOBAL PROPERTY PORT_ASSET_OBJS_SERVED)
 # GE_ROMDATA_FALLBACK OFF: drop the served asset objects (models/bg/setups/
@@ -516,15 +553,8 @@ set_property(SOURCE ${PORT_SRC} APPEND PROPERTY COMPILE_OPTIONS
 
 add_executable(ge ${GAME_SRC} ${ENGINE_SRC} ${GU_SRC} ${PORT_SRC}
                ${ASSET_LOOSE_SRC} ${ASSET_OBJS} ${FAST3D_SRC})
-# the runtime choice of the generated level (port/src/port_levelgen_select.c): the names, and the extra level when it is compiled in
-set(_lgdefs "GE_LEVELGEN_DEFAULT_NAME=\"${GE_LEVELGEN_DEFAULT_NAME}\"")
-if(GE_LEVELGEN_HAS_EXTRA)
-    list(APPEND _lgdefs "GE_LEVELGEN_EXTRA_NAME=\"${GE_LEVELGEN_EXTRA_NAME}\"" "GE_LEVELGEN_EXTRA_SYM=${GE_LEVELGEN_EXTRA_NAME}")
-endif()
-if(GE_LEVELGEN_HAS_EXTRA2)
-    list(APPEND _lgdefs "GE_LEVELGEN_EXTRA2_NAME=\"${GE_LEVELGEN_EXTRA2_NAME}\"" "GE_LEVELGEN_EXTRA2_SYM=${GE_LEVELGEN_EXTRA2_NAME}")
-endif()
-set_property(SOURCE ${CMAKE_SOURCE_DIR}/port/src/port_levelgen_select.c APPEND PROPERTY COMPILE_DEFINITIONS ${_lgdefs})
+# the runtime choice of the generated level (port/src/port_levelgen_select.c) walks the GE_LEVELGEN_LEVELS table, levelgen_levels.h
+set_property(SOURCE ${CMAKE_SOURCE_DIR}/port/src/port_levelgen_select.c APPEND PROPERTY OBJECT_DEPENDS ${CMAKE_BINARY_DIR}/generated/levelgen_levels.h)
 # The executable is named ProjectMidas, but the CMake target stays `ge` so build
 # scripts keep working, and ge_direct.log/Profiles keep their names.
 set_target_properties(ge PROPERTIES OUTPUT_NAME ProjectMidas)
@@ -686,7 +716,7 @@ if(GE_VIDEO)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/tools/heist_ar.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/heist_ar.lua
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            ${CMAKE_SOURCE_DIR}/${GE_LEVELGEN_DIR}/levelgen_layout.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/levelgen_layout.lua
+            ${CMAKE_SOURCE_DIR}/${_lg_first_dir}/levelgen_layout.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/levelgen_layout.lua
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/tools/mode_levelgen_test.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/levelgen_test.lua
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -758,18 +788,16 @@ if(GE_VIDEO)
             ${CMAKE_SOURCE_DIR}/tools/mode_sniper_v2.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/sniper-v2.lua
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/tools/mode_sniper_jungle.lua $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/sniper-jungle.lua)
-    if(GE_LEVELGEN_HAS_EXTRA)
+    # every generated level's layout as levelgen_layout_<name>.lua (levelgen.current() names it; the first is levelgen_layout.lua too)
+    set(_lg_i 0)
+    foreach(_lgn IN LISTS GE_LEVELGEN_NAMES)
+        list(GET GE_LEVELGEN_DIRS ${_lg_i} _lgd)
         add_custom_command(TARGET ge POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                ${CMAKE_SOURCE_DIR}/${GE_LEVELGEN_EXTRA}/levelgen_layout.lua
-                $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/levelgen_layout_${GE_LEVELGEN_EXTRA_NAME}.lua)
-    endif()
-    if(GE_LEVELGEN_HAS_EXTRA2)
-        add_custom_command(TARGET ge POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                ${CMAKE_SOURCE_DIR}/${GE_LEVELGEN_EXTRA2}/levelgen_layout.lua
-                $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/levelgen_layout_${GE_LEVELGEN_EXTRA2_NAME}.lua)
-    endif()
+                ${CMAKE_SOURCE_DIR}/${_lgd}/levelgen_layout.lua
+                $<TARGET_FILE_DIR:ge>/Data/Scripts/modes/levelgen_layout_${_lgn}.lua)
+        math(EXPR _lg_i "${_lg_i} + 1")
+    endforeach()
     # the player bot's level plans (port_playerbot.c reads Data/BotPlans/<stage>.plan)
     file(GLOB GE_BOT_PLANS CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/tools/bot/plans/*.plan)
     if(GE_BOT_PLANS)

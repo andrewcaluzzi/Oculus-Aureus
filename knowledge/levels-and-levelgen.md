@@ -63,9 +63,12 @@ GoldenEye has unused stage ids. The fork compiles generated levels into them (al
 
 Still free: `LIP`, `RIT`, `WAX`, `PAM`, `ELD` (`bondconstants.h`).
 
-The levelgen slot holds one layout per **build**, not per checkout. The CMake cache variable `GE_LEVELGEN_DIR` (default
-`port/levelgen`) names the generated directory a build dir compiles and ships with `levelgen_layout.lua`. The casino job
-(`designs/job2-casino.md`) lives in `port/levelgen_casino` and is built in `build_job2`. A build dir can be seeded with another dir's
+The levelgen slot holds one layout per **stage load**. The CMake cache list `GE_LEVELGEN_LEVELS` (`name=dir;...`, default the
+bank, the casino, the sniper ridge, the snowfield and the jungle) names every generated directory the exe carries; the configure
+step writes `generated/levelgen_levels.h`, the table `port_levelgen_select.c` walks, and `GE_LEVELGEN=<name>` picks the level at
+each load (the first when unset). The first keeps the slot's own symbols, the others are renamed per name with objcopy; each
+layout ships as `levelgen_layout_<name>.lua`. Cost: each level's bg, stan and setup are static data in the exe (about 0.45 to
+1.5 MB each, 3.8 MB for all five). The legacy `GE_LEVELGEN_DIR` (empty by default) still builds a one-level exe. A build dir can be seeded with another dir's
 objects (copy `CMakeFiles/ge.dir/**/*.o` and `asset_obj/*` except the levelgen ones, then touch them newer than `flags.make`): only
 the slot's three asset objects and the link run then.
 

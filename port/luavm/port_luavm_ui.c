@@ -27,8 +27,9 @@
  *   ui.netplay() -> bool              a netplay session (the menu flow is off there)
  *   ui.state() -> menu_up, gameplay_has_pointer, mouse_captured   (tests)
  *   levelgen.current() -> name        the generated level on the levelgen slot this stage ("bank", "casino")
- *   levelgen.default() -> name        the build's own (GE_LEVELGEN_DIR) level's name
+ *   levelgen.default() -> name        the build's default level's name (GE_LEVELGEN_LEVELS' first)
  *   levelgen.has(name) -> bool        this build carries that level (GE_LEVELGEN=<name> picks it at a stage load)
+ *   levelgen.levels() -> { name ... } every level this build carries, the default first
  * MODE tier. Inert outside a mode stage. */
 #include <string.h>
 #include <stdio.h>
@@ -517,6 +518,14 @@ static int lView(lua_State *L)
 static int lLgCurrent(lua_State *L) { lua_pushstring(L, portLevelgenVariant()); return 1; }
 static int lLgDefault(lua_State *L) { lua_pushstring(L, portLevelgenDefaultName()); return 1; }
 static int lLgHas(lua_State *L) { lua_pushboolean(L, portLevelgenHas(luaL_checkstring(L, 1))); return 1; }
+static int lLgLevels(lua_State *L)
+{
+    int i, n = portLevelgenCount();
+
+    lua_createtable(L, n, 0);
+    for (i = 0; i < n; i++) { lua_pushstring(L, portLevelgenName(i)); lua_rawseti(L, -2, i + 1); }
+    return 1;
+}
 
 void portLuaUiRegister(lua_State *L)
 {
@@ -524,7 +533,8 @@ void portLuaUiRegister(lua_State *L)
         { "launch", lLaunch }, { "arm", lArm }, { "disarm", lDisarm }, { "quit", lQuit }, { "exit", lExit }, { "current", lCurrent }, { "retry", lRetry },
         { "result", lResult }, { "prefs", lPrefs }, { "save_prefs", lSavePrefs }, { "view", lView }, { "escape_back", lEscape },
         { "netplay", lNetplay }, { "state", lState }, { "hub", lHub }, { "opt", lOpt }, { "opt_set", lOptSet }, { NULL, NULL } };
-    static const luaL_Reg lg[] = { { "current", lLgCurrent }, { "default", lLgDefault }, { "has", lLgHas }, { NULL, NULL } };
+    static const luaL_Reg lg[] = { { "current", lLgCurrent }, { "default", lLgDefault }, { "has", lLgHas }, { "levels", lLgLevels },
+                                   { NULL, NULL } };
 
     luaL_newlib(L, lib);
     lua_setglobal(L, "ui");

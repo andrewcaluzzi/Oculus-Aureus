@@ -106,8 +106,10 @@ void portUiMenuViewOff(void);
 int  portUiMenuMouse(int mx, int my, int winw, int winh, unsigned int mbuttons, int wheelUp, int wheelDown);   /* port_intel.c */
 
 /* ---- the generated level, chosen at stage load (port_levelgen_select.c) ---- */
-const char *portLevelgenVariant(void);        /* "default" or an extra's name ("casino"): what the levelgen slot holds now */
-int  portLevelgenHas(const char *name);       /* 1 = this build carries that variant */
-const char *portLevelgenDefaultName(void);    /* what the default variant is ("bank"; -DGE_LEVELGEN_DEFAULT_NAME) */
+const char *portLevelgenVariant(void);        /* the name of the level the levelgen slot holds now ("bank", "casino", "jungle" ...) */
+int  portLevelgenHas(const char *name);       /* 1 = this build carries that level */
+const char *portLevelgenDefaultName(void);    /* the default level's name: GE_LEVELGEN_LEVELS' first ("bank") */
+int  portLevelgenCount(void);                 /* how many levels the build carries (GE_LEVELGEN_LEVELS) */
+const char *portLevelgenName(int i);          /* the i-th one's name (0-based, the default first), NULL past the end */
 
 #endif

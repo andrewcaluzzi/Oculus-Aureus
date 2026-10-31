@@ -2,12 +2,14 @@
  * port_levelgen_select.c - which generated level fills the levelgen slot (LEVELID_LEE), chosen at each stage load instead of at build
  * time (the agreed branch model: modes switch at runtime). midas-notes features/heist.md "Runtime job switch".
  *
- * The build always compiles the default level (GE_LEVELGEN_DIR, the bank: symbols bg_lee_all_p_seg, Tbg_levelgen_all_p_stanZ,
- * UsetuplevelgenZ) and, when GE_LEVELGEN_EXTRA is set (default port/levelgen_casino), a second one under its own symbols
- * (bg_lee_<name>_all_p_seg, Tbg_levelgen_<name>_all_p_stanZ, Usetuplevelgen<name>Z; CMakeLists.txt renames them with objcopy). The
- * level is picked from GE_LEVELGEN=<name> when the stage loads (bg.c, prop.c ask here): the extra's name picks it, anything else the
- * default. The menus' hand-off sets GE_LEVELGEN for a run (port_uimenu.c), a launcher sets it for the first stage. The Lua layout that
- * goes with it is Data/Scripts/modes/levelgen_layout_<name>.lua (mode scripts include the one levelgen.current() names).
+ * The build compiles every level of GE_LEVELGEN_LEVELS (CMakeLists.txt: name=dir entries; the bank, the casino, the sniper ridge, the
+ * snowfield and the jungle by default). The first is the default and keeps the slot's own symbols (bg_lee_all_p_seg,
+ * Tbg_levelgen_all_p_stanZ, UsetuplevelgenZ); every other one is compiled under its own (bg_lee_<name>_all_p_seg,
+ * Tbg_levelgen_<name>_all_p_stanZ, Usetuplevelgen<name>Z; objcopy renames them). The configure step writes the table below
+ * (levelgen_levels.h in the build dir). The level is picked from GE_LEVELGEN=<name> when the stage loads (bg.c, prop.c ask here): a
+ * listed name picks that level, anything else the default. The menus' hand-off sets GE_LEVELGEN for a run (port_uimenu.c), a launcher
+ * sets it for the first stage. The Lua layout that goes with it is Data/Scripts/modes/levelgen_layout_<name>.lua (mode scripts include
+ * the one levelgen.current() names; the default's is levelgen_layout.lua too).
  *
  * Sim class: SIM in spirit (it picks the stage's data), but it keeps no state of its own: the choice is a pure function of the
  * environment at the load, and the pointers are the linked data. Each level's compiled data is its own, so a bank load after a casino
@@ -22,72 +24,50 @@
 #include "game/ob.h"
 
 #include "port_uimenu.h"
+#include "levelgen_levels.h"   /* (generated: the externs and LEVELGEN_LEVELS_INIT) */
 
 extern void portConLogf(const char *fmt, ...);
 extern fileentry file_resource_table[];   /* ob.c */
 
-#ifndef GE_LEVELGEN_DEFAULT_NAME
-#define GE_LEVELGEN_DEFAULT_NAME "bank"
-#endif
+typedef struct
+{
+    const char *name;   /* the GE_LEVELGEN value, the layout's suffix */
+    u8 *bg;             /* its bg segment (the slot's file table entry is pointed here) */
+    u8 *stan;
+    stagesetup *setup;
+} LevelgenLevel;
 
-extern u8 Tbg_levelgen_all_p_stanZ[];
-extern stagesetup UsetuplevelgenZ;
-extern u8 bg_lee_all_p_seg[];
+static const LevelgenLevel kLevels[] = LEVELGEN_LEVELS_INIT;
+#define LEVELGEN_COUNT ((int) (sizeof(kLevels) / sizeof(kLevels[0])))
 
-#ifdef GE_LEVELGEN_EXTRA_NAME
-/* the extra level's symbols: CMakeLists.txt port_add_asset_*_as renames them (GE_LEVELGEN_EXTRA_SYM = its name, e.g. casino) */
-#define LG_CAT2(a, b, c) a##b##c
-#define LG_CAT(a, b, c) LG_CAT2(a, b, c)
-extern u8 LG_CAT(Tbg_levelgen_, GE_LEVELGEN_EXTRA_SYM, _all_p_stanZ)[];
-extern stagesetup LG_CAT(Usetuplevelgen, GE_LEVELGEN_EXTRA_SYM, Z);
-extern u8 LG_CAT(bg_lee_, GE_LEVELGEN_EXTRA_SYM, _all_p_seg)[];
-#endif
-#ifdef GE_LEVELGEN_EXTRA2_NAME
-/* a third level (GE_LEVELGEN_EXTRA2: the sniper build carries the snowfield and the jungle), the same way */
-extern u8 LG_CAT(Tbg_levelgen_, GE_LEVELGEN_EXTRA2_SYM, _all_p_stanZ)[];
-extern stagesetup LG_CAT(Usetuplevelgen, GE_LEVELGEN_EXTRA2_SYM, Z);
-extern u8 LG_CAT(bg_lee_, GE_LEVELGEN_EXTRA2_SYM, _all_p_seg)[];
-#endif
-
-static int useExtra(void)   /* 0 the default level, 1 the extra, 2 the second extra */
+static const LevelgenLevel *chosen(void)   /* the level GE_LEVELGEN names, else the first (the default) */
 {
     const char *e = getenv("GE_LEVELGEN");
+    int i;
 
-    if (e == NULL) return 0;
-#ifdef GE_LEVELGEN_EXTRA_NAME
-    if (strcmp(e, GE_LEVELGEN_EXTRA_NAME) == 0) return 1;
-#endif
-#ifdef GE_LEVELGEN_EXTRA2_NAME
-    if (strcmp(e, GE_LEVELGEN_EXTRA2_NAME) == 0) return 2;
-#endif
-    return 0;
+    if (e != NULL)
+    {
+        for (i = 0; i < LEVELGEN_COUNT; i++) if (strcmp(e, kLevels[i].name) == 0) return &kLevels[i];
+    }
+    return &kLevels[0];
 }
 
-const char *portLevelgenDefaultName(void) { return GE_LEVELGEN_DEFAULT_NAME; }
+const char *portLevelgenDefaultName(void) { return kLevels[0].name; }
 
-const char *portLevelgenVariant(void)
-{
-#ifdef GE_LEVELGEN_EXTRA_NAME
-    if (useExtra() == 1) return GE_LEVELGEN_EXTRA_NAME;
-#endif
-#ifdef GE_LEVELGEN_EXTRA2_NAME
-    if (useExtra() == 2) return GE_LEVELGEN_EXTRA2_NAME;
-#endif
-    return GE_LEVELGEN_DEFAULT_NAME;
-}
+const char *portLevelgenVariant(void) { return chosen()->name; }
 
 int portLevelgenHas(const char *name)
 {
+    int i;
+
     if (name == NULL) return 0;
-    if (strcmp(name, GE_LEVELGEN_DEFAULT_NAME) == 0) return 1;
-#ifdef GE_LEVELGEN_EXTRA_NAME
-    if (strcmp(name, GE_LEVELGEN_EXTRA_NAME) == 0) return 1;
-#endif
-#ifdef GE_LEVELGEN_EXTRA2_NAME
-    if (strcmp(name, GE_LEVELGEN_EXTRA2_NAME) == 0) return 1;
-#endif
+    for (i = 0; i < LEVELGEN_COUNT; i++) if (strcmp(name, kLevels[i].name) == 0) return 1;
     return 0;
 }
+
+/* levelgen.levels(): how many, and the i-th name (0-based); NULL past the end */
+int portLevelgenCount(void) { return LEVELGEN_COUNT; }
+const char *portLevelgenName(int i) { return (i >= 0 && i < LEVELGEN_COUNT) ? kLevels[i].name : NULL; }
 
 /* bgfog.c, the levelgen slot's environment: the sniper snowfield (tools/levelgen/build_snowfield.py) takes Surface's sky and fog;
  * every other generated level keeps the slot's dark, fogless interior one */
@@ -111,42 +91,19 @@ void portLevelgenFloatCameraSet(s32 on) { sFloatCamera = on; }
 s32 portLevelgenFloatCamera(void) { return sFloatCamera; }
 
 /* bg.c load_bg_file, the levelgen slot: the stan to use */
-u8 *portLevelgenStan(void)
-{
-#ifdef GE_LEVELGEN_EXTRA_NAME
-    if (useExtra() == 1) return LG_CAT(Tbg_levelgen_, GE_LEVELGEN_EXTRA_SYM, _all_p_stanZ);
-#endif
-#ifdef GE_LEVELGEN_EXTRA2_NAME
-    if (useExtra() == 2) return LG_CAT(Tbg_levelgen_, GE_LEVELGEN_EXTRA2_SYM, _all_p_stanZ);
-#endif
-    return Tbg_levelgen_all_p_stanZ;
-}
+u8 *portLevelgenStan(void) { return chosen()->stan; }
 
 /* prop.c, the levelgen slot: the setup to use */
 stagesetup *portLevelgenSetup(void)
 {
-    portConLogf("ge: levelgen: the levelgen slot holds '%s' this stage\n", portLevelgenVariant());
-#ifdef GE_LEVELGEN_EXTRA_NAME
-    if (useExtra() == 1) return &LG_CAT(Usetuplevelgen, GE_LEVELGEN_EXTRA_SYM, Z);
-#endif
-#ifdef GE_LEVELGEN_EXTRA2_NAME
-    if (useExtra() == 2) return &LG_CAT(Usetuplevelgen, GE_LEVELGEN_EXTRA2_SYM, Z);
-#endif
-    return &UsetuplevelgenZ;
+    portConLogf("ge: levelgen: the levelgen slot holds '%s' this stage (%d levels in this build)\n", portLevelgenVariant(), LEVELGEN_COUNT);
+    return chosen()->setup;
 }
 
 /* bg.c, before it fetches the levelgen slot's bg through the file table: point the slot's entry at the chosen level's bg */
 void portLevelgenSelectBg(s32 bgidx)
 {
-    u8 *want = bg_lee_all_p_seg;
-
-#ifdef GE_LEVELGEN_EXTRA_NAME
-    if (useExtra() == 1) want = LG_CAT(bg_lee_, GE_LEVELGEN_EXTRA_SYM, _all_p_seg);
-#endif
-#ifdef GE_LEVELGEN_EXTRA2_NAME
-    if (useExtra() == 2) want = LG_CAT(bg_lee_, GE_LEVELGEN_EXTRA2_SYM, _all_p_seg);
-#endif
-    if (bgidx >= 0) file_resource_table[bgidx].hw_address = want;
+    if (bgidx >= 0) file_resource_table[bgidx].hw_address = chosen()->bg;
 }
 
 #endif /* !TARGET_N64 */
