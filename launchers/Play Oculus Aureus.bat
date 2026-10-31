@@ -1,9 +1,8 @@
 @echo off
 setlocal
-rem Oculus Aureus, the main menu: Arena, Heist, Sniper Duel (Ridge, Surface, Snowfield, Jungle), Dam+ (the stock Dam mission, expanded),
-rem GoldenEye 007 (the original game's Files screen) and Settings, over the Control room's screen wall.
-rem Arena, Heist, Sniper Duel and Dam+ open their own start menus right on that screen (their MAIN MENU button comes back); only a run
-rem loads its own level. After Dam+ the stock report and the Files screen follow, as from GoldenEye 007.
+rem Oculus Aureus, the main menu: Arena, Heist, Sniper Duel (Ridge, Surface, Snowfield, Jungle) and Settings, over the Control
+rem room's screen wall. Arena, Heist and Sniper Duel open their own start menus right on that screen (their MAIN MENU button comes
+rem back); only a run loads its own level.
 rem Needs Data\baserom.u.z64 (see README.txt).
 rem GE_NOINTRO: Control's own overview camera and Bond swirl are skipped. GE_STAGE_AFTER: the boot screens do not wait out their two seconds.
 if not exist "%~dp0Data\baserom.u.z64" (

@@ -581,6 +581,16 @@ add_custom_target(ge_buildinfo
     VERBATIM)
 add_dependencies(ge ge_buildinfo)
 target_include_directories(ge PRIVATE ${CMAKE_BINARY_DIR}/generated)
+# A release build's name ("Oculus Aureus v0.3"): it replaces the git branch in the window title, the legal screen's build
+# line and the credits (sysstubs.c portPlatformName). Empty (the default): the branch, else "PC-Port".
+set(GE_RELEASE_NAME "" CACHE STRING "release name shown in the window title, legal screen and credits (empty: the git branch)")
+if(GE_RELEASE_NAME)
+    if(NOT GE_RELEASE_NAME MATCHES "^[A-Za-z0-9 ._+-]+$")
+        message(FATAL_ERROR "GE_RELEASE_NAME: '${GE_RELEASE_NAME}' (letters, digits, space . _ + - only)")
+    endif()
+    set_property(SOURCE ${CMAKE_SOURCE_DIR}/port/src/sysstubs.c APPEND PROPERTY COMPILE_DEFINITIONS "PORT_PLATFORM_NAME=\"${GE_RELEASE_NAME}\"")
+    message(STATUS "release name: ${GE_RELEASE_NAME}")
+endif()
 
 # Rollback R2: the sim-statics range table is embedded in the exe after the link (scripts/port/snap_embed.py reads the linker map and
 # patches the fixed-size const table g_PortSnapTable in port/src/port_snaptable.c in place: no relink, no map file at run time).
