@@ -46,6 +46,19 @@ extern ItemModelFileRecord PitemZ_entries[341];
 s32 load_proptype(PROPDEF_TYPE type);
 #ifndef TARGET_N64
 extern int portModeActive(void); /* PORT: mode: port_mode.c */
+
+#ifndef TARGET_N64
+/* PORT: a game mode on a stock MP map (the arena: g_PortMpSetup, the MP setup loaded for a solo stage) keeps the MP setup's pickups
+ * out: its weapons are weapon-set slots (0xF0 + slot) that only a 2+ player game fills (domakeweaponobj), so the one solo Bond would
+ * pick up a placeholder item (-16..-9) whose watch entry reads "Error: Bank not loaded" and whose first-person model load crashes;
+ * the flag is Flag Tag's; the ammo crates and the armour are the MP game's. The mode places its own pickups. */
+static s32 portModeScrubsMpPickups(void)
+{
+    extern s32 g_PortMpSetup;   /* front.c */
+
+    return g_PortMpSetup && portModeActive();
+}
+#endif
 #endif
 void sub_GAME_7F001BD4(struct BoundPadRecord *pad, struct coord3d *arg1);
 void domakedefaultobj(s32 arg0, ObjectRecord *arg1, s32 cmdindex);
@@ -2384,6 +2397,12 @@ void proplvreset2(enum LEVELID stageId)
                         g_DoorScale = ((struct GlobalDoorScaleRecord *) phead)->Scale / M_U16_MAX_VALUE_F;
                         break;
                     case PROPDEF_COLLECTABLE:
+#ifndef TARGET_N64
+                        if (portModeScrubsMpPickups())
+                        {
+                            break;   /* PORT: the MP setup's weapon slots and flag (portModeScrubsMpPickups) */
+                        }
+#endif
                         if (withchrs && (!(((struct WeaponObjRecord *) phead)->flags2 & flags)))
                         {
                             weaponAssignToHome(stageId, (struct WeaponObjRecord *) phead, pdefIndex);
@@ -2439,7 +2458,7 @@ void proplvreset2(enum LEVELID stageId)
                          * pickups, the same way a difficulty-excluded object is
                          * left out above (its prop stays NULL). */
                         extern s32 portMpNoArmorActive(void); /* video.c */
-                        if (portMpNoArmorActive())
+                        if (portMpNoArmorActive() || portModeScrubsMpPickups())
                         {
                             break;
                         }
@@ -2513,6 +2532,13 @@ void proplvreset2(enum LEVELID stageId)
                         struct MultiAmmoCrateRecord *pdef_macr = (struct MultiAmmoCrateRecord *) phead;
                         s32 ammoqty = 1;
                         s32 i9;
+
+#ifndef TARGET_N64
+                        if (portModeScrubsMpPickups())
+                        {
+                            break;   /* PORT: the MP setup's ammo crates (portModeScrubsMpPickups) */
+                        }
+#endif
 
                         if (getPlayerCount() >= 2)
                         {
