@@ -99,21 +99,35 @@ D.STAGES = {
   ridge = { key = "ridge", name = "SEVERNAYA RIDGE", card = "SEVERNAYA RIDGE", stage = "levelgen", env = { GE_LEVELGEN = "ridge" }, layout = "levelgen_layout_ridge",
             bond_names = { "sp4", "sp3", "sp5", "sp2", "sp6" }, perch_names = { "np1", "np2", "np3", "np4", "np5", "np6", "np7", "vp1", "vp2", "vp3", "vp4", "vp5", "vp6" },
             foe_scale = 2.0, all_perches = true },
-  -- the snowfield prototype (tools/levelgen/build_snowfield.py, Play Sniper Snowfield.bat; not on the card: its own build): a 340 m rolling
-  -- field; geom_los = a marksman glints / shoots only when the drawn ground (probe.los) is clear too, since the stan line ignores the hills
-  snowfield = { key = "snowfield", name = "SEVERNAYA SNOWFIELD", card = "SNOWFIELD", stage = "levelgen", env = { GE_LEVELGEN = "snowfield" },
+  -- THE SNOWFIELD and THE JUNGLE are fought in the v2 duel (mode = "sniper-v2": tools/mode_sniper_v2.lua, its numbers and perches in
+  -- tools/sniper_v2_defs.lua: detection, prone, binocular tags, thermal, storms, the flush-out). The card launches that mode; the rest
+  -- of these two entries (bond_names, perch_names ...) is for the v1 duel on them (Play Sniper Snowfield.bat / Play Sniper Jungle.bat,
+  -- GE_MODE=sniper-snowfield / sniper-jungle), which records its best under the same key. rifle / blurb / more / begin_desc / rounds:
+  -- the card's own words (else T's).
+  -- the snowfield (tools/levelgen/build_snowfield.py): a 400 x 550 m rolling field; geom_los = a marksman glints / shoots only when the
+  -- drawn ground (probe.los) is clear too, since the stan line ignores the hills
+  snowfield = { key = "snowfield2", name = "SEVERNAYA SNOWFIELD", card = "SNOWFIELD", stage = "levelgen", env = { GE_LEVELGEN = "snowfield" },
+            mode = "sniper-v2", rounds = 5, rifle = "SNIPER RIFLE + BINOCULARS",
+            blurb = "A 550 m snowfield, hunters out at 250 to 500 m. Stay unseen: they glint only once they have you.",
+            more = "Prone on E, thermal on Q, binoculars on the wheel to tag them. Snowstorms roll in; after some rounds men come up the hill.",
+            begin_desc = "Take the south shoulder of the snowfield. The first marksman is out there.",
             layout = "levelgen_layout_snowfield", bond_names = { "b1", "b2", "b3", "b4", "b5" },
             perch_names = { "m3", "m4", "m5", "m6", "m7", "m8", "f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "m1", "m2" },
             foe_scale = 2.0, all_perches = true, geom_los = true },
-  -- the jungle prototype (tools/levelgen/build_jungle.py, Play Sniper Jungle.bat; not on the card: its own build): a 410 m wide jungle valley.
-  -- Every perch is 250 to 355 m from Bond (the hunters' ridge f*, the flank ridges w* / e*, the knolls k*). The stan line (the AI's sight)
-  -- is stopped by the trees (props) and the thickets / boulders (stan holes) under it however high it runs, so the listed perches are the
-  -- ones whose line to b1 the generator keeps clear of both; geom_los adds the drawn ground
-  jungle = { key = "jungle", name = "SNIPER JUNGLE", card = "JUNGLE", stage = "levelgen", env = { GE_LEVELGEN = "jungle" },
+  -- the jungle (tools/levelgen/build_jungle.py): a 410 m wide jungle valley. Every perch is 250 to 355 m from Bond (the hunters' ridge f*,
+  -- the flank ridges w* / e*, the knolls k*). The stan line (the AI's sight) is stopped by the trees (props) and the thickets / boulders
+  -- (stan holes) under it however high it runs, so the listed perches are the ones whose line to b1 the generator keeps clear of both;
+  -- geom_los adds the drawn ground
+  jungle = { key = "jungle2", name = "SNIPER JUNGLE", card = "JUNGLE", stage = "levelgen", env = { GE_LEVELGEN = "jungle" },
+            mode = "sniper-v2", rounds = 5, rifle = "SNIPER RIFLE + BINOCULARS",
+            blurb = "A jungle valley 400 m across, hunters on the far ridge and the knolls. Trees hide them, and you.",
+            more = "Prone on E, thermal on Q, binoculars on the wheel to tag them. After some rounds men come up the ridge.",
+            begin_desc = "Take the south ridge of the valley. The first marksman is out there.",
             layout = "levelgen_layout_jungle", bond_names = { "b1", "b2", "b3", "b4", "b5" },
             perch_names = { "f2", "f3", "f4", "f5", "f7", "f9", "w1", "w2", "e1", "e3", "k1", "k2", "k3", "k5", "k7" },
             foe_scale = 2.0, all_perches = true, geom_los = true,
             fog = { 200, 900 } },   -- the default haze in metres (sniper.fog: none nearer than 200 m, full at 900 m, past the 560 m far plane: 40% at 300 m, 75% at 500 m)
 }
-D.STAGE_ORDER = { "ridge", "surface" }
+-- the card's stages, in order (the hub's SNIPER DUEL tile): the ridge and Surface in the v1 duel, the snowfield and the jungle in the v2 one
+D.STAGE_ORDER = { "ridge", "surface", "snowfield", "jungle" }
 function D.key(id) return (D.STAGES[id or "surface"] or D.STAGES.surface).key end   -- the best-score key (ui prefs sniper_bests: <key>_rounds ...)

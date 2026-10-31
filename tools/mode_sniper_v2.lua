@@ -17,14 +17,22 @@
 --   LOADOUT: the sniper rifle and the binoculars (the camera item: aim to raise them, a dark lens frame, a stronger zoom, no shot, no
 --     glint); the weapon cycle steps over the bare hands (they stay as the empty-gun fallback).
 --   PRESENTATION: plain small lines (hud.set) and a small panel; no callouts, no sounds unless S.glint_sfx.
---   THE RUN: a round is won when its marksmen are dead; Bond dies and the run ends (the stock mission screen).
+--   THE RUN: a round is won when its marksmen are dead; Bond dies and the run ends (the stock mission screen). Launched from the hub's
+--     SNIPER DUEL card (tools/mode_sniper_menu.lua), the end hands ui.result / ui.retry / ui.arm back to that lobby, as the v1 duel
+--     does: the hub's stage loads again on the debrief, which keeps the best per stage (sniper_bests: snowfield2_*, jungle2_*).
 
 include("_sniper_v2_defs")
-local D = SNIPER2_DEFS
--- the stage: the generated level the slot holds (GE_LEVELGEN=snowfield | jungle), or SNIPER2_SETTINGS.stage; its layout, perches,
--- words and numbers (D.STAGES) over the shared ones
+include("_ui_menu")
+pcall(include, "_hub_defs")
+local D, U = SNIPER2_DEFS, UI_MENU
+local MODE_NAME = mode.name()
+local cur = ui and ui.current() or nil
+if cur and cur.mode ~= MODE_NAME then cur = nil end
+local launched = cur and cur.settings ~= "" and U.parse(cur.settings) or {}
+-- the stage: the generated level the slot holds (GE_LEVELGEN=snowfield | jungle), or SNIPER2_SETTINGS.stage / the launch's stage; its
+-- layout, perches, words and numbers (D.STAGES) over the shared ones
 local SETTINGS = type(SNIPER2_SETTINGS) == "table" and SNIPER2_SETTINGS or {}
-local STAGE_ID = SETTINGS.stage or (levelgen and levelgen.current and levelgen.current()) or "snowfield"
+local STAGE_ID = SETTINGS.stage or launched.stage or (levelgen and levelgen.current and levelgen.current()) or "snowfield"
 if not D.STAGES[STAGE_ID] then STAGE_ID = "snowfield" end
 local SD = D.STAGES[STAGE_ID]
 include(SD.layout)
@@ -41,6 +49,15 @@ for k, v in pairs(SETTINGS) do S[k] = v end
 local ROUNDS = S.rounds_table or D.ROUNDS
 local N_ROUNDS = math.min(S.rounds or #ROUNDS, #ROUNDS)
 local ITEM_CAMERA, ITEM_RIFLE = 40, 17
+
+-- the hub's lobby flow (as tools/mode_sniper.lua): off under the tests' automation unless GE_SNIPER_MENU asks for it
+local automated = mode.env_flag("GE_FRAMES") or mode.env_flag("GE_PLAYERBOT") or mode.env_flag("GE_INPUTPLAY")
+local FLOW = ui ~= nil and HUB_DEFS ~= nil and not ui.netplay() and (not automated or mode.env_flag("GE_SNIPER_MENU")) and S.postgame ~= false
+local LABEL = (cur and cur.label ~= "" and cur.label) or ("SNIPER DUEL  -  " .. (SD.place or STAGE_ID))
+local function hub_retry()
+  ui.retry({ mode = MODE_NAME, settings = cur and cur.settings or U.serialize({ stage = STAGE_ID }), preset = STAGE_ID, label = LABEL,
+             stage = "levelgen", env = { GE_LEVELGEN = STAGE_ID } })
+end
 
 local function log(fmt, ...) print(string.format("ge: sniper2: " .. fmt, ...)) end
 
@@ -519,7 +536,15 @@ local function end_run(win)
     stats.killer ~= "" and (", felled by " .. stats.killer) or "")
   notice(win and T.you_win or T.down, 5, 1)
   ST.end_at = now + (win and 4.0 or 3.0)
-  ST.result = { win = win }
+  fired, hits = fired or 0, hits or 0
+  ST.result = { win = win and true or false, rounds = stats.rounds, total = N_ROUNDS, time = math.floor(run_t * 100 + 0.5) / 100,
+                shots = math.max(fired, hits), hits = hits, headshots = stats.headshots, hits_taken = ST.hits_taken, foe = stats.killer,
+                label = LABEL, stage = STAGE_ID, round_times = stats.round_times }
+  if FLOW then   -- the hub's SNIPER DUEL lobby shows the debrief and keeps the best (tools/mode_sniper_menu.lua)
+    ui.result(U.serialize(ST.result))
+    hub_retry()
+    ui.arm(HUB_DEFS.lobby("sniper", "postgame", STAGE_ID, LABEL))
+  end
 end
 
 local function round_won()
@@ -565,6 +590,11 @@ on("stage_start", function()
   if S.fog then sniper.fog(S.fog[1], S.fog[2]) end
   ST.fog = { sniper.fog() }
   build_perches()
+  if FLOW then   -- an abort from the watch comes back to the lobby too
+    hub_retry()
+    ui.result(U.serialize({ aborted = true, win = false, rounds = 0, total = N_ROUNDS, time = 0, label = LABEL, stage = STAGE_ID }))
+    ui.arm(HUB_DEFS.lobby("sniper", "postgame", STAGE_ID, LABEL))
+  end
   log("stage start: %s (stage %s), %d rounds; difficulty %d: %d marksman hit(s) kill (one hit takes %.0f%% of a bar); scope zoom limit %.1f deg, binoculars %.1f deg; "
     .. "close range %.0f m (hit %.0f%%); fog %s; storms %s", T.place, STAGE_ID, N_ROUNDS, diff, n, frac * 100, S.scope_min_fov, S.binoc_min_fov,
     S.close_range / 100, S.close_hit * 100, table.concat(ST.fog, " .. "), S.storm and "on" or "off")

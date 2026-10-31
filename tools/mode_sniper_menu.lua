@@ -1,9 +1,12 @@
 -- The SNIPER DUEL's lobby: its card page and its debrief (shipped as Data/Scripts/modes/sniper-menu.lua). It is only ever HOSTED by the main menu
 -- hub (tools/mode_hub.lua sets SNIPER_MENU_HOST = { back = function } and includes this script, as it does the Arena's and the Heist's lobbies): the
 -- hub's Control stage is the backdrop and its ticks drive the menu. The hub calls SNIPER_MENU.host_open(cur) when the tile opens it or a run came
--- back to the debrief, and SNIPER_MENU.host_tick(dt) every ui tick while it is up. MAIN MENU is host.back(); BEGIN and AGAIN are stage loads
--- (the Surface stage, mode sniper). Built on the generic menu layer (tools/ui_menu.lua): the Arena's look.
--- The best is kept in Data/Saves/ui/sniper_bests.ini (ui.prefs, this machine's, solo only): <stage>_rounds / _time / _runs / _wins.
+-- back to the debrief, and SNIPER_MENU.host_tick(dt) every ui tick while it is up. MAIN MENU is host.back(); BEGIN and AGAIN are stage loads.
+-- The cards are SNIPER_DEFS.STAGE_ORDER: the ridge and Surface run the v1 duel (mode sniper), the snowfield and the jungle the v2 duel
+-- (mode sniper-v2, tools/mode_sniper_v2.lua: STAGES[id].mode), each on its level (GE_LEVELGEN). Both runs hand their result back here.
+-- Built on the generic menu layer (tools/ui_menu.lua): the Arena's look.
+-- The best is kept in Data/Saves/ui/sniper_bests.ini (ui.prefs, this machine's, solo only): <key>_rounds / _time / _runs / _wins, the key
+-- per stage (STAGES[id].key: ridge, surface, snowfield2, jungle2).
 
 local HOST = SNIPER_MENU_HOST
 SNIPER_MENU_HOST = nil
@@ -35,7 +38,9 @@ end
 -- the run just played: counted once, when the debrief opens
 local function record(r)
   if r.aborted then return end
-  local rid = r.stage or picked
+  local rid = picked   -- the run names its stage by id (v2) or by best key (v1)
+  if r.stage and D.STAGES[r.stage] then rid = r.stage
+  else for id, sd in pairs(D.STAGES) do if sd.key == r.stage then rid = id end end end
   local b = best(rid) or { rounds = 0, runs = 0, wins = 0 }
   b.runs = b.runs + 1
   if r.win then b.wins = b.wins + 1 end
@@ -47,18 +52,22 @@ local function record(r)
   print(string.format("ge: sniper: menu: recorded: runs %d wins %d best %d rounds%s", b.runs, b.wins, b.rounds, news.best and " (new best)" or ""))
 end
 
+local function n_rounds(id) return (D.STAGES[id] or {}).rounds or #D.ROUNDS end   -- (the v2 stages: their own ladder's length)
+
 local function best_text(id)
   local b = best(id)
   if not b then return T.d_none end
-  return string.format(T.best_hub, b.rounds, #D.ROUNDS)
+  return string.format(T.best_hub, b.rounds, n_rounds(id))
 end
 
 local function page_main()
   local b = best(picked)
-  local inf = { { T.d_where, D.STAGES[picked].name }, { T.d_rounds, tostring(#D.ROUNDS) }, { T.d_rifle, T.rifle }, { "", "" } }
+  local SDp = D.STAGES[picked]
+  local nr = n_rounds(picked)
+  local inf = { { T.d_where, SDp.name }, { T.d_rounds, tostring(nr) }, { T.d_rifle, SDp.rifle or T.rifle }, { "", "" } }
   if b then
-    inf[#inf + 1] = { T.d_best, string.format("%d / %d", b.rounds, #D.ROUNDS) }
-    if b.time and b.rounds >= #D.ROUNDS then inf[#inf + 1] = { T.d_time, U.clock(b.time) } end
+    inf[#inf + 1] = { T.d_best, string.format("%d / %d", b.rounds, nr) }
+    if b.time and b.rounds >= nr then inf[#inf + 1] = { T.d_time, U.clock(b.time) } end
     inf[#inf + 1] = { T.d_runs, string.format("%d   WON %d", b.runs, b.wins) }
   else
     inf[#inf + 1] = { T.d_best, T.d_none, 0x9A9080FF }
@@ -67,11 +76,12 @@ local function page_main()
   local it = {}
   for _, id in ipairs(D.STAGE_ORDER) do
     local sd = D.STAGES[id]
-    it[#it + 1] = { kind = "card", label = sd.card or sd.name, value = sd.name, sub = T.blurb, right = best_text(id), chosen = (picked == id), act = "pick", stage = id,
-                    desc = T.blurb .. " " .. T.more }
+    local blurb = sd.blurb or T.blurb
+    it[#it + 1] = { kind = "card", label = sd.card or sd.name, value = sd.name, sub = blurb, right = best_text(id), chosen = (picked == id), act = "pick", stage = id,
+                    desc = blurb .. " " .. (sd.more or T.more) }
   end
   it[#it + 1] = { kind = "button", label = xl, act = "quit", desc = xd }
-  it[#it + 1] = { kind = "primary", col = 2, label = T.begin, sub = T.begin_sub, act = "start", desc = T.begin_desc }
+  it[#it + 1] = { kind = "primary", col = 2, label = T.begin, sub = T.begin_sub, act = "start", desc = SDp.begin_desc or T.begin_desc }
   return { layout = "lobby", items = it, title = T.title, kicker = T.kicker, subtitle = "", info = inf, info_title = T.dossier, info_sub = T.title, cursor_act = "start" }
 end
 
@@ -115,7 +125,8 @@ local function launch()
   local SDm = D.STAGES[picked]
   local env = {}
   for k, v in pairs(SDm.env or {}) do env[k] = v end
-  if not ui.launch({ mode = "sniper", settings = U.serialize({ stage = picked }), preset = picked, label = label, stage = SDm.stage, env = env }) then
+  -- (the ridge and Surface: the v1 duel, mode sniper; the snowfield and the jungle: the v2 duel, mode sniper-v2, the level by GE_LEVELGEN)
+  if not ui.launch({ mode = SDm.mode or "sniper", settings = U.serialize({ stage = picked }), preset = picked, label = label, stage = SDm.stage, env = env }) then
     M.busy = false
     M.log("launch refused")
   end
@@ -152,7 +163,8 @@ SNIPER_MENU = M
 
 function M.host_open(c)
   M.busy, M.cursor, M.last, M.dirty = false, 0, {}, true
-  if c and D.STAGES[c.preset] then picked = c.preset end
+  if c and D.STAGES[c.preset] then picked = c.preset
+  elseif c and c.preset then for id, sd in pairs(D.STAGES) do if sd.key == c.preset then picked = id end end end
   M.quiet = 0.4   -- (the press that opened it is not ours)
   for k in pairs(news) do news[k] = nil end
   result, M.page = nil, "main"
