@@ -9,7 +9,8 @@ in this repository's git (the decompilation's oddtextures.c, rarewarelogo.c, fon
 cart, so it is allowed; anything built from files extracted from the builder's cart is not. Three checks:
 
 1. symbols (needs an nm that reads the exe, --nm or nm / i686-w64-mingw32-nm on PATH): no asset file symbol of
-   port/generated/asset_manifest.cmake may be defined in the exe unless its source file is git-tracked.
+   port/generated/asset_manifest.cmake may be defined in the exe unless its source file is git-tracked. (The generated
+   levels, port/levelgen*/, join that list from GE_LEVELGEN_LEVELS: the build's CMakeCache.txt, else the default.)
 2. provenance (needs --build): every object the exe links, and every file its depfile says the compiler read, must
    be git-tracked, a system/toolchain file, or a file the build itself generated outside assets/. An untracked
    input (an extracted .bin, a generated Model.c, ...) is a failure.
@@ -60,7 +61,45 @@ def manifest(repo):
     for path in (os.path.join(repo, "port", "generated", "asset_manifest.cmake"), os.path.join(repo, "CMakeLists.txt")):
         text = open(path, encoding="utf-8").read()
         for src, sym in re.findall(r"^\s*port_add_asset_(?:seg|direct)\(\s*(\S+)\s+(\S+)\s*\)", text, re.M):
-            out.append((re.sub(r"\$\{(\w+)\}", lambda m: var.get(m.group(1), m.group(0)), src), sym))
+            src = re.sub(r"\$\{(\w+)\}", lambda m: var.get(m.group(1), m.group(0)), src)
+            if "${" not in src + sym:     # the levelgen loop's ${_lgd}/${_bg} calls: levelgen_assets() names those
+                out.append((src, sym))
+    return out
+
+
+def cmake_cache(build):
+    """{name: value} of a build dir's CMakeCache.txt ({} without one)"""
+    out = {}
+    p = os.path.join(build, "CMakeCache.txt") if build else None
+    if p and os.path.exists(p):
+        for line in open(p, encoding="utf-8", errors="replace"):
+            m = re.match(r"^([A-Za-z_][\w-]*):\w+=(.*)$", line.rstrip("\r\n"))
+            if m:
+                out[m.group(1)] = m.group(2)
+    return out
+
+
+def levelgen_assets(repo, build):
+    """(source, file symbol) for every generated level the exe carries: CMakeLists.txt compiles each GE_LEVELGEN_LEVELS entry
+    (name=dir) from its git-tracked port/levelgen*/ sources in a foreach loop, so manifest() can't read the names off the
+    calls. The list is the build's (its CMakeCache.txt; GE_LEVELGEN_DIR, when set, replaces it with one entry named
+    GE_LEVELGEN_DEFAULT_NAME), else CMakeLists.txt's default. The symbols follow CMakeLists.txt's naming: the first entry
+    takes the slot's own (bg_lee_all_p_seg, Tbg_levelgen_all_p_stanZ, UsetuplevelgenZ), every other one
+    bg_lee_<name>_all_p_seg, Tbg_levelgen_<name>_all_p_stanZ, Usetuplevelgen<name>Z."""
+    top = open(os.path.join(repo, "CMakeLists.txt"), encoding="utf-8").read()
+    default = lambda v: (re.search(r'set\(\s*' + v + r'\s+"([^"]*)"\s+CACHE', top) or [None, ""])[1]
+    cache = cmake_cache(build)
+    get = lambda v: cache[v] if v in cache else default(v)
+    levels = f"{get('GE_LEVELGEN_DEFAULT_NAME')}={get('GE_LEVELGEN_DIR')}" if get("GE_LEVELGEN_DIR") else get("GE_LEVELGEN_LEVELS")
+    out = []
+    for i, entry in enumerate(e for e in levels.split(";") if e):
+        name, d = entry.split("=", 1)
+        d = d.rstrip("/")
+        if i == 0:
+            syms = ("bg_lee_all_p_seg", "Tbg_levelgen_all_p_stanZ", "UsetuplevelgenZ")
+        else:
+            syms = (f"bg_lee_{name}_all_p_seg", f"Tbg_levelgen_{name}_all_p_stanZ", f"Usetuplevelgen{name}Z")
+        out += list(zip((f"{d}/bg_levelgen_all_p.c", f"{d}/Tbg_levelgen_all_p_stanZ.c", f"{d}/UsetuplevelgenZ.c"), syms))
     return out
 
 
@@ -344,7 +383,7 @@ def main():
         tracked = set(l.strip() for l in open(a.tracked, encoding="utf-8") if l.strip())
     else:
         tracked = git_tracked(repo)
-    assets = manifest(repo)
+    assets = manifest(repo) + levelgen_assets(repo, a.build)
     pe = exe[:2] == b"MZ"
     secs = sections(exe)
     bad, report, ran = [], [], []
