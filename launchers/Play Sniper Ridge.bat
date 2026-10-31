@@ -1,7 +1,7 @@
 @echo off
 setlocal
-rem SNIPER DUEL on SEVERNAYA RIDGE (prototype): the duel's own level, two ridges across a valley. Needs a build with the ridge level (the build_win_ridge
-rem kind: -DGE_LEVELGEN_EXTRA=port/levelgen_ridge -DGE_LEVELGEN_EXTRA_NAME=ridge) and Data\baserom.u.z64 (see README.txt). When the duel ends the main menu hub
+rem SNIPER DUEL on SEVERNAYA RIDGE (prototype): the duel's own level, two ridges across a valley. Every build carries the ridge level
+rem (GE_LEVELGEN_LEVELS). Needs Data\baserom.u.z64 (see README.txt). When the duel ends the main menu hub
 rem comes up on the debrief.
 if not exist "%~dp0Data\baserom.u.z64" (
     echo Missing Data\baserom.u.z64 - put your own GoldenEye 007 USA ROM there. See README.txt.
