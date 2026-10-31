@@ -18,7 +18,12 @@ struct levelentry
 #define MAXPORTALSPERROOM 20
 
 // cannonical name
+#ifdef TARGET_N64
 #define PORTMAX 200
+#else
+/* PORT: room for levels that add portals at load (Dam+); portal ids are s16/s32 wherever they are stored */
+#define PORTMAX 400
+#endif
 
 #ifdef TARGET_N64
 #define BG_SEG_TO_PTR(base, off) ((void *) (((u32) (base)) + (((u32) (off)) + 0xF1000000)))

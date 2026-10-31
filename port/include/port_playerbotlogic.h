@@ -128,6 +128,9 @@ enum PblOp {
     PBL_VIA,            /* a waypoint passed through at full speed (speedrun routes): b = 0 pad a / 1 x y z; r (default 120) */
     PBL_HOLSTER,        /* a = 1: keep the slappers in hand while not fighting (a heist's banker cover: a drawn gun gives Bond
                          * away); a step that wants an item still gets it. 0 = the best gun again (the default) */
+    PBL_WARP,           /* tests only (a scripted warp, not input: a run with one does not replay): b = 0 pad a [x z = offset],
+                         * b = 1 obj tag a: the nearest pad in the object's room at least r (default 150) from it;
+                         * b = 2 x y z: the pad nearest the point (within 150 in y), offset onto the point */
     PBL_COUNT_
 };
 

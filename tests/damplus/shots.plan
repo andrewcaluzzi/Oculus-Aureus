@@ -1,0 +1,92 @@
+# Dam+ shots at the stock walls redrawn around our doorways (tests/damplus/shots.sh). Plan language: modding/bot.md.
+# Each target: a scripted warp (tests only) to a spot in front of the wall, then the bot aims at a point of the redrawn wall
+# piece (`face`, pitch included) and fires four single shots (`press z`: the Z trigger on player 1's pad). GE_DUMP_BOND=1 logs
+# where each bullet meets the bg ("bghit: ... world=") or that it met none ("bgmiss"). World coordinates from the seams the log
+# prints (file units / 0.23364) and the wing frames (port_damplus_wings.c); keep them in step with shots.sh.
+#  A, B: the valley yard's west wall (room 111), 300 either side of the comms doorway, from 250 out in the yard
+#  C, D: room 84's west wall, the slivers either side of the gallery hatch (18 wide), from 150 in the room
+#  E, F: room 91's south wall, 100 west and 30 east of the spillway doorway (100 east, a stock pillar stands in front of the wall), from 200 in the chamber
+#  G, H: the downstream face (room 64's big face triangle, redrawn in room 145 around the passage), from the balcony
+name dpshots
+peace 1
+wait 90
+warp 16166 -107 10844
+face 15967 13 10692
+press z 2
+wait 12
+press z 2
+wait 12
+press z 2
+wait 12
+press z 2
+wait 30
+warp 15644 -107 11529
+face 15445 13 11377
+press z 2
+wait 12
+press z 2
+wait 12
+press z 2
+wait 12
+press z 2
+wait 30
+warp -5747 -642 -2675
+face -5888 -520 -2624
+press z 2
+wait 12
+press z 2
+wait 12
+press z 2
+wait 12
+press z 2
+wait 30
+warp -5690 -642 -2517
+face -5831 -520 -2466
+press z 2
+wait 12
+press z 2
+wait 12
+press z 2
+wait 12
+press z 2
+wait 30
+warp -2 -642 -3624
+face -2 -520 -3424
+press z 2
+wait 12
+press z 2
+wait 12
+press z 2
+wait 12
+press z 2
+wait 30
+warp 290 -642 -3624
+face 290 -520 -3424
+press z 2
+wait 12
+press z 2
+wait 12
+press z 2
+wait 12
+press z 2
+wait 30
+warp 1398 -1422 -2904
+face 1398 -1272 -3099
+press z 2
+wait 12
+press z 2
+wait 12
+press z 2
+wait 12
+press z 2
+wait 30
+warp 1948 -1422 -2824
+face 1948 -1272 -3027
+press z 2
+wait 12
+press z 2
+wait 12
+press z 2
+wait 12
+press z 2
+wait 30

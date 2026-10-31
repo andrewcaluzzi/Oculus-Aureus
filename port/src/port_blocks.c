@@ -92,6 +92,17 @@ s32 portPadCount(void)
     {
         return (s32)(b - p);   /* the pad table runs up to the bound pad table */
     }
+    if (p != NULL)
+    {   /* a pad table that is not the setup file's own (Dam+ appends pads in a copy, port_damplus.c): count to its NULL-name
+         * terminator, and count the terminator too, as the subtraction above does */
+        s32 n = 0;
+
+        while (n < PAD_SANE_MAX && p[n].plink != NULL)
+        {
+            n++;
+        }
+        return (n < PAD_SANE_MAX) ? n + 1 : 0;
+    }
     return 0;
 }
 

@@ -48,11 +48,11 @@ struct StanPrefixRecord *stan_prefix;
 s32 dword_CODE_bss_8007B124;
 
 //CODE.bss:8007B128
-StandTile *firststaninroom[139];
+StandTile *firststaninroom[STAN_ROOM_SLOTS];
 //CODE.bss:8007B354
 s32 dword_CODE_bss_8007B354;
 //CODE.bss:8007B358 //stan list array
-StanRoomBounds g_StanRoomBounds[139];
+StanRoomBounds g_StanRoomBounds[STAN_ROOM_SLOTS];
 //CODE.bss:8007B9DC
 s32 dword_CODE_bss_8007B9DC; //region?
 //CODE.bss:8007B9E0
@@ -280,7 +280,7 @@ void stanBuildRoomData(void)
     dword_CODE_bss_8007B9DC = 0;
 
     // Must remain on one line for matching.
-    for (k = 0; k < 139; k++) firststaninroom[k] = NULL;
+    for (k = 0; k < STAN_ROOM_SLOTS; k++) firststaninroom[k] = NULL;
 
     tile = stan_prefix->ptr_firstroom;
 
@@ -289,6 +289,13 @@ void stanBuildRoomData(void)
         if (tile->room != lastRoom)
         {
             lastRoom = tile->room;
+#ifndef TARGET_N64
+            if (lastRoom >= STAN_ROOM_SLOTS)
+            {   /* PORT: a stan room id past the arrays: stop here rather than write past them */
+                printf("ge: stan: tile room %d >= %d slots - room table truncated\n", lastRoom, STAN_ROOM_SLOTS);
+                break;
+            }
+#endif
 
             if (dword_CODE_bss_8007B9DC <= lastRoom)
             {

@@ -1109,7 +1109,14 @@ void load_bg_file(LEVEL_INDEX levelid)
     }
  
     lightFixtureInitTables();
- 
+
+#ifndef TARGET_N64
+    {
+        extern void portDamPlusStageBegin(s32 stage);
+        portDamPlusStageBegin(levelid); /* Dam+ (port_damplus.c): decide once per stage load, before any of its hooks */
+    }
+#endif
+
 #ifdef TARGET_N64
     ptr_bg_data = (s32)header;
     obLoadBGFileBytesAtOffset(levelinfotable[levelentry_index].bg_seg_filename, (u8 *) ptr_bg_data, 0, 0x40);
@@ -1199,7 +1206,13 @@ void load_bg_file(LEVEL_INDEX levelid)
 
     stanDetermineEOF((struct StanPrefixRecord *) gptr_stan, 0, (u8 *) gptr_stan);
     stanLoadFile((struct StanPrefixRecord *) gptr_stan);
- 
+#ifndef TARGET_N64
+    {   /* Dam+ (port_damplus_geo.c): the motor pool's stan, stitched to the stock tiles under door 281, and its room data */
+        extern void portDamPlusStan(f32 levelscale);
+        portDamPlusStan(levelinfotable[levelentry_index].levelscale);
+    }
+#endif
+
     sub_GAME_7F0B4810(levelinfotable[levelentry_index].levelscale);
     setLevelScale(levelinfotable[levelentry_index].levelscale);
     setDebugCameraScale(levelinfotable[levelentry_index].levelscale);
@@ -1376,7 +1389,14 @@ void load_bg_file(LEVEL_INDEX levelid)
  
             g_BgRoomInfo[i].cur_room_totalsize = -1;
         }
- 
+#ifndef TARGET_N64
+        {   /* Dam+ (port_damplus_geo.c): the extended room and portal tables. Here, so every stock room's sizes above came from the
+             * stock table (the last stock room's size is a pointer difference to the end entry). */
+            extern void portDamPlusBgRooms(void);
+            portDamPlusBgRooms();
+        }
+#endif
+
         initializeRoomData();
  
         for (i = 1; i < g_MaxNumRooms; i++)
@@ -4035,6 +4055,10 @@ void bgLoadRoomModelData(s32 roomID)
         extern void portRoomFogLoaded(s32 room, s32 fog);
 
         portRoomFogLoaded(roomID, g_FogSkyIsEnabled);
+    }
+    {   /* Dam+ (port_damplus_geo.c): stock triangles a Dam+ wing cut through are dropped from this loaded copy */
+        extern void portDamPlusRoomLoaded(s32 room);
+        portDamPlusRoomLoaded(roomID);
     }
 #endif
     bgBuildRoomVtxBounds(roomID);

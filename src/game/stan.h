@@ -70,8 +70,15 @@ extern f32 stanSavedColl_someMin;
 extern PropRecord *stanSavedColl_posData;
 extern struct StandTile *standTileStart;
 extern s32 stanlinelog_flag;
-extern StandTile *firststaninroom[139];
-extern StanRoomBounds g_StanRoomBounds[139];
+#ifdef TARGET_N64
+#define STAN_ROOM_SLOTS 139
+#else
+/* PORT: one slot per bg room id (MAXROOMCOUNT). The decomp's 139 let a level whose stan names a room >= 139 write past both
+ * arrays (stanBuildRoomData has no bounds check), while the bg side allows rooms up to 148. */
+#define STAN_ROOM_SLOTS MAXROOMCOUNT
+#endif
+extern StandTile *firststaninroom[STAN_ROOM_SLOTS];
+extern StanRoomBounds g_StanRoomBounds[STAN_ROOM_SLOTS];
 extern s32 dword_CODE_bss_8007B9DC;
 
 /////////////////

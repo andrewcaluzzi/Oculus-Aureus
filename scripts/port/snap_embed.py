@@ -58,6 +58,8 @@ SIM_PORT = {
     'port_shield.c',
     # guard personalities: the deal, bribes, watchclock skips, what the crew has observed (designs/bank-heist.md section 32)
     'port_traits.c',
+    # Dam+ (GE_DAMPLUS): the per-stage-load switch and the appended setup/bg/stan data it hands the engine
+    'port_damplus.c', 'port_damplus_geo.c', 'port_damplus_wings.c',
 }
 # port/src files that are presentation or transport: never rewound.
 PRES_PORT = {

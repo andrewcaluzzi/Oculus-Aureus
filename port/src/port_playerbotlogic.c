@@ -213,6 +213,7 @@ static const struct { const char *name; int op; } sOps[] = {
     { "escort", PBL_ESCORT },  /* escort ai ID [dist] | escort ai 0 */
     { "via", PBL_VIA },        /* via pad N [r] | via x y z [r]: pass through at full speed */
     { "holster", PBL_HOLSTER },/* holster 1|0 */
+    { "warp", PBL_WARP },      /* warp pad N [dx dz] | warp obj T [mindist] | warp X Y Z: tests only (a scripted warp, not input) */
 };
 
 const char *pblOpName(int op)
@@ -451,6 +452,32 @@ int pblParsePlan(const char *text, PblPlan *plan, char *err, int errlen)
                 {
                     snprintf(err, errlen, "line %d: want 'pad N' or 'obj T'", lineno);
                     return -1;
+                }
+                break;
+            case PBL_WARP:
+                NEED(2);
+                st.a = (int) num(tok[k + 1]);
+                if (strcmp(tok[k], "pad") == 0)
+                {
+                    st.b = 0;
+                    if (nt - k >= 4)
+                    {
+                        st.x = (float) atof(tok[k + 2]);
+                        st.z = (float) atof(tok[k + 3]);
+                    }
+                }
+                else if (strcmp(tok[k], "obj") == 0)
+                {
+                    st.b = 1;
+                    st.r = (nt - k >= 3) ? (float) atof(tok[k + 2]) : 150.0f;
+                }
+                else
+                {   /* warp X Y Z: from the pad nearest the point (same floor within 150), offset onto it */
+                    NEED(3);
+                    st.b = 2;
+                    st.x = (float) atof(tok[k]);
+                    st.y = (float) atof(tok[k + 1]);
+                    st.z = (float) atof(tok[k + 2]);
                 }
                 break;
             case PBL_VIA:
