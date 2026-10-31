@@ -64,14 +64,18 @@ D.GROUPS = { "AUDIO", "CONTROLS", "VIEW" }
 D.GROUP_COL = { AUDIO = 1, CONTROLS = 1, VIEW = 2 }
 
 -- the top level: id, the lobby it hosts (mode_hub.lua runs the Arena's start menu and the Heist's on this stage: no stage load between
--- the menus; only a run loads its own stage)
-D.TILES = {
+-- the menus; only a run loads its own stage). A tile with `env` is hidden unless that variable is set (GE_HUB_DAMPLUS=1, GE_HUB_GOLDENEYE=1):
+-- the code stays in the build, the menu shows the three modes by default
+D.TILES = {}
+for _, t in ipairs({
   { id = "arena", host = "arena" },
   { id = "heist", host = "heist" },
   { id = "sniper", host = "sniper" },
-  { id = "damplus", host = "damplus" },   -- (its card picks the difficulty; BEGIN starts the STOCK Dam mission with GE_DAMPLUS: tools/mode_damplus_menu.lua)
-  { id = "goldeneye" },   -- (ui.quit: the stock front end)
-}
+  { id = "damplus", host = "damplus", env = "GE_HUB_DAMPLUS" },   -- (its card picks the difficulty; BEGIN starts the STOCK Dam mission with GE_DAMPLUS: tools/mode_damplus_menu.lua)
+  { id = "goldeneye", env = "GE_HUB_GOLDENEYE" },   -- (ui.quit: the stock front end)
+}) do
+  if not t.env or (mode ~= nil and mode.env_flag ~= nil and mode.env_flag(t.env)) then D.TILES[#D.TILES + 1] = t end
+end
 
 -- DAM+: the stock Dam mission (no mode script, so its own guards and objectives) with GE_DAMPLUS for that one launch. The Dam+ parts
 -- (port/src/port_damplus.c: 1 = all of them, or a comma list of night, motor, comms, gallery, spill, island) and the difficulties

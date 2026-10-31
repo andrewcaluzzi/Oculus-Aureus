@@ -31,6 +31,7 @@ cp $P/tests/hub/hub_drive.lua $B/Data/Scripts/zz_hub_drive.lua
 rm -f $B/Data/Saves/eeprom.bin
 # (the launcher's own env: Play Oculus Aureus.bat)
 export DISPLAY=:99 GE_MODE=hub GE_STAGE=control GE_NOINTRO=1 GE_STAGE_AFTER=1 GE_NOINISAVE=1 GE_FIXEDTICK=1 GE_TICKHZ=60 GE_SEED=7 GE_NOMSGBOX=1
+export GE_HUB_DAMPLUS=1 GE_HUB_GOLDENEYE=1   # (hub_drive.lua walks past SNIPER DUEL and DAM+ to GOLDENEYE 007)
 export GE_FRAMES=${1:-40000} GE_FULLHEIGHT=0 GE_EDGEINSET=1
 if [ "${FAST:-1}" = 1 ]; then export GE_NOSLEEP=1 GE_CLOCKSCALE=20; fi
 export GE_UIMENU_DIR=$OUT GE_NOMENUSAVE=1 GE_SCOREFILE=$OUT/scores.ini GE_NOSCORESAVE=1 GE_ARENAMENU_FILE=$OUT/arena_menu.ini

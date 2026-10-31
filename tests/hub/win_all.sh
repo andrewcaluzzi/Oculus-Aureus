@@ -11,6 +11,7 @@ R=$(cd "$(dirname "$0")/../.." && pwd -W)
 cp "$R/tests/hub/all_drive.lua" "$B/Data/Scripts/zz_all_drive.lua"
 rm -f "$B/Data/Saves/eeprom.bin.alltest"
 export GE_HIDDEN=1 GE_MODE=hub GE_STAGE=control GE_NOINTRO=1 GE_STAGE_AFTER=1 GE_NOINISAVE=1 GE_FIXEDTICK=1 GE_TICKHZ=60 GE_SEED=7 GE_NOMSGBOX=1
+export GE_HUB_DAMPLUS=${GE_HUB_DAMPLUS:-1} GE_HUB_GOLDENEYE=${GE_HUB_GOLDENEYE:-1}   # (the hidden tiles shown, so every entry can be driven)
 export GE_FRAMES=${3:-4000} GE_NOSLEEP=1 GE_CLOCKSCALE=20 GE_UIMENU_DIR="$B/Data/alltest_ui" GE_NOMENUSAVE=1
 export GE_SCOREFILE="$B/Data/alltest_ui/scores.ini" GE_NOSCORESAVE=1 GE_ARENAMENU_FILE="$B/Data/alltest_ui/arena_menu.ini"   # (the player's files untouched)
 mkdir -p "$B/Data/alltest_ui"
